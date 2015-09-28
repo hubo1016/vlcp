@@ -29,6 +29,9 @@ class TcpTestProtocol(Protocol):
             yield m
         if not self.server:
             connection.subroutine(connection.executeWithTimeout(self.totalsend + 1.0, self._clientroutine(connection)), False, 'protocolroutine')
+        else:
+            for m in connection.write(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True)):
+                yield m
         for m in connection.waitForSend(TestConnectionEvent(TestConnectionEvent.UP, connection)):
             yield m
     def closed(self, connection):
@@ -43,10 +46,14 @@ class TcpTestProtocol(Protocol):
             yield m
     def _clientroutine(self, connection):
         # Send Data Until Connection closed
-        data = b'\x00' * self._default_buffersize
-        while True:
-            we = ConnectionWriteEvent(connection, connection.connmark, data = data)
-            for m in connection.write(we, False):
+        try:
+            data = b'\x00' * self._default_buffersize
+            while True:
+                we = ConnectionWriteEvent(connection, connection.connmark, data = data)
+                for m in connection.write(we, False):
+                    yield m
+        except:
+            for m in connection.shutdown(True):
                 yield m
     def parse(self, connection, data, laststart):
         return ([], 0)
@@ -60,8 +67,8 @@ class Sampler(RoutineContainer):
         self.interval = interval
         self.server = server
     def main(self):
-        self.subroutine(self._sampleroutine(), True, 'sampler', True)
         em = TestConnectionEvent.createMatcher()
+        self.sampler = None
         while True:
             yield (em,)
             if self.event.state == TestConnectionEvent.UP:
@@ -70,11 +77,17 @@ class Sampler(RoutineContainer):
                 else:
                     self.connections[self.event.connection] = self.event.connection.totalsend
                 identifier = '[%3d]' % (self.event.connection.socket.fileno(),)
-                self.identifiers[em.connection] = identifier
+                self.identifiers[self.event.connection] = identifier
                 print('%s Connected: %r' % (identifier, self.event.connection))
+                if not self.sampler:
+                    self.subroutine(self._sampleroutine(), True, 'sampler', True)
             else:
+                print('%s Disconnected' % (self.identifiers[self.event.connection]))
                 del self.connections[self.event.connection]
                 del self.identifiers[self.event.connection]
+                if not self.connections:
+                    self.terminate(self.sampler)
+                    self.sampler = None
     def _sampleroutine(self):
         th = self.scheduler.setTimer(self.interval, self.interval)
         try:

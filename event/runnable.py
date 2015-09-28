@@ -151,7 +151,7 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
 
 class RoutineException(Exception):
     def __init__(self, matcher, event):
-        Exception.__init(matcher, event)
+        Exception.__init__(self, matcher, event)
         self.matcher = matcher
         self.event = event
     
