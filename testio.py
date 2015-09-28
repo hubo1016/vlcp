@@ -11,6 +11,8 @@ from event import ConnectionWriteEvent, Event, withIndices, RoutineContainer, Cl
 import argparse
 import sys
 from server import Server
+import logging
+from event.core import TimerEvent
 
 @withIndices('state', 'connection')
 class TestConnectionEvent(Event):
@@ -74,51 +76,56 @@ class Sampler(RoutineContainer):
                 del self.connections[em.connection]
                 del self.identifiers[em.connection]
     def _sampleroutine(self):
-        tm = self.scheduler.setTimer(self.interval, self.interval)
-        lt = time()
-        t = 0
-        interval = self.interval
-        while True:
-            yield (tm,)
-            ct = time()
-            tc = 0
-            if self.connections:
-                for connection,lc in list(self.connections.items()):
-                    if self.server:
-                        cc = connection.totalrecv
-                    else:
-                        cc = connection.totalsend
-                    speed = (cc - lc) / (ct - lt)
-                    tc += (cc - lc)
-                    unit = ''
-                    if speed > 1024.0:
-                        speed /= 1024.0
-                        unit = 'K'
+        th = self.scheduler.setTimer(self.interval, self.interval)
+        try:
+            tm = TimerEvent.createMatcher(th)
+            lt = time()
+            t = 0
+            interval = self.interval
+            while True:
+                yield (tm,)
+                ct = time()
+                tc = 0
+                if self.connections:
+                    for connection,lc in list(self.connections.items()):
+                        if self.server:
+                            cc = connection.totalrecv
+                        else:
+                            cc = connection.totalsend
+                        speed = (cc - lc) / (ct - lt)
+                        tc += (cc - lc)
+                        unit = ''
                         if speed > 1024.0:
                             speed /= 1024.0
-                            unit = 'M'
+                            unit = 'K'
                             if speed > 1024.0:
                                 speed /= 1024.0
-                                unit = 'G'
-                    print('%s\t%.1fs - %.1fs\t%.2f%sB/s(%.2f%sbit/s)' % (self.identifiers[connection], t * interval, (t+1) * interval, speed, unit, speed * 8, unit))
-                    self.connections[connection] = cc
-                if len(self.connections) > 1:
-                    speed = tc / (ct - lt)
-                    unit = ''
-                    if speed > 1024.0:
-                        speed /= 1024.0
-                        unit = 'K'
+                                unit = 'M'
+                                if speed > 1024.0:
+                                    speed /= 1024.0
+                                    unit = 'G'
+                        print('%s\t%.1fs - %.1fs\t%.2f%sB/s(%.2f%sbit/s)' % (self.identifiers[connection], t * interval, (t+1) * interval, speed, unit, speed * 8, unit))
+                        self.connections[connection] = cc
+                    if len(self.connections) > 1:
+                        speed = tc / (ct - lt)
+                        unit = ''
                         if speed > 1024.0:
                             speed /= 1024.0
-                            unit = 'M'
+                            unit = 'K'
                             if speed > 1024.0:
                                 speed /= 1024.0
-                                unit = 'G'
-                    print('[SUM]\t%.1fs - %.1fs\t%.2f%sB/s(%.2f%sbit/s)' % (t * interval, (t+1) * interval, speed, unit, speed * 8, unit))
-            lt = ct
-            t += 1
+                                unit = 'M'
+                                if speed > 1024.0:
+                                    speed /= 1024.0
+                                    unit = 'G'
+                        print('[SUM]\t%.1fs - %.1fs\t%.2f%sB/s(%.2f%sbit/s)' % (t * interval, (t+1) * interval, speed, unit, speed * 8, unit))
+                lt = ct
+                t += 1
+        finally:
+            self.scheduler.cancelTimer(th)
 
 if __name__ == '__main__':
+    logging.basicConfig()
     parse = argparse.ArgumentParser(description='Test TCP IO Bandwidth')
     parse.add_argument('-s', '--server', action='store_true', help='Start in server mode')
     parse.add_argument('-c', '--client', help='Start in client mode and connect to IP', metavar='IP')
@@ -148,3 +155,4 @@ if __name__ == '__main__':
             conn = Client('tcp://%s:%d/' % (args.client, args.port), tp, s.scheduler)
             conn.start()
         sampler.start()
+    s.serve()
