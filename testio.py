@@ -163,6 +163,7 @@ if __name__ == '__main__':
         sampler.start()
     else:
         tp = TcpTestProtocol(False)
+        tp.totalsend = args.time
         sampler = Sampler(s.scheduler, args.interval, False)
         for _ in range(0, args.parallel):
             conn = Client('tcp://%s:%d/' % (args.client, args.port), tp, s.scheduler)
