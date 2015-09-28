@@ -103,6 +103,11 @@ class Connection(RoutineContainer):
         self.need_reconnect = self.persist
         self.logContext = {'connection': self, 'protocol':protocol, 'socket':None if self.socket is None else self.socket.fileno()}
         self.logger = ContextAdapter(Connection.logger, {'context':self.logContext}) 
+        # Counters
+        self.totalrecv = 0
+        self.totalsend = 0
+        self.connrecv = 0
+        self.connsend = 0
     def attach(self, sockobj):
         self.socket = sockobj
         self.logContext['socket'] = None if self.socket is None else self.socket.fileno()
@@ -168,6 +173,8 @@ class Connection(RoutineContainer):
                         else:
                             exitLoop = True
                             break
+                    self.totalrecv += currLen
+                    self.connrecv += currLen
                     currPos = currLen + currPos
                     if currPos >= len(buffer):
                         try:
@@ -242,7 +249,6 @@ class Connection(RoutineContainer):
             write_matcher = ConnectionWriteEvent.createMatcher(self, self.connmark)
             queue_empty = None
             exitLoop = False
-            fileno = self.socket.fileno()
             while not exitLoop:
                 if queue_empty is not None:
                     yield (write_matcher, queue_empty)
@@ -277,6 +283,8 @@ class Connection(RoutineContainer):
                         try:
                             currLen = self.socket.send(msg[currPos:])
                             currPos += currLen
+                            self.totalsend += currLen
+                            self.connsend += currLen
                         except ssl.SSLError as exc_ssl:
                             if exc_ssl.args[0] == ssl.SSL_ERROR_WANT_READ:
                                 wantRead = True
@@ -354,6 +362,8 @@ class Connection(RoutineContainer):
                 yield m
             connection_control = ConnectionControlEvent.createMatcher(self, None, True, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
             while self.connected:
+                self.connrecv = 0
+                self.connsend = 0
                 self.writestop = False
                 self.readstop = False
                 self.subroutine(self._read_main(), True, 'readroutine')
