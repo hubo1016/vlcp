@@ -64,17 +64,17 @@ class Sampler(RoutineContainer):
         em = TestConnectionEvent.createMatcher()
         while True:
             yield (em,)
-            if em.state == TestConnectionEvent.UP:
+            if self.event.state == TestConnectionEvent.UP:
                 if self.server:
-                    self.connections[em.connection] = em.connection.totalrecv
+                    self.connections[self.event.connection] = self.event.connection.totalrecv
                 else:
-                    self.connections[em.connection] = em.connection.totalsend
-                identifier = '[%3d]' % (em.connection.socket.fileno(),)
+                    self.connections[self.event.connection] = self.event.connection.totalsend
+                identifier = '[%3d]' % (self.event.connection.socket.fileno(),)
                 self.identifiers[em.connection] = identifier
-                print('%s Connected: %r' % (identifier, em.connection))
+                print('%s Connected: %r' % (identifier, self.event.connection))
             else:
-                del self.connections[em.connection]
-                del self.identifiers[em.connection]
+                del self.connections[self.event.connection]
+                del self.identifiers[self.event.connection]
     def _sampleroutine(self):
         th = self.scheduler.setTimer(self.interval, self.interval)
         try:

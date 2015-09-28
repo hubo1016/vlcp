@@ -150,7 +150,10 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
     return r
 
 class RoutineException(Exception):
-    pass
+    def __init__(self, matcher, event):
+        Exception.__init(matcher, event)
+        self.matcher = matcher
+        self.event = event
     
 class RoutineContainer(object):
     def __init__(self, scheduler = None, daemon = False):
