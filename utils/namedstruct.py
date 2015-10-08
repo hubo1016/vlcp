@@ -642,7 +642,7 @@ class PrimitiveParser(object):
         if len(buffer) < self.struct.size:
             return None
         try:
-            return (self.struct.unpack(buffer)[0], self.struct.size)
+            return (self.struct.unpack(buffer[:self.struct.size])[0], self.struct.size)
         except struct.error as exc:
             raise BadFormatError(exc)
     def new(self, inlineparent = None):

@@ -2298,7 +2298,7 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
     '''
     nx_action_bundle = nstruct(    
 #        /* Slave choice algorithm to apply to hash value. */
-        (uint16, 'algorithm'),  #         /* One of NX_BD_ALG_*. */
+        (nx_bd_algorithm, 'algorithm'),  #         /* One of NX_BD_ALG_*. */
     
 #        /* What fields to hash and how. */
         (nx_hash_fields, 'fields'),     #         /* One of NX_HASH_FIELDS_*. */
@@ -2335,7 +2335,10 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         name = 'nx_action_bundle_port',
         criteria = lambda x: x.slave_type == NXM_OF_IN_PORT,
         init = packvalue(NXM_OF_IN_PORT, 'slave_type'),
-        lastextra = False
+        lastextra = False,
+        formatter = _createdesc(lambda x: 'bundle_load(%s,%d,%s,%s,%s[%d..%d],slaves:%r)' % \
+            (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['dst'], x['ofs_nbits'] >> 6, (x['ofs_nbits'] >> 6) + (x['ofs_nbits'] & 0x3f), x['bundles']) \
+            if x[action_subtype] == 'NXAST_BUNDLE_LOAD' else 'bundle(%s,%d,%s,%s,slaves:%r)' % (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['bundles']))
     )
     namespace['nx_action_bundle_port'] = nx_action_bundle_port
     
@@ -2356,7 +2359,10 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         name = 'nx_action_bundle_others',
         criteria = lambda x: x.slave_type != NXM_OF_IN_PORT,
         lastextra = False,
-        init = packvalue(NXM_OF_ETH_DST, 'slave_type')
+        init = packvalue(NXM_OF_ETH_DST, 'slave_type'),
+        formatter = _createdesc(lambda x: 'bundle_load(%s,%d,%s,%s,%s[%d..%d],slaves:%r)' % \
+            (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['dst'], x['ofs_nbits'] >> 6, (x['ofs_nbits'] >> 6) + (x['ofs_nbits'] & 0x3f), x['bundleraw']) \
+            if x[action_subtype] == 'NXAST_BUNDLE_LOAD' else 'bundle(%s,%d,%s,%s,slaves:%r)' % (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['bundleraw']))
     )
     namespace['nx_action_bundle_others'] = nx_action_bundle_others
     '''
