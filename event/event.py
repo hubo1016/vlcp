@@ -88,7 +88,11 @@ class Event(object):
             for c in cls.__bases__:
                 if issubclass(c, Event):
                     if c is Event:
-                        return cls.__name__
+                        module = cls.__module__
+                        if module is None:
+                            return cls.__name__
+                        else:
+                            return module  + '.' + cls.__name__
                     else:
                         return c.getTypename()
     @classmethod
