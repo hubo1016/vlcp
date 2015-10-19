@@ -25,9 +25,9 @@ def removeCache(module):
         f = module.__file__
         try:
             if f.endswith('.pyc'):
-                os.remove(file)
+                os.remove(f)
             elif f.endswith('.py'):
-                os.remove(file + 'c')
+                os.remove(f + 'c')
         except:
             pass
 
