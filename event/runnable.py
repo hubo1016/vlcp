@@ -12,9 +12,11 @@ class EventHandler(object):
     '''
     Runnable with an event handler model. 
     '''
-    def __init__(self, scheduler = None):
+    def __init__(self, scheduler = None, daemon = False):
         self.handlers = dict()
         self.scheduler = scheduler
+        self.daemon = daemon
+        self.registered = False
     def bind(self, scheduler):
         self.scheduler = scheduler
     def __iter__(self):
@@ -37,12 +39,17 @@ class EventHandler(object):
         Handle events
         '''
         return self.handlers[etup[1]](etup[0], self.scheduler)
+    def _setDaemon(self):
+        if not self.registered:
+            self.registered = True
+            self.scheduler.setDaemon(self, self.daemon)
     def registerHandler(self, matcher, handler):
         '''
         Register self to scheduler
         '''
         self.handlers[matcher] = handler
         self.scheduler.register((matcher,), self)
+        self._setDaemon()
     def unregisterHandler(self, matcher):
         self.scheduler.unregister((matcher,), self)
         del self.handlers[matcher]
@@ -55,19 +62,27 @@ class EventHandler(object):
             self.scheduler.register(handlerDict.keys(), self)
         else:
             self.scheduler.register(tuple(h[0] for h in handlerDict), self)
+        self._setDaemon()
     def close(self):
         self.scheduler.unregisterall(self)
+        self.registered = False
     def registerExceptionHandler(self, handler):
         self.exceptionHandler = handler
     def registerQuitHandler(self, handler):
         self.quitHandler = handler
-    def throw(self, exc):
-        if isinstance(exc, QuitException):
+    def throw(self, typ, val = None, tb = None):
+        if val is None:
+            if isinstance(typ, type):
+                val = typ()
+            else:
+                val = typ
+                typ = type(val)
+        if isinstance(val, QuitException):
             self.quitHandler(self.scheduler)
         else:
-            self.exceptionHandler(exc, self.scheduler)
-    def exceptionHandler(self, exc, scheduler):
-        raise exc
+            self.exceptionHandler(val, self.scheduler)
+    def exceptionHandler(self, val, scheduler):
+        raise val
     def quitHandler(self, scheduler):
         raise StopIteration
 
@@ -175,15 +190,20 @@ class RoutineContainer(object):
         r = Routine(iterator, self.scheduler, asyncStart, self, True, daemon)
         if name is not None:
             setattr(self, name, r)
+        # Call subroutine may change the currentroutine, we should restore it
+        currentroutine = getattr(self, 'currentroutine', None)
         try:
             next(r)
         except StopIteration:
             pass
+        self.currentroutine = currentroutine
         return r
     def terminate(self, routine = None):
         if routine is None:
             routine = self.mainroutine
         routine.close()
+    def close(self):
+        self.terminate()
     def waitForSend(self, event):
         '''
         Can call without delegate
@@ -306,11 +326,20 @@ class RoutineContainer(object):
         else:
             self.retvalue = self.event.retvalue
     def delegate(self, subprocess):
+        '''
+        Run a subprocess without container support
+        Many subprocess assume itself running in a specified container, it uses container reference
+        like self.events. Calling the subprocess in other containers will fail.
+        With delegate, you can call a subprocess in any container (or without a container):
+        for m in c.delegate(c.someprocess()):
+            yield m
+        '''
         def delegateroutine():
             try:
                 for m in subprocess:
                     yield m
             except:
+                typ, val, tb = sys.exc_info()
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine)
                 e.canignore = True
                 for m in self.waitForSend(e):
@@ -323,4 +352,38 @@ class RoutineContainer(object):
                     yield m
         r = self.subroutine(delegateroutine(), True)
         finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
+        # As long as we do not use self.event to read the event, we are safe to receive them from other contaiers
         yield (finish,)
+    def delegateOther(self, subprocess, container, retnames = ('retvalue',)):
+        '''
+        Another format of delegate allows delegate a subprocess in another container, and get some returning values
+        the subprocess is actually running in 'container'.
+        for m in self.delegateOther(c.method(), c):
+            yield m
+        ret = self.retvalue
+        '''
+        def delegateroutine():
+            try:
+                for m in subprocess:
+                    yield m
+            except:
+                typ, val, tb = sys.exc_info()
+                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine, exception = val)
+                e.canignore = True
+                for m in container.waitForSend(e):
+                    yield m
+                raise
+            else:
+                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine,
+                                        result = tuple(getattr(container, n, None) for n in retnames))
+                e.canignore = True
+                for m in container.waitForSend(e):
+                    yield m
+        r = container.subroutine(delegateroutine(), True)
+        finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
+        # As long as we do not use self.event to read the event, we are safe to receive them from other contaiers
+        yield (finish,)
+        if hasattr(self.event, 'exception'):
+            raise self.event.exception
+        for n, v in zip(retnames, self.event.result):
+            setattr(self, n, v)

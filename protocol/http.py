@@ -1261,7 +1261,7 @@ class Http(Protocol):
                                 connection.xid += 1
                             else:
                                 self._logger.info('Response received from connection %r, xid = %d: %r', connection, connection.http_responsexid,
-                                                  b'HTTP/' + connection.http_remoteversion + b' ' + connection.http_status)
+                                                  b'HTTP/' + connection.http_remoteversion.encode('utf-8') + b' ' + connection.http_status)
                                 events.append(HttpResponseEvent(connection,
                                                              connection.connmark,
                                                              connection.http_responsexid,

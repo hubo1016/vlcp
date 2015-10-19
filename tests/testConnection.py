@@ -6,7 +6,7 @@ Created on 2015/6/29
 import unittest
 from event.event import Event, withIndices
 from event.core import Scheduler, PollEvent, TimerEvent, SystemControlEvent, SystemControlLowPriorityEvent
-from event.polling import EPollPolling
+from event import DefaultPolling
 from event.connection import Resolver, Client, TcpServer, ConnectionWriteEvent, ConnectionControlEvent,\
     ResolveRequestEvent, ResolveResponseEvent
 from protocol.protocol import Protocol
@@ -101,7 +101,14 @@ class TestConnection(unittest.TestCase):
     def setUp(self):
         #self.scheduler 
         logging.basicConfig()
-        self.scheduler = Scheduler(EPollPolling())
+        self.scheduler = Scheduler(DefaultPolling())
+        #self.scheduler.debugging = True
+        #self.scheduler.logger.setLevel('DEBUG')
+        #Client.logger.setLevel('DEBUG')
+        import tests
+        import os.path
+        rootpath, _ = os.path.split(tests.__path__[0])
+        os.chdir(rootpath)
         self.scheduler.queue.addSubQueue(3, PollEvent.createMatcher(category=PollEvent.WRITE_READY), 'write', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(1, PollEvent.createMatcher(category=PollEvent.READ_READY), 'read', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(5, PollEvent.createMatcher(category=PollEvent.ERROR), 'error')

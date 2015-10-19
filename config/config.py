@@ -3,6 +3,10 @@ Created on 2015/6/25
 
 @author: hubo
 '''
+import re
+import ast
+import sys
+import io
 
 class ConfigTree(object):
     def __init__(self):
@@ -119,6 +123,8 @@ class ConfigTree(object):
             return False
         else:
             return k in t.__dict__
+    def clear(self):
+        self.__dict__.clear()
 
 class Manager(ConfigTree):
     '''
@@ -127,6 +133,39 @@ class Manager(ConfigTree):
     def __init__(self):
         #TODO: load config
         ConfigTree.__init__(self)
+    def loadfromfile(self, filelike):
+        line_format = re.compile(r'\s*((?:[a-zA-Z][a-zA-Z0-9]*\.)*[a-zA-Z][a-zA-Z0-9]*)\s*=\s*(.*)')
+        line_no = 0
+        for l in filelike:
+            line_no += 1
+            l = l.strip()
+            if not l:
+                continue
+            m = line_format.match(l)
+            if not m:
+                raise ValueError('Error format in line %d:\n%s' % (line_no, l))
+            key = m.group(1)
+            value = m.group(2)
+            try:
+                value = ast.literal_eval(value)
+            except:
+                typ, val, tb = sys.exc_info()
+                raise ValueError('Error format in line %d(%s: %s):\n%s' % (line_no, typ.__name__, str(val), l))
+            self[key] = value
+    def loadfrom(self, path):
+        with open(path, 'r') as f:
+            self.loadfromfile(f)
+    def loadfromstr(self, string):
+        self.loadfromfile(string.splitlines(keepends=True))
+    def save(self, sortkey = True):
+        return [k + '=' + repr(v) for k,v in self.config_items(sortkey)]
+    def savetostr(self, sortkey = True):
+        return ''.join(k + '=' + repr(v) + '\n' for k,v in self.config_items(sortkey))
+    def savetofile(self, filelike, sortkey = True):
+        filelike.writelines(k + '=' + repr(v) + '\n' for k,v in self.config_items(sortkey))
+    def saveto(self, path, sortkey = True):
+        with open(path, 'w') as f:
+            self.savetofile(f, sortkey)
 
 manager = Manager()
 

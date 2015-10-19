@@ -22,17 +22,17 @@ from event.core import POLLING_OUT
 
 if sys.version_info[0] >= 3:
     from urllib.parse import urlsplit
-    from queue import Full
+    from queue import Full, Queue, Empty
 else:
     from urlparse import urlsplit
-    from Queue import Full
+    from Queue import Full, Queue, Empty
 
 try:
     _memoryview = memoryview
 except:
     class memoryview(object):              # Fake a memoryview interface
-        def __init__(self, buffer):
-            self._buffer = buffer
+        def __init__(self, buf):
+            self._buffer = buf
         def __getitem__(self, s):
             if isinstance(s, slice) and isinstance(self._buffer, _Array):
                 start, stop, step = s.indices(len(self._buffer))
@@ -62,10 +62,20 @@ if sys.version_info[0] >= 3:
         _new_buffer = _create_buffer(size)
         _new_buffer[0:len(source)] = source
         return _new_buffer
+    def _buffer(data, view, start, length):
+        return view[start:start+length]
 else:
     _create_buffer = create_string_buffer
     def _extend_buffer(source, size):
         return create_string_buffer(source.raw, size)
+    import platform
+    if platform.system() != 'Linux':
+        # in Windows version, re does not accept memoryview
+        def _buffer(data, view, start, length):
+            return buffer(data, start, length)
+    else:
+        def _buffer(data, view, start, length):
+            return view[start:start + length]
 
 @withIndices('connection', 'type', 'force', 'connmark')
 class ConnectionControlEvent(Event):
@@ -120,8 +130,8 @@ class Connection(RoutineContainer):
             canwrite_matcher = PollEvent.createMatcher(self.socket.fileno(), PollEvent.WRITE_READY)
             self.readstop = False
             buffersize = getattr(self.protocol, 'buffersize', 4096)
-            buffer = _create_buffer(buffersize)
-            view = memoryview(buffer)
+            buf = _create_buffer(buffersize)
+            view = memoryview(buf)
             currPos = 0
             lastPos = 0
             exitLoop = False
@@ -176,9 +186,9 @@ class Connection(RoutineContainer):
                     self.totalrecv += currLen
                     self.connrecv += currLen
                     currPos = currLen + currPos
-                    if currPos >= len(buffer):
+                    if currPos >= len(buf):
                         try:
-                            (events, keep) = self.protocol.parse(self, view[0:currPos], lastPos)
+                            (events, keep) = self.protocol.parse(self, _buffer(buf, view, 0, currPos), lastPos)
                         except:
                             # An exception in parse means serious protocol break, drop the connection
                             # Shutdown will prevent further data been sent in the socket and break the connection
@@ -203,10 +213,10 @@ class Connection(RoutineContainer):
                                         break
                         currPos = newPos
                         lastPos = newPos
-                        if currPos >= len(buffer):
-                            buffer2 = _extend_buffer(buffer, len(buffer) * 2)
-                            buffer = buffer2
-                            view = memoryview(buffer)
+                        if currPos >= len(buf):
+                            buffer2 = _extend_buffer(buf, len(buf) * 2)
+                            buf = buffer2
+                            view = memoryview(buf)
                         for m in self.doEvents():
                             while True:
                                 yield m + (connection_control,)
@@ -221,7 +231,7 @@ class Connection(RoutineContainer):
                                 else:
                                     break
                 if not parsed:
-                    (events, keep) = self.protocol.parse(self, view[0:currPos], lastPos)
+                    (events, keep) = self.protocol.parse(self, _buffer(buf, view, 0, currPos), lastPos)
                     view[0:keep] = view[currPos-keep:currPos]
                     newPos = keep
                     currPos = newPos
@@ -232,7 +242,7 @@ class Connection(RoutineContainer):
                             yield m
                 if eofExit:
                     # An extra parse for socket shutdown, can be determined by lastPos == len(data)
-                    (events, keep) = self.protocol.parse(self, view[0:currPos], lastPos)
+                    (events, keep) = self.protocol.parse(self, _buffer(buf, view, 0, currPos), lastPos)
                     for e in events:
                         for m in self.waitForSend(e):
                             yield m                    
@@ -471,6 +481,10 @@ class Resolver(RoutineContainer):
         while True:
             try:
                 params = queuein.get(True)
+                if params is None:
+                    # Exit
+                    queueout.put(None)
+                    break
             except OSError as exc:
                 if exc.args[0] == errno.EINTR:
                     continue
@@ -493,6 +507,8 @@ class Resolver(RoutineContainer):
             while True:
                 try:
                     event = queueout.get()
+                    if event is None:
+                        break
                     pipeout.send(event)
                 except EOFError:
                     break
@@ -503,10 +519,58 @@ class Resolver(RoutineContainer):
                         break
         finally:
             pipeout.close()
+    @staticmethod
+    def resolverThread(queuein, pipeout, poolsize):
+        try:
+            queueout = Queue()
+            pool = [threading.Thread(target=Resolver.resolver, args=(queuein, queueout)) for i in range(0, poolsize)]
+            for p in pool:
+                p.daemon = True
+                p.start()
+            while True:
+                try:
+                    event = queueout.get()
+                    pipeout[0].put(event)
+                    pipeout[1].send(b'\x00')
+                except EOFError:
+                    break
+                except OSError as exc:
+                    if exc.args[0] == errno.EINTR:
+                        continue
+                    else:
+                        break
+        finally:
+            pipeout[1].close()    
     def main(self):
-        queue = multiprocessing.Queue(self.poolsize)
-        pipein, pipeout = multiprocessing.Pipe()
-        process = multiprocessing.Process(target=self.resolverProcess, args=(queue, pipeout, self.poolsize))
+        import os
+        if hasattr(os, 'fork'):
+            mp = True
+        else:
+            mp = False
+        if mp:
+            queue = multiprocessing.Queue(self.poolsize)
+        else:
+            queue = Queue(self.poolsize)
+        if mp:
+            pipein, pipeout = multiprocessing.Pipe()
+            process = multiprocessing.Process(target=self.resolverProcess, args=(queue, pipeout, self.poolsize))
+        else:
+            # Use a thread instead
+            # Create a socket on localhost
+            addrinfo = socket.getaddrinfo('localhost', 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_PASSIVE)
+            socket_s = socket.socket(*addrinfo[0][0:2])
+            socket_s.bind(addrinfo[0][4])
+            socket_s.listen(1)
+            addr_target = socket_s.getsockname()
+            pipeout = socket.socket(*addrinfo[0][0:2])
+            pipeout.setblocking(False)
+            pipeout.connect_ex(addr_target)
+            pipein, _ = socket_s.accept()
+            pipein.setblocking(False)
+            pipeout.setblocking(True)
+            socket_s.close()
+            outqueue = Queue()
+            process = threading.Thread(target=self.resolverThread, args=(queue, (outqueue, pipeout), self.poolsize))
         process.daemon = True
         try:
             process.start()
@@ -530,11 +594,32 @@ class Resolver(RoutineContainer):
                     pipein = None
                     for m in self.waitWithTimeout(1):
                         yield m
-                    process.terminate()
-                    queue = multiprocessing.Queue(self.poolsize)
-                    pipein, pipeout = multiprocessing.Pipe()
-                    process = multiprocessing.Process(target=self.resolverProcess, args=(queue, pipeout, self.poolsize))
-                    process.daemon(True)
+                    if mp:
+                        process.terminate()
+                    if mp:
+                        queue = multiprocessing.Queue(self.poolsize)
+                    else:
+                        queue = Queue(self.poolsize)
+                    if mp:
+                        pipein, pipeout = multiprocessing.Pipe()
+                        process = multiprocessing.Process(target=self.resolverProcess, args=(queue, pipeout, self.poolsize))
+                    else:
+                        # Use a thread instead
+                        # Create a socket on localhost
+                        addrinfo = socket.getaddrinfo('localhost', 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_PASSIVE)
+                        socket_s = socket.socket(*addrinfo[0][0:2])
+                        socket_s.bind(addrinfo[0][4])
+                        socket_s.listen(1)
+                        addr_target = pipein.getsockname()
+                        pipeout = socket.socket(*addrinfo[0][0:2])
+                        pipeout.setblocking(False)
+                        pipeout.connect_ex(addr_target)
+                        pipein, _ = socket_s.accept()
+                        pipein.setblocking(False)
+                        pipeout.setblocking(True)
+                        socket_s.close()
+                        outqueue = Queue()
+                        process = threading.Thread(target=self.resolverThread, args=(queue, (outqueue, pipeout), self.poolsize))
                     process.start()
                     self.scheduler.registerPolling(pipein, POLLING_IN, True)
                     response_matcher = PollEvent.createMatcher(pipein.fileno(), PollEvent.READ_READY)
@@ -546,19 +631,45 @@ class Resolver(RoutineContainer):
                     except Full:
                         isFull = True
                 else:
-                    while pipein.poll():
-                        try:
-                            event = pipein.recv()
-                        except EOFError:
-                            isEOF = True
-                            break
-                        for m in self.waitForSend(event):
-                            yield m
+                    if mp:
+                        while pipein.poll():
+                            try:
+                                event = pipein.recv()
+                            except EOFError:
+                                isEOF = True
+                                break
+                            for m in self.waitForSend(event):
+                                yield m
+                    else:
+                        while True:
+                            try:
+                                if not pipein.recv(4096):
+                                    isEOF = True
+                                    break
+                            except socket.error as exc:
+                                if exc.errno == errno.EAGAIN or exc.errno == errno.EWOULDBLOCK:
+                                    break
+                                elif exc.errno == errno.EINTR:
+                                    continue
+                                else:
+                                    isEOF = True
+                                    break
+                        while True:
+                            try:
+                                event = outqueue.get(False)
+                            except Empty:
+                                break
+                            for m in self.waitForSend(event):
+                                yield m
+                            
         finally:
             if pipein is not None:
                 self.scheduler.unregisterPolling(pipein, True)
                 pipein.close()
-            process.terminate()
+            if mp:
+                process.terminate()
+            else:
+                queue.put(None)
 
 class Client(Connection):
     '''
@@ -734,7 +845,7 @@ class Client(Connection):
                     if self.event.category == PollEvent.READ_READY:
                         while not connected:
                             try:
-                                data, remote_addr = self.socket.recvfrom(1, socket.MSG_PEEK)
+                                data, remote_addr = self.socket.recvfrom(65536, socket.MSG_PEEK)
                                 self.logger.debug('Udp socket receive data from %s', remote_addr)
                             except socket.error as exc:
                                 if exc.args[0] == errno.EWOULDBLOCK or exc.args[0] == errno.EAGAIN:
@@ -848,7 +959,7 @@ class Client(Connection):
                     continue
                 try:
                     err = self.socket.connect_ex(addr)
-                    if err == errno.EINPROGRESS:
+                    if err == errno.EINPROGRESS or err == errno.EWOULDBLOCK or err == errno.EAGAIN:
                         connect_match = PollEvent.createMatcher(self.socket.fileno())
                         for m in self.waitWithTimeout(self.connect_timeout, connect_match):
                             yield m

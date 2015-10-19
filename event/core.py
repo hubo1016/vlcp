@@ -12,7 +12,10 @@ from datetime import datetime
 from signal import signal, SIGTERM, SIGINT
 from logging import getLogger, WARNING
 from collections import deque
+from threading import Lock
+
 import sys
+
 
 POLLING_IN = 1
 POLLING_PRI = 2
@@ -80,7 +83,7 @@ class Scheduler(object):
                 li = self.heap.pop()
                 self.heap[pos] = li
                 self.index[li[1]] = pos
-                if li > ci:
+                if li[0] > ci[0]:
                     self._siftdown(pos)
                 else:
                     self._siftup(pos)
@@ -106,7 +109,7 @@ class Scheduler(object):
             self._siftdown(0)
             return ret[1]
         def pushpop(self, value, priority):
-            if not self.heap or (priority, value) < self.heap[0]:
+            if not self.heap or priority < self.heap[0][0]:
                 return value
             return self.poppush(value, priority)
         def setpriority(self, value, priority):
@@ -133,7 +136,7 @@ class Scheduler(object):
             while pos > 0:
                 pindex = (pos - 1) // 2
                 pt = self.heap[pindex]
-                if pt > temp:
+                if pt[0] > temp[0]:
                     self.heap[pos] = pt
                     self.index[pt[1]] = pos
                 else:
@@ -150,7 +153,7 @@ class Scheduler(object):
                 if cindex + 1 < l and self.heap[cindex+1][0] < pt[0]:
                     cindex = cindex + 1
                     pt = self.heap[cindex]
-                if pt < temp:
+                if pt[0] < temp[0]:
                     self.heap[pos] = pt
                     self.index[pt[1]] = pos
                 else:
@@ -214,6 +217,8 @@ class Scheduler(object):
             events = self.eventtree.findAndRemove(m)
             for e in events:
                 self.queue.unblock(e)
+            if m.indices[0] == PollEvent._typename and len(m.indices) >= 2:
+                self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2])
         self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).union(matchers)
     def unregister(self, matchers, runnable):
         '''
@@ -313,6 +318,8 @@ class Scheduler(object):
         '''
         If a runnable is a daemon, it will not keep the main loop running. The main loop will end when all alived runnables are daemons.
         '''
+        if not runnable in self.registerIndex:
+            self.register((), runnable)
         if isdaemon:
             self.daemons.add(runnable)
         else:
@@ -438,6 +445,7 @@ class Scheduler(object):
             if self.registerIndex:
                 if len(self.registerIndex) > len(self.daemons):
                     self.logger.warning('Some runnables are not quit, doing cleanup')
+                    self.logger.warning('Runnables list: %r', set(self.registerIndex.keys()).difference(self.daemons))
                 for r in list(self.registerIndex.keys()):
                     try:
                         r.close()

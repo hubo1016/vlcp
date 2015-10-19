@@ -4,10 +4,11 @@ Created on 2015/7/24
 @author: hubo
 '''
 from config import Configurable, config
-from event import Scheduler, EPollPolling, Resolver, RoutineControlEvent, CBQueue
+from event import Scheduler, DefaultPolling, Resolver, RoutineControlEvent, CBQueue
 from event import PollEvent, ConnectionWriteEvent, ConnectionControlEvent, StreamDataEvent
 from event.core import TimerEvent, SystemControlEvent, SystemControlLowPriorityEvent
 from event.connection import ResolveRequestEvent, ResolveResponseEvent
+from .module import ModuleLoader, ModuleAPICall, ModuleAPIReply, ModuleNotification, ModuleLoadStateChanged
 
 @config('server')
 class Server(Configurable):
@@ -24,8 +25,12 @@ class Server(Configurable):
     _default_routinecontrolpriority = 1000
     _default_streamdatapriority = 640
     _default_timerpriority = 900
+    _default_moduleloadeventpriority = 890
     _default_sysctlpriority = 2000
     _default_sysctllowpriority = 10
+    _default_moduleapicallpriority = 630
+    _default_moduleapireplypriority = 420
+    _default_modulenotifypriority = 410
     _default_totalwritelimit = 100000
     _default_writelimitperconnection = 5
     _default_preservefornew = 100
@@ -33,11 +38,13 @@ class Server(Configurable):
     _default_datalimitperstream = 5
     _default_resolverpoolsize = 256
     _default_ulimitn = 32768
+    _default_startup = ()
+    _default_debugging = False
     def __init__(self):
         '''
         Constructor
         '''
-        self.scheduler = Scheduler(EPollPolling(), getattr(self, 'processevents', None), getattr(self, 'queuedefaultsize', None), getattr(self, 'queuemaxsize', None))
+        self.scheduler = Scheduler(DefaultPolling(), getattr(self, 'processevents', None), getattr(self, 'queuedefaultsize', None), getattr(self, 'queuemaxsize', None))
         self.scheduler.queue.addSubQueue(self.pollwritepriority, PollEvent.createMatcher(category=PollEvent.WRITE_READY), 'write', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(self.pollreadpriority, PollEvent.createMatcher(category=PollEvent.READ_READY), 'read', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(self.pollerrorpriority, PollEvent.createMatcher(category=PollEvent.ERROR), 'error')
@@ -50,7 +57,15 @@ class Server(Configurable):
         self.scheduler.queue.addSubQueue(self.resolverreqpriority, ResolveRequestEvent.createMatcher(), 'resolvereq')
         self.scheduler.queue.addSubQueue(self.sysctlpriority, SystemControlEvent.createMatcher(), 'sysctl')
         self.scheduler.queue.addSubQueue(self.sysctllowpriority, SystemControlLowPriorityEvent.createMatcher(), 'sysctllow')
+        self.scheduler.queue.addSubQueue(self.moduleapicallpriority, ModuleAPICall.createMatcher(), 'moduleapi', None, None, CBQueue.AutoClassQueue.initHelper('target', 2, subqueuelimit = 5))
+        self.scheduler.queue.addSubQueue(self.moduleapireplypriority, ModuleAPIReply.createMatcher(), 'moduleapireply')
+        self.scheduler.queue.addSubQueue(self.modulenotifypriority, ModuleNotification.createMatcher(), 'modulenotify', None, None, CBQueue.AutoClassQueue.initHelper('target', subqueuelimit=5))
+        self.scheduler.queue.addSubQueue(self.moduleloadeventpriority, ModuleLoadStateChanged.createMatcher(), 'moduleload')
         self.resolver = Resolver(self.scheduler, self.resolverpoolsize)
+        self.moduleloader = ModuleLoader(self)
+        if self.debugging:
+            self.scheduler.debugging = True
+            self.scheduler.logger.setLevel('DEBUG')
     def serve(self):
         if self.ulimitn is not None:
             try:
@@ -71,4 +86,6 @@ class Server(Configurable):
             except:
                 pass
         self.resolver.start()
+        for path in self.startup:
+            self.moduleloader.subroutine(self.moduleloader.loadByPath(path))
         self.scheduler.main()
