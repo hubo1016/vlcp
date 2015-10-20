@@ -125,6 +125,14 @@ class ConfigTree(object):
             return k in t.__dict__
     def clear(self):
         self.__dict__.clear()
+    def todict(self):
+        dict_entry = []
+        for k,v in self.items():
+            if isinstance(v, ConfigTree):
+                dict_entry.append((k, v.todict()))
+            else:
+                dict_entry.append((k, v))
+        return dict(dict_entry)
 
 class Manager(ConfigTree):
     '''
@@ -134,7 +142,7 @@ class Manager(ConfigTree):
         #TODO: load config
         ConfigTree.__init__(self)
     def loadfromfile(self, filelike):
-        line_format = re.compile(r'\s*((?:[a-zA-Z][a-zA-Z0-9]*\.)*[a-zA-Z][a-zA-Z0-9]*)\s*=\s*(.*)')
+        line_format = re.compile(r'\s*((?:[a-zA-Z][a-zA-Z0-9_]*\.)*[a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(.*)')
         line_no = 0
         for l in filelike:
             line_no += 1

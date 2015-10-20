@@ -3,12 +3,14 @@ Created on 2015/7/24
 
 @author: hubo
 '''
-from config import Configurable, config
+from config import Configurable, config, manager
 from event import Scheduler, DefaultPolling, Resolver, RoutineControlEvent, CBQueue
 from event import PollEvent, ConnectionWriteEvent, ConnectionControlEvent, StreamDataEvent
 from event.core import TimerEvent, SystemControlEvent, SystemControlLowPriorityEvent
 from event.connection import ResolveRequestEvent, ResolveResponseEvent
-from .module import ModuleLoader, ModuleAPICall, ModuleAPIReply, ModuleNotification, ModuleLoadStateChanged
+from .module import Module, ModuleLoader, ModuleAPICall, ModuleAPIReply, ModuleNotification, ModuleLoadStateChanged
+import logging
+import logging.config
 
 @config('server')
 class Server(Configurable):
@@ -44,7 +46,17 @@ class Server(Configurable):
         '''
         Constructor
         '''
+        if hasattr(self, 'logging'):
+            if isinstance(self.logging, dict):
+                logging.config.dictConfig(self.logging)
+            else:
+                logging.config.dictConfig(self.logging.todict())
+        elif hasattr(self, 'loggingconfig'):
+            logging.config.fileConfig(self.loggingconfig)
         self.scheduler = Scheduler(DefaultPolling(), getattr(self, 'processevents', None), getattr(self, 'queuedefaultsize', None), getattr(self, 'queuemaxsize', None))
+        if self.debugging:
+            self.scheduler.debugging = True
+            self.scheduler.logger.setLevel('DEBUG')
         self.scheduler.queue.addSubQueue(self.pollwritepriority, PollEvent.createMatcher(category=PollEvent.WRITE_READY), 'write', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(self.pollreadpriority, PollEvent.createMatcher(category=PollEvent.READ_READY), 'read', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(self.pollerrorpriority, PollEvent.createMatcher(category=PollEvent.ERROR), 'error')
@@ -63,9 +75,6 @@ class Server(Configurable):
         self.scheduler.queue.addSubQueue(self.moduleloadeventpriority, ModuleLoadStateChanged.createMatcher(), 'moduleload')
         self.resolver = Resolver(self.scheduler, self.resolverpoolsize)
         self.moduleloader = ModuleLoader(self)
-        if self.debugging:
-            self.scheduler.debugging = True
-            self.scheduler.logger.setLevel('DEBUG')
     def serve(self):
         if self.ulimitn is not None:
             try:
@@ -85,7 +94,85 @@ class Server(Configurable):
                         resource.setrlimit(resource.RLIMIT_NOFILE, (curr_ulimit[1], curr_ulimit[1]))
             except:
                 pass
+        # If logging is not configured, configure it to the default (console)
+        logging.basicConfig()
         self.resolver.start()
         for path in self.startup:
             self.moduleloader.subroutine(self.moduleloader.loadByPath(path))
         self.scheduler.main()
+
+def main(configpath = None, startup = None, daemon = False, pidfile = None):
+    if configpath is not None:
+        manager.loadfrom(configpath)
+    if startup is not None:
+        manager['server.startup'] = startup
+    if not manager.get('server.startup'):
+        # No startup modules, try to load from __main__
+        startup = []
+        import __main__
+        for k in dir(__main__):
+            m = getattr(__main__, k)
+            if isinstance(m, Module):
+                startup.append('__main__.' + k)
+        manager['server.startup'] = startup
+    if daemon:
+        import daemon
+        if not pidfile:
+            pidfile = manager.get('daemon.pidfile')
+        uid = manager.get('daemon.uid')
+        gid = manager.get('daemon.gid')
+        if gid is None:
+            group = manager.get('daemon.group')
+            if group is not None:
+                import grp
+                gid = grp.getgrnam(group)[2]
+        if uid is None:
+            import pwd
+            user = manager.get('daemon.user')
+            user_pw = pwd.getpwnam(user)
+            uid = user_pw.pw_uid
+            if gid is None:
+                gid = user_pw.pw_gid
+        if uid is not None and gid is None:
+            import pwd
+            gid = pwd.getpwuid(uid).pw_gid
+        if pidfile:
+            import fcntl
+            class PidLocker(object):
+                def __init__(self, path):
+                    self.filepath = path
+                    self.fd = None
+                def __enter__(self):
+                    # Create pid file
+                    self.fd = os.open(pidfile, os.O_WRONLY | os.O_TRUNC | os.O_CREAT, 0644)
+                    fcntl.lockf(self.fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    os.write(self.fd, str(os.getpid()).encode('ascii'))
+                    os.fsync(self.fd)
+                def __exit__(self, typ, val, tb):
+                    if self.fd:
+                        try:
+                            fcntl.lockf(self.fd, fcntl.LOCK_UN)
+                        except:
+                            pass
+                        os.close(self.fd)
+                        self.fd = None
+            locker = PidLocker(pidfile)
+        else:
+            locker = None
+        import os
+        import sys
+        # Module loading is related to current path, add it to sys.path
+        cwd = os.getcwd()
+        if cwd not in sys.path:
+            sys.path.append(cwd)
+        configs = {'gid':gid,'uid':uid,'pidfile':locker}
+        config_filters = ['chroot_directory', 'working_directory', 'umask', 'detach_process',
+                          'prevent_core']
+        if hasattr(manager, 'daemon'):
+            configs.update((k,v) for k,v in manager.daemon.config_value_items() if k in config_filters)
+        with daemon.DaemonContext(**configs):
+            s = Server()
+            s.serve()
+    else:
+        s = Server()
+        s.serve()
