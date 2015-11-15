@@ -359,11 +359,11 @@ class Connection(RoutineContainer):
     def main(self):
         try:
             try:
-                self._localaddr = self.socket.getsockname()
+                self.localaddr = self.socket.getsockname()
             except:
                 pass
             try:
-                self._remoteaddr = self.socket.getpeername()
+                self.remoteaddr = self.socket.getpeername()
             except:
                 pass
             self.connmark = 0
@@ -405,11 +405,11 @@ class Connection(RoutineContainer):
                         yield m
                     if self.connected:
                         try:
-                            self._localaddr = self.socket.getsockname()
+                            self.localaddr = self.socket.getsockname()
                         except:
                             pass
                         try:
-                            self._remoteaddr = self.socket.getpeername()
+                            self.remoteaddr = self.socket.getpeername()
                         except:
                             pass
                         self.connmark += 1
@@ -460,7 +460,7 @@ class Connection(RoutineContainer):
                 raise ConnectionResetException
     def __repr__(self, *args, **kwargs):
         baserepr = RoutineContainer.__repr__(self, *args, **kwargs)
-        return baserepr + '(%r -> %r)' % (getattr(self, '_localaddr', None), getattr(self, '_remoteaddr', None))
+        return baserepr + '(%r -> %r)' % (getattr(self, 'localaddr', None), getattr(self, 'remoteaddr', None))
     
 
 @withIndices('request')
@@ -1100,6 +1100,10 @@ class TcpServer(RoutineContainer):
             self.sslversion = getattr(self.protocol, 'sslversion', ssl.PROTOCOL_SSLv23)
         self.backlogsize = getattr(self.protocol, 'backlogsize', 2048)
         self.logger = ContextAdapter(self.logger, {'context':{'server':self, 'url':self.rawurl, 'protocol':protocol}})
+        # Counters
+        self.totalaccepts = 0
+        self.accepts = 0
+        self.listening = False
     def _connection(self, newsock, newproto):
         try:
             newsock.setblocking(False)
@@ -1128,6 +1132,8 @@ class TcpServer(RoutineContainer):
             conn = Connection(newproto, newsock, self.scheduler)
             conn.need_reconnect = False
             conn.start()
+            self.accepts += 1
+            self.totalaccepts += 1
         except:
             self.scheduler.unregisterPolling(newsock)
             newsock.close()
@@ -1175,6 +1181,11 @@ class TcpServer(RoutineContainer):
                 yield m
             self.scheduler.registerPolling(self.socket, POLLING_IN)
             self.socket.listen(self.backlogsize)
+            self.listening = True
+            try:
+                self.localaddr = self.socket.getsockname()
+            except:
+                pass
             m = PollEvent.createMatcher(self.socket.fileno())
             while True:
                 yield (m,)
@@ -1205,6 +1216,7 @@ class TcpServer(RoutineContainer):
         finally:
             self.scheduler.unregisterPolling(self.socket)
             self.socket.close()
+            self.listening = False
     def main(self):
         self.connmark = 0
         matcher = ConnectionControlEvent.createMatcher(self, ConnectionControlEvent.SHUTDOWN, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
@@ -1215,6 +1227,7 @@ class TcpServer(RoutineContainer):
         try:
             while retry:
                 self.connmark += 1
+                self.accepts = 0
                 try:
                     for m in self.withException(self._server(), matcher, matcher2):
                         yield m
@@ -1264,4 +1277,6 @@ class TcpServer(RoutineContainer):
     def _final(self):
         for m in self.protocol.serverfinal(self):
             yield m
-
+    def __repr__(self, *args, **kwargs):
+        baserepr = RoutineContainer.__repr__(self, *args, **kwargs)
+        return baserepr + '(Listen on %r)' % (getattr(self, 'localaddr', None),)

@@ -74,7 +74,7 @@ if hasattr(select, 'epoll'):
             except IOError as exc:
                 if exc.args[0] == errno.EINTR:
                     return ([], False)
-        def onmatch(self, fileno, category):
+        def onmatch(self, fileno, category, add):
             pass
 
 class SelectPolling(object):
@@ -138,8 +138,14 @@ class SelectPolling(object):
                 return ([], False)
             else:
                 raise IOError('Some of the fds are invalid, maybe some sockets are not unregistered', exc)
-    def onmatch(self, fileno, category):
-        if category is None or category == PollEvent.READ_READY:
-            self.readfiles.add(fileno)
-        if category is None or category == PollEvent.WRITE_READY:
-            self.writefiles.add(fileno)
+    def onmatch(self, fileno, category, add):
+        if add:
+            if category is None or category == PollEvent.READ_READY:
+                self.readfiles.add(fileno)
+            if category is None or category == PollEvent.WRITE_READY:
+                self.writefiles.add(fileno)
+        else:
+            if category is None or category == PollEvent.READ_READY:
+                self.readfiles.discard(fileno)
+            if category is None or category == PollEvent.WRITE_READY:
+                self.writefiles.discard(fileno)            

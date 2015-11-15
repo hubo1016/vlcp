@@ -112,7 +112,7 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
         import __main__
         for k in dir(__main__):
             m = getattr(__main__, k)
-            if isinstance(m, Module):
+            if isinstance(m, type) and issubclass(m, Module) and m is not Module:
                 startup.append('__main__.' + k)
         manager['server.startup'] = startup
     if daemon:
@@ -144,7 +144,7 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
                     self.fd = None
                 def __enter__(self):
                     # Create pid file
-                    self.fd = os.open(pidfile, os.O_WRONLY | os.O_TRUNC | os.O_CREAT, 0644)
+                    self.fd = os.open(pidfile, os.O_WRONLY | os.O_TRUNC | os.O_CREAT, 0o644)
                     fcntl.lockf(self.fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
                     os.write(self.fd, str(os.getpid()).encode('ascii'))
                     os.fsync(self.fd)

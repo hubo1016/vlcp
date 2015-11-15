@@ -95,6 +95,38 @@ class RoutineControlEvent(Event):
 class IllegalMatchersException(Exception):
     pass
 
+class generatorwrapper(object):
+    '''
+    Default __repr__ of a generator is not readable, use a wrapper to improve the readability
+    '''
+    def __init__(self, run, name = 'iterator', classname = 'routine'):
+        self.run = run
+        self.name = name
+        self.classname = classname
+    def __iter__(self):
+        return self.run
+    def next(self):
+        return next(self.run)
+    def __next__(self):
+        return next(self.run)
+    def send(self, arg):
+        return self.run.send(arg)
+    def throw(self, typ, val = None, tb = None):
+        return self.run.throw(typ, val, tb)
+    def __repr__(self, *args, **kwargs):
+        try:
+            iterator = self.run.gi_frame.f_locals[self.name]
+            try:
+                return '<%s %r of %r at 0x%016X>' % (self.classname, iterator,
+                                                       iterator.gi_frame.f_locals['self'],
+                                                       id(iterator))
+            except:
+                return '<%s %r at 0x%016X>' % (self.classname, iterator, id(iterator))
+        except:
+            return repr(self.run)
+    def close(self):
+        return self.run.close()
+
 def Routine(iterator, scheduler, asyncStart = True, container = None, manualStart = False, daemon = False):
     def run():
         iterself, re = yield
@@ -147,7 +179,7 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                 container.currentroutine = iterself
             iterator.close()
             scheduler.unregisterall(iterself)
-    r = run()
+    r = generatorwrapper(run())
     next(r)
     if asyncStart:
         re = RoutineControlEvent(RoutineControlEvent.ASYNC_START, r)
@@ -350,7 +382,7 @@ class RoutineContainer(object):
                 e.canignore = True
                 for m in self.waitForSend(e):
                     yield m
-        r = self.subroutine(delegateroutine(), True)
+        r = self.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
         finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
         # As long as we do not use self.event to read the event, we are safe to receive them from other contaiers
         yield (finish,)
@@ -379,7 +411,7 @@ class RoutineContainer(object):
                 e.canignore = True
                 for m in container.waitForSend(e):
                     yield m
-        r = container.subroutine(delegateroutine(), True)
+        r = container.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
         finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
         # As long as we do not use self.event to read the event, we are safe to receive them from other contaiers
         yield (finish,)

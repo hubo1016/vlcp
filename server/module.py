@@ -9,6 +9,7 @@ import logging
 from event.runnable import RoutineContainer, EventHandler
 import sys
 from utils.pycache import removeCache
+import functools
 
 try:
     reload
@@ -53,13 +54,22 @@ class ModuleLoadStateChanged(Event):
     UNLOADING = 'unloading'
     UNLOADED = 'unloaded'
 
+
+def api(func, container = None):
+    '''
+    Return an API def for a generic function
+    '''
+    return (func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container)
+
 class ModuleAPIHandler(RoutineContainer):
-    def __init__(self, moduleinst, apidefs = None):
+    def __init__(self, moduleinst, apidefs = None, allowdiscover = True):
         RoutineContainer.__init__(self, scheduler=moduleinst.scheduler, daemon=False)
         self.handler = EventHandler(self.scheduler)
         self.servicename = moduleinst.getServiceName()
         self.apidefs = apidefs
         self.registeredAPIs = {}
+        self.docs = {}
+        self.allowdiscover = allowdiscover
     @staticmethod
     def createReply(handle, result):
         return ModuleAPIReply(handle, result=result)
@@ -115,8 +125,10 @@ class ModuleAPIHandler(RoutineContainer):
         '''
         handlers = [self._createHandler(*apidef) for apidef in apidefs]
         self.handler.registerAllHandlers(handlers)
+        self.docs.update((apidef[0], apidef[1].__doc__) for apidef in apidefs)
     def registerAPI(self, name, handler, container = None):
         self.handler.registerHandler(*self._createHandler(name, handler, container))
+        self.docs[name] = handler.__doc__
     def unregisterAPI(self, name):
         if name.startswith('public/'):
             target = 'public'
@@ -127,17 +139,16 @@ class ModuleAPIHandler(RoutineContainer):
         removes = [m for m in self.handler.handlers.keys() if m.target == target and m.name == name]
         for m in removes:
             self.handler.unregisterHandler(m)
+    def discover(self):
+        'Discover API definitions'
+        return dict(self.docs)
     def start(self, asyncStart=False):
         if self.apidefs:
             self.registerAPIs(self.apidefs)
+        if self.allowdiscover:
+            self.registerAPI(*api(self.discover))
     def close(self):
         self.handler.close()
-
-def api(func, container = None):
-    '''
-    Return an API def for a generic function
-    '''
-    return (func.__name__, lambda n,p: func(**p), container)
 
 @defaultconfig
 class Module(Configurable):
@@ -161,7 +172,7 @@ class Module(Configurable):
         self.state = ModuleLoadStateChanged.UNLOADED
         self.target = type(self)
         self._logger = logging.getLogger(type(self).__module__ + '.' + type(self).__name__)
-    def createAPI(self, apidefs):
+    def createAPI(self, *apidefs):
         self.apiHandler = ModuleAPIHandler(self, apidefs)
         self.routines.append(self.apiHandler)
     def getServiceName(self):

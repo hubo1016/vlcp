@@ -68,6 +68,9 @@ class ConfigTree(object):
         return decorator
     def __iter__(self):
         return iter(self.__dict__)
+    def gettree(self, key, create = False):
+        tree, _ = self._getsubitem(key + '.tmp', create)
+        return tree
     def _getsubitem(self, key, create = False):
         keylist = [k for k in key.split('.') if k != '']
         if not keylist:
@@ -209,7 +212,34 @@ class Configurable(object):
             if isinstance(p, Configurable) and p is not Configurable:
                 return p
         return None
-
+    @classmethod
+    def getConfigRoot(cls, create = False):
+        try:
+            return manager.gettree(getattr(cls, 'configkey'), create)
+        except AttributeError:
+            return None
+    def config_value_keys(self, sortkey = False):
+        ret = set()
+        cls = type(self)
+        while True:
+            root = cls.getConfigRoot()
+            if root:
+                ret = ret.union(set(root.config_value_keys()))
+            parent = None
+            for c in cls.__bases__:
+                if issubclass(c, Configurable):
+                    parent = c
+            if parent is None:
+                break
+            cls = parent
+        if sortkey:
+            return sorted(list(ret))
+        else:
+            return list(ret)
+        
+    def config_value_items(self, sortkey = False):
+        return ((k, getattr(self, k)) for k in self.config_value_keys(sortkey))
+            
 def configbase(key):
     def decorator(cls):
         parent = cls.getConfigurableParent()

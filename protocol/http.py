@@ -81,7 +81,10 @@ class Http(Protocol):
     _default_useexpectsize = 4096
     _default_expecttimeout = 2
     _default_defaultport = 80
+    _default_showerrorinfo = False
     _logger = logging.getLogger(__name__ + '.HTTP')
+    _default_errorrewrite = {}
+    _default_errorredirect = {}
     def __init__(self, server = True, defaultversion = None):
         '''
         Constructor

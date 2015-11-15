@@ -19,7 +19,7 @@ class Stream(object):
     '''
     Streaming data with events
     '''
-    def __init__(self, unicode = False, encoders = [], writebufferlimit = 4096, splitsize = 1048576):
+    def __init__(self, isunicode = False, encoders = [], writebufferlimit = 4096, splitsize = 1048576):
         '''
         Constructor
         '''
@@ -33,7 +33,7 @@ class Stream(object):
         self.writeclosed = False
         self.allowwrite = False
         self.dm = StreamDataEvent.createMatcher(self, None)
-        self.unicode = unicode
+        self.isunicode = isunicode
         self.encoders = encoders
         self.writebuffer = []
         self.writebuffersize = 0
@@ -83,7 +83,7 @@ class Stream(object):
                 self.pos += (size - retsize)
                 retsize = size
                 break
-        if self.unicode:
+        if self.isunicode:
             container.data = u''.join(ret)
         else:
             container.data = b''.join(ret)
@@ -121,7 +121,7 @@ class Stream(object):
                     yield m
             if size is None or size - retsize > len(self.data) - self.pos:
                 t = self.data[self.pos:]
-                if self.unicode:
+                if self.isunicode:
                     p = t.find(u'\n')
                 else:
                     p = t.find(b'\n')
@@ -143,7 +143,7 @@ class Stream(object):
                         break
             else:
                 t = self.data[self.pos:self.pos + (size - retsize)]
-                if self.unicode:
+                if self.isunicode:
                     p = t.find(u'\n')
                 else:
                     p = t.find(b'\n')
@@ -153,22 +153,22 @@ class Stream(object):
                 self.pos += len(t)
                 retsize += len(t)
                 break
-        if self.unicode:
+        if self.isunicode:
             container.data = u''.join(ret)
         else:
             container.data = b''.join(ret)
         if self.error:
             raise IOError('Stream is broken before EOF')
-    def write(self, data, container, eof = False, ignoreexception = False, buffer = True, split = True):
+    def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
         if self.closed or self.writeclosed:
             if not ignoreexception and not self.allowwrite:
                 raise IOError('Stream is closed')
         else:
             if eof:
-                buffer = False
-            if buffer and self.writebuffersize + len(data) > self.writebufferlimit:
-                    buffer = False
-            if buffer:
+                buffering = False
+            if buffering and self.writebufferlimit is not None and self.writebuffersize + len(data) > self.writebufferlimit:
+                buffering = False
+            if buffering:
                 self.writebuffer.append(data)
                 self.writebuffersize += len(data)
             else:
@@ -202,7 +202,7 @@ class Stream(object):
         scheduler.ignore(self.dm)
     def copyTo(self, dest, container):
         if self.eof:
-            for m in dest.write(u'' if self.unicode else b'', True):
+            for m in dest.write(u'' if self.isunicode else b'', True):
                 yield m
         elif self.error:
             for m in dest.error(container):
@@ -244,7 +244,7 @@ class MemoryStream(object):
         self.eof = False
         self.error = False
         self.closed = True
-        self.unicode = not isinstance(data, bytes)
+        self.isunicode = not isinstance(data, bytes)
         self.encoders = encoders
     def __len__(self):
         return len(self.preloaddata)
@@ -309,7 +309,7 @@ class MemoryStream(object):
             self._parsedata()
         if size is None or size > len(self.data) - self.pos:
             t = self.data[self.pos:]
-            if self.unicode:
+            if self.isunicode:
                 p = t.find(u'\n')
             else:
                 p = t.find(b'\n')
@@ -320,7 +320,7 @@ class MemoryStream(object):
                 self.eof = True
         else:
             t = self.data[self.pos:self.pos + size]
-            if self.unicode:
+            if self.isunicode:
                 p = t.find(u'\n')
             else:
                 p = t.find(b'\n')
@@ -344,7 +344,7 @@ class MemoryStream(object):
         self.closed = True
     def copyTo(self, dest, container):
         if self.eof:
-            for m in dest.write(u'' if self.unicode else b'', True):
+            for m in dest.write(u'' if self.isunicode else b'', True):
                 yield m
         elif self.error:
             for m in dest.error(container):

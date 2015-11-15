@@ -31,24 +31,28 @@ class ModuleTestEvent(Event):
 class TestModule1(Module):
     class MyHandler(RoutineContainer):
         def method2(self, a, b):
+            "Run method2"
             self.retvalue = a + b
             if False:
                 yield
         def method3(self, a, b):
+            "Run method3"
             for m in self.waitForSend(ModuleTestEvent(a = a, b = b)):
                 yield m
             self.retvalue = None
     def __init__(self, server):
         Module.__init__(self, server)
         self.handlerRoutine = self.MyHandler(self.scheduler)
-        self.createAPI((api(self.method1),
+        self.createAPI(api(self.method1),
                 api(self.handlerRoutine.method2,self.handlerRoutine),
                 api(self.handlerRoutine.method3,self.handlerRoutine),
                 api(self.method4)
-                ))
+                )
     def method1(self):
+        "Run method1"
         return 'version1'
     def method4(self):
+        "Run method4"
         raise ValueError('test')
 '''
 
@@ -101,11 +105,11 @@ class TestModule1(Module):
     def __init__(self, server):
         Module.__init__(self, server)
         self.handlerRoutine = self.MyHandler(self.scheduler)
-        self.createAPI((api(self.method1),
+        self.createAPI(api(self.method1),
                 api(self.handlerRoutine.method2,self.handlerRoutine),
                 api(self.handlerRoutine.method3,self.handlerRoutine),
                 api(self.method4)
-                ))
+                )
     def method1(self):
         return 'version2'
     def method4(self):
@@ -162,11 +166,11 @@ class TestModule1(Module):
     def __init__(self, server):
         Module.__init__(self, server)
         self.handlerRoutine = self.MyHandler(self.scheduler)
-        self.createAPI((api(self.method1),
+        self.createAPI(api(self.method1),
                 api(self.handlerRoutine.method2,self.handlerRoutine),
                 api(self.handlerRoutine.method3,self.handlerRoutine),
                 api(self.method4)
-                ))
+                )
     def method1(self):
         return 'version3'
     def method4(self):
@@ -256,6 +260,9 @@ class Test(unittest.TestCase):
                 apiResults.append((self.event.result, self.event.version))
             else:
                 apiResults.append(False)
+            for m in callAPI(r, "testmodule1", "discover", {}):
+                yield m
+            apiResults.append(r.retvalue)
             with open(os.path.join(basedir, 'testmodule1.py'), 'wb') as f:
                 f.write(module1v2)
             for m in s.moduleloader.delegate(s.moduleloader.reloadModules(['tests.gensrc.testmodule1.TestModule1'])):
@@ -341,7 +348,10 @@ class Test(unittest.TestCase):
         r.main = testproc
         r.start()
         s.serve()
-        self.assertEqual(apiResults, ['version1', 3, 'test', (3, 'version1'), 'version2', (3, 'version1'), (3, 'version2'), 'version3', (3, 'version3')])
+        print(repr(apiResults))
+        self.assertEqual(apiResults, ['version1', 3, 'test', (3, 'version1'),
+                                      {'method1':'Run method1', 'method2':'Run method2', 'method3':'Run method3', 'method4': 'Run method4', 'discover':'Discover API definitions'},
+                                      'version2', (3, 'version1'), (3, 'version2'), 'version3', (3, 'version3')])
 
 
 if __name__ == "__main__":

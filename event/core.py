@@ -218,7 +218,7 @@ class Scheduler(object):
             for e in events:
                 self.queue.unblock(e)
             if m.indices[0] == PollEvent._typename and len(m.indices) >= 2:
-                self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2])
+                self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], True)
         self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).union(matchers)
     def unregister(self, matchers, runnable):
         '''
@@ -228,6 +228,8 @@ class Scheduler(object):
         '''
         for m in matchers:
             self.matchtree.remove(m, runnable)
+            if m.indices[0] == PollEvent._typename and len(m.indices) >= 2:
+                self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], False)
         self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).difference(matchers)
     def unregisterall(self, runnable):
         '''
@@ -236,6 +238,8 @@ class Scheduler(object):
         if runnable in self.registerIndex:
             for m in self.registerIndex[runnable]:
                 self.matchtree.remove(m, runnable)
+                if m.indices[0] == PollEvent._typename and len(m.indices) >= 2:
+                    self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], False)
             del self.registerIndex[runnable]
             self.daemons.discard(runnable)
     def ignore(self, matcher):
@@ -359,6 +363,8 @@ class Scheduler(object):
                 for r, m in runnables:
                     try:
                         self.syscallfunc = None
+                        if self.debugging:
+                            self.logger.debug('Send event to %r, matched with %r', r, m)
                         r.send((event, m))
                     except StopIteration:
                         self.unregisterall(r)
