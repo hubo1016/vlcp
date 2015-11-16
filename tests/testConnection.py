@@ -3,6 +3,7 @@ Created on 2015/6/29
 
 @author: hubo
 '''
+from __future__ import print_function
 import unittest
 from event.event import Event, withIndices
 from event.core import Scheduler, PollEvent, TimerEvent, SystemControlEvent, SystemControlLowPriorityEvent
@@ -411,6 +412,9 @@ class TestConnection(unittest.TestCase):
         self.scheduler.main()
         self.assertEqual(ret, b'ABABABABABABABABABAB')
     def testSelfConnectionUnix(self):
+        if not hasattr(socket, 'AF_UNIX'):
+            print('Skip UNIX socket test because not supported')
+            return
         try:
             os.remove('/var/run/unixsocktest.sock')
         except:
@@ -438,6 +442,9 @@ class TestConnection(unittest.TestCase):
         self.scheduler.main()
         self.assertEqual(ret, b'ABABABABABABABABABAB')
     def testSelfConnectionUnixDgram(self):
+        if not hasattr(socket, 'AF_UNIX'):
+            print('Skip UNIX socket test because not supported')
+            return
         try:
             os.remove('/var/run/unixsocktestudp1.sock')
         except:

@@ -35,24 +35,34 @@ class Session(Module):
             self.lockseq = 0
             self.releaseseq = 0
     class SessionHandle(object):
-        def __init__(self, sessionobj):
+        def __init__(self, sessionobj, container):
             self.sessionobj = sessionobj
             self.id = sessionobj.id
             self.vars = sessionobj.vars
             self.lockseq = None
-        def lock(self, container):
+            self.container = container
+        def lock(self):
             "Lock session"
             self.lockseq = self.sessionobj.lockseq
+            self.locked = False
             self.sessionobj.lockseq += 1
             if self.lockseq > self.sessionobj.releaseseq:
                 # Wait for unlock
                 yield (SessionLockReleased.createMatcher(self.id, self.lockseq),)
-        def unlock(self, container):
+                self.locked = True
+        def unlock(self):
             "Unlock session"
             if self.lockseq is not None:
-                for m in container.waitForSend(SessionLockReleased(self.id, self.lockseq)):
+                if not self.locked:
+                    # Unlock on future
+                    def future_unlock(c, sid, lockseq):
+                        yield (SessionLockReleased.createMatcher(sid, lockseq),)
+                        for m in c.waitForSend(SessionLockReleased(sid, lockseq + 1)):
+                            yield m
+                    
+                for m in self.container.waitForSend(SessionLockReleased(self.id, self.lockseq + 1)):
                     yield m
-                self.sessionobj.releaseseq = self.lockseq
+                self.sessionobj.releaseseq = self.lockseq + 1
                 self.lockseq = None
     def __init__(self, server):
         '''
@@ -72,7 +82,7 @@ class Session(Module):
             for m in self.get(sid.value):
                 yield m
             if self.apiroutine.retvalue is not None:
-                self.apiroutine.retvalue = (self.SessionHandle(self.apiroutine.retvalue), [])
+                self.apiroutine.retvalue = (self.SessionHandle(self.apiroutine.retvalue, self.apiroutine), [])
                 create = False
         if create:
             for m in self.create():
@@ -97,7 +107,7 @@ class Session(Module):
         sobj = self.SessionObject(sid)
         for m in callAPI(self.apiroutine, 'knowledge', 'set', {'key': __name__ + '.' + sid, 'value': sobj, 'timeout': self.timeout}):
             yield m
-        self.apiroutine.retvalue = self.SessionHandle(sobj)
+        self.apiroutine.retvalue = self.SessionHandle(sobj, self.apiroutine)
     def destroy(self, sessionid):
         for m in callAPI(self.apiroutine, 'knowledge', 'delete', {'key': __name__ + '.' + sessionid}):
             yield m

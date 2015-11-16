@@ -82,6 +82,7 @@ class Http(Protocol):
     _default_expecttimeout = 2
     _default_defaultport = 80
     _default_showerrorinfo = False
+    _default_unquoteplus = True
     _logger = logging.getLogger(__name__ + '.HTTP')
     _default_errorrewrite = {}
     _default_errorredirect = {}
@@ -716,7 +717,7 @@ class Http(Protocol):
         return s
     # From cgi library
     @staticmethod
-    def escape_b(s, quote=None):
+    def escape_b(s, quote=True):
         '''Replace special characters "&", "<" and ">" to HTML-safe sequences.
         If the optional flag quote is true, the quotation mark character (")
         is also translated.'''
@@ -727,7 +728,7 @@ class Http(Protocol):
             s = s.replace(b'"', b"&quot;")
         return s
     @staticmethod
-    def escape(s, quote=None):
+    def escape(s, quote=True):
         '''Replace special characters "&", "<" and ">" to HTML-safe sequences.
         If the optional flag quote is true, the quotation mark character (")
         is also translated.'''

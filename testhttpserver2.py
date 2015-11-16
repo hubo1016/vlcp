@@ -56,8 +56,16 @@ Session = %s<br/>
             yield m
         for m in env.sessionstart():
             yield m
+        for m in env.session.lock():
+            yield m
+        #for m in self.waitWithTimeout(10):
+        #    yield m
         env.session.vars['counter'] = env.session.vars.get('counter', 0) + 1
-        if 'exception' in env.args:
+        if 'auth' in env.args:
+            username, password = env.basicauth()
+            if username != b'test' or password != b'testpassword':
+                env.basicauthfail()
+        elif 'exception' in env.args:
             raise Exception('Test Exception')
         elif 'rewrite' in env.args:
             for m in env.rewrite(b'/?test=a&test2=b'):

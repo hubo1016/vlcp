@@ -307,7 +307,7 @@ class Connection(RoutineContainer):
                         except socket.error as exc:
                             if exc.errno == errno.EAGAIN or exc.errno == errno.EWOULDBLOCK:
                                 wouldblock = True
-                            elif exc.errno == errno.EPIPE or exc.errno == errno.ECONNRESET:
+                            elif exc.errno == errno.EPIPE or exc.errno == errno.ECONNRESET or exc.errno == errno.ECONNABORTED:
                                 exitLoop = True
                                 break
                             elif exc.errno == errno.EINTR:

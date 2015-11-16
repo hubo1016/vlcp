@@ -53,7 +53,8 @@ class Server(Configurable):
                 logging.config.dictConfig(self.logging.todict())
         elif hasattr(self, 'loggingconfig'):
             logging.config.fileConfig(self.loggingconfig)
-        self.scheduler = Scheduler(DefaultPolling(), getattr(self, 'processevents', None), getattr(self, 'queuedefaultsize', None), getattr(self, 'queuemaxsize', None))
+        self.scheduler = Scheduler(DefaultPolling(), getattr(self, 'processevents', None), getattr(self, 'queuedefaultsize', None), getattr(self, 'queuemaxsize', None),
+                                   defaultQueueClass=CBQueue.AutoClassQueue.initHelper('_classname0'), defaultQueuePriority = 400)
         if self.debugging:
             self.scheduler.debugging = True
             self.scheduler.logger.setLevel('DEBUG')

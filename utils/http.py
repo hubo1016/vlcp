@@ -9,13 +9,23 @@ import traceback
 from event.stream import Stream
 from event import EventHandler
 from event.runnable import RoutineContainer
+import base64
 try:
     from Cookie import SimpleCookie, Morsel
     from urlparse import parse_qs, urlunsplit, urljoin, urlsplit
+    from urllib import unquote, quote, unquote_plus
+    unquote_to_bytes = unquote
+    quote_from_bytes = quote
+    unquote_plus_to_bytes = unquote_plus
 except:
     from http.cookies import SimpleCookie, Morsel
-    from urllib.parse import parse_qs, urlunsplit, urljoin, urlsplit
-
+    from urllib.parse import parse_qs, urlunsplit, urljoin, urlsplit, unquote_to_bytes, quote_from_bytes
+    # There is not an unquote_plus_to_bytes in urllib.parse, but it is simple
+    def unquote_plus_to_bytes(s):
+        if isinstance(s, str):
+            return unquote_to_bytes(s.replace('+', ' '))
+        else:
+            return unquote_to_bytes(s.replace(b'+', b' '))
 import re
 from email.message import Message
 from server.module import callAPI
@@ -164,7 +174,7 @@ class Environment(object):
             raise HttpProtocolException('Cannot modify response, headers already sent')
         if getattr(self.event, 'rewritedepth', 0) >= getattr(self.protocol, 'rewritedepthlimit', 32):
             raise HttpRewriteLoopException
-        newpath = urljoin(self.path, path)
+        newpath = urljoin(quote_from_bytes(self.path).encode('ascii'), path)
         if newpath == self.fullpath or newpath == self.originalpath:
             raise HttpRewriteLoopException
         r = HttpRequestEvent(self.host,
@@ -189,7 +199,7 @@ class Environment(object):
     def redirect(self, path, status = 302):
         location = urljoin(urlunsplit((b'https' if self.https else b'http',
                                                                      self.host,
-                                                                     self.path,
+                                                                     quote_from_bytes(self.path).encode('ascii'),
                                                                      '',
                                                                      ''
                                                                      )), path)
@@ -203,12 +213,12 @@ class Environment(object):
             return text.replace(b'\n', b'<br/>\n')
         else:
             return text.replace('\n', '<br/>\n')
-    def escape(self, text, quote = False):
+    def escape(self, text, quote = True):
         if isinstance(text, bytes):
             return self.protocol.escape_b(text, quote)
         else:
             return self.protocol.escape(text, quote)
-    def error(self, status=500, allowredirect = True, close = True, showerror = None):
+    def error(self, status=500, allowredirect = True, close = True, showerror = None, headers = []):
         if showerror is None:
             showerror = self.showerrorinfo
         if self._sendHeaders:
@@ -228,7 +238,7 @@ class Environment(object):
             for m in self.redirect(self.protocol.errorredirect[status]):
                 yield m
         else:
-            self.startResponse(status)
+            self.startResponse(status, headers)
             typ, exc, tb = sys.exc_info()
             if showerror and exc:
                 for m in self.write('<span style="white-space:pre-wrap">\n', buffering = False):
@@ -272,7 +282,7 @@ class Environment(object):
             for m in self.flush(True):
                 yield m
         if hasattr(self, 'session') and self.session:
-            for m in self.session.unlock(self.container):
+            for m in self.session.unlock():
                 yield m
     def exit(self):
         "Exit current HTTP processing"
@@ -382,7 +392,28 @@ class Environment(object):
             for nc in setcookies:
                 self.sent_cookies = [c for c in self.sent_cookies if c.key != nc.key]
                 self.sent_cookies.append(nc)
-            
+    def basicauth(self, realm = b'all'):
+        "Try to get the basic authorize info, return (username, password) if succeeded, return 401 otherwise"
+        if b'authorization' in self.headerdict:
+            auth = self.headerdict[b'authorization']
+            auth_pair = auth.split(b' ', 1)
+            if len(auth_pair) < 2:
+                raise HttpInputException('Authorization header is malformed')
+            if auth_pair[0].lower() == b'basic':
+                try:
+                    userpass = base64.b64decode(auth_pair[1])
+                except:
+                    raise HttpInputException('Invalid base-64 string')
+                userpass_pair = userpass.split(b':', 1)
+                if len(userpass_pair) != 2:
+                    raise HttpInputException('Authorization header is malformed')
+                return userpass_pair
+        self.basicauthfail(realm)
+    def basicauthfail(self, realm = b'all'):
+        if not isinstance(realm, bytes):
+            realm = realm.encode('ascii')
+        self.startResponse(401, [(b'WWW-Authenticate', b'Basic realm="' + realm + b'"')])
+        self.exit()
 
 def http(container = None):
     "wrap a WSGI-style class method to a HTTPRequest event handler"
@@ -480,10 +511,14 @@ class Dispatcher(EventHandler):
             if psplit.netloc and host is not None and host != psplit.netloc:
                 # Maybe a proxy request, ignore it
                 return False
-            m = regm.match(psplit.path)
+            if getattr(event.createby, 'unquoteplus', True):
+                realpath = unquote_plus_to_bytes(psplit.path)
+            else:
+                realpath = unquote_to_bytes(psplit.path)
+            m = regm.match(realpath)
             if m is None:
                 return False
-            event.realpath = psplit.path
+            event.realpath = realpath
             event.querystring = psplit.query
             event.path_match = m
             return True
@@ -512,10 +547,20 @@ class Dispatcher(EventHandler):
         @param method: if specified, response to specified methods
         '''
         self.routeevent(path, statichttp(container)(routinemethod), container, host, vhost, method)
+    class _EncodedMatch(object):
+        "Hacker for match.expand"
+        def __init__(self, innerobj):
+            self.__innerobj = innerobj
+        def __getattr__(self, key):
+            return getattr(self.__innerobj, key)
+        def group(self, index = 0):
+            return quote_from_bytes(self.__innerobj.group(index)).encode('ascii')
     def rewrite(self, path, expand, newmethod = None, host = None, vhost = None, method = [b'GET', b'HEAD'], keepquery = True):
         "Rewrite a request to another location"
         def func(env):
-            newpath = env.path_match.expand(expand)
+            # If use expand directly, the url-decoded context will be decoded again, which create a security
+            # issue. Hack expand to quote the text before expanding
+            newpath = re._expand(env.path_match.re, self._EncodedMatch(env.path_match), expand)
             if keepquery and getattr(env, 'querystring', None):
                 if b'?' in newpath:
                     newpath += b'&' + env.querystring
@@ -527,7 +572,7 @@ class Dispatcher(EventHandler):
     def redirect(self, path, expand, status = 302, host = None, vhost = None, method = [b'GET', b'HEAD'], keepquery = True):
         "Redirect a request to another location"
         def func(env):
-            newpath = env.path_match.expand(expand)
+            newpath = re._expand(env.path_match.re, self._EncodedMatch(env.path_match), expand)
             if keepquery and getattr(env, 'querystring', None):
                 if b'?' in newpath:
                     newpath += b'&' + env.querystring

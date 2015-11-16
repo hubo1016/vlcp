@@ -34,18 +34,23 @@ class EventMatcher(object):
     
 def withIndices(*args):
     def decorator(cls):
-        cls._typename = cls.getTypename()
         for c in cls.__bases__:
             if hasattr(c, '_indicesNames'):
-                cls._indicesNames = c._indicesNames + args
+                cls._classnameIndex = c._classnameIndex + 1
+                for i in range(0, cls._classnameIndex):
+                    setattr(cls, '_classname' + str(i), getattr(c, '_classname' + str(i)))
+                setattr(cls, '_classname' + str(cls._classnameIndex), cls._getTypename())
+                cls._indicesNames = c._indicesNames + ('_classname' + str(cls._classnameIndex),) + args
                 return cls
+        cls._classnameIndex = -1
         cls._indicesNames = args
         return cls
     return decorator
 
 class Event(object):
     canignore = True
-    _indicesNames = ('class',)
+    _indicesNames = ()
+    _classnameIndex = -1
     '''
     A generated event with indices
     '''
@@ -61,10 +66,9 @@ class Event(object):
         '''
         indicesNames = self.indicesNames()
         if kwargs and not args:
-            indices = tuple(kwargs[k] for k in indicesNames if k != 'class')
+            indices = tuple(kwargs[k] if not k.startswith('_classname') else getattr(self, k) for k in indicesNames)
         else:
-            indices = args
-        indices = (self._typename,) + indices
+            indices = tuple(self._generateIndices(args))
         self.indices = indices
         for k, v in zip(indicesNames, indices):
             setattr(self, k, v)
@@ -78,6 +82,13 @@ class Event(object):
         '''
         return getattr(cls, '_indicesNames', ())
     @classmethod
+    def _getTypename(cls):
+        module = cls.__module__
+        if module is None:
+            return cls.__name__
+        else:
+            return module  + '.' + cls.__name__        
+    @classmethod
     def getTypename(cls):
         '''
         @return: return the proper name to match
@@ -88,13 +99,33 @@ class Event(object):
             for c in cls.__bases__:
                 if issubclass(c, Event):
                     if c is Event:
-                        module = cls.__module__
-                        if module is None:
-                            return cls.__name__
-                        else:
-                            return module  + '.' + cls.__name__
+                        return cls._getTypename()
                     else:
                         return c.getTypename()
+    @classmethod
+    def _generateIndices(cls, args):
+        start = 0
+        names = cls.indicesNames()
+        classnamelevel = 0
+        for i in range(0, len(args)):
+            while names[start].startswith('_classname'):
+                yield getattr(cls, names[start])
+                start += 1
+                classnamelevel += 1
+            yield args[i]
+            start += 1
+        while start < len(names) and names[start].startswith('_classname'):
+            yield getattr(cls, names[start])
+            start += 1
+            classnamelevel += 1
+        while classnamelevel <= cls._classnameIndex:
+            while names[start].startswith('_classname'):
+                yield getattr(cls, names[start])
+                start += 1
+                classnamelevel += 1
+            yield None
+            start += 1
+            
     @classmethod
     def createMatcher(cls, *args, **kwargs):
         '''
@@ -103,9 +134,9 @@ class Event(object):
         @keyword **: index_name=index_value for matching criteria
         '''
         if kwargs and not args:
-            return EventMatcher((cls._typename,) + tuple(kwargs.get(ind) for ind in cls.indicesNames() if ind != 'class'), kwargs.get('_ismatch'))
+            return EventMatcher(tuple(getattr(cls, ind) if ind.startswith('_classname') else kwargs.get(ind) for ind in cls.indicesNames()), kwargs.get('_ismatch'))
         else:
-            return EventMatcher((cls._typename,) + args, kwargs.get('_ismatch'))
+            return EventMatcher(tuple(cls._generateIndices(args)), kwargs.get('_ismatch'))
     def __repr__(self):
         cls = type(self)
         return '<' + cls.__module__ + '.' + cls.__name__ + '(' + self.getTypename() + '): {' + \

@@ -660,7 +660,7 @@ class CBQueue(object):
                 self.blocked = blocked
                 if self.parent is not None:
                     self.parent.notifyBlock(self, blocked)
-    def __init__(self, tree = None, parent = None, maxdefault = None, maxtotal = None, defaultQueueClass = FifoQueue):
+    def __init__(self, tree = None, parent = None, maxdefault = None, maxtotal = None, defaultQueueClass = FifoQueue, defaultQueuePriority = 0):
         '''
         Constructor
         '''
@@ -672,10 +672,10 @@ class CBQueue(object):
         else:
             self.tree = tree
         self.parent = parent
-        defaultPriority = CBQueue.MultiQueue(self, 0)
+        defaultPriority = CBQueue.MultiQueue(self, defaultQueuePriority)
         defaultQueue = defaultQueueClass(defaultPriority, maxdefault)
         defaultPriority.addSubQueue(defaultQueue)
-        self.queues[0] = defaultPriority
+        self.queues[defaultQueuePriority] = defaultPriority
         self.tree.insert(None, defaultQueue)
         self.defaultQueue = defaultQueue
         self.totalSize = 0

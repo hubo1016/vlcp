@@ -181,17 +181,20 @@ class Scheduler(object):
             else:
                 return ((),True)
     logger = getLogger(__name__ + '.Scheduler')
-    def __init__(self, polling = None, processevents = None, queuedefault = None, queuemax = None):
+    def __init__(self, polling = None, processevents = None, queuedefault = None, queuemax = None, defaultQueueClass = CBQueue.FifoQueue,
+                 defaultQueuePriority = 0):
         '''
         Constructor
         @param polling: a polling source to retrieve events
         @param processevents: max events processed before starting another poll
         @param queuedefault: max length of default queue
         @param queuemax: total max length of the event queue
+        @param defaultQueueClass: default queue class, see CBQueue
+        @param defaultQueuePriority: default queue priority, see CBQueue
         '''
         self.matchtree = MatchTree()
         self.eventtree = EventTree()
-        self.queue = CBQueue(None, None, queuedefault, queuemax)
+        self.queue = CBQueue(None, None, queuedefault, queuemax, defaultQueueClass=defaultQueueClass, defaultQueuePriority=defaultQueuePriority)
         self.polling = polling
         if polling is None:
             # test only
@@ -217,7 +220,7 @@ class Scheduler(object):
             events = self.eventtree.findAndRemove(m)
             for e in events:
                 self.queue.unblock(e)
-            if m.indices[0] == PollEvent._typename and len(m.indices) >= 2:
+            if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
                 self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], True)
         self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).union(matchers)
     def unregister(self, matchers, runnable):
@@ -228,7 +231,7 @@ class Scheduler(object):
         '''
         for m in matchers:
             self.matchtree.remove(m, runnable)
-            if m.indices[0] == PollEvent._typename and len(m.indices) >= 2:
+            if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
                 self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], False)
         self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).difference(matchers)
     def unregisterall(self, runnable):
@@ -238,7 +241,7 @@ class Scheduler(object):
         if runnable in self.registerIndex:
             for m in self.registerIndex[runnable]:
                 self.matchtree.remove(m, runnable)
-                if m.indices[0] == PollEvent._typename and len(m.indices) >= 2:
+                if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
                     self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], False)
             del self.registerIndex[runnable]
             self.daemons.discard(runnable)
