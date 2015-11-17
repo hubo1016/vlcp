@@ -11,7 +11,7 @@ except:
     pass
 from setuptools import setup, find_packages
 
-VERSION = '0.9.2'
+VERSION = '0.9.4'
 
 setup(name='vlcp',
       version=VERSION,
@@ -23,4 +23,4 @@ setup(name='vlcp',
       keywords=['SDN', 'VLCP', 'Openflow'],
       test_suite = 'tests',
       use_2to3=False,
-      packages=find_packages())
+      packages=find_packages(exclude=("tests","tests.*","misc","misc.*")))
