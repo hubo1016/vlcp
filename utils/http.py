@@ -29,8 +29,8 @@ except:
 import re
 from email.message import Message
 from server.module import callAPI
-import service.utils.session
 import functools
+import logging
 
 import sys
 if sys.version_info[0] >= 3:
@@ -115,7 +115,11 @@ class Environment(object):
             # Delay the exception
             self.exception = exc
     def __repr__(self, *args, **kwargs):
-        return self.method.upper() + ' ' + self.path + ', ' + self.connection.remoteaddr[0]
+        r = self.method.upper() + b' ' + self.path + b', ' + self.connection.remoteaddr[0].encode(self.encoding)
+        if not isinstance(r, str):
+            return r.decode(self.encoding)
+        else:
+            return r
     def startResponse(self, status = 200, headers = [], clearheaders = True):
         "Start to send response"
         if self._sendHeaders:
@@ -429,36 +433,39 @@ class Environment(object):
         self.startResponse(401, [(b'WWW-Authenticate', b'Basic realm="' + realm + b'"')])
         self.exit(b'<h1>' + self.protocol._createstatus(401) + b'</h1>')
 
+def _handler(container, event, func):
+    try:
+        env = Environment(event, container)
+        try:
+            if env.exception:
+                raise HttpInputException('Bad request')
+            for m in func(env):
+                yield m
+        except HttpExitException as exc:
+            if exc.args[0]:
+                for m in env.write(exc.args[0]):
+                    yield m
+        except HttpInputException:
+            # HTTP 400 Bad Request
+            for m in env.error(400):
+                yield m
+        except:
+            if container and hasattr(container, 'logger'):
+                container.logger.exception('Unhandled exception in HTTP processing, env=%r:', env)
+            for m in env.error(500):
+                yield m
+        for m in env.close():
+            yield m
+    except:
+        # Must ignore all exceptions, or the whole handler is unregistered
+        pass
+
 def http(container = None):
     "wrap a WSGI-style class method to a HTTPRequest event handler"
     def decorator(func):
         @functools.wraps(func)
         def handler(self, event):
-            try:
-                env = Environment(event, container)
-                try:
-                    if env.exception:
-                        raise HttpInputException('Bad request')
-                    for m in func(self, env):
-                        yield m
-                except HttpExitException as exc:
-                    if exc.args[0]:
-                        for m in env.write(exc.args[0]):
-                            yield m
-                except HttpInputException:
-                    # HTTP 400 Bad Request
-                    for m in env.error(400):
-                        yield m
-                except:
-                    if hasattr(self, 'logger'):
-                        self.logger.exception('Unhandled exception in HTTP processing, env=%r:', env)
-                    for m in env.error(500):
-                        yield m
-                for m in env.close():
-                    yield m
-            except:
-                # Must ignore all exceptions, or the whole handler is unregistered
-                pass
+            return _handler(self if container is None else container, event, lambda env: func(self, env))
         return handler
     return decorator
 
@@ -467,27 +474,7 @@ def statichttp(container = None):
     def decorator(func):
         @functools.wraps(func)
         def handler(event):
-            try:
-                env = Environment(event, container)
-                try:
-                    if env.exception:
-                        raise HttpInputException('Bad request')
-                    for m in func(env):
-                        yield m
-                except HttpExitException:
-                    pass
-                except HttpInputException:
-                    # HTTP 400 Bad Request
-                    for m in env.error(400):
-                        yield m
-                except:
-                    for m in env.error(500):
-                        yield m
-                for m in env.close():
-                    yield m
-            except:
-                # Must ignore all exceptions, or the whole handler is unregistered
-                pass
+            return _handler(container, event, func)
         if hasattr(func, '__self__'):
             handler.__self__ = func.__self__
         return handler
@@ -599,6 +586,7 @@ class Dispatcher(EventHandler):
         self.route(path, func)
 
 class HttpHandler(RoutineContainer):
+    logger = logging.getLogger(__name__ + '.HttpHandler')
     def __init__(self, scheduler=None, daemon=False, vhost = ''):
         RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
         self.dispatcher = Dispatcher(scheduler, daemon, vhost)
