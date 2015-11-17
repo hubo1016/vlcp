@@ -6,7 +6,7 @@ Created on 2015/11/10
 
 from protocol.http import HttpProtocolException, HttpRequestEvent
 import traceback
-from event.stream import Stream
+from event.stream import Stream, MemoryStream
 from event import EventHandler
 from event.runnable import RoutineContainer
 import base64
@@ -116,13 +116,16 @@ class Environment(object):
             self.exception = exc
     def __repr__(self, *args, **kwargs):
         return self.method.upper() + ' ' + self.path + ', ' + self.connection.remoteaddr[0]
-    def startResponse(self, status = 200, headers = []):
+    def startResponse(self, status = 200, headers = [], clearheaders = True):
         "Start to send response"
         if self._sendHeaders:
             raise HttpProtocolException('Cannot modify response, headers already sent')
         self.status = status
-        self.sent_headers = headers
-        self.setcookies = []
+        if clearheaders:
+            self.sent_headers = headers
+            self.sent_cookies = []
+        else:
+            self.sent_headers.extend(headers)
     def header(self, key, value, replace = True):
         "Send a new header"
         if hasattr(key, 'encode'):
@@ -160,8 +163,8 @@ class Environment(object):
         self.outputstream = Stream(writebufferlimit=None)
     def _startResponse(self):
         if not hasattr(self, 'status'):
-            self.startResponse(200, [])
-        if all(k.lower() != 'content-type' for k,_ in self.sent_headers):
+            self.startResponse(200, clearheaders=False)
+        if all(k.lower() != b'content-type' for k,_ in self.sent_headers):
             self.header('content-type', 'text/html; charset=' + self.encoding, False)
         # Process cookies
         for c in self.sent_cookies:
@@ -274,7 +277,15 @@ class Environment(object):
         if self._sendHeaders:
             raise HttpProtocolException('Cannot modify response, headers already sent')
         self.outputstream = stream
+        try:
+            content_length = len(stream)
+        except:
+            pass
+        else:
+            self.header(b'content-length', str(content_length).encode('ascii'))
         self._startResponse()
+    def outputdata(self, data):
+        self.output(MemoryStream(data))
     def close(self):
         if not self._sendHeaders:
             self._startResponse()
@@ -284,9 +295,9 @@ class Environment(object):
         if hasattr(self, 'session') and self.session:
             for m in self.session.unlock():
                 yield m
-    def exit(self):
+    def exit(self, output=b''):
         "Exit current HTTP processing"
-        raise HttpExitException
+        raise HttpExitException(output)
     def parseform(self, limit = 67108864):
         '''
         Parse form-data with multipart/form-data or application/x-www-form-urlencoded
@@ -392,7 +403,7 @@ class Environment(object):
             for nc in setcookies:
                 self.sent_cookies = [c for c in self.sent_cookies if c.key != nc.key]
                 self.sent_cookies.append(nc)
-    def basicauth(self, realm = b'all'):
+    def basicauth(self, realm = b'all', nofail = False):
         "Try to get the basic authorize info, return (username, password) if succeeded, return 401 otherwise"
         if b'authorization' in self.headerdict:
             auth = self.headerdict[b'authorization']
@@ -408,12 +419,15 @@ class Environment(object):
                 if len(userpass_pair) != 2:
                     raise HttpInputException('Authorization header is malformed')
                 return userpass_pair
-        self.basicauthfail(realm)
+        if nofail:
+            return (None, None)
+        else:
+            self.basicauthfail(realm)
     def basicauthfail(self, realm = b'all'):
         if not isinstance(realm, bytes):
             realm = realm.encode('ascii')
         self.startResponse(401, [(b'WWW-Authenticate', b'Basic realm="' + realm + b'"')])
-        self.exit()
+        self.exit(b'<h1>' + self.protocol._createstatus(401) + b'</h1>')
 
 def http(container = None):
     "wrap a WSGI-style class method to a HTTPRequest event handler"
@@ -427,8 +441,10 @@ def http(container = None):
                         raise HttpInputException('Bad request')
                     for m in func(self, env):
                         yield m
-                except HttpExitException:
-                    pass
+                except HttpExitException as exc:
+                    if exc.args[0]:
+                        for m in env.write(exc.args[0]):
+                            yield m
                 except HttpInputException:
                     # HTTP 400 Bad Request
                     for m in env.error(400):
