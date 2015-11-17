@@ -153,13 +153,15 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                 try:
                     etup = yield
                 except:
-                    scheduler.unregister(matchers, iterself)
+                    #scheduler.unregister(matchers, iterself)
+                    lmatchers = matchers
                     t,v,tr = sys.exc_info()  # @UnusedVariable
                     if container is not None:
                         container.currentroutine = iterself
                     matchers = iterator.throw(t,v)
                 else:
-                    scheduler.unregister(matchers, iterself)
+                    #scheduler.unregister(matchers, iterself)
+                    lmatchers = matchers
                     if container is not None:
                         container.event = etup[0]
                         container.matcher = etup[1]
@@ -167,7 +169,8 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                         container.currentroutine = iterself
                     matchers = iterator.send(etup)
                 try:
-                    scheduler.register(matchers, iterself)
+                    scheduler.unregister(set(lmatchers).difference(matchers), iterself)
+                    scheduler.register(set(matchers).difference(lmatchers), iterself)
                 except:
                     iterator.throw(IllegalMatchersException(matchers))
                     raise
