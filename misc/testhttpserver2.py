@@ -99,7 +99,7 @@ if __name__ == '__main__':
     #Http._logger.setLevel(logging.DEBUG)
     manager['server.debugging'] = True
     manager['module.httpserver.url'] = None
-    manager['module.httpserver.urls'] = ['ltcp://0.0.0.0:8080', 'ltcp://[::]:8080']
+    manager['module.httpserver.urls'] = ['ltcp://localhost:8080']
     manager['protocol.http.showerrorinfo'] = True
     main(None, ())
     
