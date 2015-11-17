@@ -4,13 +4,14 @@ Created on 2015/11/17
 
 @author: hubo
 '''
-
-import ez_setup
-ez_setup.use_setuptools()
-
+try:
+    import ez_setup
+    ez_setup.use_setuptools()
+except:
+    pass
 from setuptools import setup, find_packages
 
-VERSION = '0.9.0'
+VERSION = '0.9.2'
 
 setup(name='vlcp',
       version=VERSION,
@@ -22,4 +23,4 @@ setup(name='vlcp',
       keywords=['SDN', 'VLCP', 'Openflow'],
       test_suite = 'tests',
       use_2to3=False,
-      packages=find_packages(include = ('vlcp*',)))
+      packages=find_packages())
