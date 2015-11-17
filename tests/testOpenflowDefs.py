@@ -5,8 +5,8 @@ Created on 2015/7/20/
 '''
 from __future__ import print_function
 import unittest
-from protocol.openflow import common, openflow10, openflow13
-from utils.namedstruct import nstruct, dump
+from vlcp.protocol.openflow import common, openflow10, openflow13
+from vlcp.utils.namedstruct import nstruct, dump
 from pprint import pprint
 
 class Test(unittest.TestCase):

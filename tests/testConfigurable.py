@@ -4,8 +4,8 @@ Created on 2015/7/8
 @author: hubo
 '''
 import unittest
-from config import manager, Configurable, defaultconfig
-from protocol import Protocol
+from vlcp.config import manager, Configurable, defaultconfig
+from vlcp.protocol import Protocol
 
 @defaultconfig
 class TestConfigurable(Configurable):

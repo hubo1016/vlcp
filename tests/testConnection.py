@@ -5,16 +5,16 @@ Created on 2015/6/29
 '''
 from __future__ import print_function
 import unittest
-from event.event import Event, withIndices
-from event.core import Scheduler, PollEvent, TimerEvent, SystemControlEvent, SystemControlLowPriorityEvent
-from event import DefaultPolling
-from event.connection import Resolver, Client, TcpServer, ConnectionWriteEvent, ConnectionControlEvent,\
+from vlcp.event.event import Event, withIndices
+from vlcp.event.core import Scheduler, PollEvent, TimerEvent, SystemControlEvent, SystemControlLowPriorityEvent
+from vlcp.event import DefaultPolling
+from vlcp.event.connection import Resolver, Client, TcpServer, ConnectionWriteEvent, ConnectionControlEvent,\
     ResolveRequestEvent, ResolveResponseEvent
-from protocol.protocol import Protocol
-from event.runnable import RoutineContainer
+from vlcp.protocol.protocol import Protocol
+from vlcp.event.runnable import RoutineContainer
 from socket import SOL_SOCKET, SO_ERROR
-from event.pqueue import CBQueue
-from event.runnable import RoutineControlEvent
+from vlcp.event.pqueue import CBQueue
+from vlcp.event.runnable import RoutineControlEvent
 import errno
 import logging
 import socket

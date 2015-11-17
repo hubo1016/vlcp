@@ -4,24 +4,24 @@ Created on 2015/10/14
 @author: hubo
 '''
 import unittest
-from server import Server
-from server.module import callAPI, ModuleLoadStateChanged
+from vlcp.server import Server
+from vlcp.server.module import callAPI, ModuleLoadStateChanged
 import logging
 import os.path
-from event.runnable import RoutineContainer
-from config import manager
-from utils.pycache import removeCache
+from vlcp.event.runnable import RoutineContainer
+from vlcp.config import manager
+from vlcp.utils.pycache import removeCache
 
 try:
     reload
 except:
-    from utils.pycache import reload
+    from vlcp.utils.pycache import reload
 
 module1 = b'''
-from server.module import Module, api
-from config import defaultconfig
-from event import Event, withIndices
-from event.runnable import RoutineContainer
+from vlcp.server.module import Module, api
+from vlcp.config import defaultconfig
+from vlcp.event import Event, withIndices
+from vlcp.event.runnable import RoutineContainer
 
 @withIndices()
 class ModuleTestEvent(Event):
@@ -57,10 +57,10 @@ class TestModule1(Module):
 '''
 
 module2 = b'''
-from server.module import Module, api, depend
-from config import defaultconfig
-from event import Event, withIndices
-from event.runnable import RoutineContainer
+from vlcp.server.module import Module, api, depend
+from vlcp.config import defaultconfig
+from vlcp.event import Event, withIndices
+from vlcp.event.runnable import RoutineContainer
 from . import testmodule1
 
 @withIndices()
@@ -82,10 +82,10 @@ class TestModule2(Module):
 '''
 
 module1v2 = b'''
-from server.module import Module, api
-from config import defaultconfig
-from event import Event, withIndices
-from event.runnable import RoutineContainer
+from vlcp.server.module import Module, api
+from vlcp.config import defaultconfig
+from vlcp.event import Event, withIndices
+from vlcp.event.runnable import RoutineContainer
 
 @withIndices()
 class ModuleTestEvent(Event):
@@ -117,10 +117,10 @@ class TestModule1(Module):
 '''
 
 module2v2 = b'''
-from server.module import Module, api, depend
-from config import defaultconfig
-from event import Event, withIndices
-from event.runnable import RoutineContainer
+from vlcp.server.module import Module, api, depend
+from vlcp.config import defaultconfig
+from vlcp.event import Event, withIndices
+from vlcp.event.runnable import RoutineContainer
 from . import testmodule1
 
 @withIndices()
@@ -143,10 +143,10 @@ class TestModule2(Module):
 
 
 module1v3 = b'''
-from server.module import Module, api
-from config import defaultconfig
-from event import Event, withIndices
-from event.runnable import RoutineContainer
+from vlcp.server.module import Module, api
+from vlcp.config import defaultconfig
+from vlcp.event import Event, withIndices
+from vlcp.event.runnable import RoutineContainer
 
 @withIndices()
 class ModuleTestEvent(Event):
@@ -178,10 +178,10 @@ class TestModule1(Module):
 '''
 
 module2v3 = b'''
-from server.module import Module, api, depend
-from config import defaultconfig
-from event import Event, withIndices
-from event.runnable import RoutineContainer
+from vlcp.server.module import Module, api, depend
+from vlcp.config import defaultconfig
+from vlcp.event import Event, withIndices
+from vlcp.event.runnable import RoutineContainer
 from . import testmodule1
 
 @withIndices()

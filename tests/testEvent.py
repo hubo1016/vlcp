@@ -4,9 +4,9 @@ Created on 2015/6/9
 @author: hubo
 '''
 import unittest
-from event.event import Event,EventMatcher,withIndices
-from event.matchtree import MatchTree, EventTree
-from event.pqueue import CBQueue
+from vlcp.event.event import Event,EventMatcher,withIndices
+from vlcp.event.matchtree import MatchTree, EventTree
+from vlcp.event.pqueue import CBQueue
 
 @withIndices('type', 'bind', 'number', 'obj')
 class TestEvent(Event):

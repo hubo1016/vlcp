@@ -4,10 +4,10 @@ Created on 2015/6/18
 @author: hubo
 '''
 import unittest
-from event.core import Scheduler
-from event.runnable import RoutineContainer, RoutineControlEvent
-from event.event import Event, withIndices
-from event.connection import Client, TcpServer
+from vlcp.event.core import Scheduler
+from vlcp.event.runnable import RoutineContainer, RoutineControlEvent
+from vlcp.event.event import Event, withIndices
+from vlcp.event.connection import Client, TcpServer
 import logging
 
 @withIndices('producer')
