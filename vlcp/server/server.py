@@ -48,16 +48,18 @@ class Server(Configurable):
         '''
         if hasattr(self, 'logging'):
             if isinstance(self.logging, dict):
-                logging.config.dictConfig(self.logging)
+                logging_config = dict(self.logging)
             else:
-                logging.config.dictConfig(self.logging.todict())
+                logging_config = self.logging.todict()
+            logging_config.setdefault('disable_existing_loggers', False)
+            logging.config.dictConfig(logging_config)
         elif hasattr(self, 'loggingconfig'):
-            logging.config.fileConfig(self.loggingconfig)
+            logging.config.fileConfig(self.loggingconfig, disable_existing_loggers=False)
         self.scheduler = Scheduler(DefaultPolling(), getattr(self, 'processevents', None), getattr(self, 'queuedefaultsize', None), getattr(self, 'queuemaxsize', None),
                                    defaultQueueClass=CBQueue.AutoClassQueue.initHelper('_classname0'), defaultQueuePriority = 400)
         if self.debugging:
             self.scheduler.debugging = True
-            logging.getLogger().setLevel(logging.DEBUG)
+            self.scheduler.logger.setLevel(logging.DEBUG)
         self.scheduler.queue.addSubQueue(self.pollwritepriority, PollEvent.createMatcher(category=PollEvent.WRITE_READY), 'write', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(self.pollreadpriority, PollEvent.createMatcher(category=PollEvent.READ_READY), 'read', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(self.pollerrorpriority, PollEvent.createMatcher(category=PollEvent.ERROR), 'error')
@@ -167,6 +169,10 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
         cwd = os.getcwd()
         if cwd not in sys.path:
             sys.path.append(cwd)
+        # Fix path issues on already-loaded modules
+        for m in sys.modules.values():
+            if getattr(m, '__path__', None):
+                m.__path__ = [p if p.startswith('/') else os.path.join(cwd, p) for p in m.__path__]
         configs = {'gid':gid,'uid':uid,'pidfile':locker}
         config_filters = ['chroot_directory', 'working_directory', 'umask', 'detach_process',
                           'prevent_core']

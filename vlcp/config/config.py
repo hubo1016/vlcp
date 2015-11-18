@@ -150,7 +150,9 @@ class Manager(ConfigTree):
         for l in filelike:
             line_no += 1
             l = l.strip()
-            if not l:
+            # If there is a # in start, the whole line is remarked.
+            # ast.literal_eval already processed any # after '='.
+            if not l or l.startswith('#'):
                 continue
             m = line_format.match(l)
             if not m:
