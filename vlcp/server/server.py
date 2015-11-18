@@ -116,10 +116,6 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
             if isinstance(m, type) and issubclass(m, Module) and m is not Module:
                 startup.append('__main__.' + k)
         manager['server.startup'] = startup
-    # Module loading is related to current path, add it to sys.path
-    cwd = os.getcwd()
-    if cwd not in sys.path:
-        sys.path.append(cwd)
     if daemon:
         import daemon
         if not pidfile:
@@ -166,6 +162,10 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
             locker = None
         import os
         import sys
+        # Module loading is related to current path, add it to sys.path
+        cwd = os.getcwd()
+        if cwd not in sys.path:
+            sys.path.append(cwd)
         configs = {'gid':gid,'uid':uid,'pidfile':locker}
         config_filters = ['chroot_directory', 'working_directory', 'umask', 'detach_process',
                           'prevent_core']
