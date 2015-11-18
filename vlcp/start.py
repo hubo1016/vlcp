@@ -31,7 +31,7 @@ def usage():
     sys.exit(2)
 def parsearg():
     try:
-        options, args = getopt.gnu_getopt(sys.argv, 'f:p:?hd', 'help')
+        options, args = getopt.gnu_getopt(sys.argv[1:], 'f:p:?hd', 'help')
         configfile = '/etc/vlcp.cfg'
         pidfile = '/var/run/vlcp.pid'
         daemon = False
