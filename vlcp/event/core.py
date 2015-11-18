@@ -206,7 +206,7 @@ class Scheduler(object):
         self.registerIndex = {}
         self.daemons = set()
         self.processevents = processevents
-        self.logger.setLevel(WARNING)
+        #self.logger.setLevel(WARNING)
         self.debugging = False
     def register(self, matchers, runnable):
         '''

@@ -57,7 +57,7 @@ class Server(Configurable):
                                    defaultQueueClass=CBQueue.AutoClassQueue.initHelper('_classname0'), defaultQueuePriority = 400)
         if self.debugging:
             self.scheduler.debugging = True
-            self.scheduler.logger.setLevel(logging.DEBUG)
+            logging.getLogger().setLevel(logging.DEBUG)
         self.scheduler.queue.addSubQueue(self.pollwritepriority, PollEvent.createMatcher(category=PollEvent.WRITE_READY), 'write', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(self.pollreadpriority, PollEvent.createMatcher(category=PollEvent.READ_READY), 'read', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(self.pollerrorpriority, PollEvent.createMatcher(category=PollEvent.ERROR), 'error')
@@ -130,10 +130,11 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
         if uid is None:
             import pwd
             user = manager.get('daemon.user')
-            user_pw = pwd.getpwnam(user)
-            uid = user_pw.pw_uid
-            if gid is None:
-                gid = user_pw.pw_gid
+            if user is not None:
+                user_pw = pwd.getpwnam(user)
+                uid = user_pw.pw_uid
+                if gid is None:
+                    gid = user_pw.pw_gid
         if uid is not None and gid is None:
             import pwd
             gid = pwd.getpwuid(uid).pw_gid

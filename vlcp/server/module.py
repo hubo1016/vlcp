@@ -382,8 +382,13 @@ class ModuleLoader(RoutineContainer):
         except AttributeError:
             pass
         if p is None and autoimport:
-            p = __import__(package, fromlist=(classname,))
-            module = getattr(p, classname)
+            try:
+                p = __import__(package, fromlist=(classname,))
+                module = getattr(p, classname)
+            except KeyError:
+                pass
+            except ImportError:
+                pass
         return (p, module)
     def loadByPath(self, path):
         p, module = self._findModule(path, True)
