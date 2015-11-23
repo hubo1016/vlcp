@@ -8,10 +8,12 @@ from vlcp.server import main
 from vlcp.server.module import Module, depend
 import vlcp.service.utils.session
 import vlcp.service.connection.httpserver
+import vlcp.service.web.static
 from vlcp.utils.http import HttpHandler
 from vlcp.config.config import manager
 
-@depend(vlcp.service.connection.httpserver.HttpServer, vlcp.service.utils.session.Session)
+@depend(vlcp.service.connection.httpserver.HttpServer, vlcp.service.utils.session.Session,
+        vlcp.service.web.static.Static)
 class TestHttpServer(Module):
     def __init__(self, server):
         Module.__init__(self, server)
@@ -23,6 +25,7 @@ class MainHandler(HttpHandler):
 <html>
 <head>
 <title>Test Server Page</title>
+<link rel="stylesheet" type="text/css" href="/static/test.css"/>
 </head>
 <body>
 OK!<br/>
@@ -40,7 +43,8 @@ Session = %s<br/>
 '''
     rewrites = ((br'/test1', br'/?test1=true'),
                 (br'/test/(.*)', br'/?test=\1'),
-                (br'/test3/(.*)', br'../?test=\1'))
+                (br'/test3/(.*)', br'../?test=\1'),
+                (br'/testcss', br'/static/test.css'))
     redirects = ((br'/test2', br'/?test2=true'),
                  (br'/redirect/(.*)', br'/\1'),
                  (br'/redirect2/(.*)', br'../test/\1'))

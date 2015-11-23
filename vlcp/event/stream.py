@@ -5,6 +5,7 @@ Created on 2015/8/14
 '''
 
 from vlcp.event import Event, withIndices
+import os
 
 @withIndices('stream', 'type')
 class StreamDataEvent(Event):
@@ -15,11 +16,9 @@ class StreamDataEvent(Event):
     def canignorenow(self):
         return self.stream.closed
 
-class Stream(object):
-    '''
-    Streaming data with events
-    '''
-    def __init__(self, isunicode = False, encoders = [], writebufferlimit = 4096, splitsize = 1048576):
+class BaseStream(object):
+    "Streaming base"
+    def __init__(self, isunicode = False, encoders = []):
         '''
         Constructor
         '''
@@ -32,21 +31,14 @@ class Stream(object):
         self.closed = False
         self.writeclosed = False
         self.allowwrite = False
-        self.dm = StreamDataEvent.createMatcher(self, None)
         self.isunicode = isunicode
         self.encoders = encoders
-        self.writebuffer = []
-        self.writebuffersize = 0
-        self.writebufferlimit = writebufferlimit
-        self.splitsize = splitsize
     def getEncoderList(self):
         return self.encoders
-    def _parsedata(self, event):
-        event.canignore = True
-        data = event.data
+    def _parsedata(self, data, dataeof, dataerror):
         self.pos = 0
-        self.dataeof = event.type == StreamDataEvent.STREAM_EOF
-        self.dataerror = event.type == StreamDataEvent.STREAM_ERROR
+        self.dataeof = dataeof
+        self.dataerror = dataerror
         if len(data) > 0 or self.dataeof:
             for enc in self.encoders:
                 try:
@@ -105,9 +97,9 @@ class Stream(object):
                 self.eof = True
             return ret
     def prepareRead(self, container):
-        if not self.eof and not self.error and self.pos >= len(self.data):
-            yield (self.dm,)
-            self._parsedata(container.event)
+        if False:
+            yield
+        raise NotImplementedError
     def readline(self, container, size = None):
         ret = []
         retsize = 0
@@ -159,6 +151,66 @@ class Stream(object):
             container.data = b''.join(ret)
         if self.error:
             raise IOError('Stream is broken before EOF')
+    def copyTo(self, dest, container):
+        if self.eof:
+            for m in dest.write(u'' if self.isunicode else b'', True):
+                yield m
+        elif self.error:
+            for m in dest.error(container):
+                yield m
+        else:
+            try:
+                while not self.eof:
+                    for m in self.prepareRead(container):
+                        yield m
+                    data = self.readonce()
+                    try:
+                        for m in dest.write(data, container, self.eof):
+                            yield m
+                    except IOError:
+                        break
+            except:
+                try:
+                    for m in dest.error(container):
+                        yield m
+                except IOError:
+                    pass
+                raise
+            finally:
+                self.close(container.scheduler)
+    def write(self, data, container, eof = False, ignoreexception = False):
+        if not ignoreexception:
+            raise IOError('Stream is closed')
+        if False:
+            yield
+    def error(self, container, ignoreexception = False):
+        if not ignoreexception:
+            raise IOError('Stream is closed')
+        if False:
+            yield
+    def close(self, scheduler = None, allowwrite = False):
+        self.closed = True
+
+class Stream(BaseStream):
+    '''
+    Streaming data with events
+    '''
+    def __init__(self, isunicode = False, encoders = [], writebufferlimit = 4096, splitsize = 1048576):
+        '''
+        Constructor
+        '''
+        BaseStream.__init__(self, isunicode, encoders)
+        self.dm = StreamDataEvent.createMatcher(self, None)
+        self.writebuffer = []
+        self.writebuffersize = 0
+        self.writebufferlimit = writebufferlimit
+        self.splitsize = splitsize
+    def prepareRead(self, container):
+        if not self.eof and not self.error and self.pos >= len(self.data):
+            yield (self.dm,)
+            container.event.canignore = True
+            self._parsedata(container.event.data, container.event.type == StreamDataEvent.STREAM_EOF,
+                            container.event.type == StreamDataEvent.STREAM_ERROR)
     def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
         if self.closed or self.writeclosed:
             if not ignoreexception and not self.allowwrite:
@@ -200,173 +252,72 @@ class Stream(object):
         self.closed = True
         self.allowwrite = allowwrite
         scheduler.ignore(self.dm)
-    def copyTo(self, dest, container):
-        if self.eof:
-            for m in dest.write(u'' if self.isunicode else b'', True):
-                yield m
-        elif self.error:
-            for m in dest.error(container):
-                yield m
-        else:
-            try:
-                while not self.eof:
-                    for m in self.prepareRead(container):
-                        yield m
-                    data = self.readonce()
-                    try:
-                        for m in dest.write(data, container, self.eof):
-                            yield m
-                    except IOError:
-                        break
-            except:
-                try:
-                    for m in dest.error(container):
-                        yield m
-                except IOError:
-                    pass
-                raise
-            finally:
-                self.close(container.scheduler)
 
-class MemoryStream(object):
+class MemoryStream(BaseStream):
     '''
     A stream with readonly data
     '''
-    def __init__(self, data, encoders= []):
+    def __init__(self, data, encoders= [], isunicode = None):
         '''
         Constructor
         '''
-        self.data = b''
+        BaseStream.__init__(self, not isinstance(data, bytes) if isunicode is None else isunicode, encoders)
         self.preloaddata = data
-        self.pos = 0
-        self.dataeof = False
-        self.dataerror = False
-        self.eof = False
-        self.error = False
-        self.closed = True
-        self.isunicode = not isinstance(data, bytes)
-        self.encoders = encoders
     def __len__(self):
         return len(self.preloaddata)
-    def getEncoderList(self):
-        return self.encoders
-    def _parsedata(self):
-        data = self.preloaddata
-        self.pos = 0
-        self.dataeof = True
-        self.dataerror = False
-        for enc in self.encoders:
-            try:
-                data = enc(data, self.dataeof)
-            except:
-                self.error = True
-                self.closed = True
-                raise
-        self.data = data
-    def read(self, container, size = None):
-        if self.eof:
-            raise EOFError
-        if self.error:
-            raise IOError('Stream is broken before EOF')
-        if not self.dataeof:
-            self._parsedata()
-        if size is None or size > len(self.data) - self.pos:
-            t = self.data[self.pos:]
-            self.pos = len(self.data)
-            self.eof = True
-        else:
-            t = self.data[self.pos:self.pos + size]
-            self.pos += size
-        container.data = t
-        if False:
-            yield
-    def readonce(self, size = None):
-        if self.eof:
-            raise EOFError
-        if self.error:
-            raise IOError('Stream is broken before EOF')
-        if size is not None and size < len(self.data) - self.pos:
-            ret = self.data[self.pos: self.pos + size]
-            self.pos += size
-            return ret
-        else:
-            ret = self.data[self.pos:]
-            self.pos = len(self.data)
-            if self.dataeof:
-                self.eof = True
-            return ret
     def prepareRead(self, container):
         if not self.eof and not self.error and self.pos >= len(self.data):
-            self._parsedata()
+            self._parsedata(self.preloaddata, True, False)
         if False:
             yield
-    def readline(self, container, size = None):
-        if self.eof:
-            raise EOFError
-        if self.error:
-            raise IOError('Stream is broken before EOF')
-        if not self.dataeof:
-            self._parsedata()
-        if size is None or size > len(self.data) - self.pos:
-            t = self.data[self.pos:]
-            if self.isunicode:
-                p = t.find(u'\n')
+
+class FileStream(BaseStream):
+    "A stream from a file-like object. The file-like object must be in blocking mode"
+    def __init__(self, fobj, encoders = [], isunicode = None, size = None, readlimit = 65536):
+        "Constructor"
+        if isunicode is None:
+            mode = getattr(fobj, 'mode', 'rb')
+            if 'b' in mode:
+                isunicode = False
+            elif str is bytes:
+                isunicode = False
             else:
-                p = t.find(b'\n')
-            if p >= 0:
-                t = t[0: p + 1]
-            self.pos += len(t)
-            if self.pos >= len(self.data):
-                self.eof = True
+                isunicode = True
+        BaseStream.__init__(self, isunicode, encoders)
+        self.fobj = fobj
+        self.size = None
+        try:
+            self.size = os.fstat(fobj.fileno()).st_size
+            self.size -= fobj.tell()
+            if self.size > size:
+                self.size = size
+        except:
+            if size:
+                self.size = size
+        self.readlimit = readlimit
+        self.totalbuffered = 0
+    def __len__(self):
+        if self.size is None:
+            raise TypeError('Cannot determine file size')
         else:
-            t = self.data[self.pos:self.pos + size]
-            if self.isunicode:
-                p = t.find(u'\n')
-            else:
-                p = t.find(b'\n')
-            if p >= 0:
-                t = t[0: p + 1]
-            self.pos += len(t)
-        container.data = t
-        if False:
-            yield
-    def write(self, data, container, eof = False, ignoreexception = False):
-        if not ignoreexception:
-            raise IOError('Stream is closed')
-        if False:
-            yield
-    def error(self, container, ignoreexception = False):
-        if not ignoreexception:
-            raise IOError('Stream is closed')
-        if False:
-            yield
-    def close(self, scheduler = None, allowwrite = False):
-        self.closed = True
-    def copyTo(self, dest, container):
-        if self.eof:
-            for m in dest.write(u'' if self.isunicode else b'', True):
-                yield m
-        elif self.error:
-            for m in dest.error(container):
-                yield m
-        else:
+            return self.size
+    def prepareRead(self, container):
+        if not self.eof and not self.error and self.pos >= len(self.data):
             try:
-                while not self.eof:
-                    for m in self.prepareRead(container):
-                        yield m
-                    data = self.readonce()
-                    try:
-                        for m in dest.write(data, container, self.eof):
-                            yield m
-                    except IOError:
-                        break
+                readlimit = self.readlimit
+                if self.size is not None and self.size - self.totalbuffered < readlimit:
+                    readlimit = self.size - self.totalbuffered 
+                data = self.fobj.read(readlimit)
+                self.totalbuffered += len(data)
+                eof = not data
+                if self.size is not None and self.totalbuffered >= self.size:
+                    eof = True
             except:
-                try:
-                    for m in dest.error(container):
-                        yield m
-                except IOError:
-                    pass
-                raise
-            finally:
-                self.close(container.scheduler)
-    
+                self._parsedata(b'', False, True)
+            else:
+                self._parsedata(data, eof, False)
+        if False:
+            yield
+    def close(self, scheduler=None, allowwrite=False):
+        self.fobj.close()
+        BaseStream.close(self, scheduler=scheduler, allowwrite=allowwrite)

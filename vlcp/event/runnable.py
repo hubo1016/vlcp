@@ -53,6 +53,9 @@ class EventHandler(object):
     def unregisterHandler(self, matcher):
         self.scheduler.unregister((matcher,), self)
         del self.handlers[matcher]
+    def unregisterAllHandlers(self):
+        self.scheduler.unregister(tuple(self.handlers.keys()), self)
+        self.handlers.clear()
     def registerAllHandlers(self, handlerDict):
         '''
         Register self to scheduler

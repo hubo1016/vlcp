@@ -172,7 +172,10 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
         # Fix path issues on already-loaded modules
         for m in sys.modules.values():
             if getattr(m, '__path__', None):
-                m.__path__ = [p if p.startswith('/') else os.path.join(cwd, p) for p in m.__path__]
+                m.__path__ = [os.path.abspath(p) for p in m.__path__]
+            # __file__ is used for module-relative resource locate
+            if getattr(m, '__file__', None):
+                m.__file__ = os.path.abspath(m.__file__)
         configs = {'gid':gid,'uid':uid,'pidfile':locker}
         config_filters = ['chroot_directory', 'working_directory', 'umask', 'detach_process',
                           'prevent_core']

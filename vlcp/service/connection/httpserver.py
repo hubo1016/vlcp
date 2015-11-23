@@ -19,8 +19,8 @@ class HttpServer(Module):
     _default_url = 'ltcp:///'
     service = True
     def _createServers(self, config, vhostname, defaultconfig = {}, key = None, certificate = None, ca_certs = None, exists = {}):
-        urls = getattr(config, 'urls', [])
-        if config.url and config.url.strip():
+        urls = list(getattr(config, 'urls', []))
+        if hasattr(config, 'url') and config.url and config.url.strip():
             urls.append(config.url.strip())
         settings = dict(defaultconfig.items())
         if hasattr(config, 'protocol'):
@@ -41,7 +41,7 @@ class HttpServer(Module):
                     self.connections.append(TcpServer(url, defaultProtocol, self.scheduler,
                                                       key, certificate, ca_certs))
         if hasattr(config, 'vhost'):
-            for k,v in config.vhost:
+            for k,v in config.vhost.items():
                 self._createServers(self, v, k, settings, key, certificate, ca_certs, exists)
     def __init__(self, server):
         Module.__init__(self, server)

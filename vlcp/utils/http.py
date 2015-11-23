@@ -126,7 +126,7 @@ class Environment(object):
             raise HttpProtocolException('Cannot modify response, headers already sent')
         self.status = status
         if clearheaders:
-            self.sent_headers = headers
+            self.sent_headers = headers[:]
             self.sent_cookies = []
         else:
             self.sent_headers.extend(headers)
@@ -169,7 +169,7 @@ class Environment(object):
         if not hasattr(self, 'status'):
             self.startResponse(200, clearheaders=False)
         if all(k.lower() != b'content-type' for k,_ in self.sent_headers):
-            self.header('content-type', 'text/html; charset=' + self.encoding, False)
+            self.header('Content-Type', 'text/html; charset=' + self.encoding, False)
         # Process cookies
         for c in self.sent_cookies:
             self.rawheader(c.output(), False)
@@ -210,7 +210,7 @@ class Environment(object):
                                                                      '',
                                                                      ''
                                                                      )), path)
-        self.startResponse(status, [(b'location', location)])
+        self.startResponse(status, [(b'Location', location)])
         for m in self.write(b'<a href="' + self.escape(location, True) + b'">' + self.escape(location) + b'</a>'):
             yield m
         for m in self.flush(True):
@@ -286,7 +286,7 @@ class Environment(object):
         except:
             pass
         else:
-            self.header(b'content-length', str(content_length).encode('ascii'))
+            self.header(b'Content-Length', str(content_length).encode('ascii'))
         self._startResponse()
     def outputdata(self, data):
         self.output(MemoryStream(data))
@@ -319,12 +319,12 @@ class Environment(object):
                 m = Message()
                 # Email library expects string, which is unicode in Python 3
                 try:
-                    m.add_header('content-type', str(contenttype.decode('ascii')))
+                    m.add_header('Content-Type', str(contenttype.decode('ascii')))
                 except UnicodeDecodeError:
                     raise HttpInputException('Content-Type has non-ascii characters')
                 if m.get_content_type() == 'multipart/form-data':
                     fp = BytesFeedParser()
-                    fp.feed(b'content-type: ' + contenttype + b'\r\n\r\n')
+                    fp.feed(b'Content-Type: ' + contenttype + b'\r\n\r\n')
                     total_length = 0
                     while True:
                         try:
@@ -439,8 +439,13 @@ def _handler(container, event, func):
         try:
             if env.exception:
                 raise HttpInputException('Bad request')
-            for m in func(env):
+            for m in env.container.executeWithTimeout(getattr(env.protocol, 'processtimeout', None), func(env)):
                 yield m
+            if env.container.timeout:
+                if container and hasattr(container, 'logger'):
+                    container.logger.warning('Timeout in HTTP processing, env=%r:', env)
+                for m in env.error(500, showerror=False):
+                    yield m
         except HttpExitException as exc:
             if exc.args[0]:
                 for m in env.write(exc.args[0]):
@@ -558,12 +563,15 @@ class Dispatcher(EventHandler):
             return getattr(self.__innerobj, key)
         def group(self, index = 0):
             return quote_from_bytes(self.__innerobj.group(index)).encode('ascii')
+    @classmethod
+    def expand(cls, match, expand):
+        # If use expand directly, the url-decoded context will be decoded again, which create a security
+        # issue. Hack expand to quote the text before expanding
+        return re._expand(match.re, cls._EncodedMatch(match), expand)
     def rewrite(self, path, expand, newmethod = None, host = None, vhost = None, method = [b'GET', b'HEAD'], keepquery = True):
         "Rewrite a request to another location"
         def func(env):
-            # If use expand directly, the url-decoded context will be decoded again, which create a security
-            # issue. Hack expand to quote the text before expanding
-            newpath = re._expand(env.path_match.re, self._EncodedMatch(env.path_match), expand)
+            newpath = self.expand(env.path_match, expand)
             if keepquery and getattr(env, 'querystring', None):
                 if b'?' in newpath:
                     newpath += b'&' + env.querystring
@@ -575,7 +583,7 @@ class Dispatcher(EventHandler):
     def redirect(self, path, expand, status = 302, host = None, vhost = None, method = [b'GET', b'HEAD'], keepquery = True):
         "Redirect a request to another location"
         def func(env):
-            newpath = re._expand(env.path_match.re, self._EncodedMatch(env.path_match), expand)
+            newpath = self.expand(env.path_match, expand)
             if keepquery and getattr(env, 'querystring', None):
                 if b'?' in newpath:
                     newpath += b'&' + env.querystring

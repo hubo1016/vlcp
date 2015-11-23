@@ -186,7 +186,7 @@ class Http(Protocol):
                             for m in write(b'\r\n'):
                                 yield m
                         for k,v in headers:
-                            for m in write(self.displayHeader(k)):
+                            for m in write(k):
                                 yield m
                             for m in write(b': '):
                                 yield m
@@ -245,7 +245,7 @@ class Http(Protocol):
                                         # Trailers
                                         if hasattr(output, 'trailers'):
                                             for k,v in output.trailers:
-                                                for m in write(self.displayHeader(k)):
+                                                for m in write(k):
                                                     yield m
                                                 for m in write(b': '):
                                                     yield m
@@ -403,7 +403,7 @@ class Http(Protocol):
                                         content_length = int(cl[0][1])
                                 elif output is None:
                                     content_length = 0
-                                    resp.headers.append((b'content-length', b'0'))
+                                    resp.headers.append((b'Content-Length', b'0'))
                                 else:
                                     content_length = None
                                 if content_length is None and teinfo[3]:
@@ -457,7 +457,7 @@ class Http(Protocol):
                             for m in write(b'\r\n'):
                                 yield m
                         for k,v in resp.headers:
-                            for m in write(self.displayHeader(k)):
+                            for m in write(k):
                                 yield m
                             for m in write(b': '):
                                 yield m
@@ -500,7 +500,7 @@ class Http(Protocol):
                                         # Send trailers if any
                                         if resp.trailers is not None:
                                             for k,v in resp.trailers:
-                                                for m in write(self.displayHeader(k)):
+                                                for m in write(k):
                                                     yield m
                                                 for m in write(b': '):
                                                     yield m
@@ -697,9 +697,9 @@ class Http(Protocol):
         510: 'Not Extended',
         511: 'Network Authentication Required'
     }
-    _default_defaultresponseheaders = [(b'content-type', b'text/html'), (b'server', b'VLCP HTTP Server'),
-                                    (b'vary', b'Accept-Encoding')]
-    _default_defaultrequestheaders = [(b'accept', b'*/*'), (b'user-agent', b'VLCP HTTP Client')]
+    _default_defaultresponseheaders = [(b'Content-Type', b'text/html'), (b'Server', b'VLCP HTTP Server'),
+                                    (b'Vary', b'Accept-Encoding')]
+    _default_defaultrequestheaders = [(b'Accept', b'*/*'), (b'User-Agent', b'VLCP HTTP Client')]
     weekdayname = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     monthname = [None,
                  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -740,20 +740,21 @@ class Http(Protocol):
         return s
     def normalizeHeader(self, headername):
         return headername.lower()
+    specialdisplayheaders = {b'etag':b'ETag', }
     def displayHeader(self, headername):
         return b'-'.join(p.capitalize() for p in headername.split(b'-'))
     def _createResponseheaders(self, connection, xid, headers, status):
         defaultheaders = self.defaultresponseheaders
         if not connection.http_keepalive and xid == connection.xid - 1 and status[0] != b'1'[0]:
-            newheaders = [(b'connection', b'Close')]
+            newheaders = [(b'Connection', b'Close')]
         else:
-            newheaders = [(b'connection', b'Keep-Alive')]
-        newheaders.append((b'date', self.date_time_string().encode('ascii')))
+            newheaders = [(b'Connection', b'Keep-Alive')]
+        newheaders.append((b'Date', self.date_time_string().encode('ascii')))
         existingHeaders = set(self.normalizeHeader(k) for k,_ in headers)
         existingHeaders.add(b'date')
         existingHeaders.add(b'connection')
         for k,v in defaultheaders:
-            if k not in existingHeaders:
+            if self.normalizeHeader(k) not in existingHeaders:
                 newheaders.append((k, v))
         newheaders.extend((k,v) for k,v in headers if self.normalizeHeader(k) not in (b'connection', \
                           b'date', b'transfer-encoding'))
@@ -778,7 +779,7 @@ class Http(Protocol):
         status = self._createstatus(status)
         content = b'<h1>' + self.escape_b(status) + b'</h1>'
         content_length = len(content)
-        return self.createResponse(connection, xid, status, [(b'content-length', str(content_length).encode('ascii'))], MemoryStream(content))
+        return self.createResponse(connection, xid, status, [(b'Content-Length', str(content_length).encode('ascii'))], MemoryStream(content))
     def createContinueResponse(self, connection, xid):
         return self.createResponse(connection, xid, b'100 Continue', [], None)
     class _HttpContinueStream(Stream):
@@ -838,17 +839,17 @@ class Http(Protocol):
         defaultheaders = self.defaultrequestheaders
         existingHeaders = set(self.normalizeHeader(k) for k,_ in headers)
         if connection.http_localversion < '1.1' or not keepalive:
-            newheaders = [(b'connection', b'Close')]
+            newheaders = [(b'Connection', b'Close')]
         else:
-            newheaders = [(b'connection', b'Keep-Alive')]
+            newheaders = [(b'Connection', b'Keep-Alive')]
         existingHeaders.add(b'connection')
         if host is not None:
-            newheaders.append((b'host', host))
+            newheaders.append((b'Host', host))
         existingHeaders.add(b'host')
         if connection.http_localversion >= '1.1':
             if self.allowtransfercompress and b'te' not in existingHeaders:
                 existingHeaders.add(b'te')
-                newheaders.append((b'te', b'deflate'))
+                newheaders.append((b'TE', b'deflate'))
         if b'content-length' not in existingHeaders and method != b'CONNECT':
             if stream is None:
                 size = 0
@@ -864,12 +865,12 @@ class Http(Protocol):
                     # If you give a MemoryStream(b'') to a GET request
                     # there will be a content-length header, which may cause problem
                     # for some servers
-                    newheaders.append(b'content-length', b'0')
+                    newheaders.append(b'Content-Length', b'0')
             else:
-                newheaders.append(b'content-length', str(size).encode('ascii'))
+                newheaders.append(b'Content-Length', str(size).encode('ascii'))
             existingHeaders.add(b'content-length')
         for k,v in defaultheaders:
-            if k not in existingHeaders:
+            if self.normalizeHeader(k) not in existingHeaders:
                 newheaders.append((k, v))
         newheaders.extend((k,v) for k,v in headers if self.normalizeHeader(k) not in (b'connection', b'transfer-encoding', b'host', b'expect'))
         return newheaders
