@@ -13,7 +13,6 @@ import os.path
 import sys
 import logging
 from vlcp.event.runnable import RoutineContainer
-from idlelib.idle_test.test_config_name import showerror
 try:
     from urlparse import urlsplit, urljoin
 except:
