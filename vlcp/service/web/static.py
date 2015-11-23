@@ -211,7 +211,8 @@ class Static(Module):
             if not isinstance(localpath, str):
                 localpath = localpath.encode(env.encoding)
             # The relative root is considered ROOT, eliminate any relative path like ../abc, which create security issues
-            localpath = os.path.relpath(os.path.normpath(os.path.join('/', localpath)), '/')
+            # Python2.6 os.path.relpath is buggy...
+            localpath = os.path.normpath(os.path.join('/', localpath))[1:]
             realpath = os.path.join(relativeroot, localpath)            
             filename = os.path.basename(realpath)
             if xsendfile or xlighttpdsendfile or xaccelredirect:
