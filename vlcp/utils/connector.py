@@ -312,7 +312,7 @@ def processor(func):
                 output = func(event, matcher)
             except:
                 # Ignore
-                pass
+                queueout.put(())
             else:
                 queueout.put(output)
     return handler
