@@ -131,8 +131,7 @@ class Connection(RoutineContainer):
     def setdaemon(self, daemon):
         if self.daemon != daemon:
             if self.socket:
-                self.scheduler.unregisterPolling(self.socket, daemon = self.daemon)
-                self.scheduler.registerPolling(self.socket, daemon = daemon)
+                self.scheduler.setPollingDaemon(self.socket, daemon)
             if hasattr(self, 'mainroutine'):
                 self.scheduler.setDaemon(self.mainroutine, daemon, True)
             self.daemon = daemon

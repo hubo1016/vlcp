@@ -26,15 +26,25 @@ if hasattr(select, 'epoll'):
                 select.EPOLLWRBAND|select.EPOLLONESHOT|select.EPOLLET
             self.socketCounter = 0
             self.maxwait = maxwait
+            self.daemons = set()
         def register(self, fd, options, daemon = False):
+            if hasattr(fd, 'fileno'):
+                fd = fd.fileno()
             self.epoll.register(fd, options & self.mask | self.defaultoption)
             if not daemon:
                 self.socketCounter+=1
+            else:
+                self.daemons.add(fd)
         def unregister(self, fd, daemon = False):
             try:
+                if hasattr(fd, 'fileno'):
+                    fd = fd.fileno()
                 self.epoll.unregister(fd)
+                daemon = fd in self.daemons
                 if not daemon:
                     self.socketCounter-=1
+                else:
+                    self.daemons.discard(fd)
             except IOError:
                 return
             except ValueError:
@@ -43,6 +53,17 @@ if hasattr(select, 'epoll'):
                 return
         def modify(self, fd, options):
             self.epoll.modify(fd, options & self.mask | self.defaultoption)
+        def setdaemon(self, fd, daemon):
+            if hasattr(fd, 'fileno'):
+                fd = fd.fileno()
+            isdaemon = fd in self.daemons
+            if isdaemon != daemon:
+                if daemon:
+                    self.daemons.add(fd)
+                    self.socketCounter -= 1
+                else:
+                    self.daemons.discard(fd)
+                    self.socketCounter += 1
         def pollEvents(self, wait):
             ret = []
             epwrite = select.EPOLLOUT|select.EPOLLWRNORM|select.EPOLLWRBAND
@@ -89,6 +110,7 @@ class SelectPolling(object):
         self.readfiles = set()
         self.writefiles = set()
         self.errorfiles = set()
+        self.daemons = set()
         self.socketCounter = 0
         self.maxwait = maxwait
     def register(self, fd, options, daemon = False):
@@ -97,10 +119,17 @@ class SelectPolling(object):
         self.errorfiles.add(fd)
         if not daemon:
             self.socketCounter+=1
+        else:
+            self.daemons.add(fd)
     def unregister(self, fd, daemon = False):
         try:
+            if hasattr(fd, 'fileno'):
+                fd = fd.fileno()
+            daemon = fd in self.daemons
             if not daemon:
                 self.socketCounter-=1
+            else:
+                self.daemons.discard(fd)
             if hasattr(fd, 'fileno'):
                 fd = fd.fileno()
             self.errorfiles.discard(fd)
@@ -110,6 +139,17 @@ class SelectPolling(object):
             return
     def modify(self, fd, options):
         pass
+    def setdaemon(self, fd, daemon):
+        if hasattr(fd, 'fileno'):
+            fd = fd.fileno()
+        isdaemon = fd in self.daemons
+        if isdaemon != daemon:
+            if daemon:
+                self.daemons.add(fd)
+                self.socketCounter -= 1
+            else:
+                self.daemons.discard(fd)
+                self.socketCounter += 1
     def pollEvents(self, wait):
         ret = []
         if self.socketCounter <= 0 and wait is None:

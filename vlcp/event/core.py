@@ -168,6 +168,8 @@ class Scheduler(object):
             pass
         def unregister(self, fd):
             pass
+        def setdaemon(self, fd, daemon):
+            pass
         def pollEvents(self, wait):
             free = False
             if wait is None:
@@ -309,6 +311,8 @@ class Scheduler(object):
         modify options of a registered file descriptor
         '''
         self.polling.modify(fd, options)
+    def setPollingDaemon(self, fd, daemon = True):
+        self.polling.setdaemon(fd, daemon)
     def unregisterPolling(self, fd, daemon = False):
         '''
         Unregister a polling file descriptor

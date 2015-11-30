@@ -59,7 +59,8 @@ class Connector(RoutineContainer):
         '''
         @param worker_start: func(queuein, queueout), queuein is the input queue, queueout is the
                output queue. For queuein, each object is (event, matcher) tuple; For queueout, each
-               object is an event to send.
+               object is a tuple of events to send. Every object in queuein must have a response in
+               queueout.
         @param matcheres: match events to be processed by connector.
         @param scheduler: bind to specified scheduler
         @param mp: use multiprocessing if possible. For windows, multi-threading is always used.
@@ -73,6 +74,7 @@ class Connector(RoutineContainer):
         self.inputlimit = inputlimit
         self.allowcontrol = allowcontrol
         self.stopreceive = False
+        self.jobs = 0
     @staticmethod
     def connector_pipe(queuein, pipeout, worker_start):
         try:
@@ -80,10 +82,10 @@ class Connector(RoutineContainer):
             worker_start(queuein, queueout)
             while True:
                 try:
-                    event = queueout.get()
-                    if event is None:
+                    events = queueout.get()
+                    if events is None:
                         break
-                    pipeout.send(event)
+                    pipeout.send(events)
                 except EOFError:
                     break
                 except OSError as exc:
@@ -100,14 +102,14 @@ class Connector(RoutineContainer):
             worker_start(queuein, queueout)
             while True:
                 try:
-                    event = queueout.get()
-                    if event is None:
+                    events = queueout.get()
+                    if events is None:
                         break
-                    pipeout[0].put(event)
+                    pipeout[0].put(events)
                     while True:
                         try:
-                            event = queueout.get(False)
-                            pipeout[0].put(event)
+                            events = queueout.get(False)
+                            pipeout[0].put(events)
                         except Empty:
                             break
                     pipeout[1].send(b'\x00')
@@ -125,8 +127,15 @@ class Connector(RoutineContainer):
     def enqueue(self, queue, event, matcher):
         queue.put((event, matcher), False)
         event.canignore = True
-    def sendevent(self, event):
-        self.scheduler.emergesend(event)
+        self.jobs += 1
+        if self.jobs == 1:
+            self.scheduler.setPollingDaemon(self.pipein, False)
+    def sendevents(self, events):
+        for e in events:
+            self.scheduler.emergesend(e)
+        self.jobs -= 1
+        if self.jobs == 0:
+            self.scheduler.setPollingDaemon(self.pipein, True)
     def _createobjs(self, fork, mp):
         if mp:
             queue = multiprocessing.Queue(self.inputlimit)
@@ -162,6 +171,7 @@ class Connector(RoutineContainer):
             outqueue = Queue()
             process = threading.Thread(target=self.connector_socket, args=(queue, (outqueue, pipeout), self.worker_start))
         process.daemon = True
+        self.pipein = pipein
         return (process, queue, pipein, outqueue)
     def main(self):
         import os
@@ -193,7 +203,8 @@ class Connector(RoutineContainer):
                     if self.matcher is error_matcher:
                         isEOF = True
                 if isEOF:
-                    self.scheduler.unregisterPolling(pipein, True)
+                    self.scheduler.unregisterPolling(pipein, self.jobs == 0)
+                    self.jobs = 0
                     pipein.close()
                     pipein = None
                     for m in self.waitWithTimeout(1):
@@ -227,11 +238,11 @@ class Connector(RoutineContainer):
                     if fork:
                         while pipein.poll():
                             try:
-                                event = pipein.recv()
+                                events = pipein.recv()
                             except EOFError:
                                 isEOF = True
                                 break
-                            self.sendevent(event)
+                            self.sendevents(events)
                     else:
                         while True:
                             try:
@@ -248,10 +259,10 @@ class Connector(RoutineContainer):
                                     break
                         while True:
                             try:
-                                event = outqueue.get(False)
+                                events = outqueue.get(False)
                             except Empty:
                                 break
-                            self.sendevent(event)
+                            self.sendevents(events)
                     isFull = False
                 else:
                     try:
@@ -260,7 +271,7 @@ class Connector(RoutineContainer):
                         isFull = True
         finally:
             if pipein is not None:
-                self.scheduler.unregisterPolling(pipein, True)
+                self.scheduler.unregisterPolling(pipein, self.jobs > 0)
                 pipein.close()
             if mp:
                 process.terminate()
@@ -303,6 +314,5 @@ def processor(func):
                 # Ignore
                 pass
             else:
-                for m in output:
-                    queueout.put(m)
+                queueout.put(output)
     return handler
