@@ -20,6 +20,8 @@ import itertools
 import signal
 from vlcp.event.core import POLLING_OUT
 import traceback
+from vlcp.utils.connector import Connector, ThreadPool, processor
+
 
 if sys.version_info[0] >= 3:
     from urllib.parse import urlsplit
@@ -481,210 +483,32 @@ class ResolveRequestEvent(Event):
 class ResolveResponseEvent(Event):
     pass
 
-class Resolver(RoutineContainer):
+class Resolver(Connector):
     logger = logging.getLogger(__name__ + '.Resolver')
     def __init__(self, scheduler = None, poolsize = 256):
-        RoutineContainer.__init__(self, scheduler, True)
-        self.poolsize = poolsize
-    @staticmethod
-    def resolver(queuein, queueout):
-        while True:
-            try:
-                params = queuein.get(True)
-                if params is None:
-                    # Exit
-                    queueout.put(None)
-                    break
-            except OSError as exc:
-                if exc.args[0] == errno.EINTR:
-                    continue
-                else:
-                    break
-            try:
-                addrinfo = socket.getaddrinfo(*params)
-                queueout.put(ResolveResponseEvent(params, response=addrinfo))
-            except:
-                et, ev, tr = sys.exc_info()
-                queueout.put(ResolveResponseEvent(params, error=ev))
-    @staticmethod
-    def resolverProcess(queuein, pipeout, poolsize):
-        try:
-            queueout = multiprocessing.Queue()
-            pool = [threading.Thread(target=Resolver.resolver, args=(queuein, queueout)) for i in range(0, poolsize)]
-            for p in pool:
-                p.daemon = True
-                p.start()
-            while True:
-                try:
-                    event = queueout.get()
-                    if event is None:
-                        break
-                    pipeout.send(event)
-                except EOFError:
-                    break
-                except OSError as exc:
-                    if exc.args[0] == errno.EINTR:
-                        continue
-                    else:
-                        break
-        finally:
-            pipeout.close()
-    @staticmethod
-    def resolverThread(queuein, pipeout, poolsize):
-        try:
-            queueout = Queue()
-            pool = [threading.Thread(target=Resolver.resolver, args=(queuein, queueout)) for i in range(0, poolsize)]
-            for p in pool:
-                p.daemon = True
-                p.start()
-            while True:
-                try:
-                    event = queueout.get()
-                    pipeout[0].put(event)
-                    pipeout[1].send(b'\x00')
-                except EOFError:
-                    break
-                except OSError as exc:
-                    if exc.args[0] == errno.EINTR:
-                        continue
-                    else:
-                        break
-        finally:
-            pipeout[1].close()    
-    def main(self):
-        import os
+        rm = ResolveRequestEvent.createMatcher()
+        Connector.__init__(self, ThreadPool(poolsize, Resolver.resolver).create, (rm,), scheduler, True, poolsize, False)
         self.resolving = set()
-        if hasattr(os, 'fork'):
-            mp = True
-        else:
-            mp = False
-        if mp:
-            queue = multiprocessing.Queue(self.poolsize)
-        else:
-            queue = Queue(self.poolsize)
-        if mp:
-            pipein, pipeout = multiprocessing.Pipe()
-            process = multiprocessing.Process(target=self.resolverProcess, args=(queue, pipeout, self.poolsize))
-        else:
-            # Use a thread instead
-            # Create a socket on localhost
-            addrinfo = socket.getaddrinfo('localhost', 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_PASSIVE)
-            socket_s = socket.socket(*addrinfo[0][0:2])
-            socket_s.bind(addrinfo[0][4])
-            socket_s.listen(1)
-            addr_target = socket_s.getsockname()
-            pipeout = socket.socket(*addrinfo[0][0:2])
-            pipeout.setblocking(False)
-            pipeout.connect_ex(addr_target)
-            pipein, _ = socket_s.accept()
-            pipein.setblocking(False)
-            pipeout.setblocking(True)
-            socket_s.close()
-            outqueue = Queue()
-            process = threading.Thread(target=self.resolverThread, args=(queue, (outqueue, pipeout), self.poolsize))
-        process.daemon = True
+    @staticmethod
+    @processor
+    def resolver(event, matcher):
+        params = event.request
         try:
-            process.start()
-            self.scheduler.registerPolling(pipein, POLLING_IN, True)
-            request_matcher = ResolveRequestEvent.createMatcher()
-            response_matcher = PollEvent.createMatcher(pipein.fileno(), PollEvent.READ_READY)
-            error_matcher = PollEvent.createMatcher(pipein.fileno(), PollEvent.ERROR)
-            isFull = False
-            isEOF = False
-            while True:
-                if not isEOF:
-                    if isFull:
-                        yield (response_matcher, error_matcher)
-                    else:
-                        yield (request_matcher, response_matcher, error_matcher)
-                    if self.matcher is error_matcher:
-                        isEOF = True
-                if isEOF:
-                    self.scheduler.unregisterPolling(pipein, True)
-                    pipein.close()
-                    pipein = None
-                    for m in self.waitWithTimeout(1):
-                        yield m
-                    if mp:
-                        process.terminate()
-                    if mp:
-                        queue = multiprocessing.Queue(self.poolsize)
-                    else:
-                        queue = Queue(self.poolsize)
-                    if mp:
-                        pipein, pipeout = multiprocessing.Pipe()
-                        process = multiprocessing.Process(target=self.resolverProcess, args=(queue, pipeout, self.poolsize))
-                    else:
-                        # Use a thread instead
-                        # Create a socket on localhost
-                        addrinfo = socket.getaddrinfo('localhost', 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_PASSIVE)
-                        socket_s = socket.socket(*addrinfo[0][0:2])
-                        socket_s.bind(addrinfo[0][4])
-                        socket_s.listen(1)
-                        addr_target = pipein.getsockname()
-                        pipeout = socket.socket(*addrinfo[0][0:2])
-                        pipeout.setblocking(False)
-                        pipeout.connect_ex(addr_target)
-                        pipein, _ = socket_s.accept()
-                        pipein.setblocking(False)
-                        pipeout.setblocking(True)
-                        socket_s.close()
-                        outqueue = Queue()
-                        process = threading.Thread(target=self.resolverThread, args=(queue, (outqueue, pipeout), self.poolsize))
-                    process.start()
-                    self.scheduler.registerPolling(pipein, POLLING_IN, True)
-                    response_matcher = PollEvent.createMatcher(pipein.fileno(), PollEvent.READ_READY)
-                    error_matcher = PollEvent.createMatcher(pipein.fileno(), PollEvent.ERROR)
-                elif self.matcher is request_matcher:
-                    try:
-                        if self.event.request not in self.resolving:
-                            self.resolving.add(self.event.request)
-                            queue.put(self.event.request, False)
-                        self.event.canignore = True
-                    except Full:
-                        isFull = True
-                else:
-                    if mp:
-                        while pipein.poll():
-                            try:
-                                event = pipein.recv()
-                            except EOFError:
-                                isEOF = True
-                                break
-                            for m in self.waitForSend(event):
-                                yield m
-                            self.resolving.remove(event.request)
-                    else:
-                        while True:
-                            try:
-                                if not pipein.recv(4096):
-                                    isEOF = True
-                                    break
-                            except socket.error as exc:
-                                if exc.errno == errno.EAGAIN or exc.errno == errno.EWOULDBLOCK:
-                                    break
-                                elif exc.errno == errno.EINTR:
-                                    continue
-                                else:
-                                    isEOF = True
-                                    break
-                        while True:
-                            try:
-                                event = outqueue.get(False)
-                            except Empty:
-                                break
-                            for m in self.waitForSend(event):
-                                yield m
-                            self.resolving.remove(event.request)                            
-        finally:
-            if pipein is not None:
-                self.scheduler.unregisterPolling(pipein, True)
-                pipein.close()
-            if mp:
-                process.terminate()
-            else:
-                queue.put(None)
-
+            addrinfo = socket.getaddrinfo(*params)
+            return (ResolveResponseEvent(params, response=addrinfo),)
+        except:
+            et, ev, tr = sys.exc_info()
+            return (ResolveResponseEvent(params, error=ev),)
+    def enqueue(self, queue, event, matcher):
+        if event.request in self.resolving:
+            # Duplicated resolves are finished in the same time
+            event.canignore = True
+        else:
+            Connector.enqueue(self, queue, event, matcher)
+            self.resolving.add(event.request)
+    def sendevent(self, event):
+        Connector.sendevent(self, event)
+        self.resolving.remove(event.request)
 class Client(Connection):
     '''
     A single connection to a specified target
@@ -784,14 +608,14 @@ class Client(Connection):
             # Resolve hostname
             for m in self.waitForSend(ResolveRequestEvent(request)):
                 yield m
-            for m in self.waitWithTimeout(20, ResolveResponseEvent.createMatcher(request)):
+            for m in self.waitWithTimeout(self.connect_timeout, ResolveResponseEvent.createMatcher(request)):
                 yield m
             if self.timeout:
                 # Resolve is only allowed through asynchronous resolver
-                try:
-                    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
-                except:
-                    raise IOError('Resolve hostname timeout: ' + self.hostname)
+                #try:
+                #    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
+                #except:
+                raise IOError('Resolve hostname timeout: ' + self.hostname)
             else:
                 if hasattr(self.event, 'error'):
                     raise IOError('Cannot resolve hostname: ' + self.hostname)

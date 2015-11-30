@@ -152,7 +152,7 @@ class Request(object):
         @param unverifiable: unverifiable for cookie policy check
         '''
         self.url = _str(url, 'ascii')
-        s = urlsplit(url, 'http')
+        s = urlsplit(self.url, 'http')
         self.type = 'https' if s.scheme == 'https' else 'http'
         self.host = s.netloc
         if not self.host:
@@ -272,14 +272,16 @@ class Response(object):
         return self
     def get_header(self, k, default = None):
         return self.headerdict.get(k.lower(), default)
-    def getheaders(self, k):
+    def getheaders(self, k, default = []):
         if k.lower() == 'set-cookie':
             return self.setcookies
         elif k.lower() == 'set-cookie2':
             # Ignore these headers, since they are deprecated
-            return []
+            return default
         else:
             return [v for k2,v in self.headers if k2.lower() == k.lower()]
+    def get_all(self, k, default = []):
+        return self.getheaders(k, default)
     def has_header(self, k):
         return k.lower() in self.headerdict
     def close(self):
@@ -386,7 +388,7 @@ class WebClient(Configurable):
                         container.terminate(datagen_routine)
                     for m in self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True):
                         yield m
-                    raise WebException('HTTP reqeust timeout')
+                    raise WebException('HTTP request timeout')
                 finalresp = container.http_finalresponse
                 resp = Response(request.get_full_url(), finalresp, container.scheduler)
                 if allowcookies:

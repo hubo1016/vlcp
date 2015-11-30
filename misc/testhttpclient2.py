@@ -38,7 +38,7 @@ class MainRoutine(RoutineContainer):
         try:
             if resp.get_header('Content-Type', 'text/html').lower().startswith('text/'):
                 try:
-                    for m in self.executeWithTimeout(5, resp.stream.read(self, 32768)):
+                    for m in self.executeWithTimeout(60, resp.stream.read(self, 32768)):
                         yield m
                 except Exception as exc:
                     print('Error reading ', url, str(exc))
@@ -77,7 +77,7 @@ class MainRoutine(RoutineContainer):
                 while True:
                     for m in resp.stream.read(self, 1024):
                         yield m
-                    print(self.data, end = '')
+                    #print(self.data, end = '')
             except EOFError:
                 pass
             print(resp.connection.http_parsestage)

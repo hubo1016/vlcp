@@ -6,7 +6,7 @@ Created on 2015/11/26
 
 import zlib
 import codecs
-from gzipheader import header, tail
+from .gzipheader import header, tail
 import time
 
 def unicode_encoder(encoding):

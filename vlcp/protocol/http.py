@@ -943,6 +943,7 @@ class Http(Protocol):
                 connection.http_contentlength = None
                 connection.http_deflate = False
                 connection.http_chunked = False
+                connection.http_dataread = 0
                 responsestream = Stream()
                 responsestream.trailers = []
                 events.append(HttpResponseEvent(connection,
@@ -1400,13 +1401,18 @@ class Http(Protocol):
                     start += 2
                     stage = 'chunkedheader'
             else:
+                if stage != 'body':
+                    raise ValueError('stage == ' + stage)
                 # Body
                 if connection.http_chunked:
                     totalsize = connection.http_chunkedsize
                 else:
                     totalsize = connection.http_contentlength
-                resumesize = totalsize - connection.http_dataread
-                if resumesize <= end - start:
+                if getattr(connection, 'http_dataread', None) is None:
+                    raise ValueError('Invalid read on connection: ' + repr(connection) + ',' + repr(totalsize) + ',' + repr(getattr(connection, 'http_dataread', None)))
+                if totalsize is not None:
+                    resumesize = totalsize - connection.http_dataread
+                if totalsize is not None and resumesize <= end - start:
                     readdata = tobytes(data[start: start + resumesize])
                     start += resumesize
                     connection.http_dataread += resumesize

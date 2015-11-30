@@ -38,7 +38,7 @@ class Server(Configurable):
     _default_preservefornew = 100
     _default_streamdatalimit = 100000
     _default_datalimitperstream = 5
-    _default_resolverpoolsize = 256
+    _default_resolverpoolsize = 64
     _default_ulimitn = 32768
     _default_startup = ()
     _default_debugging = False
@@ -69,7 +69,7 @@ class Server(Configurable):
         self.scheduler.queue.addSubQueue(self.routinecontrolpriority, RoutineControlEvent.createMatcher(), 'routine')
         self.scheduler.queue.addSubQueue(self.timerpriority, TimerEvent.createMatcher(), 'timer')
         self.scheduler.queue.addSubQueue(self.resolverresppriority, ResolveResponseEvent.createMatcher(), 'resolve')
-        self.scheduler.queue.addSubQueue(self.resolverreqpriority, ResolveRequestEvent.createMatcher(), 'resolvereq')
+        self.scheduler.queue.addSubQueue(self.resolverreqpriority, ResolveRequestEvent.createMatcher(), 'resolvereq', 16)
         self.scheduler.queue.addSubQueue(self.sysctlpriority, SystemControlEvent.createMatcher(), 'sysctl')
         self.scheduler.queue.addSubQueue(self.sysctllowpriority, SystemControlLowPriorityEvent.createMatcher(), 'sysctllow')
         self.scheduler.queue.addSubQueue(self.moduleapicallpriority, ModuleAPICall.createMatcher(), 'moduleapi', None, None, CBQueue.AutoClassQueue.initHelper('target', 2, subqueuelimit = 5))
