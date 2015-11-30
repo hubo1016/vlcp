@@ -335,7 +335,7 @@ class Parser(object):
             namedstruct._splitted = False
             cs = cs._sub
             cp = subp
-    def _parse(self):
+    def _parse(self, buffer, inlineparent):
         raise NotImplementedError
     def new(self, inlineparent = None):
         if self.base is not None:
@@ -632,8 +632,8 @@ class SequencedParser(Parser):
         return size
 
 class PrimitiveParser(object):
-    def __init__(self, fmt):
-        self.struct = struct.Struct('>' + fmt)
+    def __init__(self, fmt, endian = '>'):
+        self.struct = struct.Struct(endian + fmt)
         self.emptydata = b'\x00' * self.struct.size
         self.empty = self.struct.unpack(self.emptydata)[0]
         if isinstance(self.empty, bytes):
@@ -741,6 +741,30 @@ class RawParser(object):
     def tobytes(self, prim):
         return prim
 
+class CstrParser(object):
+    def __init__(self):
+        pass
+    def parse(self, buffer, inlineparent = None):
+        for i in range(0, len(buffer)):
+            if buffer[i] == b'\x00':
+                return (buffer[0:i], i + 1)
+        return None
+    def new(self, inlineparent = None):
+        return b''
+    def create(self, data, inlineparent = None):
+        if data[-1] != b'\x00':
+            raise BadFormatError(b'Cstr is not zero-terminated')
+        for i in range(0, len(data) - 1):
+            if data[i] == b'\x00':
+                raise BadFormatError(b'Cstr has zero inside the string')
+        return data
+    def sizeof(self, prim):
+        return len(prim) + 1
+    def paddingsize(self, prim):
+        return self.sizeof(prim)
+    def tobytes(self, prim):
+        return prim + b'\x00'
+
 class typedef(object):
     def parser(self):
         if not hasattr(self, '_parser'):
@@ -803,17 +827,30 @@ class varchrtype(typedef):
 
 varchr = varchrtype()
 
-    
+class cstrtype(typedef):
+    _parser = CstrParser()
+    def parser(self):
+        return self._parser
+    def __repr__(self, *args, **kwargs):
+        return 'cstr'
+
+cstr = cstrtype()
+
 class prim(typedef):
-    def __init__(self, fmt, readablename = None):
+    def __init__(self, fmt, readablename = None, endian = '>', strict = False):
         typedef.__init__(self)
         self._format = fmt
         self._inline = (fmt, ())
         self._readablename = readablename
+        self._endian = endian
+        self._strict = strict
     def _compile(self):
-        return PrimitiveParser(self._format)
+        return PrimitiveParser(self._format, self._endian)
     def inline(self):
-        return self._inline
+        if self._strict:
+            return None
+        else:
+            return self._inline
     def __repr__(self, *args, **kwargs):
         if self._readablename is not None:
             return str(self._readablename)
@@ -1126,12 +1163,12 @@ class nstruct(typedef):
             NamedStruct._logger.log(logging.DEBUG, 'A formatter thrown an exception', exc_info = True)
         return dumpvalue
 
-        
 class enum(prim):
     def __init__(self, readablename = None, namespace = None, basefmt = 'I', bitwise = False, **kwargs):
         if hasattr(basefmt, '_format'):
-            basefmt = basefmt._format
-        prim.__init__(self, basefmt, readablename)
+            prim.__init__(self, basefmt._format, readablename, basefmt._endian, basefmt._strict)
+        else:
+            prim.__init__(self, basefmt, readablename)
         self._values = dict(kwargs)
         self._bitwise = bitwise
         for k,v in kwargs.items():
@@ -1152,7 +1189,7 @@ class enum(prim):
     def extend(self, namespace = None, **kwargs):
         d = dict(self._values)
         d.update(kwargs)
-        return enum(self._readablename, namespace, self._format, self._bitwise, **d)
+        return enum(self._readablename, namespace, self, self._bitwise, **d)
     def tostr(self, value):
         return str(self.formatter(value))
     def getDict(self):
@@ -1160,7 +1197,7 @@ class enum(prim):
     def __contains__(self, item):
         return item in self._values.values()
     def astype(self, primtype, bitwise = False):
-        return enumref(self, primtype._format, bitwise)
+        return enumref(self, primtype, bitwise)
     def formatter(self, value):
         if not self._bitwise:
             n = self.getName(value)
@@ -1185,7 +1222,10 @@ class enum(prim):
 
 class enumref(prim):
     def __init__(self, refenum, basefmt = 'I', bitwise = False):
-        prim.__init__(self, basefmt, refenum._readablename)
+        if hasattr(basefmt, '_format'):
+            prim.__init__(self, basefmt._format, refenum._readablename, basefmt._endian, basefmt._strict)
+        else:
+            prim.__init__(self, basefmt, refenum._readablename)
         self._ref = refenum
         self._bitwise = bitwise
     def getName(self, value, defaultName = None):
@@ -1201,7 +1241,7 @@ class enumref(prim):
     def extend(self, namespace = None, **kwargs):
         d = dict(self._ref._values)
         d.update(kwargs)
-        return enum(self._readablename, namespace, self._format, **d)
+        return enum(self._readablename, namespace, self, **d)
     def tostr(self, value):
         return str(self.formatter(value))
     def getDict(self):
@@ -1209,7 +1249,7 @@ class enumref(prim):
     def __contains__(self, item):
         return item in self._ref._values.values()
     def astype(self, primtype, bitwise = False):
-        return enumref(self._ref, primtype._format, bitwise)
+        return enumref(self._ref, primtype, bitwise)
     def formatter(self, value):
         if not self._bitwise:
             n = self.getName(value)
@@ -1231,3 +1271,67 @@ class enumref(prim):
             return ' '.join(names)
     def merge(self, otherenum):
         return self.extend(None, **otherenum.getDict())
+
+class OptionalParser(Parser):
+    def __init__(self, basetypeparser, name, criteria, typedef):
+        Parser.__init__(self, padding = 1, typedef=typedef)
+        self.basetypeparser = basetypeparser
+        self.name = name
+        self.criteria = criteria
+    def _parseinner(self, data, s, create = False):
+        if self.criteria(s):
+            if create:
+                inner = self.basetypeparser.create(data, None)
+                size = len(data)
+            else:
+                r = self.basetypeparser.parse(data, None)
+                if r is None:
+                    return None
+                (inner, size) = r
+            setattr(s._target, self.name, inner)
+            return size
+        else:
+            return 0       
+    def _parse(self, data, inlineparent = None):
+        s = NamedStruct(self, None, inlineparent)
+        size = self._parseinner(data, s)
+        if size is None:
+            return None
+        else:
+            return (s, size)
+    def _new(self, inlineparent=None):
+        return NamedStruct(self, None, inlineparent)
+    def unpack(self, data, namedstruct):
+        if data is None:
+            return getattr(namedstruct, '_extra', b'')
+        size = self._parseinner(data, namedstruct, True)
+        if size is None:
+            raise BadLenError('Bad Len')
+        else:
+            return data[size:]
+    def pack(self, namedstruct):
+        data = b''
+        if hasattr(namedstruct, self.name):
+            data = self.basetypeparser.tobytes(getattr(namedstruct, self.name))
+        return data
+    def sizeof(self, namedstruct):
+        if hasattr(namedstruct, self.name):
+            return self.basetypeparser.paddingsize(getattr(namedstruct, self.name))
+        else:
+            return 0
+
+class optional(typedef):
+    def __init__(self, basetype, name, criteria):
+        self.basetype = basetype
+        self.criteria = criteria
+        if name is None:
+            raise ParseError('Optional member cannot be in-line member')
+        self.name = name
+    def array(self, size):
+        raise TypeError('varchrtype cannot form array')
+    def _compile(self):
+        return OptionalParser(self.basetype.parser(), self.name, self.criteria, self)
+    def isextra(self):
+        return self.basetype.isextra()
+    def __repr__(self, *args, **kwargs):
+        return repr(self.basetype) + '?'

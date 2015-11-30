@@ -34,6 +34,10 @@ class HttpRequestEvent(Event):
 class HttpResponseEvent(Event):
     pass
 
+@withIndices('connection', 'connmark', 'xid', 'keepalive')
+class HttpResponseEndEvent(Event):
+    pass
+
 @withIndices('connection', 'connmark', 'type')
 class HttpStateChange(Event):
     NEXTINPUT = 'nextinput'
@@ -49,6 +53,9 @@ except:
     _long = int
 
 class HttpProtocolException(Exception):
+    pass
+
+class HttpConnectionClosedException(HttpProtocolException):
     pass
 
 @defaultconfig
@@ -81,11 +88,13 @@ class Http(Protocol):
     _default_useexpectsize = 4096
     _default_expecttimeout = 2
     _default_defaultport = 80
+    _default_ssldefaultport = 443
     _default_showerrorinfo = False
     _default_unquoteplus = True
     _logger = logging.getLogger(__name__ + '.HTTP')
     _default_errorrewrite = {}
     _default_errorredirect = {}
+    _default_responseendpriority = 690
     def __init__(self, server = True, defaultversion = None):
         '''
         Constructor
@@ -97,17 +106,20 @@ class Http(Protocol):
         if defaultversion is not None:
             self.defaultversion = defaultversion
     def createmessagequeue(self, scheduler):
-        #scheduler.queue.addSubQueue(self.messagepriority, HttpRequestEvent.createMatcher(), 'httprequest', None, None, CBQueue.AutoClassQueue.initHelper('connection', 100, subqueuelimit = self.pipelinelimit * 2 if self.pipelinelimit is not None else None))
-        scheduler.queue.addSubQueue(self.messagepriority, HttpRequestEvent.createMatcher(), 'httprequest', None, None)
-        scheduler.queue.addSubQueue(self.messagepriority, HttpConnectionStateEvent.createMatcher(), 'httpconnstate', None, None)
-        #scheduler.queue.addSubQueue(self.messagepriority, HttpResponseEvent.createMatcher(), 'httpresponse', None, None, CBQueue.AutoClassQueue.initHelper('connection', 100, subqueuelimit = self.pipelinelimit * 2 if self.pipelinelimit is not None else None))
-        scheduler.queue.addSubQueue(self.messagepriority, HttpResponseEvent.createMatcher(), 'httpresponse', None, None)
-        #scheduler.queue.addSubQueue(self.messagepriority, HttpTrailersReceived.createMatcher(), 'httptrailer', None, None, CBQueue.AutoClassQueue.initHelper('stream', 100, subqueuelimit = None))
-        scheduler.queue.addSubQueue(self.messagepriority, HttpTrailersReceived.createMatcher(), 'httptrailer', None, None)
-        scheduler.queue.addSubQueue(self.writepriority, HttpStateChange.createMatcher(), 'httpstatechange')
+        if 'httprequest' not in scheduler.queue:
+            #scheduler.queue.addSubQueue(self.messagepriority, HttpRequestEvent.createMatcher(), 'httprequest', None, None, CBQueue.AutoClassQueue.initHelper('connection', 100, subqueuelimit = self.pipelinelimit * 2 if self.pipelinelimit is not None else None))
+            scheduler.queue.addSubQueue(self.messagepriority, HttpRequestEvent.createMatcher(), 'httprequest', None, None)
+            scheduler.queue.addSubQueue(self.messagepriority, HttpConnectionStateEvent.createMatcher(), 'httpconnstate', None, None)
+            #scheduler.queue.addSubQueue(self.messagepriority, HttpResponseEvent.createMatcher(), 'httpresponse', None, None, CBQueue.AutoClassQueue.initHelper('connection', 100, subqueuelimit = self.pipelinelimit * 2 if self.pipelinelimit is not None else None))
+            scheduler.queue.addSubQueue(self.messagepriority, HttpResponseEvent.createMatcher(), 'httpresponse', None, None)
+            scheduler.queue.addSubQueue(self.responseendpriority, HttpResponseEndEvent.createMatcher(), 'httpresponseend', None, None)
+            #scheduler.queue.addSubQueue(self.messagepriority, HttpTrailersReceived.createMatcher(), 'httptrailer', None, None, CBQueue.AutoClassQueue.initHelper('stream', 100, subqueuelimit = None))
+            scheduler.queue.addSubQueue(self.messagepriority, HttpTrailersReceived.createMatcher(), 'httptrailer', None, None)
+            scheduler.queue.addSubQueue(self.writepriority, HttpStateChange.createMatcher(), 'httpstatechange')
     def init(self, connection):
         for m in Protocol.init(self, connection):
             yield m
+        self.createmessagequeue(connection.scheduler)
         for m in self.reconnect_init(connection):
             yield m
     def _request_sender(self, connection):
@@ -593,7 +605,7 @@ class Http(Protocol):
             yield m
     def _clearresponse(self, connection):
         if connection.http_currentstream is not None:
-            for m in connection.http_currentstream.error(connection, ignoreException = True):
+            for m in connection.http_currentstream.error(connection, ignoreexception = True):
                 yield m
             connection.http_currentstream = None
         for i in range(connection.http_responsexid, connection.xid + 1):
@@ -604,6 +616,7 @@ class Http(Protocol):
         connection.http_responsebuffer.clear()
     def closed(self, connection):
         connection.http_sender.close()
+        connection.http_sender = None
         for m in Protocol.closed(self, connection):
             yield m
         connection.scheduler.ignore(HttpRequestEvent.createMatcher(None, None, None, connection))
@@ -614,6 +627,7 @@ class Http(Protocol):
             yield m
         connection.http_reqteinfo = None
         connection.http_requestbuffer = None
+        connection.http_parsestage = 'end'
     def error(self, connection):
         connection.http_sender.close()
         for m in Protocol.error(self, connection):
@@ -883,6 +897,8 @@ class Http(Protocol):
         '''
         method = method.upper()
         headers = self._createrequestheaders(connection, host, method, headers, stream, keepalive)
+        if not connection.connected or connection.http_requestbuffer is None:
+            raise HttpConnectionClosedException('Connection is closed')
         notify = not connection.http_requestbuffer
         connection.http_requestbuffer.append((host, path, method, headers, stream, keepalive))
         if notify:
@@ -900,7 +916,7 @@ class Http(Protocol):
         while True:
             yield (resp, stat)
             if container.matcher is stat:
-                raise HttpProtocolException('Connection closed before response received')
+                raise HttpConnectionClosedException('Connection closed before response received')
             r = container.event
             resps.append(r)
             if r.isfinal:
@@ -976,6 +992,9 @@ class Http(Protocol):
             connection.http_idle = True
             if not self.server:
                 events.append(ConnectionControlEvent(connection, ConnectionControlEvent.SHUTDOWN, False, connection.connmark))                            
+                events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                   connection.http_responsexid - 1,
+                                                   False))
         def tobytes(d):
             if hasattr(d, 'tobytes'):
                 return d.tobytes()
@@ -1280,7 +1299,16 @@ class Http(Protocol):
                                                              setcookies = setcookies,
                                                              stream = inputstream
                                                              ))
-                                connection.http_responsexid += 1
+                                if connection.http_statuscode < 100 or connection.http_statuscode >= 200:
+                                    connection.http_responsexid += 1
+                                    if stage == 'headline':
+                                        events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                                           connection.http_responsexid - 1,
+                                                                           True))
+                                    elif stage == 'end':
+                                        events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                                           connection.http_responsexid - 1,
+                                                                           False))
                     else:
                         match = self.headerline.match(data[start:ls])
                         if match is None:
@@ -1326,11 +1354,20 @@ class Http(Protocol):
                         connection.http_idle = True
                         if connection.http_keepalive:
                             stage = 'headline'
+                            if not self.server:
+                                if connection.http_statuscode < 100 or connection.http_statuscode >= 200:
+                                    events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                                       connection.http_responsexid - 1,
+                                                                       True))
                         else:
                             stage = 'end'
                             if not self.server:
                                 # Close connection
                                 events.append(ConnectionControlEvent(connection, ConnectionControlEvent.SHUTDOWN, False, connection.connmark))
+                                if connection.http_statuscode < 100 or connection.http_statuscode >= 200:
+                                    events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                                       connection.http_responsexid - 1,
+                                                                       True))
                     else:
                         match = self.headerline.match(data[start:ls])
                         if match is None:
@@ -1380,10 +1417,20 @@ class Http(Protocol):
                         stage = 'headline'
                         eof = True
                         connection.http_idle = True
+                        if not self.server:
+                            if connection.http_statuscode < 100 or connection.http_statuscode >= 200:
+                                events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                                   connection.http_responsexid - 1,
+                                                                   True))
                     else:
                         stage = 'end'
                         eof = True
                         connection.http_idle = True
+                        if not self.server:
+                            if connection.http_statuscode < 100 or connection.http_statuscode >= 200:
+                                events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                                   connection.http_responsexid - 1,
+                                                                   False))
                     if connection.http_deflate:
                         try:
                             readdata = connection.http_deflateobj.decompress(readdata)
@@ -1440,6 +1487,11 @@ class Http(Protocol):
                 stopstream(StreamDataEvent.STREAM_EOF)
             else:
                 stopstream(StreamDataEvent.STREAM_ERROR)
+        elif laststart == end:
+            # Remote write-close.
+            if not self.server:
+                # server closed the connection, we should also close the connection
+                 httpfail()
         connection.http_parsestage = stage
         return (events, end - start)
     def beforelisten(self, tcpserver, newsock):
@@ -1462,3 +1514,23 @@ class Http(Protocol):
                                                                  connection.connmark,
                                                                  self)):
             yield m
+    def final(self, connection):
+        if hasattr(connection, 'http_sender') and connection.http_sender:
+            connection.http_sender.close()
+        for m in Protocol.final(self, connection):
+            yield m
+    def waitForResponseEnd(self, container, connection, connmark, xid):
+        if not connection.connected or connection.connmark != connmark:
+            container.retvalue = False
+        elif connection.http_responsexid > xid + 1:
+            container.retvalue = True
+        elif connection.http_responsexid == xid + 1 and connection.http_parsestage in ('end', 'headline', 'headers'):
+            container.retvalue = connection.http_parsestage != 'end'
+        else:
+            re = HttpResponseEndEvent.createMatcher(connection, connmark, xid)
+            rc = self.statematcher(connection)
+            yield (re, rc)
+            if container.matcher is re:
+                container.retvalue = container.event.keepalive
+            else:
+                container.retvalue = False

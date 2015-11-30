@@ -19,6 +19,7 @@ import logging
 import itertools
 import signal
 from vlcp.event.core import POLLING_OUT
+import traceback
 
 if sys.version_info[0] >= 3:
     from urllib.parse import urlsplit
@@ -118,12 +119,21 @@ class Connection(RoutineContainer):
         self.totalsend = 0
         self.connrecv = 0
         self.connsend = 0
+        self.daemon = False
     def attach(self, sockobj):
         self.socket = sockobj
         self.logContext['socket'] = None if self.socket is None else self.socket.fileno()
         self.logger = ContextAdapter(Connection.logger, {'context': self.logContext})
         if self.socket is not None:
             self.socket.setblocking(False)
+    def setdaemon(self, daemon):
+        if self.daemon != daemon:
+            if self.socket:
+                self.scheduler.unregisterPolling(self.socket, daemon = self.daemon)
+                self.scheduler.registerPolling(self.socket, daemon = daemon)
+            if hasattr(self, 'mainroutine'):
+                self.scheduler.setDaemon(self.mainroutine, daemon, True)
+            self.daemon = daemon
     def _read_main(self):
         try:
             canread_matcher = PollEvent.createMatcher(self.socket.fileno(), PollEvent.READ_READY)
@@ -353,7 +363,7 @@ class Connection(RoutineContainer):
         if hasattr(self, 'writeroutine'):
             self.writeroutine.close()
         if self.socket is not None:
-            self.scheduler.unregisterPolling(self.socket)
+            self.scheduler.unregisterPolling(self.socket, self.daemon)
             self.socket.close()
             self.socket = None
     def main(self):
@@ -376,8 +386,8 @@ class Connection(RoutineContainer):
                 self.connsend = 0
                 self.writestop = False
                 self.readstop = False
-                self.subroutine(self._read_main(), True, 'readroutine')
-                self.subroutine(self._write_main(), True, 'writeroutine')
+                self.subroutine(self._read_main(), True, 'readroutine', self.daemon)
+                self.subroutine(self._write_main(), True, 'writeroutine', self.daemon)
                 err_match = PollEvent.createMatcher(self.socket.fileno(), PollEvent.ERROR)
                 yield (err_match, connection_control)
                 if self.matcher is connection_control and self.event.type is not ConnectionControlEvent.HANGUP:
@@ -473,7 +483,7 @@ class ResolveResponseEvent(Event):
 
 class Resolver(RoutineContainer):
     logger = logging.getLogger(__name__ + '.Resolver')
-    def __init__(self, scheduler = None, poolsize = 64):
+    def __init__(self, scheduler = None, poolsize = 256):
         RoutineContainer.__init__(self, scheduler, True)
         self.poolsize = poolsize
     @staticmethod
@@ -543,6 +553,7 @@ class Resolver(RoutineContainer):
             pipeout[1].close()    
     def main(self):
         import os
+        self.resolving = set()
         if hasattr(os, 'fork'):
             mp = True
         else:
@@ -626,7 +637,9 @@ class Resolver(RoutineContainer):
                     error_matcher = PollEvent.createMatcher(pipein.fileno(), PollEvent.ERROR)
                 elif self.matcher is request_matcher:
                     try:
-                        queue.put(self.event.request, False)
+                        if self.event.request not in self.resolving:
+                            self.resolving.add(self.event.request)
+                            queue.put(self.event.request, False)
                         self.event.canignore = True
                     except Full:
                         isFull = True
@@ -640,6 +653,7 @@ class Resolver(RoutineContainer):
                                 break
                             for m in self.waitForSend(event):
                                 yield m
+                            self.resolving.remove(event.request)
                     else:
                         while True:
                             try:
@@ -661,7 +675,7 @@ class Resolver(RoutineContainer):
                                 break
                             for m in self.waitForSend(event):
                                 yield m
-                            
+                            self.resolving.remove(event.request)                            
         finally:
             if pipein is not None:
                 self.scheduler.unregisterPolling(pipein, True)
@@ -736,7 +750,10 @@ class Client(Connection):
         if not self.unix:
             self.hostname = self.url.hostname
             if not self.url.port:
-                self.port = self.protocol.defaultport
+                if self.ssl:
+                    self.port = getattr(self.protocol, 'ssldefaultport', self.protocol.defaultport)
+                else:
+                    self.port = self.protocol.defaultport
             else:
                 self.port = self.url.port
         else:
@@ -770,8 +787,11 @@ class Client(Connection):
             for m in self.waitWithTimeout(20, ResolveResponseEvent.createMatcher(request)):
                 yield m
             if self.timeout:
-                # Resolve is only allowed through asynchronous resolver 
-                self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
+                # Resolve is only allowed through asynchronous resolver
+                try:
+                    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
+                except:
+                    raise IOError('Resolve hostname timeout: ' + self.hostname)
             else:
                 if hasattr(self.event, 'error'):
                     raise IOError('Cannot resolve hostname: ' + self.hostname)
@@ -1055,6 +1075,8 @@ class Client(Connection):
         if self.socket:
             for m in Connection.main(self):
                 yield m
+    def __repr__(self, *args, **kwargs):
+        return Connection.__repr__(self, *args, **kwargs) + '(url=' + self.rawurl + ')'
 
 class TcpServer(RoutineContainer):
     '''

@@ -103,8 +103,8 @@ class SelectPolling(object):
             if hasattr(fd, 'fileno'):
                 fd = fd.fileno()
             self.errorfiles.discard(fd)
-            self.readfiles.discard(fd)
-            self.writefiles.discard(fd)
+            #self.readfiles.discard(fd)
+            #self.writefiles.discard(fd)
         except IOError:
             return
     def modify(self, fd, options):

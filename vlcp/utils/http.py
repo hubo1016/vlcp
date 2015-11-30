@@ -31,7 +31,7 @@ from email.message import Message
 from vlcp.server.module import callAPI
 import functools
 import logging
-
+import os.path
 import sys
 if sys.version_info[0] >= 3:
     from email.parser import BytesFeedParser
@@ -47,6 +47,8 @@ class HttpExitException(Exception):
 
 class HttpRewriteLoopException(Exception):
     pass
+
+pathrep = re.compile(r'[\/]+')
 
 class Environment(object):
     def __init__(self, event, container = None, defaultencoding = 'utf-8'):
@@ -120,11 +122,12 @@ class Environment(object):
             return r.decode(self.encoding)
         else:
             return r
-    def startResponse(self, status = 200, headers = [], clearheaders = True):
+    def startResponse(self, status = 200, headers = [], clearheaders = True, disabletransferencoding = False):
         "Start to send response"
         if self._sendHeaders:
             raise HttpProtocolException('Cannot modify response, headers already sent')
         self.status = status
+        self.disabledeflate = disabletransferencoding
         if clearheaders:
             self.sent_headers = headers[:]
             self.sent_cookies = []
@@ -173,7 +176,7 @@ class Environment(object):
         # Process cookies
         for c in self.sent_cookies:
             self.rawheader(c.output(), False)
-        self.protocol.startResponse(self.connection, self.xid, self.status, self.sent_headers, self.outputstream)
+        self.protocol.startResponse(self.connection, self.xid, self.status, self.sent_headers, self.outputstream, self.disabledeflate)
         self._sendHeaders = True
     def rewrite(self, path, method = None):
         "Rewrite this request to another processor. Must be called before header sent"
@@ -277,7 +280,7 @@ class Environment(object):
     def flush(self, eof = False):
         for m in self.write(b'', eof, False):
             yield m
-    def output(self, stream):
+    def output(self, stream, disabletransferencoding = None):
         if self._sendHeaders:
             raise HttpProtocolException('Cannot modify response, headers already sent')
         self.outputstream = stream
@@ -287,6 +290,8 @@ class Environment(object):
             pass
         else:
             self.header(b'Content-Length', str(content_length).encode('ascii'))
+        if disabletransferencoding is not None:
+            self.disabledeflate = disabletransferencoding
         self._startResponse()
     def outputdata(self, data):
         self.output(MemoryStream(data))
@@ -432,6 +437,21 @@ class Environment(object):
             realm = realm.encode('ascii')
         self.startResponse(401, [(b'WWW-Authenticate', b'Basic realm="' + realm + b'"')])
         self.exit(b'<h1>' + self.protocol._createstatus(401) + b'</h1>')
+    def getrealpath(self, root, path):
+        if not isinstance(path, str):
+            path = path.encode(self.encoding)
+        # In windows, if the path starts with multiple / or \, the os.path library may consider it an UNC path
+        # remove them; also replace \ to /
+        path = pathrep.subn('/', path)[0]
+        # The relative root is considered ROOT, eliminate any relative path like ../abc, which create security issues
+        # We can use os.path.relpath(..., '/') but python2.6 os.path.relpath is buggy 
+        path = os.path.normpath(os.path.join('/', path))
+        # The normalized path can be an UNC path, or event a path with drive letter
+        # Send bad request for these types
+        if os.path.splitdrive(path)[0]:
+            raise HttpInputException('Bad path')
+        return os.path.join(root, path[1:])
+        
 
 def _handler(container, event, func):
     try:

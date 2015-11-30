@@ -83,6 +83,8 @@ Session = %s<br/>
             for m in env.redirect(b'http://www.baidu.com/'):
                 yield m
             env.exit()
+        if 'download' in env.args:
+            env.header('Content-Disposition', 'attachment; filename="a:b.txt"')
         for m in env.write(self.formatstr(self.document,
                                           (env.escape(env.host),
                                            env.escape(env.fullpath),

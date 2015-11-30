@@ -892,6 +892,8 @@ class CBQueue(object):
             ret[1].append(QueueIsEmptyEvent(self))
         self.blockEvents.clear()
         return ret
+    def __contains__(self, name):
+        return name in self.queueindex
     def __getitem__(self, name):
         '''
         Get a sub-queue through q['sub-queue-name']

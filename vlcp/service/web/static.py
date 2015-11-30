@@ -95,12 +95,17 @@ def _checkrange(env, etag, size):
                 begin = int(m.group(1))
                 end = int(m.group(2)) + 1
         # Slice the range to match the correct size
+        if begin < 0:
+            begin = 0
         if begin > size:
             begin = size
         if end < begin:
             end = begin
         if end > size:
             end = size
+        # Ignore invalid ranges
+        if end <= begin:
+            return None
         return (begin, end)
     else:
         return None
@@ -151,7 +156,7 @@ class Static(Module):
     _default_allowrange = True
     _default_etag = True
     _default_gzip = True
-    _default_maxage = None
+    _default_maxage = 5
     _default_memorycache = True
     _default_memorycachelimit = 4096
     _default_memorycacheitemlimit = 4096
@@ -208,12 +213,7 @@ class Static(Module):
                         yield m
                     env.exit()
             localpath = env.path_match.expand(expand)
-            if not isinstance(localpath, str):
-                localpath = localpath.encode(env.encoding)
-            # The relative root is considered ROOT, eliminate any relative path like ../abc, which create security issues
-            # Python2.6 os.path.relpath is buggy...
-            localpath = os.path.normpath(os.path.join('/', localpath))[1:]
-            realpath = os.path.join(relativeroot, localpath)            
+            realpath = env.getrealpath(relativeroot, localpath)
             filename = os.path.basename(realpath)
             if xsendfile or xlighttpdsendfile or xaccelredirect:
                 # Apache send a local file
@@ -249,14 +249,14 @@ class Static(Module):
                         yield m
                     env.exit()
                 encodings = _parseacceptencodings(env)
-                if b'gzip' in encodings:
+                if b'gzip' in encodings or b'x-gzip' in encodings:
                     use_gzip = True
             use_etag = etag and not errorpage
             # First time cache check
             if memorycache:
                 # Cache data: (data, headers, cachedtime, etag)
                 cv = self._cache.get((realpath, use_gzip))
-                if cv and cv[2] + max(maxage, 3) > currenttime:
+                if cv and cv[2] + max(0 if maxage is None else maxage, 3) > currenttime:
                     # Cache is valid
                     if use_etag:
                         if _checketag(env, cv[3]):
@@ -269,7 +269,7 @@ class Static(Module):
                     if rng is not None:
                         env.startResponse(206, cv[1])
                         _generaterange(env, rng, size)
-                        env.output(MemoryStream(cv[0][rng[0]:rng[1]]))
+                        env.output(MemoryStream(cv[0][rng[0]:rng[1]]), use_gzip)
                     else:
                         if errorpage:
                             m = statusname.match(filename)
@@ -280,7 +280,7 @@ class Static(Module):
                                 env.startResponse(200, cv[1])
                         else:
                             env.startResponse(200, cv[1])
-                        env.output(MemoryStream(cv[0]))
+                        env.output(MemoryStream(cv[0]), use_gzip)
                     env.exit()
             # Test file
             if use_gzip:
@@ -328,7 +328,7 @@ class Static(Module):
                     if rng is not None:
                         env.startResponse(206, cv[1])
                         _generaterange(env, rng, size)
-                        env.output(MemoryStream(cv[0][rng[0]:rng[1]]))
+                        env.output(MemoryStream(cv[0][rng[0]:rng[1]]), use_gzip)
                     else:
                         if errorpage:
                             m = statusname.match(filename)
@@ -339,7 +339,7 @@ class Static(Module):
                                 env.startResponse(200, cv[1])
                         else:
                             env.startResponse(200, cv[1])
-                        env.output(MemoryStream(cv[0]))
+                        env.output(MemoryStream(cv[0]), use_gzip)
                     env.exit()
                 elif cv:
                     # Cache is invalid, remove it to prevent another hit
@@ -362,7 +362,7 @@ class Static(Module):
             if use_etag:
                 env.header(b'ETag', b'"' + newetag + b'"', False)
             if maxage is not None:
-                env.header('Cache-Control', 'maxage=' + str(maxage), False)
+                env.header('Cache-Control', 'max-age=' + str(maxage), False)
             if use_gzip:
                 env.header(b'Content-Encoding', b'gzip', False)
             if not errorpage and contentdisposition:
@@ -373,7 +373,6 @@ class Static(Module):
                 env.sent_headers.extend(extraheaders)
             if use_etag:
                 if _checketag(env, newetag):
-                    print env.sent_headers
                     env.startResponse(304, clearheaders = False)
                     env.exit()
             if memorycache and stat_info.st_size <= memorycachelimit:
@@ -393,7 +392,7 @@ class Static(Module):
                     if rng is not None:
                         env.startResponse(206, clearheaders = False)
                         _generaterange(env, rng, size)
-                        env.output(MemoryStream(data[rng[0]:rng[1]]))
+                        env.output(MemoryStream(data[rng[0]:rng[1]]), use_gzip)
                     else:
                         if errorpage:
                             m = statusname.match(filename)
@@ -404,7 +403,7 @@ class Static(Module):
                                 env.startResponse(200, clearheaders = False)
                         else:
                             env.startResponse(200, clearheaders = False)
-                        env.output(MemoryStream(data))
+                        env.output(MemoryStream(data), use_gzip)
                     env.exit()
             size = stat_info.st_size
             if not errorpage and allowrange:
@@ -419,7 +418,7 @@ class Static(Module):
                     fobj.close()
                     raise
                 else:
-                    env.output(FileStream(fobj, isunicode=False, size=rng[1] - rng[0]))
+                    env.output(FileStream(fobj, isunicode=False, size=rng[1] - rng[0]), use_gzip)
             else:
                 if errorpage:
                     m = statusname.match(filename)
@@ -430,7 +429,7 @@ class Static(Module):
                         env.startResponse(200, clearheaders = False)
                 else:
                     env.startResponse(200, clearheaders = False)
-                env.output(FileStream(open(realpath, 'rb'), isunicode = False))
+                env.output(FileStream(open(realpath, 'rb'), isunicode = False), use_gzip)
         return handler
     _configurations = ['checkreferer', 'refererallowlocal', 'refererallows',
             'allowrange', 'etag', 'gzip', 'maxage', 'memorycache',

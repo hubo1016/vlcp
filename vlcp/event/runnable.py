@@ -253,6 +253,7 @@ class RoutineContainer(object):
     def waitWithTimeout(self, timeout, *matchers):
         if timeout is None:
             yield matchers
+            self.timeout = False
         else:
             th = self.scheduler.setTimer(timeout)
             try:
@@ -268,6 +269,7 @@ class RoutineContainer(object):
         if timeout is None:
             for m in subprocess:
                 yield m
+            self.timeout = False
         else:
             th = self.scheduler.setTimer(timeout)
             try:

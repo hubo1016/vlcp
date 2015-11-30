@@ -253,13 +253,13 @@ class Scheduler(object):
         for e in events:
             self.queue.unblock(e)
             e.canignore = True
-    def quit(self):
+    def quit(self, daemononly = False):
         '''
         Send quit event to quit the main loop
         '''
         if not self.quiting:
             self.quiting = True
-            self.queue.append(SystemControlEvent(SystemControlEvent.QUIT), True)
+            self.queue.append(SystemControlEvent(SystemControlEvent.QUIT, daemononly = daemononly), True)
     def send(self, event):
         '''
         Send a new event to the main queue. If the queue or sub-queue is full, return a wait event
@@ -321,11 +321,11 @@ class Scheduler(object):
         to suspend and let other threads do their work
         '''
         self.generatecontinue = True        
-    def setDaemon(self, runnable, isdaemon):
+    def setDaemon(self, runnable, isdaemon, noregister = False):
         '''
         If a runnable is a daemon, it will not keep the main loop running. The main loop will end when all alived runnables are daemons.
         '''
-        if not runnable in self.registerIndex:
+        if not noregister and runnable not in self.registerIndex:
             self.register((), runnable)
         if isdaemon:
             self.daemons.add(runnable)
@@ -406,7 +406,10 @@ class Scheduler(object):
                 if self.quitsignal:
                     self.quit()
                 if canquit and not self.queue.canPop() and not self.timers:
-                    break
+                    if self.quiting:
+                        break
+                    else:
+                        self.quit(True)
                 self.queue.append(SystemControlLowPriorityEvent(SystemControlLowPriorityEvent.LOOP), True)
                 processedEvents = 0
                 while self.queue.canPop() and (self.processevents is None or processedEvents < self.processevents):
@@ -416,7 +419,10 @@ class Scheduler(object):
                         processEvent(qe)
                     processEvent(e, emptys)
                     if quitMatcher.isMatch(e):
-                        runnables = list(self.registerIndex.keys())
+                        if e.daemononly:
+                            runnables = list(self.daemons)
+                        else:
+                            runnables = list(self.registerIndex.keys())
                         for r in runnables:
                             try:
                                 r.throw(QuitException)

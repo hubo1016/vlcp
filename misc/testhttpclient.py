@@ -67,8 +67,8 @@ class MainRoutine(RoutineContainer):
 if __name__ == '__main__':
     logging.basicConfig()
     s = Server()
-    #s.scheduler.debugging = True
-    #s.scheduler.logger.setLevel(logging.DEBUG)
+    s.scheduler.debugging = True
+    s.scheduler.logger.setLevel(logging.DEBUG)
     #Http.debugging = True
     #Http._logger.setLevel(logging.DEBUG)
     http.createmessagequeue(s.scheduler)

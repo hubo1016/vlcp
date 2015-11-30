@@ -27,12 +27,12 @@ class BaseStream(object):
         self.dataeof = False
         self.dataerror = False
         self.eof = False
-        self.error = False
+        self.errored = False
         self.closed = False
         self.writeclosed = False
         self.allowwrite = False
         self.isunicode = isunicode
-        self.encoders = encoders
+        self.encoders = list(encoders)
     def getEncoderList(self):
         return self.encoders
     def _parsedata(self, data, dataeof, dataerror):
@@ -44,7 +44,7 @@ class BaseStream(object):
                 try:
                     data = enc(data, self.dataeof)
                 except:
-                    self.error = True
+                    self.errored = True
                     self.closed = True
                     raise
         self.data = data
@@ -53,7 +53,7 @@ class BaseStream(object):
         retsize = 0
         if self.eof:
             raise EOFError
-        if self.error:
+        if self.errored:
             raise IOError('Stream is broken before EOF')
         while size is None or retsize < size:
             if self.pos >= len(self.data):
@@ -68,7 +68,7 @@ class BaseStream(object):
                     self.eof = True
                     break
                 if self.dataerror:
-                    self.error = True
+                    self.errored = True
                     break
             else:
                 ret.append(self.data[self.pos:self.pos + (size - retsize)])
@@ -79,12 +79,12 @@ class BaseStream(object):
             container.data = u''.join(ret)
         else:
             container.data = b''.join(ret)
-        if self.error:
+        if self.errored:
             raise IOError('Stream is broken before EOF')
     def readonce(self, size = None):
         if self.eof:
             raise EOFError
-        if self.error:
+        if self.errored:
             raise IOError('Stream is broken before EOF')
         if size is not None and size < len(self.data) - self.pos:
             ret = self.data[self.pos: self.pos + size]
@@ -105,7 +105,7 @@ class BaseStream(object):
         retsize = 0
         if self.eof:
             raise EOFError
-        if self.error:
+        if self.errored:
             raise IOError('Stream is broken before EOF')
         while size is None or retsize < size:
             if self.pos >= len(self.data):
@@ -131,7 +131,7 @@ class BaseStream(object):
                         self.eof = True
                         break
                     if self.dataerror:
-                        self.error = True
+                        self.errored = True
                         break
             else:
                 t = self.data[self.pos:self.pos + (size - retsize)]
@@ -149,13 +149,13 @@ class BaseStream(object):
             container.data = u''.join(ret)
         else:
             container.data = b''.join(ret)
-        if self.error:
+        if self.errored:
             raise IOError('Stream is broken before EOF')
     def copyTo(self, dest, container):
         if self.eof:
             for m in dest.write(u'' if self.isunicode else b'', True):
                 yield m
-        elif self.error:
+        elif self.errored:
             for m in dest.error(container):
                 yield m
         else:
@@ -206,7 +206,7 @@ class Stream(BaseStream):
         self.writebufferlimit = writebufferlimit
         self.splitsize = splitsize
     def prepareRead(self, container):
-        if not self.eof and not self.error and self.pos >= len(self.data):
+        if not self.eof and not self.errored and self.pos >= len(self.data):
             yield (self.dm,)
             container.event.canignore = True
             self._parsedata(container.event.data, container.event.type == StreamDataEvent.STREAM_EOF,
@@ -266,7 +266,7 @@ class MemoryStream(BaseStream):
     def __len__(self):
         return len(self.preloaddata)
     def prepareRead(self, container):
-        if not self.eof and not self.error and self.pos >= len(self.data):
+        if not self.eof and not self.errored and self.pos >= len(self.data):
             self._parsedata(self.preloaddata, True, False)
         if False:
             yield
@@ -302,7 +302,7 @@ class FileStream(BaseStream):
         else:
             return self.size
     def prepareRead(self, container):
-        if not self.eof and not self.error and self.pos >= len(self.data):
+        if not self.eof and not self.errored and self.pos >= len(self.data):
             try:
                 readlimit = self.readlimit
                 if self.size is not None and self.size - self.totalbuffered < readlimit:
@@ -321,3 +321,27 @@ class FileStream(BaseStream):
     def close(self, scheduler=None, allowwrite=False):
         self.fobj.close()
         BaseStream.close(self, scheduler=scheduler, allowwrite=allowwrite)
+
+class FileWriter(object):
+    "Write to file"
+    def __init__(self, fobj):
+        self.fobj = fobj
+    def write(self, data, container, eof = False, ignoreexception = False):
+        try:
+            if data:
+                self.fobj.write(data)
+            if eof:
+                self.fobj.close()
+        except:
+            if not ignoreexception:
+                raise
+        if False:
+            yield
+    def error(self, container, ignoreexception = False):
+        try:
+            self.fobj.close()
+        except:
+            if not ignoreexception:
+                raise
+        if False:
+            yield
