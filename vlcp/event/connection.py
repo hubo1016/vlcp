@@ -505,9 +505,10 @@ class Resolver(Connector):
         else:
             Connector.enqueue(self, queue, event, matcher)
             self.resolving.add(event.request)
-    def sendevent(self, event):
-        Connector.sendevent(self, event)
-        self.resolving.remove(event.request)
+    def sendevents(self, events):
+        Connector.sendevents(self, events)
+        for e in events:
+            self.resolving.remove(e.request)
 class Client(Connection):
     '''
     A single connection to a specified target
