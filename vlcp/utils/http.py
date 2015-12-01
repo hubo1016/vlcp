@@ -57,7 +57,7 @@ class Environment(object):
             self.host = event.host
             self.fullpath = event.path
             self.path_match = getattr(event, 'path_match', None)
-            self.path = getattr(event, 'realpath', None)
+            self.path = getattr(event, 'realpath', self.fullpath)
             self.originalpath = getattr(event, 'originalpath', self.fullpath)
             self.rewritefrom = getattr(event, 'rewritefrom', None)
             self.querystring = getattr(event, 'querystring', None)

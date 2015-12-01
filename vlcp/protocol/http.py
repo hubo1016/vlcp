@@ -881,7 +881,7 @@ class Http(Protocol):
                     # for some servers
                     newheaders.append(b'Content-Length', b'0')
             else:
-                newheaders.append(b'Content-Length', str(size).encode('ascii'))
+                newheaders.append((b'Content-Length', str(size).encode('ascii')))
             existingHeaders.add(b'content-length')
         for k,v in defaultheaders:
             if self.normalizeHeader(k) not in existingHeaders:

@@ -274,7 +274,7 @@ class Static(Module):
                         if errorpage:
                             m = statusname.match(filename)
                             if m:
-                                env.startResponse(int(m.group(1)), cv[1])
+                                env.startResponse(int(m.group()), cv[1])
                             else:
                                 # Show 200-OK is better than 500
                                 env.startResponse(200, cv[1])
@@ -333,7 +333,7 @@ class Static(Module):
                         if errorpage:
                             m = statusname.match(filename)
                             if m:
-                                env.startResponse(int(m.group(1)), cv[1])
+                                env.startResponse(int(m.group()), cv[1])
                             else:
                                 # Show 200-OK is better than 500
                                 env.startResponse(200, cv[1])
@@ -397,7 +397,7 @@ class Static(Module):
                         if errorpage:
                             m = statusname.match(filename)
                             if m:
-                                env.startResponse(int(m.group(1)), clearheaders = False)
+                                env.startResponse(int(m.group()), clearheaders = False)
                             else:
                                 # Show 200-OK is better than 500
                                 env.startResponse(200, clearheaders = False)
@@ -423,7 +423,7 @@ class Static(Module):
                 if errorpage:
                     m = statusname.match(filename)
                     if m:
-                        env.startResponse(int(m.group(1)), clearheaders = False)
+                        env.startResponse(int(m.group()), clearheaders = False)
                     else:
                         # Show 200-OK is better than 500
                         env.startResponse(200, clearheaders = False)
@@ -462,29 +462,32 @@ class Static(Module):
                     if not isinstance(d, bytes):
                         expand = expand.encode('utf-8')
                     maps[topath(k)] = (d, expand)
-        getconfig = lambda k: (k,getattr(config, k)) if hasattr(config, k) else defaultconfig.get(k)
+        getconfig = lambda k: getattr(config, k) if hasattr(config, k) else defaultconfig.get(k)
         hostbind = getconfig('hostbind')
         vhostbind = getconfig('vhostbind')
         if maps:
             # Create configuration
-            newconfig = dict(getconfig(k) for k in self._configurations)
-            if hasattr(config, 'relativeroot'):
-                relativeroot = config.relativeroot
-            elif hasattr(config, 'relativemodule'):
-                try:
-                    __import__(config.relativemodule)
-                    mod = sys.modules[config.relativemodule]
-                    filepath = getattr(mod, '__file__', None)
-                    if filepath:
-                        relativeroot = os.path.dirname(filepath)
-                    else:
-                        self._logger.warning('Relative module %r has no __file__, use cwd %r instead',
-                                             config.relativemodule,
-                                             os.getcwd())
-                        relativeroot = os.getcwd()
-                except:
-                    self._logger.exception('Cannot locate relative module %r', config.relativemodule)
-                    raise
+            newconfig = dict((k,getconfig(k)) for k in self._configurations)
+            relativeroot = getconfig('relativeroot')
+            if not relativeroot:
+                relativemodule = getconfig('relativemodule')
+                if relativemodule:
+                    try:
+                        __import__(relativemodule)
+                        mod = sys.modules[relativemodule]
+                        filepath = getattr(mod, '__file__', None)
+                        if filepath:
+                            relativeroot = os.path.dirname(filepath)
+                        else:
+                            self._logger.warning('Relative module %r has no __file__, use cwd %r instead',
+                                                 relativemodule,
+                                                 os.getcwd())
+                            relativeroot = os.getcwd()
+                    except:
+                        self._logger.exception('Cannot locate relative module %r', relativemodule)
+                        raise
+                else:
+                    relativeroot = os.getcwd()
             relativeroot = os.path.abspath(relativeroot)
             for k,v in maps.items():
                 drel = os.path.normpath(os.path.join(relativeroot, v[0]))
@@ -495,11 +498,12 @@ class Static(Module):
                 if os.path.isfile(os.path.join(drel, '__init__.py')):
                     self._logger.error('Path %r is a package', drel)
                     continue
-                self.dispatcher.route(k, self._handlerConfig(v[1], drel, **newconfig), self.apiroutine)
+                self.dispatcher.route(k, self._handlerConfig(v[1], drel, **newconfig), self.apiroutine,
+                                      hostbind, vhostbind)
         if hasattr(config, 'vdir'):
-            newconfig.update(('hostbind', hostbind), ('vhostbind', vhostbind))
+            newconfig.update((('hostbind', hostbind), ('vhostbind', vhostbind)))
             for k,v in config.vdir.items():
-                self._createServers(self, v, newconfig)
+                self._createHandlers(v, newconfig)
     def __init__(self, server):
         Module.__init__(self, server)
         self.dispatcher = Dispatcher(self.scheduler)

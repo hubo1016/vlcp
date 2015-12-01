@@ -181,6 +181,8 @@ class Request(object):
         self.origin_req_host = origin_req_host
         self.unverifiable = unverifiable
         self.redirect_count = 0
+        if self.data and not self.has_header('Content-Type'):
+            self.add_header('Content-Type', 'application/x-www-form-urlencoded')
     def get_full_url(self):
         return self.url
     def is_unverifiable(self):

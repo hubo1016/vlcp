@@ -187,7 +187,7 @@ class Configurable(object):
         pass
     def __getattr__(self, key):
         if key.startswith('_'):
-            raise AttributeError("type object '%s' has no attribute '$s'" % (type(self).__name__, key))
+            raise AttributeError("type object '%s' has no attribute '%s'" % (type(self).__name__, key))
         cls = type(self)
         while True:
             try:
