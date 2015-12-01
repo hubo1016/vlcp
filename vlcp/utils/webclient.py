@@ -10,7 +10,6 @@ from email.message import Message
 from vlcp.event.stream import MemoryStream
 from vlcp.event.event import Event, withIndices
 from vlcp.event.connection import Client
-from email.message import Message
 from vlcp.event.core import TimerEvent
 from vlcp.config.config import Configurable
 
@@ -396,12 +395,14 @@ class WebClient(Configurable):
                 if resp.iserror and not ignorewebexception:
                     try:
                         exc = WebException(resp.fullstatus)
-                        for m in resp.stream.read(container, 1024):
+                        for m in resp.stream.read(container, 4096):
                             yield m
-                        if datagen_routine:
-                            container.terminate(datagen_routine)
                         exc.response = resp
                         exc.body = container.data
+                        if datagen_routine:
+                            container.terminate(datagen_routine)
+                        for m in resp.shutdown():
+                            yield m
                         for m in self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True):
                             yield m
                         raise exc
