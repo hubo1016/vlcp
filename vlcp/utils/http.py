@@ -439,7 +439,7 @@ class Environment(object):
         self.exit(b'<h1>' + self.protocol._createstatus(401) + b'</h1>')
     def getrealpath(self, root, path):
         if not isinstance(path, str):
-            path = path.encode(self.encoding)
+            path = path.decode(self.encoding)
         # In windows, if the path starts with multiple / or \, the os.path library may consider it an UNC path
         # remove them; also replace \ to /
         path = pathrep.subn('/', path)[0]

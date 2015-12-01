@@ -139,7 +139,7 @@ def safehex(v):
 def _createetag(stat_info):
     etag = 'vlcp-' + safehex(stat_info.st_ino) + '-' + safehex(int(stat_info.st_mtime)) + '-' + safehex(int(stat_info.st_size))
     if not isinstance(etag, bytes):
-        return etag.decode('ascii')
+        return etag.encode('ascii')
     return etag
 
 def _generaterange(env, rng, size):
