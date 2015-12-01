@@ -180,6 +180,7 @@ class Request(object):
             origin_req_host = request_host(self)
         self.origin_req_host = origin_req_host
         self.unverifiable = unverifiable
+        self.redirect_count = 0
     def get_full_url(self):
         return self.url
     def is_unverifiable(self):
@@ -218,6 +219,9 @@ class Request(object):
         self.undirectedheaderdict[k.lower()] = v
         self.undirectedheadermap[k.lower()] = k
     def redirect(self, response, **kwargs):
+        self.redirect_count += 1
+        if self.redirect_count >= 16:
+            raise WebException('Too many redirections')
         url = response.get_header('Location')
         if url is None:
             raise WebException('Receiving a 3xx response without Location header')
