@@ -172,6 +172,9 @@ class Module(Configurable):
         self.state = ModuleLoadStateChanged.UNLOADED
         self.target = type(self)
         self._logger = logging.getLogger(type(self).__module__ + '.' + type(self).__name__)
+    @classmethod
+    def getFullPath(cls):
+        return cls.__module__ + '.' + cls.__name__
     def createAPI(self, *apidefs):
         self.apiHandler = ModuleAPIHandler(self, apidefs)
         self.routines.append(self.apiHandler)
@@ -316,6 +319,8 @@ class ModuleLoader(RoutineContainer):
                     yield m
                 del module._instance
                 raise
+            for d in preloads:
+                d._instance.dependedBy.add(module)
             self.activeModules[inst.getServiceName()] = module
             for m in module._instance.load(self):
                 yield m

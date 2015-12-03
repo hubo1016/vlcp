@@ -408,13 +408,13 @@ class RoutineContainer(object):
                     yield m
             except:
                 typ, val, tb = sys.exc_info()
-                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine, exception = val)
+                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine, exception = val)
                 e.canignore = True
                 for m in container.waitForSend(e):
                     yield m
                 raise
             else:
-                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine,
+                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine,
                                         result = tuple(getattr(container, n, None) for n in retnames))
                 e.canignore = True
                 for m in container.waitForSend(e):
