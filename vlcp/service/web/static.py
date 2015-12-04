@@ -465,12 +465,12 @@ class Static(Module):
         getconfig = lambda k: getattr(config, k) if hasattr(config, k) else defaultconfig.get(k)
         hostbind = getconfig('hostbind')
         vhostbind = getconfig('vhostbind')
+        relativeroot = getconfig('relativeroot')
+        relativemodule = getconfig('relativemodule')
         if maps:
             # Create configuration
             newconfig = dict((k,getconfig(k)) for k in self._configurations)
-            relativeroot = getconfig('relativeroot')
             if not relativeroot:
-                relativemodule = getconfig('relativemodule')
                 if relativemodule:
                     try:
                         __import__(relativemodule)
@@ -501,7 +501,8 @@ class Static(Module):
                 self.dispatcher.route(k, self._handlerConfig(v[1], drel, **newconfig), self.apiroutine,
                                       hostbind, vhostbind)
         if hasattr(config, 'vdir'):
-            newconfig.update((('hostbind', hostbind), ('vhostbind', vhostbind)))
+            newconfig.update((('hostbind', hostbind), ('vhostbind', vhostbind),
+                              ('relativeroot', getconfig('relativeroot')),('relativemodule', relativemodule)))
             for k,v in config.vdir.items():
                 self._createHandlers(v, newconfig)
     def __init__(self, server):
