@@ -11,11 +11,11 @@ except:
     pass
 from setuptools import setup, find_packages
 
-VERSION = '0.9.6'
+VERSION = '0.9.7'
 
 setup(name='vlcp',
       version=VERSION,
-      description='Full stack framework for SDN Controller, support Openflow 1.0, Openflow 1.3, and Nicira extensions.',
+      description='Full stack framework for SDN Controller, support Openflow 1.0, Openflow 1.3, and Nicira extensions. Also a powerful coroutine-based web server.',
       author='Hu Bo',
       author_email='hubo1016@126.com',
       license="http://www.apache.org/licenses/LICENSE-2.0",
