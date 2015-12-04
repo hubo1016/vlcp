@@ -492,9 +492,16 @@ class Environment(object):
         if os.path.splitdrive(path)[0]:
             raise HttpInputException('Bad path')
         return os.path.join(root, path[1:])
+    def _tostr(self, arg):
+        if isinstance(arg, list):
+            return [self._tostr(v) for v in arg]
+        elif not isinstance(arg, str):
+            return v.decode(self.encoding)
+        else:
+            return v
     def argstostr(self):
         "Query string arguments are bytes in Python3. This function Convert bytes to string with env.encoding(default to utf-8)."
-        self.args = dict((k, (v.decode(self.encoding) if not isinstance(v, str) else v)) for k,v in self.args.items())
+        self.args = dict((k, self._tostr(v)) for k,v in self.args.items())
         return self.args
     def cookietostr(self):
         "Cookie values are bytes in Python3. This function Convert bytes to string with env.encoding(default to utf-8)."
@@ -515,13 +522,15 @@ def _handler(container, event, func):
         try:
             if env.exception:
                 raise HttpInputException('Bad request')
-            for m in env.container.executeWithTimeout(getattr(env.protocol, 'processtimeout', None), func(env)):
-                yield m
-            if env.container.timeout:
-                if container and hasattr(container, 'logger'):
-                    container.logger.warning('Timeout in HTTP processing, env=%r:', env)
-                for m in env.error(500, showerror=False):
+            r = func(env)
+            if r:
+                for m in env.container.executeWithTimeout(getattr(env.protocol, 'processtimeout', None), r):
                     yield m
+                if env.container.timeout:
+                    if container and hasattr(container, 'logger'):
+                        container.logger.warning('Timeout in HTTP processing, env=%r:', env)
+                    for m in env.error(500, showerror=False):
+                        yield m
         except HttpExitException as exc:
             if exc.args[0]:
                 for m in env.write(exc.args[0]):
@@ -729,7 +738,7 @@ class Dispatcher(EventHandler):
             try:
                 ps = 0
                 for ma in matchargs:
-                    v = env.path_match.group(ma)
+                    v = _str(env.path_match.group(ma))
                     if v is not None:
                         if isinstance(ma, str):
                             kwargs[ma] = v
@@ -780,8 +789,9 @@ class Dispatcher(EventHandler):
                 raise HttpInputException('Missing argument: ' + str(exc))
             except Exception as exc:
                 raise HttpInputException(str(exc))
-            for m in r:
-                yield m
+            if r:
+                for m in r:
+                    yield m
         self.route(path, handler, container, host, vhost, method)
     class _EncodedMatch(object):
         "Hacker for match.expand"

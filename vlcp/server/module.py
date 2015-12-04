@@ -447,6 +447,10 @@ class ModuleLoader(RoutineContainer):
                     self._logger.warning('Failed to import a package: %r, resume others', package, exc_info = True)
                     failures.append('Failed to import: ' + package)
                     continue
+            except:
+                self._logger.warning('Failed to import a package: %r, resume others', package, exc_info = True)
+                failures.append('Failed to import: ' + package)
+                continue                
             for cn, module in mlist:
                 try:
                     module2 = getattr(p, cn)
@@ -454,7 +458,7 @@ class ModuleLoader(RoutineContainer):
                     self._logger.warning('Cannot find module %r in package %r, resume others', package, cn)
                     failures.append('Failed to import: ' + package + '.' + cn)
                     continue
-                if module is not None:
+                if module is not None and module is not module2:
                     # Update the references
                     try:
                         lpos = loadedModules.index(module)
