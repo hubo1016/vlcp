@@ -99,8 +99,8 @@ class Session(Module):
                     del cookieopts['httponly']
             m.update(opts)
             self.apiroutine.retvalue = (sh, [m])
-    def get(self, sessionid):
-        for m in callAPI(self.apiroutine, 'knowledge', 'get', {'key': __name__ + '.' + sessionid, 'refresh': True}):
+    def get(self, sessionid, refresh = True):
+        for m in callAPI(self.apiroutine, 'knowledge', 'get', {'key': __name__ + '.' + sessionid, 'refresh': refresh}):
             yield m
     def create(self):
         sid = uuid4().hex

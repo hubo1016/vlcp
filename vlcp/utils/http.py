@@ -496,9 +496,9 @@ class Environment(object):
         if isinstance(arg, list):
             return [self._tostr(v) for v in arg]
         elif not isinstance(arg, str):
-            return v.decode(self.encoding)
+            return arg.decode(self.encoding)
         else:
-            return v
+            return arg
     def argstostr(self):
         "Query string arguments are bytes in Python3. This function Convert bytes to string with env.encoding(default to utf-8)."
         self.args = dict((k, self._tostr(v)) for k,v in self.args.items())
