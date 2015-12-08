@@ -202,9 +202,13 @@ class Static(Module):
                     env.exit()
             if not errorpage and checkreferer:
                 try:
-                    referer_s = urlsplit(env.headerdict[b'referer'])
-                    if not ((refererallowlocal and referer_s.netloc == env.host) or
-                        referer_s.netloc in refererallows):
+                    referer = env.headerdict.get(b'referer')
+                    if referer is None:
+                        referer_host = None
+                    else:
+                        referer_host = urlsplit(referer).netloc
+                    if not ((refererallowlocal and referer_host == env.host) or
+                        referer_host in refererallows):
                         for m in env.error(403, showerror = False):
                             yield m
                         env.exit()
