@@ -71,14 +71,9 @@ else:
     _create_buffer = create_string_buffer
     def _extend_buffer(source, size):
         return create_string_buffer(source.raw, size)
-    import platform
-    if platform.system() != 'Linux':
-        # in Windows version, re does not accept memoryview
-        def _buffer(data, view, start, length):
-            return buffer(data, start, length)
-    else:
-        def _buffer(data, view, start, length):
-            return view[start:start + length]
+    # re does not accept memoryview
+    def _buffer(data, view, start, length):
+        return buffer(data, start, length)
 
 @withIndices('connection', 'type', 'force', 'connmark')
 class ConnectionControlEvent(Event):
