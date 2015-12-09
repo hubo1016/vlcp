@@ -1,0 +1,14 @@
+	A simple web chat example
+
+	Used:
+		vlcp frame:
+			http server
+			event 
+			handler
+			...
+
+	INSTALL:
+		
+		python setup.py install
+
+		python main.py

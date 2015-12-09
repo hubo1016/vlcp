@@ -1,0 +1,21 @@
+body{
+    background: black;
+    margin: 10px
+}
+
+#inbox{
+    background: white;
+    margin:auto;
+    width:1000px;
+    border-style:double
+}
+
+#messageform{
+    margin:auto;
+    width:1000px;
+    padding-top:2px
+}
+
+#name{
+    width:950px
+}
