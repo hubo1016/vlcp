@@ -6,7 +6,7 @@ Created on 2015/7/8
 from vlcp.protocol import Protocol
 from vlcp.config import defaultconfig
 from .defs import common, openflow10
-from .defs import definations
+from .defs.definations import definations
 from vlcp.event.core import Event, withIndices, QuitException
 from vlcp.event.runnable import RoutineContainer, RoutineException
 from vlcp.event.connection import ConnectionWriteEvent
