@@ -13,11 +13,7 @@ try:
     from Cookie import SimpleCookie, Morsel
 except:
     from http.cookies import SimpleCookie, Morsel
-
-
-@withIndices('id', 'seq')
-class SessionLockReleased(Event):
-    pass
+from vlcp.event.lock import Lock
 
 @depend(knowledge.Knowledge)
 @defaultconfig
@@ -39,31 +35,15 @@ class Session(Module):
             self.sessionobj = sessionobj
             self.id = sessionobj.id
             self.vars = sessionobj.vars
-            self.lockseq = None
+            self._lock = Lock(sessionobj, container.scheduler)
             self.container = container
         def lock(self):
             "Lock session"
-            self.lockseq = self.sessionobj.lockseq
-            self.locked = False
-            self.sessionobj.lockseq += 1
-            if self.lockseq > self.sessionobj.releaseseq:
-                # Wait for unlock
-                yield (SessionLockReleased.createMatcher(self.id, self.lockseq),)
-                self.locked = True
+            for m in self._lock.lock(self.container):
+                yield m
         def unlock(self):
             "Unlock session"
-            if self.lockseq is not None:
-                if not self.locked:
-                    # Unlock on future
-                    def future_unlock(c, sid, lockseq):
-                        yield (SessionLockReleased.createMatcher(sid, lockseq),)
-                        for m in c.waitForSend(SessionLockReleased(sid, lockseq + 1)):
-                            yield m
-                    
-                for m in self.container.waitForSend(SessionLockReleased(self.id, self.lockseq + 1)):
-                    yield m
-                self.sessionobj.releaseseq = self.lockseq + 1
-                self.lockseq = None
+            self._lock.unlock()
     def __init__(self, server):
         '''
         Constructor

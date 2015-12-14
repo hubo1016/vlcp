@@ -41,7 +41,7 @@ class Test(unittest.TestCase):
         rA.main = mainA
         rA.start()
         scheduler.main()
-        self.assertEqual(output, b'AAAAAABABABABABBBBBB')
+        self.assertEqual(output, b'AAAAABABABABABABBBBB')
     def testLoopConsumer(self):
         scheduler = Scheduler()
         scheduler.queue.addSubQueue(10, RoutineControlEvent.createMatcher())
@@ -96,7 +96,7 @@ class Test(unittest.TestCase):
         rA.start()
         rA.subroutine(mainC())
         scheduler.main()
-        self.assertEqual(output, b'AAAAAACBABABABABBBBBB')
+        self.assertEqual(output, b'AAAAACBABABABABABBBBB')
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testConsumer']

@@ -419,9 +419,15 @@ class Scheduler(object):
                 while self.queue.canPop() and (self.processevents is None or processedEvents < self.processevents):
                     e, qes, emptys = self.queue.pop()
                     # Queue events will not enqueue again
-                    for qe in qes:
-                        processEvent(qe)
-                    processEvent(e, emptys)
+                    if not e.canignore and not e.canignorenow():
+                        # The event might block, must process it first
+                        processEvent(e, emptys)
+                        for qe in qes:
+                            processEvent(qe)
+                    else:
+                        for qe in qes:
+                            processEvent(qe)
+                        processEvent(e, emptys)
                     if quitMatcher.isMatch(e):
                         if e.daemononly:
                             runnables = list(self.daemons)

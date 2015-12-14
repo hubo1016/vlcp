@@ -318,8 +318,7 @@ class Environment(object):
             for m in self.flush(True):
                 yield m
         if hasattr(self, 'session') and self.session:
-            for m in self.session.unlock():
-                yield m
+            self.session.unlock()
     def exit(self, output=b''):
         "Exit current HTTP processing"
         raise HttpExitException(output)
@@ -437,8 +436,7 @@ class Environment(object):
         if hasattr(self, 'session') and self.session:
             for m in callAPI(self.container, 'session', 'destroy', {'id':self.session.id}):
                 yield m
-            for m in self.session.unlock(self.container):
-                yield m
+            self.session.unlock()
             del self.session
             setcookies = self.container.retvalue
             for nc in setcookies:

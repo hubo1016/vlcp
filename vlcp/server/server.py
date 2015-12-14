@@ -11,6 +11,7 @@ from vlcp.event.connection import ResolveRequestEvent, ResolveResponseEvent
 from .module import Module, ModuleLoader, ModuleAPICall, ModuleAPIReply, ModuleNotification, ModuleLoadStateChanged
 import logging
 import logging.config
+from vlcp.event.lock import LockEvent
 
 @config('server')
 class Server(Configurable):
@@ -27,6 +28,7 @@ class Server(Configurable):
     _default_routinecontrolpriority = 1000
     _default_streamdatapriority = 640
     _default_timerpriority = 900
+    _default_lockpriority = 990
     _default_moduleloadeventpriority = 890
     _default_sysctlpriority = 2000
     _default_sysctllowpriority = 10
@@ -76,6 +78,7 @@ class Server(Configurable):
         self.scheduler.queue.addSubQueue(self.moduleapireplypriority, ModuleAPIReply.createMatcher(), 'moduleapireply')
         self.scheduler.queue.addSubQueue(self.modulenotifypriority, ModuleNotification.createMatcher(), 'modulenotify', None, None, CBQueue.AutoClassQueue.initHelper('target', subqueuelimit=5))
         self.scheduler.queue.addSubQueue(self.moduleloadeventpriority, ModuleLoadStateChanged.createMatcher(), 'moduleload')
+        self.scheduler.queue.addSubQueue(self.lockpriority, LockEvent.createMatcher(), 'lock', None, None, CBQueue.AutoClassQueue.initHelper('key', subqueuelimit=1))
         self.resolver = Resolver(self.scheduler, self.resolverpoolsize)
         self.moduleloader = ModuleLoader(self)
     def serve(self):
