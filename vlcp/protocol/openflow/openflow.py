@@ -9,7 +9,7 @@ from .defs import common, openflow10
 from .defs.definations import definations
 from vlcp.event.core import Event, withIndices, QuitException
 from vlcp.event.runnable import RoutineContainer, RoutineException
-from vlcp.event.connection import ConnectionWriteEvent
+from vlcp.event.connection import ConnectionWriteEvent, ConnectionControlEvent
 import logging
 import os
 
@@ -371,5 +371,8 @@ class Openflow(Protocol):
             e = self._createevent(connection, msg)
             if e is not None:
                 events.append(e)
+        if laststart == len(data):
+            # Remote write close
+            events.append(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
         return (events, len(data) - start)
     

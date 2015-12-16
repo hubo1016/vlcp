@@ -10,7 +10,6 @@ from vlcp.event.stream import Stream, MemoryStream
 from vlcp.event import EventHandler
 from vlcp.event.runnable import RoutineContainer
 import base64
-from symbol import argument
 import uuid
 import json
 try:
@@ -135,7 +134,6 @@ class Environment(object):
         self.disabledeflate = disabletransferencoding
         if clearheaders:
             self.sent_headers = headers[:]
-            self.sent_cookies = []
         else:
             self.sent_headers.extend(headers)
     def header(self, key, value, replace = True):

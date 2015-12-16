@@ -254,5 +254,8 @@ class JsonRPC(Protocol):
                 raise JsonFormatException('JSON message level exceeds limit')
         connection.jsonrpc_parserlevel = level
         connection.jsonrpc_parserstate = state
+        if laststart == len(data):
+            # Remote write close
+            events.append(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
         return (events, len(data) - jsonstart)
     

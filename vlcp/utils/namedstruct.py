@@ -777,6 +777,8 @@ class typedef(object):
         for k,v in kwargs.items():
             setattr(obj, k, v)
         return obj
+    def __call__(self, **kwargs):
+        return self.new(**kwargs)
     def tobytes(self, obj):
         return self.parser().tobytes(obj)
     def inline(self):
