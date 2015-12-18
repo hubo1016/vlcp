@@ -1338,7 +1338,7 @@ ofp_flow_mod = nstruct(
 # can also be used to delete matching
 # flows from all tables. */
     (ofp_table, 'table_id'),
-    (ofp_flow_mod_command, 'command'),           #  /* One of OFPFC_*. */
+    (ofp_flow_mod_command.astype(uint8), 'command'),           #  /* One of OFPFC_*. */
     (uint16, 'idle_timeout'),     #  /* Idle time before discarding (seconds). */
     (uint16, 'hard_timeout'),     #  /* Max time before discarding (seconds). */
     (uint16, 'priority'),         #  /* Priority level of flow entry. */
@@ -1376,7 +1376,7 @@ ofp_flow_mod = nstruct(
 '''
 /* Group commands */
 '''
-ofp_group_mod_command = enum('ofp_group_mod_command', globals(),
+ofp_group_mod_command = enum('ofp_group_mod_command', globals(),uint16,
     OFPGC_ADD    = 0,       # /* New group. */
     OFPGC_MODIFY = 1,       # /* Modify all matching groups. */
     OFPGC_DELETE = 2,       # /* Delete all matching groups. */
@@ -1416,7 +1416,7 @@ ofp_bucket = nstruct(
 /* Group types.  Values in the range [128, 255] are reserved for experimental
  * use. */
 '''
-ofp_group_type = enum('ofp_group_type', globals(),
+ofp_group_type = enum('ofp_group_type', globals(),uint8,
     OFPGT_ALL      = 0, # /* All (multicast/broadcast) group.  */
     OFPGT_SELECT   = 1, # /* Select group. */
     OFPGT_INDIRECT = 2, # /* Indirect group. */
@@ -1518,7 +1518,7 @@ ofp_flow_removed = nstruct(
 '''
 /* Meter numbering. Flow meters can use any number up to OFPM_MAX. */
 '''
-ofp_meter = enum('ofp_meter', globals(),
+ofp_meter = enum('ofp_meter', globals(),uint32,
 
 #    /* Virtual meters. */
     OFPM_SLOWPATH   = 0xfffffffd,  # /* Meter for slow datapath. */
@@ -1533,7 +1533,7 @@ OFPM_MAX        = 0xffff0000
 '''
 /* Meter band types */
 '''
-ofp_meter_band_type = enum('ofp_meter_band_type', globals(),
+ofp_meter_band_type = enum('ofp_meter_band_type', globals(), uint16,
     OFPMBT_DROP            = 1,     # /* Drop packet. */
     OFPMBT_DSCP_REMARK     = 2,     # /* Remark DSCP in the IP header. */
     OFPMBT_EXPERIMENTER    = 0xFFFF # /* Experimenter meter band. */
@@ -1598,7 +1598,7 @@ ofp_meter_band_experimenter = nstruct(
 '''
 /* Meter commands */
 '''
-ofp_meter_mod_command = enum('ofp_meter_mod_command', globals(),
+ofp_meter_mod_command = enum('ofp_meter_mod_command', globals(),uint16,
     OFPMC_ADD = 0,            #  /* New meter. */
     OFPMC_MODIFY = 1,         #  /* Modify specified meter. */
     OFPMC_DELETE = 2,         #  /* Delete specified meter. */
@@ -1607,7 +1607,7 @@ ofp_meter_mod_command = enum('ofp_meter_mod_command', globals(),
 '''
 /* Meter configuration flags */
 '''
-ofp_meter_flags = enum('ofp_meter_flags', globals(),
+ofp_meter_flags = enum('ofp_meter_flags', globals(),uint16,
     OFPMF_KBPS    = 1 << 0,   #  /* Rate value in kb/s (kilo-bit per second). */
     OFPMF_PKTPS   = 1 << 1,   #  /* Rate value in packet/sec. */
     OFPMF_BURST   = 1 << 2,   #  /* Do burst size. */

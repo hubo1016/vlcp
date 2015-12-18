@@ -318,7 +318,7 @@ OFPR_N_REASONS = 3
 
 ofp_flow_mod_command = enum('ofp_flow_mod_command',
                             globals(),
-                            uint8,
+                            uint16,
                             OFPFC_ADD = 0,
                             OFPFC_MODIFY = 1,
                             OFPFC_MODIFY_STRICT = 2,

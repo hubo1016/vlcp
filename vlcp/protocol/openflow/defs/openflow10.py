@@ -479,7 +479,6 @@ ofp_packet_out_actions = nstruct(
 ofp_packet_out = nstruct(
     (uint32, 'buffer_id'),        #   /* ID assigned by datapath or UINT32_MAX. */
     (ofp_port, 'in_port'),          #   /* Packet's input port (OFPP_NONE if none). */
-    (uint16, 'actions_len'),      #   /* Size of action array in bytes. */
     (ofp_packet_out_actions,),
     (raw, 'data'),
     name = 'ofp_packet_out',
@@ -758,6 +757,30 @@ ofp_flow_stats_reply = nstruct(
     classifyby = (OFPST_FLOW,),
     init = packvalue(OFPST_FLOW, 'type')
 )
+
+ofp_table = enum('ofp_table',
+                 globals(),
+                 uint8,
+                 OFPTT_ALL = 0xff)
+
+'''
+/* Body for ofp_stats_request of type OFPST_AGGREGATE. */
+'''
+ofp_aggregate_stats_request = nstruct(
+    (ofp_match, 'match'),             # /* Fields to match. */
+    (ofp_table, 'table_id'),          # /* ID of table to read (from ofp_table_stats)
+                                      #  0xff for all tables or 0xfe for emergency. */
+    (uint8,),                         # /* Align to 32 bits. */
+    (ofp_port, 'out_port'),           # /* Require matching entries to include this
+                                      # as an output port. A value of OFPP_NONE
+                                      # indicates no restriction. */
+    base = ofp_stats_request,
+    criteria = lambda x: x.type == OFPST_AGGREGATE,
+    classifyby = (OFPST_AGGREGATE,),
+    init = packvalue(OFPST_AGGREGATE, 'type'),
+    name = 'ofp_aggregate_stats_request'
+)
+
 
 '''
 /* Body of reply to OFPST_AGGREGATE request. */
