@@ -11,6 +11,7 @@ import os.path
 from vlcp.event.runnable import RoutineContainer
 from vlcp.config import manager
 from vlcp.utils.pycache import removeCache
+import traceback
 
 try:
     reload
@@ -343,6 +344,15 @@ class Test(unittest.TestCase):
                 apiResults.append((self.event.result, self.event.version))
             else:
                 apiResults.append(False)
+            try:
+                for m in r.executeWithTimeout(1.0, callAPI(r, "testmodule1", "notexists", {})):
+                    yield m
+            except ValueError:
+                apiResults.append(True)
+            except:
+                apiResults.append(False)
+            else:
+                apiResults.append(False)
             for m in s.moduleloader.delegate(s.moduleloader.unloadByPath("tests.gensrc.testmodule1.TestModule1")):
                 yield m
         r.main = testproc
@@ -351,7 +361,7 @@ class Test(unittest.TestCase):
         print(repr(apiResults))
         self.assertEqual(apiResults, ['version1', 3, 'test', (3, 'version1'),
                                       {'method1':'Run method1', 'method2':'Run method2', 'method3':'Run method3', 'method4': 'Run method4', 'discover':'Discover API definitions'},
-                                      'version2', (3, 'version1'), (3, 'version2'), 'version3', (3, 'version3')])
+                                      'version2', (3, 'version1'), (3, 'version2'), 'version3', (3, 'version3'), True])
 
 
 if __name__ == "__main__":

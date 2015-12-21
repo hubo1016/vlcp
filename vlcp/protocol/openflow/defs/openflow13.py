@@ -38,6 +38,7 @@ Created on 2015/7/14
 '''
 from .common import *
 from . import common
+from vlcp.utils.namedstruct import rawtype as _rawtype
 
 ofp_port_no = enum('ofp_port_no',
                    globals(),
@@ -942,40 +943,31 @@ ofp_match_oxm = nstruct(
     name = 'ofp_match_oxm'
 )
 
-from vlcp.utils.namedstruct import rawtype as _rawtype
-ip4_addr_raw = _rawtype()
-import socket as _socket
-ip4_addr_raw.formatter = lambda x: _socket.inet_ntoa(x) 
-
 ofp_oxm_mask_ipv4 = nstruct(name = 'ofp_oxm_mask_ipv4',
                             base = ofp_oxm_mask,
                             criteria = lambda x: x.header in (OXM_OF_IPV4_SRC_W, OXM_OF_IPV4_DST_W, OXM_OF_ARP_SPA_W, OXM_OF_ARP_TPA_W),
                             init = packvalue(OXM_OF_IPV4_SRC_W, 'header'),
-                            extend = {'value' : ip4_addr_raw, 'mask' : ip4_addr_raw}
+                            extend = {'value' : ip4_addr_bytes, 'mask' : ip4_addr_bytes}
                             )
 
 ofp_oxm_nomask_ipv4 = nstruct(name = 'ofp_oxm_nomask_ipv4',
                             base = ofp_oxm_nomask,
                             criteria = lambda x: x.header in (OXM_OF_IPV4_SRC, OXM_OF_IPV4_DST, OXM_OF_ARP_SPA, OXM_OF_ARP_TPA),
                             init = packvalue(OXM_OF_IPV4_SRC, 'header'),
-                            extend = {'value' : ip4_addr_raw}
+                            extend = {'value' : ip4_addr_bytes}
                             )
-
-mac_addr_raw = _rawtype()
-
-mac_addr_raw.formatter = lambda x: ':'.join('%02X' % (c,) for c in bytearray(x))
 
 ofp_oxm_mask_eth = nstruct(name = 'ofp_oxm_mask_eth',
                            base = ofp_oxm_mask,
                            criteria = lambda x: x.header in (OXM_OF_ETH_SRC_W, OXM_OF_ETH_DST_W),
                             init = packvalue(OXM_OF_ETH_SRC_W, 'header'),
-                           extend = {'value' : mac_addr_raw, 'mask' : mac_addr_raw})
+                           extend = {'value' : mac_addr_bytes, 'mask' : mac_addr_bytes})
 
 ofp_oxm_nomask_eth = nstruct(name = 'ofp_oxm_nomask_eth',
                            base = ofp_oxm_nomask,
                            criteria = lambda x: x.header in (OXM_OF_ETH_SRC, OXM_OF_ETH_DST, OXM_OF_IPV6_ND_SLL, OXM_OF_IPV6_ND_TLL, OXM_OF_ARP_SHA, OXM_OF_ARP_THA),
                             init = packvalue(OXM_OF_ETH_SRC, 'header'),
-                           extend = {'value' : mac_addr_raw})
+                           extend = {'value' : mac_addr_bytes})
 
 ofp_port_no_raw = _rawtype()
 
@@ -1033,20 +1025,16 @@ ofp_oxm_nomask_ip_protocol = nstruct(name = 'ofp_oxm_nomask_ip_protocol',
                                      init = packvalue(OXM_OF_IP_PROTO, 'header'),
                                      extend = {'value': ip_protocol_raw})
 
-if hasattr(_socket, 'inet_ntop'):
-    ipv6_addr_raw = _rawtype()    
-    ipv6_addr_raw.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, x)
-    
-    ofp_oxm_nomask_ipv6 = nstruct(name = 'ofp_oxm_nomask_ipv6',
-                                  base = ofp_oxm_nomask,
-                                  criteria = lambda x: x.header in (OXM_OF_IPV6_SRC, OXM_OF_IPV6_DST, OXM_OF_IPV6_ND_TARGET),
-                                  init = packvalue(OXM_OF_IPV6_SRC, 'header'),
-                                  extend = {'value': ipv6_addr_raw})
-    ofp_oxm_mask_ipv6 = nstruct(name = 'ofp_oxm_mask_ipv6',
-                                  base = ofp_oxm_mask,
-                                  criteria = lambda x: x.header in (OXM_OF_IPV6_SRC_W, OXM_OF_IPV6_DST_W),
-                                  init = packvalue(OXM_OF_IPV6_SRC, 'header'),
-                                  extend = {'value': ipv6_addr_raw, 'mask': ipv6_addr_raw})
+ofp_oxm_nomask_ipv6 = nstruct(name = 'ofp_oxm_nomask_ipv6',
+                              base = ofp_oxm_nomask,
+                              criteria = lambda x: x.header in (OXM_OF_IPV6_SRC, OXM_OF_IPV6_DST, OXM_OF_IPV6_ND_TARGET),
+                              init = packvalue(OXM_OF_IPV6_SRC, 'header'),
+                              extend = {'value': ip6_addr})
+ofp_oxm_mask_ipv6 = nstruct(name = 'ofp_oxm_mask_ipv6',
+                              base = ofp_oxm_mask,
+                              criteria = lambda x: x.header in (OXM_OF_IPV6_SRC_W, OXM_OF_IPV6_DST_W),
+                              init = packvalue(OXM_OF_IPV6_SRC, 'header'),
+                              extend = {'value': ip6_addr, 'mask': ip6_addr})
 
 '''
 /* ## ----------------- ## */

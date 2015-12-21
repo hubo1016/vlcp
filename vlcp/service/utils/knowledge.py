@@ -30,6 +30,7 @@ class Knowledge(Module):
         self.routines.append(self.timeoutroutine)
         self.createAPI(api(self.get),
                        api(self.set),
+                       api(self.delete),
                        api(self.mget),
                        api(self.mset),
                        api(self.update),

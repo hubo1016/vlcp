@@ -85,3 +85,30 @@ ip_protocol = enum('ip_protocol', globals(), uint8, False,
     IPPROTO_UDPLITE = 136,      # /* UDP-Lite (RFC 3828)                  */
     IPPROTO_RAW    = 255        # /* Raw IP packets                       */
 )
+
+
+ETH_ALEN = 6
+
+mac_addr = uint8[ETH_ALEN]
+
+mac_addr.formatter = lambda x: ':'.join('%02X' % (n,) for n in x)
+
+mac_addr_bytes = prim(str(ETH_ALEN) + 's', 'mac_addr_bytes')
+
+mac_addr_bytes.formatter = lambda x: ':'.join('%02X' % (c,) for c in bytearray(x))
+
+
+ip4_addr = prim('I', 'ip4_addr')
+
+import socket as _socket
+
+ip4_addr.formatter = lambda x: _socket.inet_ntoa(ip4_addr.tobytes(x))
+
+ip4_addr_bytes = prim('4s', 'ip4_addr_bytes')
+ip4_addr_bytes.formatter = lambda x: _socket.inet_ntoa(x) 
+
+ip6_addr = prim('16s', 'ip6_addr')
+if hasattr(_socket, 'inet_ntop'):
+    ip6_addr.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, x)
+
+ip6_addr_bytes = ip6_addr

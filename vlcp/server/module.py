@@ -62,7 +62,7 @@ def api(func, container = None):
     return (func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container)
 
 class ModuleAPIHandler(RoutineContainer):
-    def __init__(self, moduleinst, apidefs = None, allowdiscover = True):
+    def __init__(self, moduleinst, apidefs = None, allowdiscover = True, rejectunknown = True):
         RoutineContainer.__init__(self, scheduler=moduleinst.scheduler, daemon=False)
         self.handler = EventHandler(self.scheduler)
         self.servicename = moduleinst.getServiceName()
@@ -70,6 +70,7 @@ class ModuleAPIHandler(RoutineContainer):
         self.registeredAPIs = {}
         self.docs = {}
         self.allowdiscover = allowdiscover
+        self.rejectunknown = True
     @staticmethod
     def createReply(handle, result):
         return ModuleAPIReply(handle, result=result)
@@ -77,7 +78,9 @@ class ModuleAPIHandler(RoutineContainer):
     def createExceptionReply(handle, exception):
         return ModuleAPIReply(handle, exception = exception)
     def _createHandler(self, name, handler, container = None):
-        if name.startswith('public/'):
+        if name is None:
+            matcher = ModuleAPICall.createMatcher(target = self.servicename)
+        elif name.startswith('public/'):
             matcher = ModuleAPICall.createMatcher(target = 'public', name = name[len('public/'):])
         else:
             matcher = ModuleAPICall.createMatcher(target = self.servicename, name = name)
@@ -142,11 +145,15 @@ class ModuleAPIHandler(RoutineContainer):
     def discover(self):
         'Discover API definitions'
         return dict(self.docs)
+    def reject(self, name, args):
+        raise ValueError('%r is not defined in module %r', name, self.servicename)
     def start(self, asyncStart=False):
         if self.apidefs:
             self.registerAPIs(self.apidefs)
         if self.allowdiscover:
             self.registerAPI(*api(self.discover))
+        if self.rejectunknown:
+            self.handler.registerHandler(*self._createHandler(None, self.reject, None))
     def close(self):
         self.handler.close()
 

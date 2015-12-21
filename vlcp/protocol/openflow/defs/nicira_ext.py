@@ -1301,46 +1301,46 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         namespace['nx_match_mask_ext'] = nx_match_mask_ext
     from vlcp.utils.namedstruct import rawtype as _rawtype
     import socket as _socket
-    if 'ip4_addr_raw' in namespace:
-        ip4_addr_raw = namespace['ip4_addr_raw']
+    if 'ip4_addr_bytes' in namespace:
+        ip4_addr_bytes = namespace['ip4_addr_bytes']
     else:
-        ip4_addr_raw = _rawtype()
-        ip4_addr_raw.formatter = lambda x: _socket.inet_ntoa(x)
-        namespace['ip4_addr_raw'] = ip4_addr_raw
+        ip4_addr_bytes = prim('4s', 'ip4_addr_bytes')
+        ip4_addr_bytes.formatter = lambda x: _socket.inet_ntoa(x)
+        namespace['ip4_addr_bytes'] = ip4_addr_bytes
     
     nxm_mask_ipv4 = nstruct(name = 'nxm_mask_ipv4',
                                 base = nx_match_mask_ext,
                                 criteria = lambda x: x.header in (NXM_OF_IP_SRC_W, NXM_OF_IP_DST_W, NXM_OF_ARP_SPA_W, NXM_OF_ARP_TPA_W, NXM_NX_TUN_IPV4_SRC_W, NXM_NX_TUN_IPV4_DST_W),
                                 init = packvalue(NXM_OF_IP_SRC_W, 'header'),
-                                extend = {'value' : ip4_addr_raw, 'mask' : ip4_addr_raw}
+                                extend = {'value' : ip4_addr_bytes, 'mask' : ip4_addr_bytes}
                                 )
     namespace['nxm_mask_ipv4'] = nxm_mask_ipv4
     nxm_nomask_ipv4 = nstruct(name = 'nxm_nomask_ipv4',
                                 base = nx_match_nomask_ext,
                                 criteria = lambda x: x.header in (NXM_OF_IP_SRC, NXM_OF_IP_DST, NXM_OF_ARP_SPA, NXM_OF_ARP_TPA, NXM_NX_TUN_IPV4_SRC, NXM_NX_TUN_IPV4_DST),
                                 init = packvalue(NXM_OF_IP_SRC, 'header'),
-                                extend = {'value' : ip4_addr_raw}
+                                extend = {'value' : ip4_addr_bytes}
                                 )
     namespace['nxm_nomask_ipv4'] = nxm_nomask_ipv4
-    if 'mac_addr_raw' in namespace:
-        mac_addr_raw = namespace['mac_addr_raw']
+    if 'mac_addr_bytes' in namespace:
+        mac_addr_bytes = namespace['mac_addr_bytes']
     else:
-        mac_addr_raw = _rawtype()        
-        mac_addr_raw.formatter = lambda x: ':'.join('%02X' % (c,) for c in bytearray(x))
-        namespace['mac_addr_raw'] = mac_addr_raw
+        mac_addr_bytes = _rawtype()        
+        mac_addr_bytes.formatter = lambda x: ':'.join('%02X' % (c,) for c in bytearray(x))
+        namespace['mac_addr_bytes'] = mac_addr_bytes
     
     nxm_mask_eth = nstruct(name = 'nxm_mask_eth',
                                base = nx_match_mask_ext,
                                criteria = lambda x: x.header in (NXM_OF_ETH_SRC_W, NXM_OF_ETH_DST_W),
                                 init = packvalue(NXM_OF_ETH_SRC_W, 'header'),
-                               extend = {'value' : mac_addr_raw, 'mask' : mac_addr_raw})
+                               extend = {'value' : mac_addr_bytes, 'mask' : mac_addr_bytes})
     namespace['nxm_mask_eth'] = nxm_mask_eth
     
     nxm_nomask_eth = nstruct(name = 'nxm_nomask_eth',
                                base = nx_match_nomask_ext,
                                criteria = lambda x: x.header in (NXM_OF_ETH_SRC, NXM_OF_ETH_DST, NXM_NX_ND_SLL, NXM_NX_ND_TLL, NXM_NX_ARP_SHA, NXM_NX_ARP_THA),
                                 init = packvalue(NXM_OF_ETH_SRC, 'header'),
-                               extend = {'value' : mac_addr_raw})
+                               extend = {'value' : mac_addr_bytes})
     namespace['nxm_nomask_eth'] = nxm_nomask_eth
     
     
@@ -1400,24 +1400,24 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
                                          init = packvalue(NXM_OF_IP_PROTO, 'header'),
                                          extend = {'value': ip_protocol_raw})
     namespace['nxm_nomask_ip_protocol'] = nxm_nomask_ip_protocol
-    if 'ipv6_addr_raw' in namespace:
-        ipv6_addr_raw = namespace['ipv6_addr_raw']
+    if 'ip6_addr' in namespace:
+        ip6_addr = namespace['ip6_addr']
     elif hasattr(_socket, 'inet_ntop'):
-        ipv6_addr_raw = _rawtype()    
-        ipv6_addr_raw.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, x)
-        namespace['ipv6_addr_raw'] = ipv6_addr_raw
-    if 'ipv6_addr_raw' in namespace:
+        ip6_addr = _rawtype()    
+        ip6_addr.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, x)
+        namespace['ip6_addr'] = ip6_addr
+    if 'ip6_addr' in namespace:
         nxm_nomask_ipv6 = nstruct(name = 'nxm_nomask_ipv6',
                                       base = nx_match_nomask_ext,
                                       criteria = lambda x: x.header in (NXM_NX_IPV6_SRC, NXM_NX_IPV6_DST, NXM_NX_ND_TARGET),
                                       init = packvalue(NXM_NX_IPV6_SRC, 'header'),
-                                      extend = {'value': ipv6_addr_raw})
+                                      extend = {'value': ip6_addr})
         namespace['nxm_nomask_ipv6'] = nxm_nomask_ipv6
         nxm_mask_ipv6 = nstruct(name = 'nxm_mask_ipv6',
                                       base = nx_match_mask_ext,
                                       criteria = lambda x: x.header in (NXM_NX_IPV6_SRC_W, NXM_NX_IPV6_DST_W),
                                       init = packvalue(NXM_NX_IPV6_SRC_W, 'header'),
-                                      extend = {'value': ipv6_addr_raw, 'mask': ipv6_addr_raw})
+                                      extend = {'value': ip6_addr, 'mask': ip6_addr})
         namespace['nxm_mask_ipv6'] = nxm_mask_ipv6
     
     nx_ip_frag_raw = _rawtype()

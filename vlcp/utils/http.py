@@ -432,7 +432,7 @@ class Environment(object):
                 self.sent_cookies.append(nc)
     def sessiondestroy(self):
         if hasattr(self, 'session') and self.session:
-            for m in callAPI(self.container, 'session', 'destroy', {'id':self.session.id}):
+            for m in callAPI(self.container, 'session', 'destroy', {'sessionid':self.session.id}):
                 yield m
             self.session.unlock()
             del self.session
