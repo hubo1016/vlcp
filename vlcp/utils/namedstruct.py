@@ -1330,7 +1330,7 @@ class optional(typedef):
             raise ParseError('Optional member cannot be in-line member')
         self.name = name
     def array(self, size):
-        raise TypeError('varchrtype cannot form array')
+        raise TypeError('optional type cannot form array')
     def _compile(self):
         return OptionalParser(self.basetype.parser(), self.name, self.criteria, self)
     def isextra(self):

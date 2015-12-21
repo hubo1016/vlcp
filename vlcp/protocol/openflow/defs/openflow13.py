@@ -1029,12 +1029,12 @@ ofp_oxm_nomask_ipv6 = nstruct(name = 'ofp_oxm_nomask_ipv6',
                               base = ofp_oxm_nomask,
                               criteria = lambda x: x.header in (OXM_OF_IPV6_SRC, OXM_OF_IPV6_DST, OXM_OF_IPV6_ND_TARGET),
                               init = packvalue(OXM_OF_IPV6_SRC, 'header'),
-                              extend = {'value': ip6_addr})
+                              extend = {'value': ip6_addr_bytes})
 ofp_oxm_mask_ipv6 = nstruct(name = 'ofp_oxm_mask_ipv6',
                               base = ofp_oxm_mask,
                               criteria = lambda x: x.header in (OXM_OF_IPV6_SRC_W, OXM_OF_IPV6_DST_W),
                               init = packvalue(OXM_OF_IPV6_SRC, 'header'),
-                              extend = {'value': ip6_addr, 'mask': ip6_addr})
+                              extend = {'value': ip6_addr_bytes, 'mask': ip6_addr_bytes})
 
 '''
 /* ## ----------------- ## */

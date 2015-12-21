@@ -107,8 +107,11 @@ ip4_addr.formatter = lambda x: _socket.inet_ntoa(ip4_addr.tobytes(x))
 ip4_addr_bytes = prim('4s', 'ip4_addr_bytes')
 ip4_addr_bytes.formatter = lambda x: _socket.inet_ntoa(x) 
 
-ip6_addr = prim('16s', 'ip6_addr')
+ip6_addr = uint8[16]
+if hasattr(_socket, 'inet_ntop'):
+    ip6_addr.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, ip6_addr.tobytes(x))
+
+ip6_addr_bytes = prim('16s', 'ip6_addr')
+
 if hasattr(_socket, 'inet_ntop'):
     ip6_addr.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, x)
-
-ip6_addr_bytes = ip6_addr

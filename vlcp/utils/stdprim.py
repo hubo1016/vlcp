@@ -67,6 +67,12 @@ def fit_to_size(value, size):
     else:
         return b'\x00' * (size - len(value)) + value
 
+def fit_to_size_le(value, size):
+    if len(value) >= size:
+        return value[:size]
+    else:
+        return value + b'\x00' * (size - len(value))
+
 def create_binary(value, size, littleendian = False):
     if value is None:
         return b'\x00' * size
@@ -76,7 +82,7 @@ def create_binary(value, size, littleendian = False):
         return fit_to_size(_struct.pack(str(len(value)) + 'B', *value), size)
     elif isinstance(value, int) or isinstance(value, _long):
         if littleendian:
-            return _u64sle.pack(value)[:8-size]
+            return _u64sle.pack(value)[:size]
         else:
             return _u64s.pack(value)[8-size:]
     else:

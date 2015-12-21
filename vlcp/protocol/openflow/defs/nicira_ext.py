@@ -1400,24 +1400,18 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
                                          init = packvalue(NXM_OF_IP_PROTO, 'header'),
                                          extend = {'value': ip_protocol_raw})
     namespace['nxm_nomask_ip_protocol'] = nxm_nomask_ip_protocol
-    if 'ip6_addr' in namespace:
-        ip6_addr = namespace['ip6_addr']
-    elif hasattr(_socket, 'inet_ntop'):
-        ip6_addr = _rawtype()    
-        ip6_addr.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, x)
-        namespace['ip6_addr'] = ip6_addr
-    if 'ip6_addr' in namespace:
+    if 'ip6_addr_bytes' in namespace:
         nxm_nomask_ipv6 = nstruct(name = 'nxm_nomask_ipv6',
                                       base = nx_match_nomask_ext,
                                       criteria = lambda x: x.header in (NXM_NX_IPV6_SRC, NXM_NX_IPV6_DST, NXM_NX_ND_TARGET),
                                       init = packvalue(NXM_NX_IPV6_SRC, 'header'),
-                                      extend = {'value': ip6_addr})
+                                      extend = {'value': ip6_addr_bytes})
         namespace['nxm_nomask_ipv6'] = nxm_nomask_ipv6
         nxm_mask_ipv6 = nstruct(name = 'nxm_mask_ipv6',
                                       base = nx_match_mask_ext,
                                       criteria = lambda x: x.header in (NXM_NX_IPV6_SRC_W, NXM_NX_IPV6_DST_W),
                                       init = packvalue(NXM_NX_IPV6_SRC_W, 'header'),
-                                      extend = {'value': ip6_addr, 'mask': ip6_addr})
+                                      extend = {'value': ip6_addr_bytes, 'mask': ip6_addr_bytes})
         namespace['nxm_mask_ipv6'] = nxm_mask_ipv6
     
     nx_ip_frag_raw = _rawtype()
