@@ -775,7 +775,7 @@ class typedef(object):
     def create(self, buffer):
         d = self.parser().create(buffer)
         if hasattr(self.parser(), 'subclass'):
-            self.parser.subclass(d)
+            self.parser().subclass(d)
         return d
     def new(self, **kwargs):
         obj = self.parser().new()
