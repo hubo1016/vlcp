@@ -772,6 +772,8 @@ class typedef(object):
         return self._parser
     def parse(self, buffer):
         return self.parser().parse(buffer)
+    def create(self, buffer):
+        return self.parser().create(buffer)
     def new(self, **kwargs):
         obj = self.parser().new()
         for k,v in kwargs.items():
