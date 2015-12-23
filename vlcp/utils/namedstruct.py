@@ -773,7 +773,10 @@ class typedef(object):
     def parse(self, buffer):
         return self.parser().parse(buffer)
     def create(self, buffer):
-        return self.parser().create(buffer)
+        d = self.parser().create(buffer)
+        if hasattr(self.parser(), 'subclass'):
+            self.parser.subclass(d)
+        return d
     def new(self, **kwargs):
         obj = self.parser().new()
         for k,v in kwargs.items():
