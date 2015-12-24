@@ -184,6 +184,8 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
                           'prevent_core']
         if hasattr(manager, 'daemon'):
             configs.update((k,v) for k,v in manager.daemon.config_value_items() if k in config_filters)
+        if not hasattr(os, 'initgroups'):
+            configs['initgroups'] = False
         with daemon.DaemonContext(**configs):
             s = Server()
             s.serve()
