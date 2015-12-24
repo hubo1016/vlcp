@@ -9,6 +9,7 @@ from vlcp.event.runnable import RoutineContainer
 import multiprocessing
 import threading
 import socket
+import signal
 import errno
 import sys
 from vlcp.event.event import Event, withIndices
@@ -75,6 +76,13 @@ class Connector(RoutineContainer):
         self.allowcontrol = allowcontrol
         self.stopreceive = False
         self.jobs = 0
+    @staticmethod
+    def wrap_signal(func):
+        def f(*args, **kwargs):
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            return func(*args, **kwargs)
+        return f
     @staticmethod
     def connector_pipe(queuein, pipeout, worker_start):
         try:
@@ -143,7 +151,7 @@ class Connector(RoutineContainer):
             queue = Queue(self.inputlimit)
         if mp:
             pipein, pipeout = multiprocessing.Pipe()
-            process = multiprocessing.Process(target=self.connector_pipe, args=(queue, pipeout, self.worker_start))
+            process = multiprocessing.Process(target=self.wrap_signal(self.connector_pipe), args=(queue, pipeout, self.worker_start))
             outqueue = None
         else:
             # Use a thread instead
