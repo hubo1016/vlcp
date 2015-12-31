@@ -49,9 +49,15 @@ class _Pipe(object):
     def fileno(self):
         return self.fd
     def send(self, data):
-        os.write(self.fd, data)
+        try:
+            os.write(self.fd, data)
+        except OSError as exc:
+            raise socket.error(*exc.args)
     def recv(self, size):
-        return os.read(self.fd, size)
+        try:
+            return os.read(self.fd, size)
+        except OSError as exc:
+            raise socket.error(*exc.args)
     def close(self):
         if self.fd:
             os.close(self.fd)
@@ -253,7 +259,7 @@ class Connector(RoutineContainer):
                     else:
                         self.stopreceive = False
                 elif self.matcher is response_matcher:
-                    if fork:
+                    if mp:
                         while pipein.poll():
                             try:
                                 events = pipein.recv()
