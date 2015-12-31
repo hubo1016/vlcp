@@ -11,7 +11,6 @@ import logging
 import os
 from vlcp.event.stream import Stream, StreamDataEvent
 from vlcp.event.connection import Client
-from __builtin__ import False
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class RawConnectionStateEvent(Event):

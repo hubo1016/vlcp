@@ -412,16 +412,18 @@ class TaskPool(Connector):
             except:
                 (typ, val, tr) = sys.exc_info()
                 return (TaskDoneEvent(event, exception = val),)
+        return f
     @staticmethod
     def _async_wrapper(func):
         def f(event, matcher, queueout):
+            def sender(es):
+                queueout.put(tuple(es) + (MoreResultEvent(),))
             try:
-                def sender(es):
-                    queueout.put(tuple(es) + (MoreResultEvent(),))
-                return (TaskDoneEvent(event, result=func(sender)),)
+                queueout.put((TaskDoneEvent(event, result=func(sender)),))
             except:
                 (typ, val, tr) = sys.exc_info()
-                return (TaskDoneEvent(event, exception = val),)
+                queueout.put((TaskDoneEvent(event, exception = val),))
+        return f
     @staticmethod
     @async_processor
     def _processor(event, matcher, queueout):
