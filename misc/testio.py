@@ -1,7 +1,7 @@
 '''
 Created on 2015/9/28
 
-@author: hubo
+:author: hubo
 '''
 
 from __future__ import print_function, division

@@ -34,7 +34,7 @@
 */
 Created on 2015/7/14
 
-@author: hubo
+:author: hubo
 '''
 from .common import *
 from . import common

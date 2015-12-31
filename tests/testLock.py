@@ -1,7 +1,7 @@
 '''
 Created on 2015/12/14
 
-@author: hubo
+:author: hubo
 '''
 from __future__ import print_function
 import unittest

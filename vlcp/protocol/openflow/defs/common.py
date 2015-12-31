@@ -49,7 +49,7 @@
  */
 Created on 2015/7/13
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.utils.stdprim import *
 from vlcp.utils.namedstruct import packsize, packrealsize, sizefromlen, packvalue, NamedStruct, dump, DUMPTYPE_FLAT, DUMPTYPE_KEY, DUMPTYPE_NONE

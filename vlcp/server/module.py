@@ -1,7 +1,7 @@
 '''
 Created on 2015/9/30/
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import Configurable, defaultconfig
 from vlcp.event import Event, withIndices

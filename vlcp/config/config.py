@@ -1,7 +1,7 @@
 '''
 Created on 2015/6/25
 
-@author: hubo
+:author: hubo
 '''
 import re
 import ast

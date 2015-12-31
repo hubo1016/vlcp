@@ -1,7 +1,7 @@
 '''
 Created on 2015/8/27
 
-@author: hubo
+:author: hubo
 '''
 from pprint import pprint
 from vlcp.server import Server

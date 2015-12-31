@@ -1,7 +1,7 @@
 '''
 Created on 2015/11/9
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import defaultconfig
 from vlcp.server.module import Module, api
@@ -79,9 +79,9 @@ class Knowledge(Module):
     def update(self, key, updater, timeout = None):
         '''
         Update in-place with a custom function
-        @param key: key to update
-        @param updater: func(k,v), should return a new value to update, or return None to delete
-        @param timeout: new timeout
+        :param key: key to update
+        :param updater: func(k,v), should return a new value to update, or return None to delete
+        :param timeout: new timeout
         '''
         v = self.db.get(key)
         if v is not None:

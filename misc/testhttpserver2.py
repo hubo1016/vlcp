@@ -1,7 +1,7 @@
 '''
 Created on 2015/8/27
 
-@author: hubo
+:author: hubo
 '''
 from pprint import pprint
 from vlcp.server import main
@@ -11,6 +11,7 @@ import vlcp.service.connection.httpserver
 import vlcp.service.web.static
 from vlcp.utils.http import HttpHandler
 from vlcp.config.config import manager
+import logging
 
 @depend(vlcp.service.connection.httpserver.HttpServer, vlcp.service.utils.session.Session,
         vlcp.service.web.static.Static)
@@ -103,9 +104,10 @@ if __name__ == '__main__':
     #s.scheduler.logger.setLevel(logging.DEBUG)
     #Http.debugging = True
     #Http._logger.setLevel(logging.DEBUG)
-    manager['server.debugging'] = True
+    #manager['server.debugging'] = True
     manager['module.httpserver.url'] = None
     manager['module.httpserver.urls'] = ['ltcp://localhost:8080']
     manager['protocol.http.showerrorinfo'] = True
-    main(None, ())
+    manager['module.console.startinconsole'] = False
+    main(None, ('__main__.TestHttpServer', 'vlcp.service.debugging.console.Console'))
     

@@ -1,7 +1,7 @@
 '''
 Created on 2015/6/9
 
-@author: hubo
+:author: hubo
 '''
 import unittest
 from vlcp.event.event import Event,EventMatcher,withIndices

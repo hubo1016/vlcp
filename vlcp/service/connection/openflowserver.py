@@ -1,7 +1,7 @@
 '''
 Created on 2015/12/25
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import defaultconfig
 from vlcp.protocol.openflow import Openflow

@@ -1,7 +1,7 @@
 '''
 Created on 2015/12/14
 
-@author: hubo
+:author: hubo
 
 Lock is created by limiting queue length of LockEvent, so there is only one event in the queue.
 Other send request is blocked by the queue.

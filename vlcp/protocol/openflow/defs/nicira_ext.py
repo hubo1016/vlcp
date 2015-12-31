@@ -1,7 +1,7 @@
 '''
 Created on 2015/8/3
 
-@author: hubo
+:author: hubo
 '''
 '''
 /*

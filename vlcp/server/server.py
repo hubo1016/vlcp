@@ -1,7 +1,7 @@
 '''
 Created on 2015/7/24
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import Configurable, manager, config
 from vlcp.event import Scheduler, DefaultPolling, Resolver, RoutineControlEvent, CBQueue

@@ -1,7 +1,7 @@
 '''
 Created on 2015/8/27
 
-@author: hubo
+:author: hubo
 '''
 from __future__ import print_function
 from vlcp.server import main

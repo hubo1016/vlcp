@@ -18,7 +18,7 @@
 /* OpenFlow: protocol between controller and datapath. */
 Created on 2015/7/13
 
-@author: hubo
+:author: hubo
 '''
 from .common import *
 from . import common

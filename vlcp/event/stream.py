@@ -1,7 +1,7 @@
 '''
 Created on 2015/8/14
 
-@author: hubo
+:author: hubo
 '''
 
 from vlcp.event import Event, withIndices
@@ -178,7 +178,7 @@ class BaseStream(object):
                 raise
             finally:
                 self.close(container.scheduler)
-    def write(self, data, container, eof = False, ignoreexception = False):
+    def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
         if not ignoreexception:
             raise IOError('Stream is closed')
         if False:
@@ -326,7 +326,7 @@ class FileWriter(object):
     "Write to file"
     def __init__(self, fobj):
         self.fobj = fobj
-    def write(self, data, container, eof = False, ignoreexception = False):
+    def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
         try:
             if data:
                 self.fobj.write(data)

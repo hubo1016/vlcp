@@ -1,7 +1,7 @@
 '''
 Created on 2015/11/26
 
-@author: hubo
+:author: hubo
 '''
 
 import zlib

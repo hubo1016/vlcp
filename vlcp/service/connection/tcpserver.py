@@ -1,7 +1,7 @@
 '''
 Created on 2015/10/19
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.server.module import Module, api
 from vlcp.event import TcpServer
@@ -50,7 +50,7 @@ class TcpServerBase(Module):
     def getservers(self, vhost = None):
         '''
         Return current servers
-        @param vhost: return only servers of vhost if specified. '' to return only default servers.
+        :param vhost: return only servers of vhost if specified. '' to return only default servers.
                       None for all servers.
         '''
         if vhost is not None:
@@ -60,7 +60,7 @@ class TcpServerBase(Module):
     def stoplisten(self, vhost = None):
         '''
         Stop listen on current servers
-        @param vhost: return only servers of vhost if specified. '' to return only default servers.
+        :param vhost: return only servers of vhost if specified. '' to return only default servers.
                       None for all servers.
         '''
         servers = self.getServers(vhost)
@@ -71,7 +71,7 @@ class TcpServerBase(Module):
     def startlisten(self, vhost = None):
         '''
         Start listen on current servers
-        @param vhost: return only servers of vhost if specified. '' to return only default servers.
+        :param vhost: return only servers of vhost if specified. '' to return only default servers.
                       None for all servers.
         '''
         servers = self.getServers(vhost)

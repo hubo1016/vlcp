@@ -1,7 +1,7 @@
 '''
 Created on 2015/7/30
 
-@author: hubo
+:author: hubo
 '''
 
 from .stdprim import *

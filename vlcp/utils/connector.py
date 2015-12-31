@@ -1,7 +1,7 @@
 '''
 Created on 2015/11/30
 
-@author: hubo
+:author: hubo
 
 Process events multi-threaded or multi-processed
 '''
@@ -29,6 +29,10 @@ class ConnectorControlEvent(Event):
     STOPRECEIVE = 'stopreceive'
     STARTRECEIVE = 'startreceive'
 import os
+
+@withIndices()
+class MoreResultEvent(Event):
+    pass
 
 class _Pipe(object):
     "Make a pipe looks like a socket"
@@ -58,15 +62,15 @@ class _Pipe(object):
 class Connector(RoutineContainer):
     def __init__(self, worker_start, matchers = (), scheduler = None, mp = True, inputlimit = 0, allowcontrol = True):
         '''
-        @param worker_start: func(queuein, queueout), queuein is the input queue, queueout is the
+        :param worker_start: func(queuein, queueout), queuein is the input queue, queueout is the
                output queue. For queuein, each object is (event, matcher) tuple; For queueout, each
                object is a tuple of events to send. Every object in queuein must have a response in
                queueout.
-        @param matcheres: match events to be processed by connector.
-        @param scheduler: bind to specified scheduler
-        @param mp: use multiprocessing if possible. For windows, multi-threading is always used.
-        @param inputlimit: input queue size limit. 0 = infinite.
-        @param allowcontrol: if True, the connector accepts ConnectorControlEvent for connector configuration.
+        :param matcheres: match events to be processed by connector.
+        :param scheduler: bind to specified scheduler
+        :param mp: use multiprocessing if possible. For windows, multi-threading is always used.
+        :param inputlimit: input queue size limit. 0 = infinite.
+        :param allowcontrol: if True, the connector accepts ConnectorControlEvent for connector configuration.
         '''
         RoutineContainer.__init__(self, scheduler, True)
         self.worker_start = worker_start
@@ -76,6 +80,7 @@ class Connector(RoutineContainer):
         self.allowcontrol = allowcontrol
         self.stopreceive = False
         self.jobs = 0
+        self._moreresult_matcher = MoreResultEvent.createMatcher()
     @staticmethod
     def wrap_signal(func):
         def f(*args, **kwargs):
@@ -139,9 +144,14 @@ class Connector(RoutineContainer):
         if self.jobs == 1:
             self.scheduler.setPollingDaemon(self.pipein, False)
     def sendevents(self, events):
+        moreResult = False
         for e in events:
-            self.scheduler.emergesend(e)
-        self.jobs -= 1
+            if self._moreresult_matcher.isMatch(e):
+                moreResult = True
+            else:
+                self.scheduler.emergesend(e)
+        if not moreResult:
+            self.jobs -= 1
         if self.jobs == 0:
             self.scheduler.setPollingDaemon(self.pipein, True)
     def _createobjs(self, fork, mp):
@@ -301,7 +311,25 @@ class ThreadPool(object):
             p.daemon = True
             p.start()
 
-def processor(func):
+
+def async_to_async(newthread = True, mp = False):
+    def decorator(func):
+        @functools.wraps(func)
+        def handler(*args, **kwargs):
+            if mp:
+                p = multiprocessing.Process(target=func, args=args, kwargs=kwargs)
+                p.daemon = True
+                p.start()
+            elif newthread:
+                t = threading.Thread(target=func, args=args, kwargs=kwargs)
+                t.daemon = True
+                t.start()
+            else:
+                func(*args, **kwargs)
+        return handler
+    return decorator
+
+def async_processor(func):
     @functools.wraps(func)
     def handler(queuein, queueout):
         while True:
@@ -317,10 +345,124 @@ def processor(func):
                 else:
                     break
             try:
-                output = func(event, matcher)
+                func(event, matcher, queueout)
             except:
                 # Ignore
+                pass
+    return handler
+
+def processor_to_async(newthread = False, mp = False):
+    def decorator(func):
+        @functools.wraps(func)
+        @async_to_async(newthread, mp)
+        def handler(event, matcher, queueout):
+            try:
+                output = func(event, matcher)
+            except:
                 queueout.put(())
             else:
                 queueout.put(output)
-    return handler
+        return handler
+    return decorator
+
+def processor(func, newthread = False, mp = False):
+    return async_processor(processor_to_async()(func))
+
+def generator_to_async(newthread = True, mp = False):
+    def decorator(func):
+        @functools.wraps(func)
+        @async_to_async(newthread, mp)
+        def handler(event, matcher, queueout):
+            for es in func(event, matcher):
+                queueout.put(tuple(es) + (MoreResultEvent(),))
+            queueout.put(())
+        return handler
+    return decorator
+    
+def async_generator_processor(func, newthread = True, mp = False):
+    return async_processor(generator_to_async(func, newthread, mp))
+
+@withIndices('pool')
+class TaskEvent(Event):
+    canignore = False
+
+@withIndices('request')
+class TaskDoneEvent(Event):
+    pass
+
+class TaskPool(Connector):
+    "Thread pool for small tasks"
+    @staticmethod
+    def _generator_wrapper(func):
+        def g(event, matcher):
+            try:
+                for es in func():
+                    yield es
+            except:
+                (typ, val, tr) = sys.exc_info()
+                yield (TaskDoneEvent(event, exception = val),)
+            else:
+                yield (TaskDoneEvent(event, result = None),)
+        return g
+    @staticmethod
+    def _processor_wrapper(func):
+        def f(event, matcher):
+            try:
+                return (TaskDoneEvent(event, result=func()),)
+            except:
+                (typ, val, tr) = sys.exc_info()
+                return (TaskDoneEvent(event, exception = val),)
+    @staticmethod
+    def _async_wrapper(func):
+        def f(event, matcher, queueout):
+            try:
+                def sender(es):
+                    queueout.put(tuple(es) + (MoreResultEvent(),))
+                return (TaskDoneEvent(event, result=func(sender)),)
+            except:
+                (typ, val, tr) = sys.exc_info()
+                return (TaskDoneEvent(event, exception = val),)
+    @staticmethod
+    @async_processor
+    def _processor(event, matcher, queueout):
+        if hasattr(event, 'task'):
+            processor_to_async(getattr(event, 'newthread', False))(TaskPool._processor_wrapper(event.task))(event, matcher, queueout)
+        elif hasattr(event, 'gen_task'):
+            generator_to_async(getattr(event, 'newthread', True))(TaskPool._generator_wrapper(event.gen_task))(event, matcher, queueout)
+        elif hasattr(event, 'async_task'):
+            async_to_async(getattr(event, 'newthread', True))(TaskPool._async_wrapper(event.async_task))(event, matcher, queueout)
+        else:
+            queueout.put(())
+    def __init__(self, scheduler=None, poolsize = 64):
+        self.threadpool = ThreadPool(poolsize, self._processor, False)
+        Connector.__init__(self, self.threadpool.create, matchers=(TaskEvent.createMatcher(self),), scheduler=scheduler,
+                           mp=False, inputlimit=poolsize, allowcontrol=False)
+    def runTask(self, container, task, newthread = False):
+        "Run task() in task pool. Raise an exception or get return value in container.retvalue"
+        e = TaskEvent(self, task=task, newthread = newthread)
+        for m in container.waitForSend(e):
+            yield m
+        yield (TaskDoneEvent.createMatcher(e),)
+        if hasattr(container.event, 'exception'):
+            raise container.event.exception
+        else:
+            container.retvalue = container.event.result
+    def runGenTask(self, container, gentask, newthread = True):
+        "Run generator gentask() in task pool, yield customized events"
+        e = TaskEvent(self, gen_task = gentask, newthread = newthread)
+        for m in container.waitForSend(e):
+            yield m
+        yield (TaskDoneEvent.createMatcher(e),)
+        if hasattr(container.event, 'exception'):
+            raise container.event.exception
+        container.retvalue = None
+    def runAsyncTask(self, container, asynctask, newthread = True):
+        "Run asynctask(sender) in task pool, call sender(events) to send customized events, and also return value in container.retvalue"
+        e = TaskEvent(self, async_task = asynctask, newthread = newthread)
+        for m in container.waitForSend(e):
+            yield m
+        yield (TaskDoneEvent.createMatcher(e),)
+        if hasattr(container.event, 'exception'):
+            raise container.event.exception
+        else:
+            container.retvalue = container.event.result

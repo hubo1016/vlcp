@@ -1,7 +1,7 @@
 '''
 Created on 2015/8/18
 
-@author: hubo
+:author: hubo
 '''
 
 from vlcp.config import defaultconfig

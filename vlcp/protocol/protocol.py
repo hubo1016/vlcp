@@ -1,7 +1,7 @@
 '''
 Created on 2015/6/29
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import Configurable, defaultconfig
 from vlcp.event.connection import ConnectionWriteEvent
@@ -30,18 +30,18 @@ class Protocol(Configurable):
     def parse(self, connection, data, laststart):
         '''
         Parse input data into events
-        @param connection: connection object
-        @param data: view for input data
-        @param laststart: last parsed position
-        @return: (events, keep) where events are parsed events to send, keep is the unused data length to be keeped for next parse.
+        :param connection: connection object
+        :param data: view for input data
+        :param laststart: last parsed position
+        :returns: (events, keep) where events are parsed events to send, keep is the unused data length to be keeped for next parse.
         '''
         raise NotImplementedError
     def serialize(self, connection, event):
         '''
         Serialize a write event to bytes, and return if it is EOF
-        @param connection: connection object
-        @param event: write event
-        @return: (bytes, EOF)
+        :param connection: connection object
+        :param event: write event
+        :returns: (bytes, EOF)
         '''
         return (event.data, getattr(event, 'EOF', False))
     def init(self, connection):
@@ -92,7 +92,7 @@ class Protocol(Configurable):
     def accept(self, server, newaddr, newsocket):
         '''
         server accept
-        @return: new protocol object
+        :returns: new protocol object
         '''
         self._logger.debug('Connection accepted from ' + repr(newaddr))
         return self

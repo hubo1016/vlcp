@@ -1,7 +1,7 @@
 '''
 Created on 2015/06/01
 
-@author: hubo
+:author: hubo
 '''
 from __future__ import print_function, absolute_import, division 
 import copy
@@ -56,8 +56,8 @@ class Event(object):
     '''
     def __init__(self, *args, **kwargs):
         '''
-        @param args: indices like 12,"read",... content are type-depended.
-        @param kwargs:
+        :param args: indices like 12,"read",... content are type-depended.
+        :param kwargs:
             <indices>: input indices by name
             canignore: if the event is not processed, whether it is safe to ignore the event.
                         If it is not, the processing queue might be blocked to wait for a proper event processor.
@@ -78,7 +78,7 @@ class Event(object):
     @classmethod
     def indicesNames(cls):
         '''
-        @return: names of indices
+        :returns: names of indices
         '''
         return getattr(cls, '_indicesNames', ())
     @classmethod
@@ -91,7 +91,7 @@ class Event(object):
     @classmethod
     def getTypename(cls):
         '''
-        @return: return the proper name to match
+        :returns: return the proper name to match
         '''
         if cls is Event:
             return None
@@ -130,7 +130,7 @@ class Event(object):
     def createMatcher(cls, *args, **kwargs):
         '''
         @keyword _ismatch: user-defined function ismatch(event) for matching test
-        @param *: indices
+        :param *: indices
         @keyword **: index_name=index_value for matching criteria
         '''
         if kwargs and not args:

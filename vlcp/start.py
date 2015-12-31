@@ -2,7 +2,7 @@
 '''
 Created on 2015/10/19
 
-@author: hubo
+:author: hubo
 
 Command-line entry 
 '''

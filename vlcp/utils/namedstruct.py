@@ -1,7 +1,7 @@
 '''
 Created on 2015/7/8
 
-@author: hubo
+:author: hubo
 '''
 from __future__ import print_function, absolute_import, division 
 import struct

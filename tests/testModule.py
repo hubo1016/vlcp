@@ -1,7 +1,7 @@
 '''
 Created on 2015/10/14
 
-@author: hubo
+:author: hubo
 '''
 import unittest
 from vlcp.server import Server

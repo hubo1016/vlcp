@@ -2,7 +2,7 @@
 '''
 Created on 2015/11/17
 
-@author: hubo
+:author: hubo
 '''
 try:
     import ez_setup
@@ -11,7 +11,7 @@ except:
     pass
 from setuptools import setup, find_packages
 
-VERSION = '0.9.10'
+VERSION = '0.10.0'
 
 setup(name='vlcp',
       version=VERSION,

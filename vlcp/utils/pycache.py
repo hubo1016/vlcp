@@ -1,7 +1,7 @@
 '''
 Created on 2015/10/19
 
-@author: hubo
+:author: hubo
 
 Remove pycache files from a module, to ensure a successful reload
 '''

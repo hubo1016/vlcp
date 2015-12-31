@@ -1,7 +1,7 @@
 '''
 Created on 2015/6/18
 
-@author: hubo
+:author: hubo
 '''
 import unittest
 from vlcp.event.core import Scheduler

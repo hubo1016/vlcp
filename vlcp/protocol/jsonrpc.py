@@ -1,7 +1,7 @@
 '''
 Created on 2015/8/12
 
-@author: hubo
+:author: hubo
 '''
 
 from vlcp.protocol import Protocol

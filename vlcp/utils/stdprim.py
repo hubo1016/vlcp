@@ -1,7 +1,7 @@
 '''
 Created on 2015/7/13
 
-@author: hubo
+:author: hubo
 '''
 from .namedstruct import nstruct, prim, raw, char, enum, varchr, cstr, optional
 

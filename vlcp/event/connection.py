@@ -1,7 +1,7 @@
 '''
 Created on 2015/6/19
 
-@author: hubo
+:author: hubo
 '''
 from __future__ import print_function, absolute_import, division 
 from .runnable import RoutineContainer, RoutineException
@@ -377,34 +377,35 @@ class Connection(RoutineContainer):
             for m in self.protocol.init(self):
                 yield m
             connection_control = ConnectionControlEvent.createMatcher(self, None, True, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
-            while self.connected:
-                self.connrecv = 0
-                self.connsend = 0
-                self.writestop = False
-                self.readstop = False
-                self.subroutine(self._read_main(), True, 'readroutine', self.daemon)
-                self.subroutine(self._write_main(), True, 'writeroutine', self.daemon)
-                err_match = PollEvent.createMatcher(self.socket.fileno(), PollEvent.ERROR)
-                yield (err_match, connection_control)
-                if self.matcher is connection_control and self.event.type is not ConnectionControlEvent.HANGUP:
-                    if self.event.type == ConnectionControlEvent.SHUTDOWN:
-                        self.need_reconnect = False
-                    elif self.event.type == ConnectionControlEvent.RECONNECT:
-                        self.need_reconnect = True
+            while self.connected or self.need_reconnect:
+                if self.connected:
+                    self.connrecv = 0
+                    self.connsend = 0
+                    self.writestop = False
+                    self.readstop = False
+                    self.subroutine(self._read_main(), True, 'readroutine', self.daemon)
+                    self.subroutine(self._write_main(), True, 'writeroutine', self.daemon)
+                    err_match = PollEvent.createMatcher(self.socket.fileno(), PollEvent.ERROR)
+                    yield (err_match, connection_control)
+                    if self.matcher is connection_control and self.event.type is not ConnectionControlEvent.HANGUP:
+                        if self.event.type == ConnectionControlEvent.SHUTDOWN:
+                            self.need_reconnect = False
+                        elif self.event.type == ConnectionControlEvent.RECONNECT:
+                            self.need_reconnect = True
+                        else:
+                            self.need_reconnect = self.persist
+                        self.logger.debug('Connection shutdown request received')
                     else:
-                        self.need_reconnect = self.persist
-                    self.logger.debug('Connection shutdown request received')
-                else:
-                    self.logger.debug('Connection is closed')
-                self.connected = False
-                self.readroutine.close()
-                self.writeroutine.close()
-                if self.matcher is err_match and (self.event.detail & POLLING_ERR):
-                    for m in self.protocol.error(self):
-                        yield m
-                else:
-                    for m in self.protocol.closed(self):
-                        yield m
+                        self.logger.debug('Connection is closed')
+                    self.connected = False
+                    self.readroutine.close()
+                    self.writeroutine.close()
+                    if self.matcher is err_match and (self.event.detail & POLLING_ERR):
+                        for m in self.protocol.error(self):
+                            yield m
+                    else:
+                        for m in self.protocol.closed(self):
+                            yield m
                 if self.need_reconnect:
                     self.logger.debug('Try reconnecting')
                     for m in self._reconnect():
@@ -420,7 +421,9 @@ class Connection(RoutineContainer):
                             pass
                         self.connmark += 1
                         for m in self.protocol.reconnect_init(self):
-                            yield m                        
+                            yield m
+                    else:
+                        break
         finally:
             self._close()
             self.subroutine(self._final(), False)

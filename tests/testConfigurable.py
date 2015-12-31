@@ -1,7 +1,7 @@
 '''
 Created on 2015/7/8
 
-@author: hubo
+:author: hubo
 '''
 import unittest
 from vlcp.config import manager, Configurable, defaultconfig

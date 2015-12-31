@@ -1,7 +1,7 @@
 '''
 Created on 2015/11/24
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import config
 from vlcp.protocol.http import Http, HttpResponseEvent, HttpConnectionStateEvent,\
@@ -143,12 +143,12 @@ class ManualRedirectRequired(IOError):
 class Request(object):
     def __init__(self, url, data = None, method = None, headers = {}, origin_req_host = None, unverifiable = False):
         '''
-        @param url: request url
-        @param data: request data, can be a str/bytes, or a stream(vlcp.event.stream.XXXStream)
-        @param method: request method (GET, POST, ...)
-        @param headers: request header dict ({'user-agent':'myagent'})
-        @param origin_req_host: origin request host for cookie policy check
-        @param unverifiable: unverifiable for cookie policy check
+        :param url: request url
+        :param data: request data, can be a str/bytes, or a stream(vlcp.event.stream.XXXStream)
+        :param method: request method (GET, POST, ...)
+        :param headers: request header dict ({'user-agent':'myagent'})
+        :param origin_req_host: origin request host for cookie policy check
+        :param unverifiable: unverifiable for cookie policy check
         '''
         self.url = _str(url, 'ascii')
         s = urlsplit(self.url, 'http')
@@ -324,8 +324,8 @@ class WebClient(Configurable):
     _default_verifyhost = True
     def __init__(self, allowcookies = False, cookiejar = None):
         '''
-        @param allowcookies: Accept and store cookies, automatically use them on further requests
-        @param cookiejar: Provide a customized cookiejar instead of the default CookieJar()
+        :param allowcookies: Accept and store cookies, automatically use them on further requests
+        :param cookiejar: Provide a customized cookiejar instead of the default CookieJar()
         '''
         self._connmap = {}
         self._requesting = set()
@@ -342,10 +342,10 @@ class WebClient(Configurable):
              followredirect = True, autodecompress = False, allowcookies = None):
         '''
         Open http request with a Request object
-        @param container: a routine container hosting this routine
-        @param request: vlcp.utils.webclient.Request object
-        @param ignorewebexception: Do not raise exception on Web errors (4xx, 5xx), return a response normally
-        @param timeout: timeout on connection and single http request. When following redirect, new request
+        :param container: a routine container hosting this routine
+        :param request: vlcp.utils.webclient.Request object
+        :param ignorewebexception: Do not raise exception on Web errors (4xx, 5xx), return a response normally
+        :param timeout: timeout on connection and single http request. When following redirect, new request
                does not share the old timeout, which means if timeout=2:
                connect to host: (2s)
                wait for response: (2s)
@@ -353,9 +353,9 @@ class WebClient(Configurable):
                connect to redirected host: (2s)
                wait for response: (2s)
                ...
-        @param datagen: if the request use a stream as the data parameter, you may provide a routine to generate
+        :param datagen: if the request use a stream as the data parameter, you may provide a routine to generate
                         data for the stream. If the request failed early, this routine is automatically terminated.
-        @param cafile: provide a CA file for SSL certification check. Notice that the http host
+        :param cafile: provide a CA file for SSL certification check. Notice that the http host
                         
         '''
         if cafile is None:

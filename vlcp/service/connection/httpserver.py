@@ -1,7 +1,7 @@
 '''
 Created on 2015/10/19
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import defaultconfig
 from vlcp.protocol.http import Http, HttpRequestEvent

@@ -1,7 +1,7 @@
 '''
 Created on 2015/12/2
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import defaultconfig
 from vlcp.server.module import Module, api
@@ -73,7 +73,7 @@ class Manager(Module):
     def loadmodule(self, path):
         '''
         Load specified module
-        @param path: module path (e.g. vlcp.service.connection.httpserver.HttpServer)
+        :param path: module path (e.g. vlcp.service.connection.httpserver.HttpServer)
         '''
         for m in self.apiroutine.delegateOther(self.server.moduleloader.loadByPath(path), self.server.moduleloader, ()):
             yield m
@@ -81,7 +81,7 @@ class Manager(Module):
     def reloadmodules(self, pathlist):
         '''
         Reload specified modules.
-        @param pathlist: list of module path
+        :param pathlist: list of module path
         '''
         for m in self.apiroutine.delegateOther(self.server.moduleloader.reloadModules(pathlist),
                                                self.server.moduleloader, ()):
@@ -90,7 +90,7 @@ class Manager(Module):
     def unloadmodule(self, path):
         '''
         Unload specified module
-        @param path: module path (e.g. vlcp.service.connection.httpserver.HttpServer)
+        :param path: module path (e.g. vlcp.service.connection.httpserver.HttpServer)
         '''
         for m in self.apiroutine.delegateOther(self.server.moduleloader.unloadByPath(path),
                                                self.server.moduleloader, ()):
@@ -99,7 +99,7 @@ class Manager(Module):
     def enableAutoReload(self, enabled = True):
         '''
         Enable or disable auto reload.
-        @param enabled: enable if True, disable if False
+        :param enabled: enable if True, disable if False
         '''
         enabled_now = self.apiroutine in self.routines
         if enabled != enabled_now:

@@ -1,7 +1,7 @@
 '''
 Created on 2015/11/9
 
-@author: hubo
+:author: hubo
 '''
 from vlcp.config import defaultconfig
 from vlcp.server.module import Module, api, depend, callAPI
