@@ -7,25 +7,71 @@ from __future__ import print_function
 from vlcp.server.module import Module
 from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.redisclient import RedisClient
+from vlcp.server import main
+from time import time
 
 class MainRoutine(RoutineContainer):
     def __init__(self, client, scheduler=None, daemon=False):
         RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
         self.client = client
     def main(self):
-        for m in self.client.execute_command(self, 'PING'):
-            yield m
-        print(self.retvalue)
-        for m in self.client.execute_command(self, 'SET', 'abc', 'def'):
-            yield m
-        print(self.retvalue)
-        for m in self.client.execute_command(self, 'GET', 'abc'):
-            yield m
-        print(self.retvalue)
+        with self.client.context(self):
+            for m in self.client.execute_command(self, 'ping'):
+                yield m
+            print(self.retvalue)
+            for m in self.client.execute_command(self, 'set', 'abc', 'def'):
+                yield m
+            print(self.retvalue)
+            for m in self.client.execute_command(self, 'get', 'abc'):
+                yield m
+            print(self.retvalue)
+            def sub():
+                for m in self.waitWithTimeout(1):
+                    yield m
+                for m in self.client.execute_command(self, 'lpush', 'test', 'value'):
+                    yield m
+            self.subroutine(sub(), True)
+            for m in self.client.execute_command(self, 'brpop', 'test', '0'):
+                yield m
+            print(self.retvalue)
+            for m in self.client.subscribe(self, 'skey'):
+                yield m
+            matchers = self.retvalue
+            def sub2():
+                for m in self.client.execute_command(self, 'publish', 'skey', 'svalue'):
+                    yield m
+            self.subroutine(sub2(), True)
+            yield matchers
+            print(self.event.message)
+            for m in self.client.get_connection(self):
+                yield m
+            newconn = self.retvalue
+            with newconn.context(self):
+                for m in newconn.batch_execute(self, ('get','abc'),('set','abc','ghi'),('get','abc')):
+                    yield m
+                print(self.retvalue) 
+            for m in self.client.unsubscribe(self, 'skey'):
+                yield m
+            t = time()
+            for i in range(0, 1000):
+                for m in self.client.execute_command(self, 'set', 'abc', 'def'):
+                    yield m
+            print(time() - t)
+            bc = (('set', 'abc', 'def'),) * 100
+            t = time()
+            for i in range(0, 100):
+                for m in self.client.batch_execute(self, *bc):
+                    yield m
+            print(time() - t)
+            for m in self.client.shutdown(self):
+                yield m
 
 class MainModule(Module):
     def __init__(self, server):
         Module.__init__(self, server)
+        self.client = RedisClient()
+        self.routines.append(MainRoutine(self.client, self.scheduler))
+ 
 
 if __name__ == '__main__':
-    pass
+    main()

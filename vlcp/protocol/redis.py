@@ -198,7 +198,7 @@ class Redis(Protocol):
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, RedisResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority, RedisSubscribeEvent.createMatcher(connection = connection), ('message', connection), self.messagequeuesize))
+                self.messagepriority, RedisSubscribeEvent.createMatcher(connection = connection), ('subscribe', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, RedisSubscribeMessageEvent.createMatcher(connection = connection), ('message', connection), self.messagequeuesize))
         connection.redis_subscribe = False
@@ -390,7 +390,7 @@ class Redis(Protocol):
         matchers = container.retvalue
         for m in container.waitForAll(*matchers):
             yield m
-        container.retvalue = [container.eventdict[m] for m in matchers]
+        container.retvalue = [container.eventdict[m].result for m in matchers]
     def parse(self, connection, data, laststart):
         events = []
         connection.redis_reader.feed(data)

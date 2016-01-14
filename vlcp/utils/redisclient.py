@@ -35,7 +35,7 @@ class RedisClientBase(Configurable):
     _default_timeout = 30
     _default_db = 0
     def __init__(self, conn = None, parent = None):
-        Configurable.__init(self)
+        Configurable.__init__(self)
         self._defaultconn = conn
         self._parent = parent
         if parent:
@@ -84,11 +84,11 @@ class RedisClientBase(Configurable):
         '''
         Release the connection, leave it to be reused later.
         '''
-        if not self.parent:
+        if not self._parent:
             for m in self.shutdown(container):
                 yield m
         else:
-            for m in self.parent._release_conn(container, self._defaultconn):
+            for m in self._parent._release_conn(container, self._defaultconn):
                 yield m
     @contextmanager
     def context(self, container):
@@ -168,7 +168,7 @@ class RedisClient(RedisClientBase):
         :param db: default database. If not specified, redisclient.db in configuration is used,
         which defaults to 0.
         '''
-        RedisClientBase.__init(self, None)
+        RedisClientBase.__init__(self, None)
         if url:
             self.url = url
         if db is not None:
