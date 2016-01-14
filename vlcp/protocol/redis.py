@@ -296,7 +296,7 @@ class Redis(Protocol):
             if cmdname == 'SELECT':
                 if len(args) != 2:
                     raise RedisProtocolException("wrong number of arguments for 'select' command")
-                connection.redis_select = args[1]
+                connection.redis_select = _str(args[1])
             elif cmdname == 'QUIT':
                 connection.need_reconnect = False
             rid = connection.xid

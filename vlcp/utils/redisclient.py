@@ -224,8 +224,8 @@ class RedisClient(RedisClientBase):
                 for m in self._shutdown_conn(container, connection):
                     yield m
             else:
-                if connection.redis_select != self.db:
-                    for m in self._protocol.send_command(self._defaultconn, container, 'SELECT', str(self.db)):
+                if connection.redis_select != str(self.db):
+                    for m in self._protocol.send_command(connection, container, 'SELECT', str(self.db)):
                         yield m
                 self._connpool.append(connection)
     def execute_command(self, container, *args):
