@@ -332,26 +332,38 @@ class RoutineContainer(object):
     def waitForAll(self, *matchers):
         eventdict = {}
         eventlist = []
-        matchers = list(matchers)
-        while matchers:
-            yield tuple(matchers)
-            matchers.remove(self.matcher)
-            eventlist.append(self.event)
-            eventdict[self.matcher] = self.event
-        self.eventlist = eventlist
-        self.eventdict = eventdict 
+        self.scheduler.register(matchers, self.currentroutine)
+        try:
+            ms = len(matchers)
+            while ms:
+                yield ()
+                self.scheduler.unregister((self.matcher,), self.currentroutine)
+                ms -= 1
+                eventlist.append(self.event)
+                eventdict[self.matcher] = self.event
+            self.eventlist = eventlist
+            self.eventdict = eventdict
+        except:
+            self.scheduler.unregister(matchers, self.currentroutine)
+            raise
     def waitForAllToProcess(self, *matchers):
         eventdict = {}
         eventlist = []
-        matchers = list(matchers)
-        while matchers:
-            yield tuple(matchers)
-            matchers.remove(self.matcher)
-            self.event.canignore = True
-            eventlist.append(self.event)
-            eventdict[self.matcher] = self.event
-        self.eventlist = eventlist
-        self.eventdict = eventdict
+        self.scheduler.register(matchers, self.currentroutine)
+        try:
+            ms = len(matchers)
+            while ms:
+                yield ()
+                self.event.canignore = True
+                self.scheduler.unregister((self.matcher,), self.currentroutine)
+                ms -= 1
+                eventlist.append(self.event)
+                eventdict[self.matcher] = self.event
+            self.eventlist = eventlist
+            self.eventdict = eventdict
+        except:
+            self.scheduler.unregister(matchers, self.currentroutine)
+            raise
     def waitForAllEmpty(self, *queues):
         matchers = [m for m in (q.waitForEmpty() for q in queues) if m is not None]
         while matchers:
