@@ -8,5 +8,5 @@ try:
     DefaultPolling = EPollPolling
 except ImportError:
     DefaultPolling = SelectPolling
-from .connection import Client, TcpServer, ConnectionWriteEvent, Resolver, ConnectionControlEvent
+from .connection import Client, TcpServer, ConnectionWriteEvent, ConnectionControlEvent
 from .stream import Stream, StreamDataEvent, MemoryStream

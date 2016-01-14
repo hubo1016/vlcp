@@ -11,7 +11,7 @@ from __future__ import print_function
 from vlcp.server import main
 
 import sys
-import os
+import os.path
 # No argparse
 import getopt
 doc = '''Run VLCP server from command line
@@ -19,7 +19,7 @@ doc = '''Run VLCP server from command line
 [python|pypy] vlcp.py --help
 
 Available options:
-  -f            Configuration file position (default: /etc/vlcp.cfg)
+  -f            Configuration file position (default: /etc/vlcp.conf)
   -d            Start as a daemon (Need python-daemon support)
   -p            When start as a daemon, specify a pid file (default: /var/run/vlcp.pid, or configured in
                 configuration file)
@@ -32,7 +32,7 @@ def usage():
 def parsearg():
     try:
         options, args = getopt.gnu_getopt(sys.argv[1:], 'f:p:?hd', 'help')
-        configfile = '/etc/vlcp.cfg'
+        configfile = None
         pidfile = '/var/run/vlcp.pid'
         daemon = False
         for k,v in options:
@@ -55,4 +55,11 @@ def parsearg():
 
 if __name__ == '__main__':
     (config, daemon, pidfile, startup) = parsearg()
+    if config is None:
+        if os.path.isfile('/etc/vlcp.conf'):
+            config = '/etc/vlcp.conf'
+        else:
+            print('/etc/vlcp.conf is not found; start without configurations.')
+    elif not config:
+        config = None
     main(config, startup, daemon, pidfile)

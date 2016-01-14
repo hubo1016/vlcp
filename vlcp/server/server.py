@@ -4,7 +4,8 @@ Created on 2015/7/24
 :author: hubo
 '''
 from vlcp.config import Configurable, manager, config
-from vlcp.event import Scheduler, DefaultPolling, Resolver, RoutineControlEvent, CBQueue
+from vlcp.event import Scheduler, DefaultPolling, RoutineControlEvent, CBQueue
+from vlcp.utils.connector import Resolver
 from vlcp.event import PollEvent, ConnectionWriteEvent, ConnectionControlEvent, StreamDataEvent
 from vlcp.event.core import TimerEvent, SystemControlEvent, SystemControlLowPriorityEvent
 from vlcp.event.connection import ResolveRequestEvent, ResolveResponseEvent

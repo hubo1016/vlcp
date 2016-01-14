@@ -83,7 +83,7 @@ Besides the normal functions of Python interactive console,
 Following variables are provided for debugging purpose:
  server, manager, container
 Following functions can be used to control VLCP running:
- callapi, capture, sendevent, subroutine, breakpoint, syscall, resume, debug, restore_console, console_help
+ callapi, capture, sendevent, subroutine, execute, breakpoint, syscall, resume, debug, restore_console, console_help
 For details call console_help()'''
     _full_help = '''
 VLCP debugging console.
@@ -110,6 +110,9 @@ sendevent(event, emerge = False)
 
 subroutine(routine)
  - create a new routine in container.
+
+execute(routine)
+ - execute the routine in container, and return container.retvalue
  
 breakpoint()
  - stop running and wait for resume().
@@ -368,12 +371,12 @@ console_help()
                 except:
                     self.sendEventQueue.put((ConsoleServiceCancel(waiter),))
                     raise
-            def _service_call(call):
+            def execute(call):
                 return _service_call_customized(lambda waiter: self._service_call_routine(waiter, call))
             def _service(func):
                 @functools.wraps(func)
                 def f(*args, **kwargs):
-                    return _service_call(func(*args, **kwargs))
+                    return execute(func(*args, **kwargs))
                 return f
             @_service
             def callapi(modulename, functionname, **kwargs):
@@ -464,7 +467,7 @@ console_help()
                                      'callapi':callapi, 'capture':capture, 'sendevent':sendevent,
                                      'subroutine':subroutine, 'breakpoint':breakpoint, 'syscall':syscall,
                                      'resume':resume, 'debug':debug, 'restore_console':restore_console,
-                                     'console_help':console_help})
+                                     'console_help':console_help,'execute':execute})
         finally:
             signal.signal(signal.SIGINT, lsignal)
     def __init__(self, server):
@@ -491,3 +494,8 @@ console_help()
         self.connector = Connector(processor, (self._ce_matcher,), self.scheduler, False)
         self.routines.append(self.apiroutine)
         self.routines.append(self.connector)
+
+if __name__ == '__main__':
+    from vlcp.server import main
+    manager['module.console.startinconsole'] = True
+    main(None, ())

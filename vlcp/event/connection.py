@@ -20,8 +20,6 @@ import itertools
 import signal
 from vlcp.event.core import POLLING_OUT
 import traceback
-from vlcp.utils.connector import Connector, ThreadPool, processor
-
 
 if sys.version_info[0] >= 3:
     from urllib.parse import urlsplit
@@ -481,33 +479,6 @@ class ResolveRequestEvent(Event):
 class ResolveResponseEvent(Event):
     pass
 
-class Resolver(Connector):
-    logger = logging.getLogger(__name__ + '.Resolver')
-    def __init__(self, scheduler = None, poolsize = 256):
-        rm = ResolveRequestEvent.createMatcher()
-        Connector.__init__(self, ThreadPool(poolsize, Resolver.resolver).create, (rm,), scheduler, True, poolsize, False)
-        self.resolving = set()
-    @staticmethod
-    @processor
-    def resolver(event, matcher):
-        params = event.request
-        try:
-            addrinfo = socket.getaddrinfo(*params)
-            return (ResolveResponseEvent(params, response=addrinfo),)
-        except:
-            et, ev, tr = sys.exc_info()
-            return (ResolveResponseEvent(params, error=ev),)
-    def enqueue(self, queue, event, matcher):
-        if event.request in self.resolving:
-            # Duplicated resolves are finished in the same time
-            event.canignore = True
-        else:
-            Connector.enqueue(self, queue, event, matcher)
-            self.resolving.add(event.request)
-    def sendevents(self, events):
-        Connector.sendevents(self, events)
-        for e in events:
-            self.resolving.remove(e.request)
 class Client(Connection):
     '''
     A single connection to a specified target

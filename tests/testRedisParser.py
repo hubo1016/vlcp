@@ -5,9 +5,10 @@ Created on 2016/1/7
 '''
 from __future__ import print_function
 import unittest
-#from vlcp.protocol.redis import RedisParser
+from vlcp.protocol.redis import RedisParser
 from timeit import timeit
-from hiredis import Reader as RedisParser
+#from hiredis import Reader as RedisParser
+    
 
 class Test(unittest.TestCase):
     def testParser(self):

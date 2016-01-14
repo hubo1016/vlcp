@@ -207,7 +207,13 @@ class RoutineException(Exception):
         Exception.__init__(self, matcher, event)
         self.matcher = matcher
         self.event = event
-    
+
+class MultipleException(Exception):
+    def __init__(self, exceptions):
+        Exception.__init__(self, '%d exceptions occurs in parallel execution' % (len(exceptions),) \
+                           + ': ' + repr(exceptions[0]) + ', ...')
+        self.exceptions = exceptions
+
 class RoutineContainer(object):
     def __init__(self, scheduler = None, daemon = False):
         self.scheduler = scheduler
@@ -394,13 +400,15 @@ class RoutineContainer(object):
         finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
         # As long as we do not use self.event to read the event, we are safe to receive them from other contaiers
         yield (finish,)
-    def delegateOther(self, subprocess, container, retnames = ('retvalue',)):
+    def beginDelegateOther(self, subprocess, container, retnames = ('retvalue',)):
         '''
-        Another format of delegate allows delegate a subprocess in another container, and get some returning values
-        the subprocess is actually running in 'container'.
-        for m in self.delegateOther(c.method(), c):
-            yield m
-        ret = self.retvalue
+        Start the delegate routine, but do not wait for result, instead returns a matcher in self.retvalue.
+        Useful for advanced delegates (e.g. delegate multiple subprocesses in the same time).
+        This is NOT a generator.
+        :param subprocess: a subroutine
+        :param container: container in which to start the routine
+        :param retnames: get return values from keys
+        :returns: (matcher, routine) where matcher is a event matcher to get the delegate result, routine is the created routine
         '''
         def delegateroutine():
             try:
@@ -420,10 +428,51 @@ class RoutineContainer(object):
                 for m in container.waitForSend(e):
                     yield m
         r = container.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
-        finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
-        # As long as we do not use self.event to read the event, we are safe to receive them from other contaiers
+        return (RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r), r)
+    def delegateOther(self, subprocess, container, retnames = ('retvalue',)):
+        '''
+        Another format of delegate allows delegate a subprocess in another container, and get some returning values
+        the subprocess is actually running in 'container'.
+        for m in self.delegateOther(c.method(), c):
+            yield m
+        ret = self.retvalue
+        '''
+        finish = self.beginDelegateOther(subprocess, container, retnames)
         yield (finish,)
         if hasattr(self.event, 'exception'):
             raise self.event.exception
         for n, v in zip(retnames, self.event.result):
             setattr(self, n, v)
+    def executeAll(self, subprocesses, container = None, retnames = ('retvalue',), forceclose = True):
+        '''
+        Execute all subprocesses and get the return values. Return values are in self.retvalue.
+        :param subprocesses: sequence of subroutines (generators)
+        :param container: if specified, run subprocesses in another container.
+        :param retnames: get return value from container.(name) for each name in retnames.
+        :param forceclose: force close the routines on exit, so all the subprocesses are terminated
+        on timeout if used with executeWithTimeout
+        :returns: a list of tuples, one for each subprocess, with value of retnames inside:
+        [('retvalue1',),('retvalue2',),...]
+        '''
+        if container is None:
+            container = self
+        delegates = [self.beginDelegateOther(p, container, retnames) for p in subprocesses]
+        matchers = [d[0] for d in delegates]
+        try:
+            for m in self.waitForAll(*matchers):
+                yield m
+            events = [self.eventdict[m] for m in matchers]
+            exceptions = [e.exception for e in events if hasattr(e, 'exception')]
+            if exceptions:
+                if len(exceptions) == 1:
+                    raise exceptions[0]
+                else:
+                    raise MultipleException(exceptions)
+            self.retvalue = [e.result for e in events]
+        finally:
+            if forceclose:
+                for d in delegates:
+                    try:
+                        container.terminate(d[1])
+                    except:
+                        pass

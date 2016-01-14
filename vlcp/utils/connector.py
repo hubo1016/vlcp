@@ -20,6 +20,8 @@ if sys.version_info[0] >= 3:
     from queue import Full, Queue, Empty
 else:
     from Queue import Full, Queue, Empty
+import logging
+from vlcp.event.connection import ResolveRequestEvent, ResolveResponseEvent
 
 @withIndices('connector', 'type')
 class ConnectorControlEvent(Event):
@@ -318,6 +320,7 @@ class ThreadPool(object):
             p.start()
 
 
+
 def async_to_async(newthread = True, mp = False):
     def decorator(func):
         @functools.wraps(func)
@@ -474,3 +477,31 @@ class TaskPool(Connector):
             raise container.event.exception
         else:
             container.retvalue = container.event.result
+
+class Resolver(Connector):
+    logger = logging.getLogger(__name__ + '.Resolver')
+    def __init__(self, scheduler = None, poolsize = 256):
+        rm = ResolveRequestEvent.createMatcher()
+        Connector.__init__(self, ThreadPool(poolsize, Resolver.resolver).create, (rm,), scheduler, True, poolsize, False)
+        self.resolving = set()
+    @staticmethod
+    @processor
+    def resolver(event, matcher):
+        params = event.request
+        try:
+            addrinfo = socket.getaddrinfo(*params)
+            return (ResolveResponseEvent(params, response=addrinfo),)
+        except:
+            et, ev, tr = sys.exc_info()
+            return (ResolveResponseEvent(params, error=ev),)
+    def enqueue(self, queue, event, matcher):
+        if event.request in self.resolving:
+            # Duplicated resolves are finished in the same time
+            event.canignore = True
+        else:
+            Connector.enqueue(self, queue, event, matcher)
+            self.resolving.add(event.request)
+    def sendevents(self, events):
+        Connector.sendevents(self, events)
+        for e in events:
+            self.resolving.remove(e.request)
