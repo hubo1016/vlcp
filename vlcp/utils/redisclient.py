@@ -17,6 +17,14 @@ def _str(b, encoding = 'ascii'):
     else:
         return str(b)
 
+def _conn(func):
+    def f(self, container, *args, **kwargs):
+        for m in self._get_default_connection(container):
+            yield m
+        for m in func(self, container, *args, **kwargs):
+            yield m
+    return f
+
 
 @config('redisclient')
 class RedisClientBase(Configurable):
@@ -45,14 +53,6 @@ class RedisClientBase(Configurable):
             raise IOError('Not connected to redis server')
         for m in self._get_connection(container, self._defaultconn):
             yield m
-    @staticmethod
-    def _conn(func):
-        def f(self, container, *args, **kwargs):
-            for m in self._get_default_connection(container):
-                yield m
-            for m in func(self, container, *args, **kwargs):
-                yield m
-        return f
     def _shutdown_conn(self, container, connection):
         if connection:
             if connection.connected:
@@ -99,14 +99,14 @@ class RedisClientBase(Configurable):
             yield self
         finally:
             container.subroutine(self.release(container))
-    @RedisClientBase._conn
+    @_conn
     def execute_command(self, container, *args):
         '''
         execute command on current connection
         '''
         for m in self._protocol.execute_command(self._defaultconn, container, *args):
             yield m
-    @RedisClientBase._conn
+    @_conn
     def batch_execute(self, container, *cmds):
         '''
         execute a batch of commands on current connection in pipeline mode
