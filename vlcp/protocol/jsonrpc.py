@@ -140,7 +140,7 @@ class JsonRPC(Protocol):
             return JsonRPCConnectionStateEvent.createMatcher(state, connection)
     def querywithreply(self, method, params, connection, container):
         (c, rid) = self.formatrequest(method, params, connection)
-        for m in connection.write(c):
+        for m in connection.write(c, False):
             yield m
         reply = self.replymatcher(rid, connection)
         conndown = self.statematcher(connection)

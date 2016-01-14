@@ -120,7 +120,7 @@ class Openflow(Protocol):
                         else:
                             hellofail.data = ('Openflow version is not supported\x00' % (common.ofp_version.getName(helloversion, str(helloversion)),)).encode()
                         write = self.formatreply(hellofail, msg, connection)
-                        for m in connection.writeForSend(write):
+                        for m in connection.write(write):
                             yield m
                         for m in connection.reset(False, connmark):
                             yield m
@@ -205,7 +205,7 @@ class Openflow(Protocol):
         else:
             return OpenflowConnectionStateEvent.createMatcher(connection.openflow_datapathid, connection.openflow_auxiliaryid, state)
     def querywithreply(self, request, connection, container):
-        for m in connection.write(self.formatrequest(request, connection)):
+        for m in connection.write(self.formatrequest(request, connection), False):
             yield m
         reply = self.replymatcher(request, connection)
         conndown = self.statematcher(connection)
@@ -214,7 +214,7 @@ class Openflow(Protocol):
             raise OpenflowProtocolException('Connection is down before reply received')
         container.openflow_reply = container.event.message
     def querymultipart(self, request, connection, container):
-        for m in connection.write(self.formatrequest(request, connection)):
+        for m in connection.write(self.formatrequest(request, connection), False):
             yield m
         reply = self.replymatcher(request, connection)
         conndown = self.statematcher(connection)
@@ -242,7 +242,7 @@ class Openflow(Protocol):
             replymessages.append(msg)
         def batchprocess():
             for r in batchrequests:
-                for m in connection.write(r):
+                for m in connection.write(r, False):
                     yield m
             barrier = connection.openflowdef.ofp_msg.new()
             barrier.header.type = connection.openflowdef.OFPT_BARRIER_REQUEST

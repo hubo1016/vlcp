@@ -52,6 +52,15 @@ class HttpRewriteLoopException(Exception):
 
 pathrep = re.compile(r'[\/]+')
 
+_replace_characters = ['>', '<', '|', '?', '*', ':', '"', '\'', '!', '$', '{', '}']
+def _safename(name):
+    name = os.path.normpath(os.path.basename(name))
+    if '\x00' in name or '/' in name or '\\' in name:
+        raise HttpInputException('Bad file name')
+    for c in _replace_characters:
+        name.replace(c, '_')
+    return name
+
 class Environment(object):
     def __init__(self, event, container = None, defaultencoding = 'utf-8'):
         try:
@@ -320,15 +329,17 @@ class Environment(object):
     def exit(self, output=b''):
         "Exit current HTTP processing"
         raise HttpExitException(output)
-    def parseform(self, limit = 67108864, tostr = True):
+    def parseform(self, limit = 67108864, tostr = True, safename = True):
         '''
         Parse form-data with multipart/form-data or application/x-www-form-urlencoded
         In Python3, the keys of form and files are unicode, but values are bytes
         If the key ends with '[]', it is considered to be a list:
         a=1&b=2&b=3          =>    {'a':1,'b':3}
         a[]=1&b[]=2&b[]=3    =>    {'a':[1],'b':[2,3]}
-        :param limit: limit total input size
+        :param limit: limit total input size, default to 64MB. None = no limit. Note that all the form
+        data is stored in memory (including upload files), so it is dangerous to accept a very large input.
         :param tostr: convert values to str in Python3. Only apply to form, files data are always bytes
+        :param safename: if True, extra security checks are performed on filenames to reduce known security risks.
         '''
         if tostr:
             def _str(s):
@@ -364,7 +375,7 @@ class Environment(object):
                                 yield m
                             data = self.inputstream.readonce()
                             total_length += len(data)
-                            if total_length > limit:
+                            if limit is not None and total_length > limit:
                                 raise HttpInputException('Data is too large')
                             fp.feed(data)
                         except EOFError:
@@ -384,10 +395,13 @@ class Environment(object):
                             raise HttpInputException('Not valid multipart/form-data format')
                         if 'filename' in disposition:
                             name = disposition['name']
+                            filename = disposition['filename']
+                            if safename:
+                                filename = _safename(filename)
                             if name.endswith('[]'):
-                                files.setdefault(name[:-2], []).append({'filename': disposition['filename'], 'content': part.get_payload(decode=True)})
+                                files.setdefault(name[:-2], []).append({'filename': filename, 'content': part.get_payload(decode=True)})
                             else:
-                                files[name] = {'filename': disposition['filename'], 'content': part.get_payload(decode=True)}
+                                files[name] = {'filename': filename, 'content': part.get_payload(decode=True)}
                         else:
                             name = disposition['name']
                             if name.endswith('[]'):
@@ -396,11 +410,16 @@ class Environment(object):
                                 form[name] = _str(part.get_payload(decode=True))
                 elif m.get_content_type() == 'application/x-www-form-urlencoded' or \
                         m.get_content_type() == 'application/x-url-encoded':
-                    for m in self.inputstream.read(self.container, limit + 1):
-                        yield m
-                    data = self.container.data
-                    if len(data) > limit:
-                        raise HttpInputException('Data is too large')
+                    if limit is not None:
+                        for m in self.inputstream.read(self.container, limit + 1):
+                            yield m
+                        data = self.container.data
+                        if len(data) > limit:
+                            raise HttpInputException('Data is too large')
+                    else:
+                        for m in self.inputstream.read(self.container):
+                            yield m
+                        data = self.container.data
                     result = parse_qs(data)
                     def convert(k,v):
                         try:
@@ -638,7 +657,7 @@ class Dispatcher(EventHandler):
         self.routeevent(path, statichttp(container)(routinemethod), container, host, vhost, method)
     def routeargs(self, path, routinemethod, container = None, host = None, vhost = None, method = [b'POST'],
                   tostr = True, matchargs = (), fileargs=(), queryargs=(), cookieargs=(), sessionargs=(),
-                  csrfcheck = False, csrfarg = '_csrf'):
+                  csrfcheck = False, csrfarg = '_csrf', formlimit = 67108864):
         '''
         Convenient way to route a processor with arguments. Automatically parse arguments and pass them to
         the corresponding handler arguments. If required arguments are missing, HttpInputException is thrown which
@@ -670,6 +689,7 @@ class Dispatcher(EventHandler):
                         Notice that csrfcheck=True cause env.sessionstart() to be called, so
                         vlcp.service.utils.session.Session module must be loaded.
         :param csrfarg: argument name to check, default to "_csrf" 
+        :param formlimit: limit on parseform, default to 64MB. None to no limit.
         For example, if using:
         def handler(env, target, arga, argb, argc):
             ...
@@ -713,7 +733,7 @@ class Dispatcher(EventHandler):
                 env.argstostr()
                 env.cookietostr()
             if env.method == b'POST':
-                for m in env.parseform(tostr=tostr):
+                for m in env.parseform(formlimit, tostr):
                     yield m
                 argfrom = env.form
             else:

@@ -103,6 +103,7 @@ class Connection(RoutineContainer):
         Constructor
         '''
         RoutineContainer.__init__(self, scheduler)
+        self.connected = False
         self.protocol = protocol
         self.socket = sockobj
         if self.socket is not None:
