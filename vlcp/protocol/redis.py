@@ -187,8 +187,7 @@ class Redis(Protocol):
         Constructor
         '''
         Protocol.__init__(self)
-        if hiredis_available and self.hiredis:
-            self.usehiredis = True
+        self.usehiredis = hiredis_available and self.hiredis
         self._format_request_init(self.encoding)
     def init(self, connection):
         for m in Protocol.init(self, connection):
