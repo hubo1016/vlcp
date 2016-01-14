@@ -389,7 +389,7 @@ class Redis(Protocol):
         matchers = container.retvalue
         retvalue = []
         for m in matchers:
-            yield m
+            yield (m,)
             retvalue.append(container.event.result)
         container.retvalue = retvalue
     def parse(self, connection, data, laststart):
