@@ -462,8 +462,11 @@ class Connection(RoutineContainer):
             for m in self.waitForSend(event):
                 yield m
                 if not self.connected or self.connmark != connmark:
-                    break
-        if not self.connected or self.connmark != connmark:
+                    if not ignoreException:
+                        raise ConnectionResetException
+                    else:
+                        raise StopIteration
+        else:
             if not ignoreException:
                 raise ConnectionResetException
     def __repr__(self, *args, **kwargs):

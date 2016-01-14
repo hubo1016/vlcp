@@ -387,9 +387,11 @@ class Redis(Protocol):
         for m in self.send_batch(connection, container, *cmds):
             yield m
         matchers = container.retvalue
-        for m in container.waitForAll(*matchers):
+        retvalue = []
+        for m in matchers:
             yield m
-        container.retvalue = [container.eventdict[m].result for m in matchers]
+            retvalue.append(container.event.result)
+        container.retvalue = retvalue
     def parse(self, connection, data, laststart):
         events = []
         connection.redis_reader.feed(data)

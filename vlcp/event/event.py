@@ -41,9 +41,11 @@ def withIndices(*args):
                     setattr(cls, '_classname' + str(i), getattr(c, '_classname' + str(i)))
                 setattr(cls, '_classname' + str(cls._classnameIndex), cls._getTypename())
                 cls._indicesNames = c._indicesNames + ('_classname' + str(cls._classnameIndex),) + args
+                cls._generateTemplate()
                 return cls
         cls._classnameIndex = -1
         cls._indicesNames = args
+        cls._generateTemplate()
         return cls
     return decorator
 
@@ -103,29 +105,30 @@ class Event(object):
                     else:
                         return c.getTypename()
     @classmethod
-    def _generateIndices(cls, args):
-        start = 0
+    def _generateTemplate(cls):
         names = cls.indicesNames()
-        classnamelevel = 0
-        for i in range(0, len(args)):
-            while names[start].startswith('_classname'):
-                yield getattr(cls, names[start])
-                start += 1
-                classnamelevel += 1
-            yield args[i]
-            start += 1
-        while start < len(names) and names[start].startswith('_classname'):
-            yield getattr(cls, names[start])
-            start += 1
-            classnamelevel += 1
-        while classnamelevel <= cls._classnameIndex:
-            while names[start].startswith('_classname'):
-                yield getattr(cls, names[start])
-                start += 1
-                classnamelevel += 1
-            yield None
-            start += 1
-            
+        template = [None] * len(names)
+        argpos = []
+        leastsize = 0
+        for i in range(0, len(names)):
+            if names[i].startswith('_classname'):
+                template[i] = getattr(cls, names[i])
+                leastsize = i + 1
+            else:
+                argpos.append(i)
+        cls._template = template
+        cls._argpos = argpos
+        cls._leastsize = leastsize
+    @classmethod
+    def _generateIndices(cls, args):
+        indices = cls._template[:]
+        ap = cls._argpos
+        lp = 0
+        if args:
+            for i in range(0, len(args)):
+                indices[ap[i]] = args[i]
+            lp = ap[len(args) - 1] + 1
+        return indices[:max(cls._leastsize, lp)]
     @classmethod
     def createMatcher(cls, *args, **kwargs):
         '''
