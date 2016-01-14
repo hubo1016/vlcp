@@ -151,7 +151,7 @@ class RedisParser(object):
                         try:
                             while arraysize:
                                 nv = next(p)
-                                if nv != False:
+                                if nv is not False:
                                     array.append(nv)
                                     arraysize -= 1
                                 else:
@@ -395,7 +395,7 @@ class Redis(Protocol):
         connection.redis_reader.feed(data)
         while True:
             r = connection.redis_reader.gets()
-            if r == False:
+            if r is False:
                 break
             if connection.redis_replyxid < connection.xid:
                 events.append(RedisResponseEvent(connection, connection.connmark, connection.redis_replyxid, isinstance(r, Exception), self, result = r))
