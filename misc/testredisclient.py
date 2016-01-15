@@ -4,6 +4,7 @@ Created on 2016/1/11
 :author: hubo
 '''
 from __future__ import print_function
+from vlcp.config import manager
 from vlcp.server.module import Module
 from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.redisclient import RedisClient
@@ -53,7 +54,7 @@ class MainRoutine(RoutineContainer):
             for m in self.client.unsubscribe(self, 'skey'):
                 yield m
             t = time()
-            for i in range(0, 1000):
+            for i in range(0, 10000):
                 for m in self.client.execute_command(self, 'set', 'abc', 'def'):
                     yield m
             print(time() - t)
@@ -63,8 +64,37 @@ class MainRoutine(RoutineContainer):
                 for m in self.client.batch_execute(self, *bc):
                     yield m
             print(time() - t)
-            for m in self.client.shutdown(self):
+            bc = (('set', 'abc', 'def'),) * 10000
+            t = time()
+            for m in self.client.batch_execute(self, *bc):
                 yield m
+            print(time() - t)
+            def sub3():
+                for i in range(0, 100):
+                    for m in self.client.execute_command(self, 'set', 'abc', 'def'):
+                        yield m
+            subroutines = [sub3() for i in range(0,100)]
+            t = time()
+            for m in self.executeAll(subroutines):
+                yield m
+            print(time() - t)
+            connections = []
+            for i in range(0, 100):
+                for m in self.client.get_connection(self):
+                    yield m
+                connections.append(self.retvalue)
+            def sub4(c):
+                for i in range(0, 100):
+                    for m in c.execute_command(self, 'set', 'abc', 'def'):
+                        yield m
+            subroutines = [sub4(c) for c in connections]
+            t = time()
+            for m in self.executeAll(subroutines):
+                yield m
+            print(time() - t)
+            for c in connections:
+                for m in c.release(self):
+                    yield m
 
 class MainModule(Module):
     def __init__(self, server):
@@ -74,4 +104,6 @@ class MainModule(Module):
  
 
 if __name__ == '__main__':
+    #manager['protocol.redis.hiredis'] = False
+    #manager['server.debugging'] = True
     main()

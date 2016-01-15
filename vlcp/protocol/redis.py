@@ -173,7 +173,7 @@ class Redis(Protocol):
     _default_persist = True
     _default_defaultport = 6379
     _default_createqueue = True
-    _default_buffersize = 4096
+    _default_messagequeuesize = 4096
     # Default limit Redis bulk string to 64MB
     _default_bulklimit = 68719476736
     # Default limit Redis array level to 128 levels
