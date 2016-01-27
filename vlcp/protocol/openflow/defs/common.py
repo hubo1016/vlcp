@@ -51,8 +51,8 @@ Created on 2015/7/13
 
 :author: hubo
 '''
-from vlcp.utils.stdprim import *
-from vlcp.utils.namedstruct import packsize, packrealsize, sizefromlen, packvalue, NamedStruct, dump, DUMPTYPE_FLAT, DUMPTYPE_KEY, DUMPTYPE_NONE
+from namedstruct import *
+from namedstruct.namedstruct import NamedStruct
 from vlcp.utils.ethernet import *
 
 ofp_version =  enum('ofp_version',

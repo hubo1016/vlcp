@@ -4,7 +4,7 @@ Created on 2015/7/30
 :author: hubo
 '''
 
-from .stdprim import *
+from namedstruct import *
 
 ethertype = enum('ethertype', globals(), uint16,
         ETHERTYPE_LOOP      = 0x0060,         # /* Ethernet Loopback packet     */
@@ -115,3 +115,4 @@ ip6_addr_bytes = prim('16s', 'ip6_addr')
 
 if hasattr(_socket, 'inet_ntop'):
     ip6_addr.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, x)
+

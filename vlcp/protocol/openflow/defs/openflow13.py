@@ -38,7 +38,7 @@ Created on 2015/7/14
 '''
 from .common import *
 from . import common
-from vlcp.utils.namedstruct import rawtype as _rawtype
+from namedstruct.namedstruct import rawtype as _rawtype
 
 ofp_port_no = enum('ofp_port_no',
                    globals(),

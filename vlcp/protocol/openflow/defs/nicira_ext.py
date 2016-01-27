@@ -21,8 +21,7 @@ Created on 2015/8/3
  */
 '''
 from . import common
-from vlcp.utils.stdprim import *
-from vlcp.utils.namedstruct import packsize, packrealsize, sizefromlen, packvalue, NamedStruct, dump
+from namedstruct import *
 from vlcp.utils.ethernet import *
 '''
 /* The following vendor extensions, proposed by Nicira, are not yet
@@ -1299,7 +1298,7 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         nx_match_mask_ext = nx_match_mask
         namespace['nx_match_nomask_ext'] = nx_match_nomask_ext
         namespace['nx_match_mask_ext'] = nx_match_mask_ext
-    from vlcp.utils.namedstruct import rawtype as _rawtype
+    from namedstruct.namedstruct import rawtype as _rawtype
     import socket as _socket
     if 'ip4_addr_bytes' in namespace:
         ip4_addr_bytes = namespace['ip4_addr_bytes']

@@ -4,8 +4,8 @@ Created on 2015/11/26
 :author: hubo
 '''
 
-from vlcp.utils.stdprim import *
-from vlcp.utils.namedstruct import sizefromlen, packvalue
+from namedstruct import *
+from namedstruct import sizefromlen, packvalue
 
 def _pack_xlen(ns):
     ns.xlen = ns._realsize() - 2
