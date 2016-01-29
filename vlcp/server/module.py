@@ -146,7 +146,7 @@ class ModuleAPIHandler(RoutineContainer):
         'Discover API definitions'
         return dict(self.docs)
     def reject(self, name, args):
-        raise ValueError('%r is not defined in module %r', name, self.servicename)
+        raise ValueError('%r is not defined in module %r' % (name, self.servicename))
     def start(self, asyncStart=False):
         if self.apidefs:
             self.registerAPIs(self.apidefs)

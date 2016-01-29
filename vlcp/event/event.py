@@ -68,7 +68,7 @@ class Event(object):
         '''
         indicesNames = self.indicesNames()
         if kwargs and not args:
-            indices = tuple(kwargs[k] if not k.startswith('_classname') else getattr(self, k) for k in indicesNames)
+            indices = tuple(kwargs[k] if k[:10] != '_classname' else getattr(self, k) for k in indicesNames)
         else:
             indices = tuple(self._generateIndices(args))
         self.indices = indices
@@ -111,7 +111,7 @@ class Event(object):
         argpos = []
         leastsize = 0
         for i in range(0, len(names)):
-            if names[i].startswith('_classname'):
+            if names[i][:10] == '_classname':
                 template[i] = getattr(cls, names[i])
                 leastsize = i + 1
             else:
@@ -137,7 +137,7 @@ class Event(object):
         @keyword **: index_name=index_value for matching criteria
         '''
         if kwargs and not args:
-            return EventMatcher(tuple(getattr(cls, ind) if ind.startswith('_classname') else kwargs.get(ind) for ind in cls.indicesNames()), kwargs.get('_ismatch'))
+            return EventMatcher(tuple(getattr(cls, ind) if ind[:10] == '_classname' else kwargs.get(ind) for ind in cls.indicesNames()), kwargs.get('_ismatch'))
         else:
             return EventMatcher(tuple(cls._generateIndices(args)), kwargs.get('_ismatch'))
     def __repr__(self):

@@ -17,7 +17,7 @@ class Manager(Module):
     '''
     _default_checkinterval = 5
     _default_autoreload = False
-    service = True
+    service = False
     def __init__(self, server):
         '''
         Constructor

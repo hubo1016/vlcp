@@ -613,7 +613,7 @@ class Dispatcher(EventHandler):
             # First parse the path
             # RFC said we should accept absolute path
             psplit = urlsplit(event.path)
-            if not psplit.path.startswith(b'/'):
+            if psplit.path[:1] != b'/':
                 # For security reason, ignore unrecognized path
                 return False
             if psplit.netloc and host is not None and host != psplit.netloc:

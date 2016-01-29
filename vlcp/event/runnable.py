@@ -449,7 +449,7 @@ class RoutineContainer(object):
             yield m
         ret = self.retvalue
         '''
-        finish = self.beginDelegateOther(subprocess, container, retnames)
+        finish, _ = self.beginDelegateOther(subprocess, container, retnames)
         yield (finish,)
         if hasattr(self.event, 'exception'):
             raise self.event.exception

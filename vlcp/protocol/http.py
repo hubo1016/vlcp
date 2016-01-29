@@ -375,7 +375,7 @@ class Http(Protocol):
                     transfer = None
                     try:
                         output = None
-                        if resp.status.startswith(b'1'):
+                        if resp.status[:1] == b'1':
                             # 1xx does not have body
                             output = None
                             transfer = None
@@ -393,7 +393,7 @@ class Http(Protocol):
                                 output = resp.outputstream
                                 transfer = None
                                 content_length = None
-                            elif resp.status.startswith(b'304 ') or resp.status.startswith(b'204 '):
+                            elif resp.status[:4] in (b'204 ', b'304 '):
                                 # 204 and 304 response has no body
                                 output = None
                                 transfer = None

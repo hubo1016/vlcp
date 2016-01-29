@@ -56,9 +56,9 @@ def _parseacceptencodings(env):
     return allows
 def _parseetag(etag):
     # Ignore whether it is a weak tag
-    if etag.startswith(b'W/'):
+    if etag[:2] == b'W/':
         etag = etag[2:]
-    if etag.startswith(b'"') and etag.endswith(b'"'):
+    if etag[:1] == b'"' and etag[-1:] == b'"':
         return etag[1:-1]
     else:
         raise ValueError
@@ -72,7 +72,7 @@ def _checkrange(env, etag, size):
                 return None
         rangeiden = env.headerdict[b'range']
         # Ignore unrecognized range identifier
-        if not rangeiden.startswith(b'bytes='):
+        if rangeiden[:6] != b'bytes=':
             return None
         ranges = [r.strip() for r in rangeiden[6:].split(b',')]
         # Accept the first range
@@ -111,10 +111,10 @@ def _checkrange(env, etag, size):
         return None
 
 def topath(dirname, tail = None):
-    if not dirname.startswith(b'/'):
+    if dirname[:1] != b'/':
         dirname = b'/' + dirname
     if tail:
-        if not dirname.endswith(b'/'):
+        if dirname[-1:] != b'/':
             dirname = dirname + b'/'
         dirname = dirname + tail
     return dirname

@@ -37,7 +37,7 @@ class TcpServerBase(Module):
                                                       key, certificate, ca_certs))
         if hasattr(config, 'vhost'):
             for k,v in config.vhost.items():
-                self._createServers(self, v, k, settings, key, certificate, ca_certs, exists)
+                self._createServers(v, k, settings, key, certificate, ca_certs, exists)
     def __init__(self, server, protocolclass):
         Module.__init__(self, server)
         self._protocolclass = protocolclass
