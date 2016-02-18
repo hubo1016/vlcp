@@ -86,6 +86,10 @@ ip_protocol = enum('ip_protocol', globals(), uint8, False,
     IPPROTO_RAW    = 255        # /* Raw IP packets                       */
 )
 
+icmp_type = enum('icmp_protocol',globals(),uint8,False,
+    ICMP_ECHO_REPLY = 0,
+    ICMP_ECHO_REQUEST = 8
+)
 
 ETH_ALEN = 6
 
@@ -116,3 +120,111 @@ ip6_addr_bytes = prim('16s', 'ip6_addr')
 if hasattr(_socket, 'inet_ntop'):
     ip6_addr.formatter = lambda x: _socket.inet_ntop(_socket.AF_INET6, x)
 
+
+ethernetPacket = nstruct((mac_addr,'dstMac'),(mac_addr,'srcMac'),(ethertype,'type'),name='ethernetPacket',padding = 1)
+
+ethernetinner = nstruct(inline=False,classifier=lambda x: x.type2 if x.type == ETHERTYPE_8021Q else x.type, padding = 1,name='ethernetinner')
+ethernetPacket_8021Q = nstruct(
+        (uint16,'vlan'),
+        (ethertype,'type2'),
+        (ethernetinner,),
+        criteria = lambda x: x.type == ETHERTYPE_8021Q, 
+        base = ethernetPacket,
+        name='ethernetPacket_8021Q',
+        lastextra=True
+        ) 
+
+ethernetPacket_8021Q_OTHER = nstruct(
+        (ethernetinner,),
+        criteria = lambda x: x.type != ETHERTYPE_8021Q,
+        base = ethernetPacket,
+        name = 'ethernetPacket_8021Q_other',
+        lastextra=True
+        )
+"""
+    ============== ==================== =====================
+       Attribute      Description          Example
+    ============== ==================== =====================
+        hwtype         arphrd
+        proto          arppro
+        hlen           arphln
+        plen           arppln
+        opcode         arpop
+        src_mac        arpsha               '08:60:6e:7f:74:e7'
+        src_ip         arpspa               '192.0.2.1'
+        dst_mac        arptha               '00:00:00:00:00:00'
+        dst_ip         arptpa               '192.0.2.2'
+        ============== ==================== =====================
+"""
+arpPacket = nstruct(
+        (uint16,'arp_hwtype'),
+        (uint16,'arp_proto'),
+        (uint8,'hw_len'),
+        (uint8,'proto_len'),
+        (arp_op_code,'arp_op'),
+        (mac_addr,'arp_smac'),
+        (ip4_addr,'arp_sip'),
+        (mac_addr,'arp_tmac'),
+        (ip4_addr,'arp_tip'),
+        base = ethernetinner,
+        #criteria = lambda x: x.type == ETHERTYPE_ARP,
+        classifyby = (ETHERTYPE_ARP,), 
+        name = 'arpPacket'
+        )
+'''
+    ============== ======================================== ==================
+        Attribute      Description                              Example
+    ============== ======================================== ==================
+        version        Version
+        header_length  IHL
+        tos            Type of Service
+        total_length   Total Length
+                         (0 means automatically-calculate when encoding)
+        identification Identification
+        flags          Flags
+        offset         Fragment Offset
+        ttl            Time to Live
+        proto          Protocol
+        csum           Header Checksum
+                         (Ignored and automatically-calculated when encoding)
+        src            Source Address                           '192.0.2.1'
+        dst            Destination Address                      '192.0.2.2'
+        option         A bytearray which contains the entire 
+                            Options, or None for  no Options
+    ============== ======================================== ==================
+'''
+ipPacket = nstruct(
+        # 4bit version + 4bit length
+        (uint8,'version_length'), 
+        (uint8,'tos'),
+        (uint16,'total_len'),
+        (uint16,'identification'),
+        # 3bit flag + 13bit offset
+        (uint16,'flag_offset'),
+        (uint8,'ttl'),
+        (uint8,'proto'),
+        (uint16,'checksum'),
+        (ip4_addr,'srcaddr'),
+        (ip4_addr,'dstaddr'),
+        (raw,'data'),
+        base = ethernetinner,
+        classifyby = (ETHERTYPE_IP,),
+        name = 'ipPacket'
+        )
+
+icmpPacket = nstruct(
+        (uint8,'icmptype'),
+        (uint8,'code'),
+        (uint16,'icmp_check_sum'),
+        #criteria = lambda x: x.proto == IPPROTO_ICMP, 
+        name = 'icmpPacket'
+        )
+
+icmpEchoPacket = nstruct(
+        (uint16,'identifier'),
+        (uint16,'seq'),
+        (raw,'icmp_data'),
+        base = icmpPacket,
+        criteria = lambda x: x.icmptype == x.icmptype == ICMP_ECHO_REQUEST,
+        name = 'icmpEchoPacket'
+        )
