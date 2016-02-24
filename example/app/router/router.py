@@ -102,33 +102,33 @@ class l3switch(RoutineContainer):
                 self.logger.info('port name = %r',port.name)
                 self.logger.info('port hw = %r',port.hw_addr)
                 
-                """
                 
                 # test code
 
-                if port.port_no == 2:
+                if port.port_no == 5:
                     p = portinfo(port.port_no,port.name,port.hw_addr,10)
                     for m in self.add_port(p):
                         yield m
-                elif port.port_no == 4:
+                elif port.port_no == 3:
                     p = portinfo(port.port_no,port.name,port.hw_addr)
                     for m in self.add_port(p):
                         yield m
-                elif port.port_no == 7:
+                elif port.port_no == 4:
                     p = portinfo(port.port_no,port.name,port.hw_addr,10)
                     for m in self.add_port(p):
                         yield m
-                elif port.port_no == 8:
+                elif port.port_no == 7:
                     p = portinfo(port.port_no,port.name,port.hw_addr,11,1)
                     for m in self.add_port(p):
                         yield m
                 """
                 # get port config info
-
+                
                 p = portinfo(port.port_no,port.name,port.hw_addr)
                 
                 for m in self.add_port(p):
                     yield m
+                """
 
         for m in self.add_default_flow():
             yield m
@@ -141,10 +141,8 @@ class l3switch(RoutineContainer):
         for m in self.add_address("192.168.2.1/24"):
             yield m
         
-        
-        for m in self.add_address("10.0.1.4/24"):
+        for m in self.add_address("100.66.54.144/22"):
             yield m
-
         """
         for m in self.add_router('192.168.2.2'):
             yield m
@@ -157,7 +155,7 @@ class l3switch(RoutineContainer):
                 yield m
         
         # # # add_rule_flow is test code
-        for m in self.add_rule_flow("192.168.1.2","10.0.1.4",8):
+        for m in self.add_rule_flow("192.168.1.2","100.66.54.144",7):
             yield m
 
         time = self.scheduler.setTimer(5,30)
@@ -199,7 +197,7 @@ class l3switch(RoutineContainer):
 
                     # $ # add router is test code
                     if self.flag == 0:
-                        self.subroutine(self.add_router("10.0.1.1"))
+                        self.subroutine(self.add_router("100.66.52.1"))
                         self.flag = 1
                     self.subroutine(self.router_check_cycle())
         finally:
@@ -368,6 +366,11 @@ class l3switch(RoutineContainer):
 
     def update_router_flow(self,vid,smac,sip,in_port):
         
+
+        self.logger.info(" ##############") 
+        self.logger.info(" update_router_flow %r",netaddr.IPAddress(sip))
+        self.logger.info(" ##############") 
+
         port_mac = self.ports[in_port].port_hw
 
         for key in self.routerTable:
@@ -404,6 +407,8 @@ class l3switch(RoutineContainer):
                 action = self.ofp_parser.nx_action_resubmit(in_port = self.ofp_parser.OFPP_IN_PORT & 0xffff,table = POSTROUTERING_TABLE_ID)
                 ins.actions.append(action)
                 
+                self.logger.info("\n\n\n --- update router ---- %r",netaddr.IPAddress(sip))
+
                 for m in self.add_flow(table_id = IP_TABLE_ID,match = match ,ins = [ins],priority = 1 + key.prefixlen,
                         buffer_id = self.ofp_parser.OFP_NO_BUFFER):
                     yield m
@@ -467,11 +472,11 @@ class l3switch(RoutineContainer):
                     pass
             else:
                 
-                for m in self.packet_to_node(event,ethernet.dstaddr,in_port):
+                for m in self.packet_to_node(event,ethernet.dstaddr,in_port,ethernet.vlan):
                     yield m
             raise StopIteration
     
-    def packet_to_node(self,event,dst_ip,in_port):
+    def packet_to_node(self,event,dst_ip,in_port,vid = 0):
         
         if True == check_address_in_network(netaddr.IPAddress(dst_ip),self.address):
            # dst is our subnet, broadcast arp  
@@ -490,7 +495,7 @@ class l3switch(RoutineContainer):
                if netaddr.IPAddress(dst_ip) in router_item[0]:
                     gateway = router_item[1]['gateway']
                     break
-        
+        """ 
         for port_no in self.ports:
             if port_no != in_port and self.ports[port_no].public_flag != 1:
                 
@@ -512,8 +517,29 @@ class l3switch(RoutineContainer):
                 action2 = self.ofp_parser.nx_action_resubmit(in_port = self.ofp_parser.OFPP_IN_PORT & 0xffff,table = POSTROUTERING_TABLE_ID)
                 for m in self.packet_out(event,self.ofp_parser.OFPP_CONTROLLER,self.ofp_parser.OFP_NO_BUFFER,eth._tobytes(),[action1,action2]):
                     yield m
+        """
 
+        for port_no in self.ports:
+            if port_no != in_port and self.ports[port_no].public_flag != 1:
+                smac = self.ports[port_no].port_hw
+                dmac = [255,255,255,255,255,255]
+                vlan_vid = self.ports[port_no].vlan_id
 
+                if vid == 0 :
+                    eth = ethernetPacket_8021Q((ethernetinner,arpPacket),dstMac = dmac,srcMac = smac,type = ETHERTYPE_8021Q,
+                                type2 = ETHERTYPE_ARP,vlan = vlan_vid,arp_hwtype = 1,arp_proto=ETHERTYPE_IP,hw_len = 6,proto_len = 4,
+                                arp_op = ARPOP_REQUEST,arp_smac = smac,arp_sip = gateway,arp_tip = dst_ip)
+                else:
+                    eth = ethernetPacket_8021Q((ethernetinner,arpPacket),dstMac = dmac,srcMac = smac,type=ETHERTYPE_8021Q,
+                                    type2=ETHERTYPE_ARP,vlan=vid,arp_hwtype=1,arp_proto=ETHERTYPE_IP,hw_len=6,proto_len=4,
+                                    arp_op = ARPOP_REQUEST,arp_smac = smac,arp_sip=gateway,arp_tip=dst_ip)
+                
+                action1 = self.ofp_parser.nx_action_reg_load(ofs_nbits = (0 << 16) | (32 - 1),dst = self.ofp_parser.NXM_NX_REG0,value = port_no)
+                action2 = self.ofp_parser.nx_action_resubmit(in_port = self.ofp_parser.OFPP_IN_PORT & 0xffff,table = POSTROUTERING_TABLE_ID)
+                for m in self.packet_out(event,self.ofp_parser.OFPP_CONTROLLER,self.ofp_parser.OFP_NO_BUFFER,eth._tobytes(),[action1,action2]):
+                    yield m
+
+                
         """
         if vid != 0:
             eth = ethernetPacket_8021Q((ethernetinner,arpPacket),dstMac=smac,srcMac=targetMac,
@@ -522,7 +548,7 @@ class l3switch(RoutineContainer):
                                     arp_sip = tip,arp_tip = sip)
         else:
             #
-            # we must use port mac as smac, so we don't untag table flood 
+           # we must use port mac as smac, so we don't untag table flood 
             # iterator all port packet out 
             #
             #
@@ -666,6 +692,13 @@ class l3switch(RoutineContainer):
     def mac_learn(self,vlan_id,smac,in_port):
  
         self.logger.info(" add mac learn flow ")
+        
+        #
+        #  public network is l3 ,, do not learn mac
+        #
+        if self.ports[in_port].public_flag == 1:
+            raise StopIteration
+
         if vlan_id == 0:
             match = self.ofp_parser.ofp_match_oxm()
             oxm = self.ofp_parser.create_oxm(self.ofp_parser.OXM_OF_ETH_DST,netaddr.EUI(format_mac_to_string(smac)).packed)
@@ -698,9 +731,9 @@ class l3switch(RoutineContainer):
     def host_learn(self,vid,smac,sip,in_port):
         
         self.logger.info("\n\n host learn -- %r \n\n",netaddr.IPAddress(sip))
-        
-        if True == is_gateway(netaddr.IPAddress(sip),self.address):
-            raise StopIteration
+
+        #if True == is_gateway(netaddr.IPAddress(sip),self.address):
+        #    raise StopIteration
 
         port_mac = self.ports[in_port].port_hw 
 
@@ -758,7 +791,7 @@ class l3switch(RoutineContainer):
         ins.actions.append(action)
 
         for m in self.add_flow(table_id = ROUTER_TABLE_ID,match = match,ins = [ins],priority = 1000,
-                idle_time = 600,buffer_id = self.ofp_parser.OFP_NO_BUFFER):
+                buffer_id = self.ofp_parser.OFP_NO_BUFFER):
             yield m
 
         
@@ -791,6 +824,40 @@ class l3switch(RoutineContainer):
             pass
         else:
             pass 
+    
+    def waitReplyGatewayArp(self,event,smac,sip,tip,in_port):
+        while True:
+            packetInMatch = OpenflowAsyncMessageEvent.createMatcher(datapathid = self.dpid,type = self.ofp_parser.OFPT_PACKET_IN)
+            
+            for m in self.waitWithTimeout(5,packetInMatch):
+                yield m
+
+
+            if self.timeout:
+                break
+            else:
+                eth = ethernetPacket.create(self.event.message.data)
+
+                if eth.type == ETHERTYPE_8021Q and eth.type2 == ETHERTYPE_ARP and eth.arp_op == ARPOP_REPLY and eth.arp_sip == tip:
+                    
+                    self.logger.info("\n\n reply %r \n\n",common.dump(eth))
+                    self.logger.info(" eth.arp_tip = %r, %r",netaddr.IPAddress(eth.arp_tip),tip)
+                    self.logger.info(" eth.arp_sip = %r",netaddr.IPAddress(eth.arp_sip))
+                    self.logger.info(" eth.srcMac = %r",eth.srcMac)
+
+
+                    ethernet = ethernetPacket_8021Q((ethernetinner,arpPacket),dstMac=smac,srcMac=eth.srcMac,
+                            type=ETHERTYPE_8021Q,type2=ETHERTYPE_ARP,vlan=eth.vlan,arp_hwtype=1,arp_proto=ETHERTYPE_IP,
+                            hw_len=6,proto_len=4,arp_op=ARPOP_REPLY,arp_smac=eth.arp_smac,arp_tmac=smac,
+                            arp_sip = eth.arp_sip,arp_tip = sip)
+                    action1 = self.ofp_parser.nx_action_reg_load(ofs_nbits = (0 << 16) | (32 - 1),dst = self.ofp_parser.NXM_NX_REG0,value = in_port)
+                    action2 = self.ofp_parser.nx_action_resubmit(in_port = self.ofp_parser.OFPP_IN_PORT & 0xffff,table = POSTROUTERING_TABLE_ID)
+
+                    self.logger.info("\n\n wait reply %r \n\n",common.dump(ethernet))
+
+                    for m in self.packet_out(event,self.ofp_parser.OFPP_CONTROLLER,self.ofp_parser.OFP_NO_BUFFER,ethernet._tobytes(),[action1,action2]):
+                        yield m
+                    break
 
 
     def arp_packetIn_handler(self,event,smac,dmac,sip,tip,op,in_port,vid = 0):
@@ -816,10 +883,31 @@ class l3switch(RoutineContainer):
         if False == check_address_in_network(netaddr.IPAddress(tip),self.address):
             raise StopIteration
         
+
         vlan_id = self.get_vlan_id(in_port)
         if vlan_id == None:
             return
-        
+    
+        if vlan_id == 0 and True == is_gateway(netaddr.IPAddress(sip),self.address):
+            
+            self.logger.info(" ----- we start subroutine ,,  run wait reply ---\n")
+
+            self.subroutine(self.waitReplyGatewayArp(event,smac,sip,tip,in_port))
+            for port_no in self.ports:
+                if self.ports[port_no].public_flag != 1 and self.ports[port_no].vlan_id == vid:
+                    smac = self.ports[port_no].port_hw
+                    dmac = [255,255,255,255,255,255]
+                    ethernet = ethernetPacket_8021Q((ethernetinner,arpPacket),dstMac=dmac,srcMac=smac,
+                            type=ETHERTYPE_8021Q,type2=ETHERTYPE_ARP,vlan=vid,arp_hwtype=1,arp_proto=ETHERTYPE_IP,
+                            hw_len=6,proto_len=4,arp_op=ARPOP_REQUEST,arp_smac=smac,
+                            arp_sip = sip,arp_tip = tip)
+                    action1 = self.ofp_parser.nx_action_reg_load(ofs_nbits = (0 << 16) | (32 - 1),dst = self.ofp_parser.NXM_NX_REG0,value = port_no)
+                    action2 = self.ofp_parser.nx_action_resubmit(in_port = self.ofp_parser.OFPP_IN_PORT & 0xffff,table = POSTROUTERING_TABLE_ID)
+                    for m in self.packet_out(event,self.ofp_parser.OFPP_CONTROLLER,self.ofp_parser.OFP_NO_BUFFER,ethernet._tobytes(),[action1,action2]):
+                        yield m
+
+            raise StopIteration
+
         #
         # we learn mac info to table 
         # tag + dstmac, action load portno into reg0 
@@ -831,10 +919,12 @@ class l3switch(RoutineContainer):
         for m in self.host_learn(vid,smac,sip,in_port):
             yield m
         
+        in_port_mac = self.ports[in_port].port_hw
+
         # if request gateway arp
         # add flow mac + gateway ==>> controller , packet out gateway mac (in_port mac)
         
-        if True == is_gateway(netaddr.IPAddress(tip),self.address):
+        if (in_port_mac == dmac or dmac == [255,255,255,255,255,255]) and True == is_gateway(netaddr.IPAddress(tip),self.address):
             self.logger.info("arp to gateway %s",netaddr.IPAddress(tip))
             if op == ARPOP_REQUEST:
                 
@@ -1124,7 +1214,26 @@ class l3switch(RoutineContainer):
                 for m in self.add_flow(table_id = UNTAG_TABLE_ID,match = match ,ins = [ins],priority = 100,
                         buffer_id = self.ofp_parser.OFP_NO_BUFFER):
                     yield m
+        #
+        #  every packet from public network ,, will broadcast to inner network
+        #   
+        #  so we add flow discard in_port == public port, reg0 == 0 
+        #
+        
+        for port in self.ports:
+            if self.ports[port].public_flag == 1:
+                match = self.ofp_parser.ofp_match_oxm()
+                oxm = self.ofp_parser.create_oxm(self.ofp_parser.NXM_NX_REG0,0)
+                match.oxm_fields.append(oxm)
 
+                oxm = self.ofp_parser.create_oxm(self.ofp_parser.OXM_OF_IN_PORT,port)
+                match.oxm_fields.append(oxm)
+
+                ins = self.ofp_parser.ofp_instruction_actions(type = self.ofp_parser.OFPIT_CLEAR_ACTIONS)
+
+                for m in self.add_flow(table_id = UNTAG_TABLE_ID,match = match,ins = [ins],priority = 110,
+                        buffer_id = self.ofp_parser.OFP_NO_BUFFER):
+                    yield m
     def group_port_by_vlan_id(self):
         group = {}
         vlan_id = set()
