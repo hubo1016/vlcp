@@ -225,6 +225,6 @@ icmpEchoPacket = nstruct(
         (uint16,'seq'),
         (raw,'icmp_data'),
         base = icmpPacket,
-        criteria = lambda x: x.icmptype == x.icmptype == ICMP_ECHO_REQUEST,
+        criteria = lambda x:x.icmptype == ICMP_ECHO_REQUEST,
         name = 'icmpEchoPacket'
         )
