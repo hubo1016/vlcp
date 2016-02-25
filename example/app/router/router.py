@@ -81,13 +81,9 @@ class l3switch(RoutineContainer):
         # sorted routerTable by last mask IPNetwork, search route will match the first, the last mask
         self.routerList = []
         
+        # # # test code
         self.flag = 0
-        """
-        for m in self.add_address("192.168.1.1/24"):
-            yield m
-        for m in self.add_address("192.168.2.1/24"):
-            yield m
-        """
+    
     def main(self):
         self.logger.info('l3switch add dpid = %r',self.dpid)
         
@@ -102,7 +98,7 @@ class l3switch(RoutineContainer):
                 self.logger.info('port name = %r',port.name)
                 self.logger.info('port hw = %r',port.hw_addr)
                 
-                
+                """                
                 # test code
 
                 if port.port_no == 5:
@@ -113,7 +109,7 @@ class l3switch(RoutineContainer):
                     p = portinfo(port.port_no,port.name,port.hw_addr)
                     for m in self.add_port(p):
                         yield m
-                elif port.port_no == 4:
+                elif port.port_no == 2:
                     p = portinfo(port.port_no,port.name,port.hw_addr,10)
                     for m in self.add_port(p):
                         yield m
@@ -128,11 +124,11 @@ class l3switch(RoutineContainer):
                 
                 for m in self.add_port(p):
                     yield m
-                """
 
         for m in self.add_default_flow():
             yield m
-       
+        
+        
         # # #  add_address is test code
 
         for m in self.add_address("192.168.1.1/24"):
@@ -143,11 +139,7 @@ class l3switch(RoutineContainer):
         
         for m in self.add_address("100.66.54.144/22"):
             yield m
-        """
-        for m in self.add_router('192.168.2.2'):
-            yield m
-        """
-        
+       
         for port_no in self.ports:
             port_hw = self.ports[port_no].port_hw
 
@@ -366,11 +358,11 @@ class l3switch(RoutineContainer):
 
     def update_router_flow(self,vid,smac,sip,in_port):
         
-
+        """
         self.logger.info(" ##############") 
         self.logger.info(" update_router_flow %r",netaddr.IPAddress(sip))
         self.logger.info(" ##############") 
-
+        """
         port_mac = self.ports[in_port].port_hw
 
         for key in self.routerTable:
@@ -407,7 +399,7 @@ class l3switch(RoutineContainer):
                 action = self.ofp_parser.nx_action_resubmit(in_port = self.ofp_parser.OFPP_IN_PORT & 0xffff,table = POSTROUTERING_TABLE_ID)
                 ins.actions.append(action)
                 
-                self.logger.info("\n\n\n --- update router ---- %r",netaddr.IPAddress(sip))
+                #self.logger.info("\n\n\n --- update router ---- %r",netaddr.IPAddress(sip))
 
                 for m in self.add_flow(table_id = IP_TABLE_ID,match = match ,ins = [ins],priority = 1 + key.prefixlen,
                         buffer_id = self.ofp_parser.OFP_NO_BUFFER):
@@ -420,7 +412,7 @@ class l3switch(RoutineContainer):
 
         ethernet = ethernetPacket.create(event.message.data)
         #self.logger.info(" message = %r",common.dump(event.message))
-        self.logger.info(" message ethernet = %r",common.dump(ethernet))
+        #self.logger.info(" message ethernet = %r",common.dump(ethernet))
         # arp packet in  
         if ethernet.type == ETHERTYPE_ARP:
             for m in self.arp_packetIn_handler(event,ethernet.srcMac,ethernet.dstMac,ethernet.arp_sip,
@@ -730,7 +722,7 @@ class l3switch(RoutineContainer):
     
     def host_learn(self,vid,smac,sip,in_port):
         
-        self.logger.info("\n\n host learn -- %r \n\n",netaddr.IPAddress(sip))
+        #self.logger.info("\n\n host learn -- %r \n\n",netaddr.IPAddress(sip))
 
         #if True == is_gateway(netaddr.IPAddress(sip),self.address):
         #    raise StopIteration
@@ -840,12 +832,16 @@ class l3switch(RoutineContainer):
 
                 if eth.type == ETHERTYPE_8021Q and eth.type2 == ETHERTYPE_ARP and eth.arp_op == ARPOP_REPLY and eth.arp_sip == tip:
                     
+                    """
                     self.logger.info("\n\n reply %r \n\n",common.dump(eth))
                     self.logger.info(" eth.arp_tip = %r, %r",netaddr.IPAddress(eth.arp_tip),tip)
                     self.logger.info(" eth.arp_sip = %r",netaddr.IPAddress(eth.arp_sip))
                     self.logger.info(" eth.srcMac = %r",eth.srcMac)
-
-
+                    """
+                    
+                    #
+                    # receive arp reply ,  so also send it to other gw an copy
+                    #
                     ethernet = ethernetPacket_8021Q((ethernetinner,arpPacket),dstMac=smac,srcMac=eth.srcMac,
                             type=ETHERTYPE_8021Q,type2=ETHERTYPE_ARP,vlan=eth.vlan,arp_hwtype=1,arp_proto=ETHERTYPE_IP,
                             hw_len=6,proto_len=4,arp_op=ARPOP_REPLY,arp_smac=eth.arp_smac,arp_tmac=smac,
@@ -853,7 +849,7 @@ class l3switch(RoutineContainer):
                     action1 = self.ofp_parser.nx_action_reg_load(ofs_nbits = (0 << 16) | (32 - 1),dst = self.ofp_parser.NXM_NX_REG0,value = in_port)
                     action2 = self.ofp_parser.nx_action_resubmit(in_port = self.ofp_parser.OFPP_IN_PORT & 0xffff,table = POSTROUTERING_TABLE_ID)
 
-                    self.logger.info("\n\n wait reply %r \n\n",common.dump(ethernet))
+                    #self.logger.info("\n\n wait reply %r \n\n",common.dump(ethernet))
 
                     for m in self.packet_out(event,self.ofp_parser.OFPP_CONTROLLER,self.ofp_parser.OFP_NO_BUFFER,ethernet._tobytes(),[action1,action2]):
                         yield m
@@ -890,7 +886,12 @@ class l3switch(RoutineContainer):
     
         if vlan_id == 0 and True == is_gateway(netaddr.IPAddress(sip),self.address):
             
-            self.logger.info(" ----- we start subroutine ,,  run wait reply ---\n")
+            #self.logger.info(" ----- we start subroutine ,,  run wait reply ---\n")
+            
+            #
+            # this means from trunk port , other same gateway arp request,
+            # we catch it , set smac , so host only learn one gateway mac
+            #
 
             self.subroutine(self.waitReplyGatewayArp(event,smac,sip,tip,in_port))
             for port_no in self.ports:
@@ -1037,7 +1038,7 @@ class l3switch(RoutineContainer):
 
     def get_vlan_id(self,port_no):
 
-        for port_no in self.ports:
+        if port_no in self.ports:
             return self.ports[port_no].vlan_id            
 
     def portStatus_handler(self,event):
