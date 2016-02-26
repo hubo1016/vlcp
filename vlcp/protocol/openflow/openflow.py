@@ -234,7 +234,7 @@ class Openflow(Protocol):
             msg = container.event.message
             messages.append(msg)
             if msg.header.type == common.OFPT_ERROR or not (msg.flags & common.OFPSF_REPLY_MORE):
-                if msg.header.type == common.OPFT_ERROR and raiseonerror:
+                if msg.header.type == common.OFPT_ERROR and raiseonerror:
                     container.openflow_reply = messages
                     raise OpenflowErrorResultException('An error message is returned: ' + repr(dump(msg)))
                 break
