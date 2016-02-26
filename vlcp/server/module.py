@@ -185,6 +185,10 @@ class Module(Configurable):
     def createAPI(self, *apidefs):
         self.apiHandler = ModuleAPIHandler(self, apidefs)
         self.routines.append(self.apiHandler)
+    def appendAPI(self, *apidefs):
+        t = list(self.apiHandler.apidefs)
+        t.extend(apidefs)
+        self.apiHandler.apidefs = t
     def getServiceName(self):
         if hasattr(self, 'servicename'):
             return self.servicename

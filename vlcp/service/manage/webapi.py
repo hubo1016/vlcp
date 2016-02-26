@@ -14,6 +14,8 @@ import os.path
 from vlcp.utils.http import HttpHandler
 from email.message import Message
 import json
+import ast
+from namedstruct import NamedStruct, dump
 
 def _str(b, encoding = 'ascii'):
     if isinstance(b, str):
@@ -37,6 +39,14 @@ class WebAPIHandler(HttpHandler):
                     for m in env.inputstream.read():
                         yield m
                     params = json.loads(self.data, charset)
+        elif parent.typeextension:
+            for k in params.keys():
+                v = params[k]
+                if v[:1] == '`' and v[-1:] == '`':
+                    try:
+                        params[k] = ast.literal_eval(v[1:-1])
+                    except:
+                        pass
         if parent.allowtargets is not None:
             if targetname not in parent.allowtargets:
                 for m in env.error(403):
@@ -80,6 +90,11 @@ class WebAPI(Module):
     _default_authmethod = None
     _default_allowtargets = None
     _default_denytargets = None
+    _default_namedstruct = True
+    _default_humanread = True
+    _default_dumpextra = False
+    _default_dumptypeinfo = 'flat'
+    _default_typeextension = True
     service = False
     def __init__(self, server):
         '''
@@ -87,3 +102,8 @@ class WebAPI(Module):
         '''
         Module.__init__(self, server)
         self.routines.append(WebAPIHandler(self))
+    def jsonencoder(self, obj):
+        if isinstance(obj, NamedStruct) and self.namedstruct:
+            return dump(obj, self.humanread, self.dumpextra, self.dumptypeinfo)
+        else:
+            return repr(obj)

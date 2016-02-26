@@ -108,6 +108,7 @@ class Connection(RoutineContainer):
             self.socket.setblocking(False)
         self.persist = getattr(protocol, 'persist', False)
         self.need_reconnect = self.persist
+        self.keepalivetime = getattr(protocol, 'keepalivetime', None)
         self.logContext = {'connection': self, 'protocol':protocol, 'socket':None if self.socket is None else self.socket.fileno()}
         self.logger = ContextAdapter(Connection.logger, {'context':self.logContext}) 
         # Counters
@@ -134,6 +135,7 @@ class Connection(RoutineContainer):
             canread_matcher = PollEvent.createMatcher(self.socket.fileno(), PollEvent.READ_READY)
             canwrite_matcher = PollEvent.createMatcher(self.socket.fileno(), PollEvent.WRITE_READY)
             self.readstop = False
+            keepalivetime = self.keepalivetime
             buffersize = getattr(self.protocol, 'buffersize', 4096)
             buf = _create_buffer(buffersize)
             view = memoryview(buf)
@@ -149,7 +151,11 @@ class Connection(RoutineContainer):
                     if wantWrite:
                         yield (canwrite_matcher, connection_control)
                     else:
-                        yield (canread_matcher, connection_control)
+                        for m in self.waitWithTimeout(keepalivetime, canread_matcher, connection_control):
+                            yield m
+                        if self.timeout:
+                            self.subroutine(self.protocol.keepalive(self))
+                            continue
                     wantWrite = False
                     if self.matcher is connection_control:
                         if self.event.type == ConnectionControlEvent.RECONNECT:

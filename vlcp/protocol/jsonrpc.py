@@ -38,6 +38,9 @@ class JsonFormatException(Exception):
 class JsonRPCProtocolException(Exception):
     pass
 
+class JsonRPCErrorResultException(Exception):
+    pass
+
 @defaultconfig
 class JsonRPC(Protocol):
     '''
@@ -68,7 +71,7 @@ class JsonRPC(Protocol):
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, JsonRPCConnectionStateEvent.createMatcher(connection = connection), ('connstate', connection)))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority, JsonRPCResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
+                self.messagepriority + 1, JsonRPCResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, JsonRPCNotificationEvent.createMatcher(connection = connection), ('notification', connection), self.messagequeuesize))
         for m in self.reconnect_init(connection):
@@ -138,7 +141,7 @@ class JsonRPC(Protocol):
             return JsonRPCConnectionStateEvent.createMatcher(state, connection, connection.connmark)
         else:
             return JsonRPCConnectionStateEvent.createMatcher(state, connection)
-    def querywithreply(self, method, params, connection, container):
+    def querywithreply(self, method, params, connection, container, raiseonerror = True):
         (c, rid) = self.formatrequest(method, params, connection)
         for m in connection.write(c, False):
             yield m
@@ -149,6 +152,8 @@ class JsonRPC(Protocol):
             raise JsonRPCProtocolException('Connection is down before reply received')
         container.jsonrpc_result = container.event.result
         container.jsonrpc_error = container.event.error
+        if raiseonerror and container.event.error:
+            raise JsonRPCErrorResultException(str(container.event.error))
     def waitfornotify(self, method, connection, container):
         notify = self.notificationmatcher(method, connection)
         conndown = self.statematcher(connection)
@@ -209,7 +214,7 @@ class JsonRPC(Protocol):
                                     # Unprocessed requests will block the JSON-RPC connection message queue,
                                     # as a security consideration, the parser can automatically reject unknown
                                     # requests
-                                    if self.allowedrequests is not None and jsondata['method'] not in self.allowedrequests:
+                                    if self.allowedrequests is not None and str(jsondata['method']) not in self.allowedrequests:
                                         events.append(self.formaterror('method is not supported', jsondata['id'], connection))
                                     else:
                                         events.append(JsonRPCRequestEvent(method = str(jsondata['method']), params = jsondata['params'],
