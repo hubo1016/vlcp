@@ -221,7 +221,7 @@ class JsonRPC(Protocol):
                                                                           id = jsondata['id'], connection = connection, connmark = connection.connmark, createby = self))
                                         self._logger.debug('Request received(method = %r, id = %r, connection = %r)', jsondata['method'], jsondata['id'], connection)
                                 else:
-                                    events.append(JsonRPCRequestEvent(method = str(jsondata['method']), params = jsondata['params'],
+                                    events.append(JsonRPCNotificationEvent(method = str(jsondata['method']), params = jsondata['params'],
                                                                       connection = connection, connmark = connection.connmark, createby = self))
                                     self._logger.debug('Notification received(method = %r, connection = %r)', str(jsondata['method']), connection)
                             elif 'result' in jsondata:
