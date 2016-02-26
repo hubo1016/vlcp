@@ -117,13 +117,13 @@ class JsonRPC(Protocol):
             self._logger.debug('message formatted: %r', msg)
         return c
     def formatreply(self, result, requestid, connection):
-        msg = {'result': result, 'error': None, id: requestid}
+        msg = {'result': result, 'error': None, 'id': requestid}
         c = ConnectionWriteEvent(connection = connection, connmark = connection.connmark, data = json.dumps(msg).encode(self.encoding))
         if self.debugging:
             self._logger.debug('message formatted: %r', msg)
         return c
     def formaterror(self, error, requestid, connection):
-        msg = {'result': None, 'error': error, id: requestid}
+        msg = {'result': None, 'error': error, 'id': requestid}
         c = ConnectionWriteEvent(connection = connection, connmark = connection.connmark, data = json.dumps(msg).encode(self.encoding))
         if self.debugging:
             self._logger.debug('message formatted: %r', msg)

@@ -10,7 +10,6 @@ from vlcp.server.module import Module, api, depend, callAPI, ModuleNotification
 from vlcp.event.runnable import RoutineContainer
 from vlcp.service.sdn import ofpmanager
 import vlcp.protocol.openflow.defs.openflow13 as of13
-from vlcp.protocol.openflow import OpenflowConnectionStateEvent
 from vlcp.event.connection import ConnectionResetException
 from vlcp.protocol.openflow.openflow import OpenflowProtocolException,\
     OpenflowAsyncMessageEvent
