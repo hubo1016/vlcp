@@ -20,7 +20,8 @@ class OVSDB(JsonRPC):
             connstate = self.statematcher(connection)
             while True:
                 yield (request_matcher, connstate)
-                if connection.matcher == request_matcher:
+                if connection.matcher is request_matcher:
+                    connection.event.canignore = True
                     reply = self.formatreply(connection.event.params, connection.event.id, connection)
                     for m in connection.write(reply, False):
                         yield m
