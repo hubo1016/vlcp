@@ -189,7 +189,7 @@ class OpenflowPortManager(Module):
         for m in self._wait_for_sync():
             yield m
         def waitinner():
-            ports = self.managed_ports.get(vhost, datapathid)
+            ports = self.managed_ports.get((vhost, datapathid))
             if ports is None:
                 for m in callAPI(self.apiroutine, 'openflowmanager', 'waitconnection', {'datapathid': datapathid, 'vhost':vhost, 'timeout': timeout}):
                     yield m
@@ -227,7 +227,7 @@ class OpenflowPortManager(Module):
         for m in self._wait_for_sync():
             yield m
         def waitinner():
-            ports = self.managed_ports.get(vhost, datapathid)
+            ports = self.managed_ports.get((vhost, datapathid))
             if ports is None:
                 for m in callAPI(self.apiroutine, 'openflowmanager', 'waitconnection', {'datapathid': datapathid, 'vhost':vhost, 'timeout': timeout}):
                     yield m
