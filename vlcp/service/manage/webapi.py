@@ -92,6 +92,8 @@ class WebAPI(Module):
     _default_denytargets = None
     _default_namedstruct = True
     _default_humanread = True
+    _default_bytesdecode = 'ascii'
+    _default_byteslimit = 256
     _default_dumpextra = False
     _default_dumptypeinfo = 'flat'
     _default_typeextension = True
@@ -105,5 +107,16 @@ class WebAPI(Module):
     def jsonencoder(self, obj):
         if isinstance(obj, NamedStruct) and self.namedstruct:
             return dump(obj, self.humanread, self.dumpextra, self.dumptypeinfo)
+        elif isinstance(obj, bytes):
+            if self.humanread and len(obj) > self.byteslimit:
+                return '<%d bytes...>' % (len(obj),)
+            else:
+                if self.bytesdecode:
+                    try:
+                        return obj.decode(self.bytesdecode)
+                    except:
+                        return repr(obj)
+                else:
+                    return repr(obj)
         else:
             return repr(obj)
