@@ -141,7 +141,7 @@ class OVSDBManager(Module):
         except JsonRPCProtocolException:
             pass
     def _manage_existing(self):
-        for m in callAPI(self.apiroutine, "jsonrpcserver", "getconnections"):
+        for m in callAPI(self.apiroutine, "jsonrpcserver", "getconnections", {}):
             yield m
         vb = self.vhostbind
         for m in self.apiroutine.executeAll([self.apiroutine.subroutine(self._get_bridges(c, c.protocol),

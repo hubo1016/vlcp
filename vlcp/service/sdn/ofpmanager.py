@@ -35,7 +35,7 @@ class OpenflowManager(Module):
                        api(self.getallconnections, self.apiroutine)
                        )
     def _manage_existing(self):
-        for m in callAPI(self.apiroutine, "openflowserver", "getconnections"):
+        for m in callAPI(self.apiroutine, "openflowserver", "getconnections", {}):
             yield m
         vb = self.vhostbind
         for c in self.apiroutine.retvalue:

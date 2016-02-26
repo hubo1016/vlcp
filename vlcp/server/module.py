@@ -508,7 +508,7 @@ class ModuleLoader(RoutineContainer):
             target = self.activeModules[targetname]
         return target
 
-def callAPI(container, targetname, name, params, timeout = 60.0):
+def callAPI(container, targetname, name, params = {}, timeout = 60.0):
     handle = object()
     apiEvent = ModuleAPICall(handle, targetname, name, params = params)
     for m in container.waitForSend(apiEvent):
