@@ -80,7 +80,7 @@ class OVSDBManager(Module):
                 method, params = ovsdb.transact('Open_vSwitch', ovsdb.select('Open_vSwitch', [], ['external_ids']))
                 for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                     yield m
-                result = self.apiroutine.jsonrpc_result
+                result = self.apiroutine.jsonrpc_result[0]
                 system_id = ovsdb.omap_getvalue(result['rows'][0]['external_ids'], 'system-id')
                 connection.ovsdb_systemid = system_id
             else:
