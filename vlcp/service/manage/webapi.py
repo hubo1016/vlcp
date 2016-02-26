@@ -64,7 +64,7 @@ class WebAPIHandler(HttpHandler):
         for m in callAPI(self, targetname, methodname, params):
             yield m
         env.header('Content-Type', 'application/json')
-        env.outputdata(json.dumps({'result':self.retvalue}, default=repr).encode('ascii'))
+        env.outputdata(json.dumps({'result':self.retvalue}, default=parent.jsonencoder).encode('ascii'))
     def start(self, asyncStart=False):
         HttpHandler.start(self, asyncStart=asyncStart)
         path = self.parent.rootpath.encode('utf-8')
