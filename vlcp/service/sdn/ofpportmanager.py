@@ -221,7 +221,7 @@ class OpenflowPortManager(Module):
         if ports is None:
             return None
         else:
-            for p in ports:
+            for p in ports.values():
                 if p.name == name:
                     return p
             return None
@@ -242,7 +242,7 @@ class OpenflowPortManager(Module):
                 ports = self.managed_ports.get((vhost, datapathid))
                 if ports is None:
                     raise ConnectionResetException('Datapath %016x is not connected' % datapathid)
-            for p in ports:
+            for p in ports.values():
                 if p.name == name:
                     self.apiroutine.retvalue = p
                     raise StopIteration
