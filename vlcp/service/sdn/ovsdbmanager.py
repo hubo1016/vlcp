@@ -57,11 +57,17 @@ class OVSDBManager(Module):
         self._synchronized = False
     def _update_bridge(self, connection, protocol, bridge_uuid, vhost):
         try:
-            method, params = ovsdb.transact('Open_vSwitch', ovsdb.select('Bridge', [["_uuid", "==", ovsdb.uuid(bridge_uuid)]],
+            method, params = ovsdb.transact('Open_vSwitch',
+                                            ovsdb.wait('Bridge', [["_uuid", "==", ovsdb.uuid(bridge_uuid)]],
+                                                        ["datapath_id"], [{"datapath_id": ovsdb.oset()}], False, 5),
+                                            ovsdb.select('Bridge', [["_uuid", "==", ovsdb.uuid(bridge_uuid)]],
                                                                          ["datapath_id","name"]))
             for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                 yield m
             r = self.apiroutine.jsonrpc_result[0]
+            if 'error' in r:
+                raise JsonRPCErrorResultException('Error while acquiring datapath-id: ' + repr(r['error']))
+            r = self.apiroutine.jsonrpc_result[1]
             if 'error' in r:
                 raise JsonRPCErrorResultException('Error while acquiring datapath-id: ' + repr(r['error']))
             if r['rows']:
@@ -138,6 +144,7 @@ class OVSDBManager(Module):
                                                                                vhost))
                                     del self.managed_conns[(vhost, bridges[i][1])]
                                     del bridges[i]
+                                    break
         except JsonRPCProtocolException:
             pass
     def _manage_existing(self):
@@ -234,7 +241,7 @@ class OVSDBManager(Module):
             yield m
         bridges = self.managed_bridges.get(connection)
         if bridges is not None:
-            self.apiroutine.retvalue = [(dpid, name) for _, dpid, name, _ in self.managed_bridges]
+            self.apiroutine.retvalue = [(dpid, name) for _, dpid, name, _ in bridges]
         else:
             self.apiroutine.retvalue = None
     def getbridge(self, connection, name):
