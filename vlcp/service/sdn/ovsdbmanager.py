@@ -59,7 +59,7 @@ class OVSDBManager(Module):
         try:
             method, params = ovsdb.transact('Open_vSwitch',
                                             ovsdb.wait('Bridge', [["_uuid", "==", ovsdb.uuid(bridge_uuid)]],
-                                                        ["datapath_id"], [{"datapath_id": ovsdb.oset()}], False, 5),
+                                                        ["datapath_id"], [{"datapath_id": ovsdb.oset()}], False, 5000),
                                             ovsdb.select('Bridge', [["_uuid", "==", ovsdb.uuid(bridge_uuid)]],
                                                                          ["datapath_id","name"]))
             for m in protocol.querywithreply(method, params, connection, self.apiroutine):
