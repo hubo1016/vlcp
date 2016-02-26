@@ -37,6 +37,7 @@ class OVSDBManager(Module):
         Module.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)
         self.apiroutine.main = self._manage_conns
+        self.routines.append(self.apiroutine)
         self.managed_conns = {}
         self.managed_systemids = {}
         self.managed_bridges = {}

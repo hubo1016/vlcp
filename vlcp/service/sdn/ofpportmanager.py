@@ -37,6 +37,7 @@ class OpenflowPortManager(Module):
         Module.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)
         self.apiroutine.main = self._manage_ports
+        self.routines.append(self.apiroutine)
         self.managed_ports = {}
         self.createAPI(api(self.getports, self.apiroutine),
                        api(self.getallports, self.apiroutine),

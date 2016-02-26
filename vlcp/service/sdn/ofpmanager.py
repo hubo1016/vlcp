@@ -24,6 +24,7 @@ class OpenflowManager(Module):
         Module.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)
         self.apiroutine.main = self._manage_conns
+        self.routines.append(self.apiroutine)
         self.managed_conns = {}
         self._synchronized = False
         self.createAPI(api(self.getconnections, self.apiroutine),
