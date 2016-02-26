@@ -215,6 +215,8 @@ class OpenflowPortManager(Module):
             yield m
         self.apiroutine.retvalue = self._getportbyname(datapathid, name, vhost)
     def _getportbyname(self, datapathid, name, vhost = ''):
+        if not isinstance(name, bytes):
+            name = _bytes(name)
         ports = self.managed_ports.get((vhost, datapathid))
         if ports is None:
             return None
@@ -226,6 +228,8 @@ class OpenflowPortManager(Module):
     def waitportbyname(self, datapathid, name, timeout = 30, vhost = ''):
         for m in self._wait_for_sync():
             yield m
+        if not isinstance(name, bytes):
+            name = _bytes(name)
         def waitinner():
             ports = self.managed_ports.get((vhost, datapathid))
             if ports is None:
