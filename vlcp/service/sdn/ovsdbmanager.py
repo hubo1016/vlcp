@@ -85,7 +85,7 @@ class OVSDBManager(Module):
                 connection.ovsdb_systemid = system_id
             else:
                 system_id = connection.ovsdb_systemid
-            self.managed_systemids[system_id] = connection
+            self.managed_systemids[(vhost, system_id)] = connection
             self.managed_bridges[connection] = []
             for m in self.apiroutine.waitForSend(OVSDBConnectionSetup(system_id, connection, connection.connmark, vhost)):
                 yield m
@@ -176,7 +176,7 @@ class OVSDBManager(Module):
                     conn = e.connection
                     bridges = self.managed_bridges.get(conn)
                     if bridges is not None:
-                        del self.managed_systemids[conn.ovsdb_systemid]
+                        del self.managed_systemids[(e.createby.vhost, conn.ovsdb_systemid)]
                         del self.managed_bridges[conn]
                         for vhost, dpid, name, _ in bridges:
                             del self.managed_conns[(vhost, dpid)]
@@ -184,11 +184,11 @@ class OVSDBManager(Module):
         finally:
             for c in self.managed_bridges.keys():
                 c._ovsdb_manager_get_bridges.close()
-                bridges = self.managed_bridges.get(conn)
+                bridges = self.managed_bridges.get(c)
                 if bridges is not None:
                     for vhost, dpid, name, _ in bridges:
                         del self.managed_conns[(vhost, dpid)]
-                        self.scheduler.emergesend(OVSDBBridgeSetup(OVSDBBridgeSetup.DOWN, dpid, c.ovsdb_systemid, name, c, c.connmark, e.createby.vhost))
+                        self.scheduler.emergesend(OVSDBBridgeSetup(OVSDBBridgeSetup.DOWN, dpid, c.ovsdb_systemid, name, c, c.connmark, c.protocol.vhost))
     def getconnection(self, datapathid, vhost = ''):
         "Get current connection of datapath"
         for m in self._wait_for_sync():
