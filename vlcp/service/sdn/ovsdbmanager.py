@@ -103,7 +103,7 @@ class OVSDBManager(Module):
                 if 'error' in self.apiroutine.jsonrpc_result:
                     raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(self.apiroutine.jsonrpc_result))
             # Process inital bridges
-            for v in self.jsonrpc_result['Open_vSwitch'].values():
+            for v in self.apiroutine.jsonrpc_result['Open_vSwitch'].values():
                 for _, buuid in v['new']['bridges'][1]:
                     self.apiroutine.subroutine(self._update_bridge(connection, protocol, buuid, vhost))
             # Wait for notify
@@ -170,8 +170,7 @@ class OVSDBManager(Module):
             while True:
                 yield (conn_up, conn_down)
                 if self.apiroutine.matcher is conn_up:
-                    self.apiroutine.subroutine(self._get_bridges(self.apiroutine.event.connection, self.apiroutine.event.createby),
-                                               '_ovsdb_manager_get_bridges')
+                    self.apiroutine.event.connection._ovsdb_manager_get_bridges = self.apiroutine.subroutine(self._get_bridges(self.apiroutine.event.connection, self.apiroutine.event.createby))
                 else:
                     e = self.apiroutine.event
                     conn = e.connection
