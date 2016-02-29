@@ -362,7 +362,7 @@ class OVSDBManager(Module):
                     else:
                         # Unix socket? This should not happen, but in case...
                         endpoint = raddr
-                    for m in self.getconnectionbyendpoint(endpoint, vhost):
+                    for m in self.getconnectionsbyendpoint(endpoint, vhost):
                         yield m
                     if self.apiroutine.retvalue is not None:
                         break
