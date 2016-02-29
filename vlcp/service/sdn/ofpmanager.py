@@ -226,9 +226,9 @@ class OpenflowManager(Module):
         "Get all endpoints for vhost"
         for m in self._wait_for_sync():
             yield m
-        return [k[1] for k in self.endpoint_conns if k[0] == vhost]
+        self.apiroutine.retvalue = [k[1] for k in self.endpoint_conns if k[0] == vhost]
     def getallendpoints(self):
         "Get all endpoints from any vhost. Return (vhost, endpoint) pairs."
         for m in self._wait_for_sync():
             yield m
-        return list(self.endpoint_conns.keys())
+        self.apiroutine.retvalue = list(self.endpoint_conns.keys())
