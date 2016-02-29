@@ -9,8 +9,23 @@ from vlcp.server.module import Module, api, depend, callAPI, ModuleNotification
 from vlcp.event.runnable import RoutineContainer
 from vlcp.service.connection import openflowserver
 from vlcp.protocol.openflow import OpenflowConnectionStateEvent
-from vlcp.event.connection import ConnectionResetException
+from vlcp.event.connection import ConnectionResetException, ResolveRequestEvent,\
+    ResolveResponseEvent
 import itertools
+import socket
+
+def _get_endpoint(conn):
+    raddr = getattr(conn, 'remoteaddr', None)
+    if raddr:
+        if isinstance(raddr, tuple):
+            # Ignore port
+            return raddr[0]
+        else:
+            # Unix socket
+            return raddr
+    else:
+        return ''
+
 
 @defaultconfig
 @depend(openflowserver.OpenflowServer)
@@ -26,26 +41,50 @@ class OpenflowManager(Module):
         self.apiroutine.main = self._manage_conns
         self.routines.append(self.apiroutine)
         self.managed_conns = {}
+        self.endpoint_conns = {}
         self._synchronized = False
         self.createAPI(api(self.getconnections, self.apiroutine),
                        api(self.getconnection, self.apiroutine),
                        api(self.waitconnection, self.apiroutine),
                        api(self.getdatapathids, self.apiroutine),
                        api(self.getalldatapathids, self.apiroutine),
-                       api(self.getallconnections, self.apiroutine)
+                       api(self.getallconnections, self.apiroutine),
+                       api(self.getconnectionsbyendpoint, self.apiroutine),
+                       api(self.getconnectionsbyendpointname, self.apiroutine),
+                       api(self.getendpoints, self.apiroutine),
+                       api(self.getallendpoints, self.apiroutine),
                        )
+    def _add_connection(self, conn):
+        vhost = conn.protocol.vhost
+        conns = self.managed_conns.setdefault((vhost, conn.openflow_datapathid), [])
+        remove = []
+        for i in range(0, len(conns)):
+            if conns[i].openflow_auxiliaryid == conn.openflow_auxiliaryid:
+                ci = conns[i]
+                remove = [ci]
+                ep = _get_endpoint(ci)
+                econns = self.endpoint_conns.get((vhost, ep))
+                if econns is not None:
+                    try:
+                        econns.remove(ci)
+                    except ValueError:
+                        pass
+                    if not econns:
+                        del self.endpoint_conns[(vhost, ep)]
+                del conns[i]
+                break
+        conns.append(conn)
+        ep = _get_endpoint(conn)
+        econns = self.endpoint_conns.setdefault((vhost, ep), [])
+        econns.append(conn)
+        return remove
     def _manage_existing(self):
         for m in callAPI(self.apiroutine, "openflowserver", "getconnections", {}):
             yield m
         vb = self.vhostbind
         for c in self.apiroutine.retvalue:
             if vb is None or c.protocol.vhost in vb:
-                conns = self.managed_conns.setdefault((c.protocol.vhost, c.openflow_datapathid), [])
-                for i in range(0, len(conns)):
-                    if conns[i].openflow_auxiliaryid == c.openflow_auxiliaryid:
-                        del conns[i]
-                        break
-                conns.append(c)
+                self._add_connection(c)
         self._synchronized = True
         for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):
             yield m
@@ -68,27 +107,29 @@ class OpenflowManager(Module):
                 yield (conn_up, conn_down)
                 if self.apiroutine.matcher is conn_up:
                     e = self.apiroutine.event
-                    conns = self.managed_conns.setdefault((e.createby.vhost, e.datapathid), [])
-                    remove = []
-                    for i in range(0, len(conns)):
-                        if conns[i].openflow_auxiliaryid == e.auxiliaryid:
-                            remove = [conns[i]]
-                            del conns[i]
-                            break
-                    conns.append(e.connection)
+                    remove = self._add_connection(e.connection)
                     self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'update', add = [e.connection], remove = remove))
                 else:
                     e = self.apiroutine.event
                     conns = self.managed_conns.get((e.createby.vhost, e.datapathid))
                     remove = []
                     if conns is not None:
-                        for i in range(0, len(conns)):
-                            if conns[i] is e.connection:
-                                remove.append(conns[i])
-                                del conns[i]
-                                break
+                        try:
+                            conns.remove(e.connection)
+                        except ValueError:
+                            pass
                         if not conns:
                             del self.managed_conns[(e.createby.vhost, e.datapathid)]
+                        # Also delete from endpoint_conns
+                        ep = _get_endpoint(e.connection)
+                        econns = self.endpoint_conns.get((e.createby.vhost, ep))
+                        if econns is not None:
+                            try:
+                                econns.remove(e.connection)
+                            except ValueError:
+                                pass
+                            if not econns:
+                                del self.endpoint_conns[(e.createby.vhost, ep)]
                     if remove:
                         self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'update', add = [], remove = remove))
         finally:
@@ -146,4 +187,48 @@ class OpenflowManager(Module):
             self.apiroutine.retvalue = list(itertools.chain(self.managed_conns.values()))
         else:
             self.apiroutine.retvalue = list(itertools.chain(v for k,v in self.managed_conns.items() if k[0] == vhost))
-    
+    def getconnectionsbyendpoint(self, endpoint, vhost = ''):
+        "Get connection by endpoint address (IP, IPv6 or UNIX socket address)"
+        for m in self._wait_for_sync():
+            yield m
+        self.apiroutine.retvalue = self.endpoint_conns.get((vhost, endpoint))
+    def getconnectionsbyendpointname(self, name, vhost = '', timeout = 30):
+        "Get connection by endpoint name (Domain name, IP or IPv6 address)"
+        # Resolve the name
+        if not name:
+            endpoint = ''
+        else:
+            request = (name, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG | socket.AI_V4MAPPED)
+            # Resolve hostname
+            for m in self.waitForSend(ResolveRequestEvent(request)):
+                yield m
+            for m in self.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request)):
+                yield m
+            if self.timeout:
+                # Resolve is only allowed through asynchronous resolver
+                #try:
+                #    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
+                #except:
+                raise IOError('Resolve hostname timeout: ' + name)
+            else:
+                if hasattr(self.event, 'error'):
+                    raise IOError('Cannot resolve hostname: ' + name)
+                raddr = self.event.response[4]
+                if isinstance(raddr, tuple):
+                    # Ignore port
+                    endpoint = raddr[0]
+                else:
+                    # Unix socket? This should not happen, but in case...
+                    endpoint = raddr
+        for m in self.getconnectionbyendpoint(endpoint, vhost):
+            yield m
+    def getendpoints(self, vhost = ''):
+        "Get all endpoints for vhost"
+        for m in self._wait_for_sync():
+            yield m
+        return [k[1] for k in self.endpoint_conns if k[0] == vhost]
+    def getallendpoints(self):
+        "Get all endpoints from any vhost. Return (vhost, endpoint) pairs."
+        for m in self._wait_for_sync():
+            yield m
+        return list(self.endpoint_conns.keys())

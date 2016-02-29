@@ -83,7 +83,8 @@ class OpenflowPortManager(Module):
                                                                          datapathid = connection.openflow_datapathid,
                                                                          connection = connection,
                                                                          vhost = protocol.vhost,
-                                                                         add = add, remove = [])):
+                                                                         add = add, remove = [],
+                                                                         reason = 'connected')):
                     yield m
         except ConnectionResetException:
             pass
@@ -119,7 +120,8 @@ class OpenflowPortManager(Module):
                                                                          datapathid = c.openflow_datapathid,
                                                                          connection = c,
                                                                          vhost = c.protocol.vhost,
-                                                                         add = [m.desc], remove = []))
+                                                                         add = [m.desc], remove = [],
+                                                                         reason = 'add'))
                         elif m.reason == c.openflowdef.OFPPR_DELETE:
                             try:
                                 del self.managed_ports[(c.protocol.vhost, c.openflow_datapathid)][m.desc.port_no]
@@ -127,7 +129,8 @@ class OpenflowPortManager(Module):
                                                                              datapathid = c.openflow_datapathid,
                                                                              connection = c,
                                                                              vhost = c.protocol.vhost,
-                                                                             add = [], remove = [m.desc]))
+                                                                             add = [], remove = [m.desc],
+                                                                             reason = 'delete'))
                             except KeyError:
                                 pass
                         elif m.reason == c.openflowdef.OFPPR_MODIFY:
@@ -137,13 +140,15 @@ class OpenflowPortManager(Module):
                                                                              connection = c,
                                                                              vhost = c.protocol.vhost,
                                                                              old = self.managed_ports[(c.protocol.vhost, c.openflow_datapathid)][m.desc.port_no],
-                                                                             new = m.desc))
+                                                                             new = m.desc,
+                                                                             reason = 'modified'))
                             except KeyError:
                                 self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'update',
                                                                              datapathid = c.openflow_datapathid,
                                                                              connection = c,
                                                                              vhost = c.protocol.vhost,
-                                                                             add = [m.desc], remove = []))
+                                                                             add = [m.desc], remove = [],
+                                                                             reason = 'add'))
                             self.managed_ports[(c.protocol.vhost, c.openflow_datapathid)][m.desc.port_no] = m.desc
                 else:
                     e = self.apiroutine.event
@@ -153,7 +158,8 @@ class OpenflowPortManager(Module):
                                                  datapathid = c.openflow_datapathid,
                                                  connection = c,
                                                  vhost = c.protocol.vhost,
-                                                 add = [], remove = list(self.managed_ports[(c.protocol.vhost, c.openflow_datapathid)].values())))
+                                                 add = [], remove = list(self.managed_ports[(c.protocol.vhost, c.openflow_datapathid)].values()),
+                                                 reason = 'disconnected'))
                             del self.managed_ports[(c.protocol.vhost, c.openflow_datapathid)]
                     for c in e.add:
                         if c.openflow_auxiliaryid == 0:

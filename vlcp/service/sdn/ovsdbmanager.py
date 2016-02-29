@@ -11,9 +11,11 @@ from vlcp.service.connection import jsonrpcserver
 from vlcp.protocol.jsonrpc import JsonRPCConnectionStateEvent,\
     JsonRPCProtocolException, JsonRPCErrorResultException,\
     JsonRPCNotificationEvent
-from vlcp.event.connection import ConnectionResetException
+from vlcp.event.connection import ConnectionResetException, ResolveRequestEvent,\
+    ResolveResponseEvent
 from vlcp.event.event import Event, withIndices
 from vlcp.utils import ovsdb
+import socket
 
 @withIndices('systemid', 'connection', 'connmark', 'vhost')
 class OVSDBConnectionSetup(Event):
@@ -23,6 +25,20 @@ class OVSDBConnectionSetup(Event):
 class OVSDBBridgeSetup(Event):
     UP = 'up'
     DOWN = 'down'
+
+
+def _get_endpoint(conn):
+    raddr = getattr(conn, 'remoteaddr', None)
+    if raddr:
+        if isinstance(raddr, tuple):
+            # Ignore port
+            return raddr[0]
+        else:
+            # Unix socket
+            return raddr
+    else:
+        return ''
+
 
 @defaultconfig
 @depend(jsonrpcserver.JsonRPCServer)
@@ -42,6 +58,7 @@ class OVSDBManager(Module):
         self.managed_systemids = {}
         self.managed_bridges = {}
         self.managed_routines = []
+        self.endpoint_conns = {}
         self.createAPI(api(self.getconnection, self.apiroutine),
                        api(self.waitconnection, self.apiroutine),
                        api(self.getdatapathids, self.apiroutine),
@@ -52,7 +69,11 @@ class OVSDBManager(Module):
                        api(self.getsystemids, self.apiroutine),
                        api(self.getallsystemids, self.apiroutine),
                        api(self.getconnectionbysystemid, self.apiroutine),
-                       api(self.waitconnectionbysystemid, self.apiroutine)
+                       api(self.waitconnectionbysystemid, self.apiroutine),
+                       api(self.getconnectionsbyendpoint, self.apiroutine),
+                       api(self.getconnectionsbyendpointname, self.apiroutine),
+                       api(self.getendpoints, self.apiroutine),
+                       api(self.getallendpoints, self.apiroutine),
                        )
         self._synchronized = False
     def _update_bridge(self, connection, protocol, bridge_uuid, vhost):
@@ -91,8 +112,20 @@ class OVSDBManager(Module):
                 connection.ovsdb_systemid = system_id
             else:
                 system_id = connection.ovsdb_systemid
+            if (vhost, system_id) in self.managed_systemids:
+                oc = self.managed_systemids[(vhost, system_id)]
+                ep = _get_endpoint(oc)
+                econns = self.endpoint_conns.get((vhost, ep))
+                if econns:
+                    try:
+                        econns.remove(oc)
+                    except ValueError:
+                        pass
+                del self.managed_systemids[(vhost, system_id)]
             self.managed_systemids[(vhost, system_id)] = connection
             self.managed_bridges[connection] = []
+            ep = _get_endpoint(connection)
+            self.endpoint_conns.setdefault((vhost, ep), []).append(connection)
             for m in self.apiroutine.waitForSend(OVSDBConnectionSetup(system_id, connection, connection.connmark, vhost)):
                 yield m
             method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Open_vSwitch':ovsdb.monitor_request(['bridges'])})
@@ -188,6 +221,12 @@ class OVSDBManager(Module):
                         for vhost, dpid, name, _ in bridges:
                             del self.managed_conns[(vhost, dpid)]
                             self.scheduler.emergesend(OVSDBBridgeSetup(OVSDBBridgeSetup.DOWN, dpid, conn.ovsdb_systemid, name, conn, conn.connmark, e.createby.vhost))
+                        econns = self.endpoint_conns.get(_get_endpoint(conn))
+                        if econns is not None:
+                            try:
+                                econns.remove(conn)
+                            except ValueError:
+                                pass
         finally:
             for c in self.managed_bridges.keys():
                 c._ovsdb_manager_get_bridges.close()
@@ -286,4 +325,48 @@ class OVSDBManager(Module):
             self.apiroutine.retvalue = self.apiroutine.event.connection
         else:
             self.apiroutine.retvalue = c
-        
+    def getconnectionsbyendpoint(self, endpoint, vhost = ''):
+        "Get connection by endpoint address (IP, IPv6 or UNIX socket address)"
+        for m in self._wait_for_sync():
+            yield m
+        self.apiroutine.retvalue = self.endpoint_conns.get((vhost, endpoint))
+    def getconnectionsbyendpointname(self, name, vhost = '', timeout = 30):
+        "Get connection by endpoint name (Domain name, IP or IPv6 address)"
+        # Resolve the name
+        if not name:
+            endpoint = ''
+        else:
+            request = (name, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG | socket.AI_V4MAPPED)
+            # Resolve hostname
+            for m in self.waitForSend(ResolveRequestEvent(request)):
+                yield m
+            for m in self.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request)):
+                yield m
+            if self.timeout:
+                # Resolve is only allowed through asynchronous resolver
+                #try:
+                #    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
+                #except:
+                raise IOError('Resolve hostname timeout: ' + name)
+            else:
+                if hasattr(self.event, 'error'):
+                    raise IOError('Cannot resolve hostname: ' + name)
+                raddr = self.event.response[4]
+                if isinstance(raddr, tuple):
+                    # Ignore port
+                    endpoint = raddr[0]
+                else:
+                    # Unix socket? This should not happen, but in case...
+                    endpoint = raddr
+        for m in self.getconnectionbyendpoint(endpoint, vhost):
+            yield m
+    def getendpoints(self, vhost = ''):
+        "Get all endpoints for vhost"
+        for m in self._wait_for_sync():
+            yield m
+        return [k[1] for k in self.endpoint_conns if k[0] == vhost]
+    def getallendpoints(self):
+        "Get all endpoints from any vhost. Return (vhost, endpoint) pairs."
+        for m in self._wait_for_sync():
+            yield m
+        return list(self.endpoint_conns.keys())
