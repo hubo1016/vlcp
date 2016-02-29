@@ -335,31 +335,37 @@ class OVSDBManager(Module):
         # Resolve the name
         if not name:
             endpoint = ''
+            for m in self.getconnectionbyendpoint(endpoint, vhost):
+                yield m
         else:
             request = (name, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG | socket.AI_V4MAPPED)
             # Resolve hostname
-            for m in self.waitForSend(ResolveRequestEvent(request)):
+            for m in self.apiroutine.waitForSend(ResolveRequestEvent(request)):
                 yield m
-            for m in self.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request)):
+            for m in self.apiroutine.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request)):
                 yield m
-            if self.timeout:
+            if self.apiroutine.timeout:
                 # Resolve is only allowed through asynchronous resolver
                 #try:
                 #    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
                 #except:
                 raise IOError('Resolve hostname timeout: ' + name)
             else:
-                if hasattr(self.event, 'error'):
+                if hasattr(self.apiroutine.event, 'error'):
                     raise IOError('Cannot resolve hostname: ' + name)
-                raddr = self.event.response[4]
-                if isinstance(raddr, tuple):
-                    # Ignore port
-                    endpoint = raddr[0]
-                else:
-                    # Unix socket? This should not happen, but in case...
-                    endpoint = raddr
-        for m in self.getconnectionbyendpoint(endpoint, vhost):
-            yield m
+                resp = self.apiroutine.event.response
+                for r in resp:
+                    raddr = r[4]
+                    if isinstance(raddr, tuple):
+                        # Ignore port
+                        endpoint = raddr[0]
+                    else:
+                        # Unix socket? This should not happen, but in case...
+                        endpoint = raddr
+                    for m in self.getconnectionbyendpoint(endpoint, vhost):
+                        yield m
+                    if self.apiroutine.retvalue is not None:
+                        break
     def getendpoints(self, vhost = ''):
         "Get all endpoints for vhost"
         for m in self._wait_for_sync():
