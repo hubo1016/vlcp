@@ -94,6 +94,7 @@ class RoutineControlEvent(Event):
     canignore = False
     ASYNC_START = 'asyncstart'
     DELEGATE_FINISHED = 'delegatefinished'
+    WAIT = 'wait'
 
 class IllegalMatchersException(Exception):
     pass
@@ -375,6 +376,13 @@ class RoutineContainer(object):
         Can call without delegate
         '''
         matcher = self.scheduler.syscall(func)
+        while not matcher:
+            e = RoutineControlEvent(RoutineControlEvent.WAIT, self.currentroutine)
+            e.canignore = True
+            for m in self.waitForSend(e):
+                yield m
+            yield (RoutineControlEvent.createMatcher(RoutineControlEvent.WAIT, self.currentroutine),)
+            matcher = self.scheduler.syscall(func)
         yield (matcher,)
     def syscall(self, func, ignoreException = False):
         for m in self.syscall_noreturn(func):

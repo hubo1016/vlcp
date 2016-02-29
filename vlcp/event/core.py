@@ -353,11 +353,15 @@ class Scheduler(object):
         
         An event matcher is returned to the caller, and the caller should wait for the event immediately to get the return value from the system call.
         The SyscallReturnEvent will have 'retvalue' as the return value, or 'exception' as the exception thrown: (type, value, traceback)
+        
         :param func: syscall function
-        :returns: an event matcher to wait for the SyscallReturnEvent
+        
+        :returns: an event matcher to wait for the SyscallReturnEvent. If None is returned, a syscall is already scheduled;
+                  return to core context at first.
+        
         '''
         if getattr(self, 'syscallfunc', None) is not None:
-            raise ValueError('Cannot call syscall twice before return to core context')
+            return None
         self.syscallfunc = func
         self.syscallmatcher = SyscallReturnEvent.createMatcher()
         return self.syscallmatcher
