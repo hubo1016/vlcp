@@ -323,11 +323,11 @@ class OVSDBManager(Module):
             self.apiroutine.retvalue = [(dpid, name, buuid)
                                         for c, bridges in self.managed_bridges.items()
                                         if c.protocol.vhost == vhost
-                                        for dpid, name, buuid in bridges]
+                                        for _, dpid, name, buuid in bridges]
         else:
             self.apiroutine.retvalue = [(dpid, name, buuid)
                                         for c, bridges in self.managed_bridges.items()
-                                        for dpid, name, buuid in bridges]
+                                        for _, dpid, name, buuid in bridges]
     def getbridge(self, connection, name):
         "Get datapath ID on this connection with specified name"
         for m in self._wait_for_sync():
