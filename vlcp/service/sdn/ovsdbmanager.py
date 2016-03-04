@@ -103,6 +103,15 @@ class OVSDBManager(Module):
                 if self.bridgenames is None or name in self.bridgenames:
                     self.managed_bridges[connection].append((vhost, dpid, name, bridge_uuid))
                     self.managed_conns[(vhost, dpid)] = connection
+                    for m in self.apiroutine.waitForSend(OVSDBBridgeSetup(OVSDBBridgeSetup.UP,
+                                                               dpid,
+                                                               connection.ovsdb_systemid,
+                                                               name,
+                                                               connection,
+                                                               connection.connmark,
+                                                               vhost,
+                                                               bridge_uuid)):
+                        yield m
         except JsonRPCProtocolException:
             pass
     def _get_bridges(self, connection, protocol):
