@@ -225,7 +225,7 @@ class OVSDBPortManager(Module):
                                                                                      "interfaces"))
                         for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                             yield m
-                        r = self.apiroutine.retvalue.jsonrpc_result[0]
+                        r = self.apiroutine.jsonrpc_result[0]
                         if 'error' in r:
                             raise JsonRPCErrorResultException('Error when query interfaces from port ' + repr(puuid) + ': ' + r['error'])
                         if r['rows']:
