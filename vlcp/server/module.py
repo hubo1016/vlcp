@@ -10,6 +10,7 @@ from vlcp.event.runnable import RoutineContainer, EventHandler
 import sys
 from vlcp.utils.pycache import removeCache
 import functools
+import copy
 
 try:
     reload
@@ -54,12 +55,41 @@ class ModuleLoadStateChanged(Event):
     UNLOADING = 'unloading'
     UNLOADED = 'unloaded'
 
+def create_discover_info(func):
+    code = func.__code__
+    if code.co_flags & 0x08:
+        haskwargs = True
+    else:
+        haskwargs = False
+    # Remove argument env
+    arguments = code.co_varnames[1:code.co_argcount]
+    if hasattr(func, '__self__') and func.__self__:
+        # First argument is self, remove an extra argument
+        arguments=arguments[1:]
+    # Optional arguments
+    if hasattr(func, '__defaults__') and func.__defaults__:
+        requires = arguments[:-len(func.__defaults__)]
+        optionals = arguments[-len(func.__defaults__):]
+    else:
+        requires = arguments[:]
+        optionals = []
+    return {'description': func.__doc__,
+            'parameters':
+                [
+                    [{'name':n,'optional':False} for n in requires]
+                    + [{'name':optionals[i],'optional':True,'default':func.__defaults__[i]}
+                       for i in range(0,len(optionals))]
+                ],
+            'extraparameters': haskwargs
+                }
+    
 
 def api(func, container = None):
     '''
     Return an API def for a generic function
     '''
-    return (func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container)
+    return (func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container,
+            create_discover_info(func))
 
 class ModuleAPIHandler(RoutineContainer):
     def __init__(self, moduleinst, apidefs = None, allowdiscover = True, rejectunknown = True):
@@ -68,7 +98,7 @@ class ModuleAPIHandler(RoutineContainer):
         self.servicename = moduleinst.getServiceName()
         self.apidefs = apidefs
         self.registeredAPIs = {}
-        self.docs = {}
+        self.discoverinfo = {}
         self.allowdiscover = allowdiscover
         self.rejectunknown = True
     @staticmethod
@@ -77,7 +107,7 @@ class ModuleAPIHandler(RoutineContainer):
     @staticmethod
     def createExceptionReply(handle, exception):
         return ModuleAPIReply(handle, exception = exception)
-    def _createHandler(self, name, handler, container = None):
+    def _createHandler(self, name, handler, container = None, discoverinfo = None):
         if name is None:
             matcher = ModuleAPICall.createMatcher(target = self.servicename)
         elif name.startswith('public/'):
@@ -114,7 +144,7 @@ class ModuleAPIHandler(RoutineContainer):
         return (matcher, event_handler)
     def registerAPIs(self, apidefs):
         '''
-        API def is in format: (name, handler, container)
+        API definition is in format: (name, handler, container, discoverinfo)
         if the handler is a generator, container should be specified
         handler should accept two arguments:
         def handler(name, params):
@@ -125,13 +155,18 @@ class ModuleAPIHandler(RoutineContainer):
         e.g.
         ('method1', self.method1),    # method1 directly returns the result
         ('method2', self.method2, self) # method2 is an async-api
+        
+        Use api() to automatically generate API definitions.
         '''
         handlers = [self._createHandler(*apidef) for apidef in apidefs]
         self.handler.registerAllHandlers(handlers)
-        self.docs.update((apidef[0], apidef[1].__doc__) for apidef in apidefs)
-    def registerAPI(self, name, handler, container = None):
+        self.discoverinfo.update((apidef[0], apidef[3] if len(apidef) > 3 else {'description':apidef[1].__doc__}) for apidef in apidefs)
+    def registerAPI(self, name, handler, container = None, discoverinfo = None):
         self.handler.registerHandler(*self._createHandler(name, handler, container))
-        self.docs[name] = handler.__doc__
+        if discoverinfo is None:
+            self.discoverinfo[name] = {'description': handler.__doc__}
+        else:
+            self.discoverinfo[name] = discoverinfo
     def unregisterAPI(self, name):
         if name.startswith('public/'):
             target = 'public'
@@ -142,9 +177,12 @@ class ModuleAPIHandler(RoutineContainer):
         removes = [m for m in self.handler.handlers.keys() if m.target == target and m.name == name]
         for m in removes:
             self.handler.unregisterHandler(m)
-    def discover(self):
-        'Discover API definitions'
-        return dict(self.docs)
+    def discover(self, details = False):
+        'Discover API definitions. Set details=true to show details'
+        if details and not (isinstance(details, str) and details.lower() == 'false'):
+            return copy.deepcopy(self.discoverinfo)
+        else:
+            return dict((k,v.get('description', '')) for k,v in self.discoverinfo.items())
     def reject(self, name, args):
         raise ValueError('%r is not defined in module %r' % (name, self.servicename))
     def start(self, asyncStart=False):

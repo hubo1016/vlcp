@@ -79,7 +79,9 @@ class OVSDBManager(Module):
                        api(self.getconnectionsbyendpointname, self.apiroutine),
                        api(self.getendpoints, self.apiroutine),
                        api(self.getallendpoints, self.apiroutine),
-                       api(self.getallbridges, self.apiroutine)
+                       api(self.getallbridges, self.apiroutine),
+                       api(self.getbridgeinfo, self.apiroutine),
+                       api(self.waitbridgeinfo, self.apiroutine)
                        )
         self._synchronized = False
     def _update_bridge(self, connection, protocol, bridge_uuid, vhost):
@@ -477,3 +479,33 @@ class OVSDBManager(Module):
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = list(self.endpoint_conns.keys())
+    def getbridgeinfo(self, datapathid, vhost = ''):
+        "Get (bridgename, systemid, bridge_uuid) tuple from bridge datapathid"
+        for m in self.getconnection(datapathid, vhost):
+            yield m
+        if self.apiroutine.retvalue is not None:
+            c = self.apiroutine.retvalue
+            bridges = self.managed_bridges.get(c)
+            if bridges is not None:
+                for _, dpid, n, buuid in bridges:
+                    if dpid == datapathid:
+                        self.apiroutine.retvalue = (n, c.ovsdb_systemid, buuid)
+                        raise StopIteration
+                self.apiroutine.retvalue = None
+            else:
+                self.apiroutine.retvalue = None
+    def waitbridgeinfo(self, datapathid, timeout = 30, vhost = ''):
+        "Wait for bridge with datapathid, and return (bridgename, systemid, bridge_uuid) tuple"
+        for m in self.getbridgeinfo(datapathid, vhost):
+            yield m
+        if self.apiroutine.retvalue is None:
+            for m in self.apiroutine.waitWithTimeout(timeout,
+                        OVSDBBridgeSetup.createMatcher(
+                                    OVSDBBridgeSetup.UP, datapathid,
+                                    None, None, None, None,
+                                    vhost)):
+                yield m
+            if self.apiroutine.timeout:
+                raise OVSDBBridgeNotAppearException('Bridge 0x%016x does not appear before timeout' % (datapathid,))
+            e = self.apiroutine.event
+            self.apiroutine.retvalue = (e.name, e.systemid, e.bridgeuuid)
