@@ -275,15 +275,15 @@ class OVSDBPortManager(Module):
         ignore_ports = set()
         for buuid, uo in bridge_update.items():
             # Bridge removals are ignored because we process OVSDBBridgeSetup event instead
+            if 'old' in uo:
+                oset = set((puuid for _, puuid in ovsdb.getlist(uo['old']['ports'])))
+                ignore_ports.update(oset)
             if 'new' in uo:
                 # If bridge contains this port is updated, we process the port update totally in bridge,
                 # so we ignore it later
                 nset = set((puuid for _, puuid in ovsdb.getlist(uo['new']['ports'])))
                 ignore_ports.update(nset)
-                if 'old' in uo:
-                    oset = set((puuid for _, puuid in ovsdb.getlist(uo['old']['ports'])))
-                    ignore_ports.update(oset)
-                working_routines.append(process_bridge(buuid, uo))
+                working_routines.append(process_bridge(buuid, uo))                
         def process_port(datapath_id, port_uuid, interfaces, remove_ids):
             ports = self.managed_ports.get((protocol.vhost, datapath_id))
             remove = []
@@ -313,17 +313,18 @@ class OVSDBPortManager(Module):
                     yield m
         for puuid, po in port_update.items():
             if puuid not in ignore_ports:
-                datapath_id = self.ports_uuids
-                # This port is modified
-                if 'new' in po:
-                    nset = set((iuuid for _, iuuid in ovsdb.getlist(po['new']['interfaces'])))
-                else:
-                    nset = set()                    
-                if 'old' in po:
-                    oset = set((iuuid for _, iuuid in ovsdb.getlist(po['old']['interfaces'])))
-                else:
-                    oset = set()
-                working_routines.append(process_port(datapath_id, puuid, nset - oset, oset - nset))
+                datapath_id = self.ports_uuids.get(puuid)
+                if datapath_id is not None:
+                    # This port is modified
+                    if 'new' in po:
+                        nset = set((iuuid for _, iuuid in ovsdb.getlist(po['new']['interfaces'])))
+                    else:
+                        nset = set()                    
+                    if 'old' in po:
+                        oset = set((iuuid for _, iuuid in ovsdb.getlist(po['old']['interfaces'])))
+                    else:
+                        oset = set()
+                    working_routines.append(process_port(datapath_id, puuid, nset - oset, oset - nset))
         if update:
             for r in working_routines:
                 self.apiroutine.subroutine(r)
