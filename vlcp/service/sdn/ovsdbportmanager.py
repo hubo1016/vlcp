@@ -326,10 +326,7 @@ class OVSDBPortManager(Module):
                 working_routines.append(process_port(datapath_id, puuid, nset - oset, oset - nset))
         if update:
             for r in working_routines:
-                try:
-                    self.apiroutine.subroutine(r, False)
-                except:
-                    pass
+                self.apiroutine.subroutine(r)
         else:
             try:
                 for m in self.apiroutine.executeAll(working_routines, None, ()):
