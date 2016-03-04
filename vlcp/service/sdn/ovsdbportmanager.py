@@ -121,7 +121,7 @@ class OVSDBPortManager(Module):
             self.apiroutine.retvalue = []
     def _remove_interface_id(self, connection, protocol, datapath_id, port):
         eid = port['id']
-        eid_list = self.managed_ids.get(protocol.vhost, eid)
+        eid_list = self.managed_ids.get((protocol.vhost, eid))
         for i in range(0, len(eid_list)):
             if eid_list[i][1]['_uuid'] == port['_uuid']:
                 del eid_list[i]
