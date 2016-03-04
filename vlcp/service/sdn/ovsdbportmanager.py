@@ -431,6 +431,7 @@ class OVSDBPortManager(Module):
             self.apiroutine.retvalue = [(dpid, p, vh) for (vh, dpid),v in self.managed_ports.items() if vh == vhost for _,p in v]
     def getportbyno(self, datapathid, portno, vhost = ''):
         "Return port with specified portno"
+        portno &= 0xffff
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = self._getportbyno(datapathid, portno, vhost)
@@ -445,6 +446,7 @@ class OVSDBPortManager(Module):
             return None
     def waitportbyno(self, datapathid, portno, timeout = 30, vhost = ''):
         "Wait for port with specified portno"
+        portno &= 0xffff
         for m in self._wait_for_sync():
             yield m
         def waitinner():
