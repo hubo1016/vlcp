@@ -379,7 +379,7 @@ class OVSDBPortManager(Module):
         for c in self.apiroutine.retvalue:
             self.apiroutine.subroutine(self._get_ports(c, c.protocol))
             matchers.append(OVSDBConnectionPortsSynchronized.createMatcher(c))
-        for m in self.apiroutine.waitForAll(matchers):
+        for m in self.apiroutine.waitForAll(*matchers):
             yield m
         self._synchronized = True
         for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):

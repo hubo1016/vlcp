@@ -181,6 +181,8 @@ class Redis(Protocol):
     _default_encoding = 'utf-8'
     # Use hiredis if possible
     _default_hiredis = True
+    _default_keepalivetime = 10
+    _default_keepalivetimeout = 3
     _logger = logging.getLogger(__name__ + '.Redis')
     def __init__(self):
         '''
@@ -429,3 +431,14 @@ class Redis(Protocol):
         for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_NOTCONNECTED,
                                                                   connection, connection.connmark, self)):
             yield m
+    def keepalive(self, connection):
+        try:
+            for m in connection.executeWithTimeout(self.keepalivetimeout, self.execute_command(connection, connection, 'PING')):
+                yield m
+            if connection.timeout:
+                for m in connection.reset(True):
+                    yield m
+        except Exception:
+            for m in connection.reset(True):
+                yield m
+            
