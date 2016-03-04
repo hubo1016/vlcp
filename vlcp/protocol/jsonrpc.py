@@ -103,7 +103,7 @@ class JsonRPC(Protocol):
         msgid = connection.xid
         msg = {'method': method, 'params': params, 'id': msgid}
         connection.xid += 1
-        if connection.xid > 0xffffffffffffffff:
+        if connection.xid > 0x7fffffff:
             # Skip xid = 0 for special response
             connection.xid = 1
         c = ConnectionWriteEvent(connection = connection, connmark = connection.connmark, data = json.dumps(msg).encode(self.encoding))

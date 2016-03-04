@@ -52,8 +52,8 @@ class Openflow(Protocol):
     _default_allowedversions = (common.OFP10_VERSION, common.OFP13_VERSION)
     _default_hellotimeout = 10
     _default_featurerequesttimeout = 30
-    _default_keepalivetime = 60
-    _default_echotimeout = 10
+    _default_keepalivetime = 10
+    _default_keepalivetimeout = 3
     _default_createqueue = True
     _default_buffersize = 65536
     _default_debugging = False
@@ -396,12 +396,12 @@ class Openflow(Protocol):
         echo = common.ofp_echo()
         echo.header.version = connection.openflowversion
         try:
-            for m in connection.executeWithTimeout(self.echotimeout, self.querywithreply(echo, connection, connection)):
+            for m in connection.executeWithTimeout(self.keepalivetimeout, self.querywithreply(echo, connection, connection)):
                 yield m
             if connection.timeout:
                 for m in connection.reset(True):
                     yield m
-        except:
+        except Exception:
             for m in connection.reset(True):
                 yield m
     

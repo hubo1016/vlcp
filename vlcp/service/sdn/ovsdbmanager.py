@@ -21,11 +21,13 @@ import socket
 class OVSDBConnectionSetup(Event):
     pass
 
-@withIndices('state', 'datapathid', 'systemid', 'name', 'connection', 'connmark', 'vhost')
+@withIndices('state', 'datapathid', 'systemid', 'name', 'connection', 'connmark', 'vhost', 'bridgeuuid')
 class OVSDBBridgeSetup(Event):
     UP = 'up'
     DOWN = 'down'
 
+class OVSDBBridgeNotAppearException(Exception):
+    pass
 
 def _get_endpoint(conn):
     raddr = getattr(conn, 'remoteaddr', None)
@@ -66,6 +68,9 @@ class OVSDBManager(Module):
                        api(self.getallconnections, self.apiroutine),
                        api(self.getbridges, self.apiroutine),
                        api(self.getbridge, self.apiroutine),
+                       api(self.getbridgebyuuid, self.apiroutine),
+                       api(self.waitbridge, self.apiroutine),
+                       api(self.waitbridgebyuuid, self.apiroutine),
                        api(self.getsystemids, self.apiroutine),
                        api(self.getallsystemids, self.apiroutine),
                        api(self.getconnectionbysystemid, self.apiroutine),
@@ -141,9 +146,9 @@ class OVSDBManager(Module):
                     yield m
                 if 'error' in self.apiroutine.jsonrpc_result:
                     raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(self.apiroutine.jsonrpc_result))
-            # Process inital bridges
+            # Process initial bridges
             for v in self.apiroutine.jsonrpc_result['Open_vSwitch'].values():
-                for _, buuid in v['new']['bridges'][1]:
+                for _, buuid in ovsdb.getlist(v['new']['bridges']):
                     self.apiroutine.subroutine(self._update_bridge(connection, protocol, buuid, vhost))
             # Wait for notify
             notification = JsonRPCNotificationEvent.createMatcher('update', connection, connection.connmark, _ismatch = lambda x: x.params[0] == 'ovsdb_manager_bridges_monitor')
@@ -157,11 +162,11 @@ class OVSDBManager(Module):
                         if 'old' not in v:
                             old = set()
                         else:
-                            old = set((oid for _, oid in v['old']['bridges'][1]))
+                            old = set((oid for _, oid in ovsdb.getlist(v['old']['bridges'])))
                         if 'new' not in v:
                             new = set()
                         else:
-                            new = set((oid for _, oid in v['new']['bridges'][1]))
+                            new = set((oid for _, oid in ovsdb.getlist(v['new']['bridges'])))
                         for buuid in (new - old):
                             self.apiroutine.subroutine(self._update_bridge(connection, protocol, buuid, vhost))
                         for buuid in (old - new):
@@ -174,7 +179,8 @@ class OVSDBManager(Module):
                                                                                bridges[i][2],
                                                                                connection,
                                                                                connection.connmark,
-                                                                               vhost))
+                                                                               vhost,
+                                                                               bridges[i][3]))
                                     del self.managed_conns[(vhost, bridges[i][1])]
                                     del bridges[i]
                                     break
@@ -218,9 +224,16 @@ class OVSDBManager(Module):
                     if bridges is not None:
                         del self.managed_systemids[(e.createby.vhost, conn.ovsdb_systemid)]
                         del self.managed_bridges[conn]
-                        for vhost, dpid, name, _ in bridges:
+                        for vhost, dpid, name, buuid in bridges:
                             del self.managed_conns[(vhost, dpid)]
-                            self.scheduler.emergesend(OVSDBBridgeSetup(OVSDBBridgeSetup.DOWN, dpid, conn.ovsdb_systemid, name, conn, conn.connmark, e.createby.vhost))
+                            self.scheduler.emergesend(OVSDBBridgeSetup(OVSDBBridgeSetup.DOWN,
+                                                                       dpid,
+                                                                       conn.ovsdb_systemid,
+                                                                       name,
+                                                                       conn,
+                                                                       conn.connmark,
+                                                                       e.createby.vhost,
+                                                                       buuid))
                         econns = self.endpoint_conns.get(_get_endpoint(conn))
                         if econns is not None:
                             try:
@@ -232,9 +245,16 @@ class OVSDBManager(Module):
                 c._ovsdb_manager_get_bridges.close()
                 bridges = self.managed_bridges.get(c)
                 if bridges is not None:
-                    for vhost, dpid, name, _ in bridges:
+                    for vhost, dpid, name, buuid in bridges:
                         del self.managed_conns[(vhost, dpid)]
-                        self.scheduler.emergesend(OVSDBBridgeSetup(OVSDBBridgeSetup.DOWN, dpid, c.ovsdb_systemid, name, c, c.connmark, c.protocol.vhost))
+                        self.scheduler.emergesend(OVSDBBridgeSetup(OVSDBBridgeSetup.DOWN,
+                                                                   dpid, 
+                                                                   c.ovsdb_systemid, 
+                                                                   name, 
+                                                                   c, 
+                                                                   c.connmark, 
+                                                                   c.protocol.vhost,
+                                                                   buuid))
     def getconnection(self, datapathid, vhost = ''):
         "Get current connection of datapath"
         for m in self._wait_for_sync():
@@ -275,12 +295,12 @@ class OVSDBManager(Module):
         else:
             self.apiroutine.retvalue = list(k for k in self.managed_bridges.keys() if k.protocol.vhost == vhost)
     def getbridges(self, connection):
-        "Get all (dpid, name) pair on this connection"
+        "Get all (dpid, name, _uuid) tuple on this connection"
         for m in self._wait_for_sync():
             yield m
         bridges = self.managed_bridges.get(connection)
         if bridges is not None:
-            self.apiroutine.retvalue = [(dpid, name) for _, dpid, name, _ in bridges]
+            self.apiroutine.retvalue = [(dpid, name, buuid) for _, dpid, name, buuid in bridges]
         else:
             self.apiroutine.retvalue = None
     def getbridge(self, connection, name):
@@ -296,6 +316,64 @@ class OVSDBManager(Module):
             self.apiroutine.retvalue = None
         else:
             self.apiroutine.retvalue = None
+    def waitbridge(self, connection, name, timeout = 30):
+        "Wait for bridge with specified name appears and return the datapath-id"
+        bnames = self.bridgenames
+        if bnames is not None and name not in bnames:
+            raise OVSDBBridgeNotAppearException('Bridge ' + repr(name) + ' does not appear: it is not in the selected bridge names')
+        for m in self.getbridge(connection, name):
+            yield m
+        if self.apiroutine.retvalue is None:
+            bridge_setup = OVSDBBridgeSetup.createMatcher(OVSDBBridgeSetup.UP,
+                                                         None,
+                                                         None,
+                                                         name,
+                                                         connection
+                                                         )
+            conn_down = JsonRPCConnectionStateEvent.createMatcher(JsonRPCConnectionStateEvent.CONNECTION_DOWN,
+                                                                  connection,
+                                                                  connection.connmark)
+            for m in self.apiroutine.waitWithTimeout(timeout, bridge_setup, conn_down):
+                yield m
+            if self.apiroutine.timeout:
+                raise OVSDBBridgeNotAppearException('Bridge ' + repr(name) + ' does not appear')
+            elif self.matcher is conn_down:
+                raise ConnectionResetException('Connection is down before bridge ' + repr(name) + ' appears')
+            else:
+                self.apiroutine.retvalue = self.apiroutine.event.datapathid
+    def getbridgebyuuid(self, connection, uuid):
+        "Get datapath ID of bridge on this connection with specified _uuid"
+        for m in self._wait_for_sync():
+            yield m
+        bridges = self.managed_bridges.get(connection)
+        if bridges is not None:
+            for _, dpid, _, buuid in bridges:
+                if buuid == uuid:
+                    self.apiroutine.retvalue = dpid
+                    raise StopIteration
+            self.apiroutine.retvalue = None
+        else:
+            self.apiroutine.retvalue = None
+    def waitbridgebyuuid(self, connection, uuid, timeout = 30):
+        "Wait for bridge with specified _uuid appears and return the datapath-id"
+        for m in self.getbridgebyuuid(connection, uuid):
+            yield m
+        if self.apiroutine.retvalue is None:
+            bridge_setup = OVSDBBridgeSetup.createMatcher(state = OVSDBBridgeSetup.UP,
+                                                         connection = connection,
+                                                         bridgeuuid = uuid
+                                                         )
+            conn_down = JsonRPCConnectionStateEvent.createMatcher(JsonRPCConnectionStateEvent.CONNECTION_DOWN,
+                                                                  connection,
+                                                                  connection.connmark)
+            for m in self.apiroutine.waitWithTimeout(timeout, bridge_setup, conn_down):
+                yield m
+            if self.apiroutine.timeout:
+                raise OVSDBBridgeNotAppearException('Bridge ' + repr(uuid) + ' does not appear')
+            elif self.matcher is conn_down:
+                raise ConnectionResetException('Connection is down before bridge ' + repr(uuid) + ' appears')
+            else:
+                self.apiroutine.retvalue = self.apiroutine.event.datapathid
     def getsystemids(self, vhost = ''):
         "Get All system-ids"
         for m in self._wait_for_sync():

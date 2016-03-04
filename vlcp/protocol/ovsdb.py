@@ -12,8 +12,8 @@ from vlcp.event.connection import ConnectionResetException
 class OVSDB(JsonRPC):
     _default_defaultport = 6632
     _default_allowedrequests = ('echo',)
-    _default_keepalivetime = 60
-    _default_echotimeout = 10
+    _default_keepalivetime = 10
+    _default_keepalivetimeout = 3
     def _respond_echo(self, connection):
         try:
             request_matcher = JsonRPCRequestEvent.createMatcher('echo', connection)
@@ -35,11 +35,11 @@ class OVSDB(JsonRPC):
         connection.subroutine(self._respond_echo(connection))
     def keepalive(self, connection):
         try:
-            for m in connection.executeWithTimeout(self.echotimeout, self.querywithreply('echo', [], connection, connection)):
+            for m in connection.executeWithTimeout(self.keepalivetimeout, self.querywithreply('echo', [], connection, connection)):
                 yield m
             if connection.timeout:
                 for m in connection.reset(True):
                     yield m
-        except:
+        except Exception:
             for m in connection.reset(True):
                 yield m

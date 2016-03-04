@@ -116,3 +116,18 @@ def omap_getvalue(omap, key):
         if k == key:
             return v
     return None
+
+def getlist(oset):
+    if isinstance(oset, list) and oset[0] == "set":
+        return oset[1]
+    else:
+        return [oset]
+
+def getdict(omap):
+    return dict(omap[1])
+
+def getoptional(obj):
+    if obj == ["set", []]:
+        return None
+    else:
+        return obj
