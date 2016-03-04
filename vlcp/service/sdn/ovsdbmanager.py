@@ -346,7 +346,7 @@ class OVSDBManager(Module):
                 yield m
             if self.apiroutine.timeout:
                 raise OVSDBBridgeNotAppearException('Bridge ' + repr(name) + ' does not appear')
-            elif self.matcher is conn_down:
+            elif self.apiroutine.matcher is conn_down:
                 raise ConnectionResetException('Connection is down before bridge ' + repr(name) + ' appears')
             else:
                 self.apiroutine.retvalue = self.apiroutine.event.datapathid
@@ -379,7 +379,7 @@ class OVSDBManager(Module):
                 yield m
             if self.apiroutine.timeout:
                 raise OVSDBBridgeNotAppearException('Bridge ' + repr(uuid) + ' does not appear')
-            elif self.matcher is conn_down:
+            elif self.apiroutine.matcher is conn_down:
                 raise ConnectionResetException('Connection is down before bridge ' + repr(uuid) + ' appears')
             else:
                 self.apiroutine.retvalue = self.apiroutine.event.datapathid
