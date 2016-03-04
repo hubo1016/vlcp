@@ -67,6 +67,8 @@ class OVSDBPortManager(Module):
             method, params = ovsdb.transact('Open_vSwitch',
                                             ovsdb.wait('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
                                                        ["ofport"], [{"ofport":ovsdb.oset()}], False, 5),
+                                            ovsdb.wait('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
+                                                       ["ifindex"], [{"ifindex":ovsdb.oset()}], False, 5),
                                             ovsdb.select('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
                                                                          ["_uuid", "name", "ifindex", "ofport", "type", "external_ids"]))
             for m in protocol.querywithreply(method, params, connection, self.apiroutine):
@@ -75,6 +77,9 @@ class OVSDBPortManager(Module):
             if 'error' in r:
                 raise JsonRPCErrorResultException('Error while acquiring interface: ' + repr(r['error']))            
             r = self.apiroutine.jsonrpc_result[1]
+            if 'error' in r:
+                raise JsonRPCErrorResultException('Error while acquiring interface: ' + repr(r['error']))            
+            r = self.apiroutine.jsonrpc_result[2]
             if 'error' in r:
                 raise JsonRPCErrorResultException('Error while acquiring interface: ' + repr(r['error']))
             if not r['rows']:
@@ -117,7 +122,7 @@ class OVSDBPortManager(Module):
         eid = port['id']
         eid_list = self.managed_ids.get(protocol.vhost, eid)
         for i in range(0, len(eid_list)):
-            if eid_list[i][1]['_uuid'] == eid:
+            if eid_list[i][1]['_uuid'] == port['_uuid']:
                 del eid_list[i]
                 break
     def _remove_interface(self, connection, protocol, datapath_id, interface_uuid, port_uuid):
@@ -218,7 +223,7 @@ class OVSDBPortManager(Module):
                         method, params = ovsdb.transact('Open_vSwitch', ovsdb.select('Port',
                                                                                      [["_uuid", "==", ovsdb.uuid(puuid)]],
                                                                                      "interfaces"))
-                        for m in protocol.query(method, params, connection, self.apiroutine):
+                        for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                             yield m
                         r = self.apiroutine.retvalue.jsonrpc_result[0]
                         if 'error' in r:
