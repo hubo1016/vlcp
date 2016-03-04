@@ -319,7 +319,7 @@ class OVSDBManager(Module):
         "Get all (dpid, name, _uuid) tuple for all connections, optionally filtered by vhost"
         for m in self._wait_for_sync():
             yield m
-        if vhost is None:
+        if vhost is not None:
             self.apiroutine.retvalue = [(dpid, name, buuid)
                                         for c, bridges in self.managed_bridges.items()
                                         if c.protocol.vhost == vhost
