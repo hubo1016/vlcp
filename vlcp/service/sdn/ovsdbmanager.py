@@ -79,6 +79,7 @@ class OVSDBManager(Module):
                        api(self.getconnectionsbyendpointname, self.apiroutine),
                        api(self.getendpoints, self.apiroutine),
                        api(self.getallendpoints, self.apiroutine),
+                       api(self.getallbridges, self.apiroutine)
                        )
         self._synchronized = False
     def _update_bridge(self, connection, protocol, bridge_uuid, vhost):
@@ -312,6 +313,19 @@ class OVSDBManager(Module):
             self.apiroutine.retvalue = [(dpid, name, buuid) for _, dpid, name, buuid in bridges]
         else:
             self.apiroutine.retvalue = None
+    def getallbridges(self, vhost = None):
+        "Get all (dpid, name, _uuid) tuple for all connections, optionally filtered by vhost"
+        for m in self._wait_for_sync():
+            yield m
+        if vhost is None:
+            self.apiroutine.retvalue = [(dpid, name, buuid)
+                                        for c, bridges in self.managed_bridges.items()
+                                        if c.protocol.vhost == vhost
+                                        for dpid, name, buuid in bridges]
+        else:
+            self.apiroutine.retvalue = [(dpid, name, buuid)
+                                        for c, bridges in self.managed_bridges.items()
+                                        for dpid, name, buuid in bridges]
     def getbridge(self, connection, name):
         "Get datapath ID on this connection with specified name"
         for m in self._wait_for_sync():
