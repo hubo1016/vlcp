@@ -222,7 +222,7 @@ class OVSDBPortManager(Module):
                     try:
                         method, params = ovsdb.transact('Open_vSwitch', ovsdb.select('Port',
                                                                                      [["_uuid", "==", ovsdb.uuid(puuid)]],
-                                                                                     "interfaces"))
+                                                                                     ["interfaces"]))
                         for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                             yield m
                         r = self.apiroutine.jsonrpc_result[0]
