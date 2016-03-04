@@ -62,7 +62,7 @@ def create_discover_info(func):
     else:
         haskwargs = False
     # Remove argument env
-    arguments = code.co_varnames[1:code.co_argcount]
+    arguments = code.co_varnames[0:code.co_argcount]
     if hasattr(func, '__self__') and func.__self__:
         # First argument is self, remove an extra argument
         arguments=arguments[1:]
