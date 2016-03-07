@@ -34,7 +34,7 @@ class WebAPIHandler(HttpHandler):
                 m['content-type'] = _str(env.headerdict[b'content-type'])
                 if m.get_content_type() == 'application/json':
                     charset = m.get_content_charset('utf-8')
-                    for m in env.inputstream.read():
+                    for m in env.inputstream.read(self):
                         yield m
                     params = json.loads(self.data, charset)
         if parent.allowtargets is not None:
