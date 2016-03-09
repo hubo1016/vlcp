@@ -1381,11 +1381,11 @@ ofp_bucket = nstruct(
     (uint16, 'weight'),               
 #                                    /* Relative weight of bucket.  Only
 #                                       defined for select groups. */
-    (uint32, 'watch_port'),
+    (ofp_port_no, 'watch_port'),
 #                                    /* Port whose state affects whether this
 #                                       bucket is live.  Only required for fast
 #                                       failover groups. */
-    (uint32, 'watch_group'),
+    (ofp_group, 'watch_group'),
 #                                    /* Group whose state affects whether this
 #                                       bucket is live.  Only required for fast
 #                                       failover groups. */
@@ -1397,6 +1397,7 @@ ofp_bucket = nstruct(
 #                                            of the bucket. */
     size = sizefromlen(65536, 'len'),
     prepack = packsize('len'),
+    init = lambda x: (packvalue(OFPP_ANY, 'watch_port')(x), packvalue(OFPG_ANY, 'watch_group')(x)),
     name = 'ofp_bucket'
 )
 
