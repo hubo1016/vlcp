@@ -245,13 +245,13 @@ class Openflow(Protocol):
         replydict = {}
         replymessages = []
         conndown = self.statematcher(connection)
-        firsterror = None
+        firsterror = [None]
         def callback(event, matcher):
             if matcher is conndown:
                 raise OpenflowProtocolException('Connection is down before reply received')
             msg = event.message
-            if event.iserror and not firsterror:
-                firsterror = msg
+            if event.iserror and not firsterror[0]:
+                firsterror[0] = msg
             replydict.setdefault(matcher, []).append(msg)
             replymessages.append(msg)
         def batchprocess():
