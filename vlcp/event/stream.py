@@ -225,6 +225,8 @@ class Stream(BaseStream):
                 self.writebuffersize += len(data)
             else:
                 data = data[0:0].join(self.writebuffer) + data
+                if not data:
+                    split = False
                 del self.writebuffer[:]
                 self.writebuffersize = 0
                 if split:
