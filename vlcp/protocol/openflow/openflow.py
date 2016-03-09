@@ -268,9 +268,9 @@ class Openflow(Protocol):
             yield m
         container.openflow_reply = replymessages
         container.openflow_replydict = dict((replymatchers[k],v) for k,v in replydict.items())
-        if firsterror and raiseonerror:
+        if firsterror[0] and raiseonerror:
             raise OpenflowErrorResultException('One or more error message is returned from a batch process, the first is: '
-                                               + repr(dump(firsterror)))
+                                               + repr(dump(firsterror[0])))
     def init(self, connection):
         for m in Protocol.init(self, connection):
             yield m
