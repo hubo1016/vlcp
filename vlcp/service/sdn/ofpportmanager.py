@@ -170,7 +170,11 @@ class OpenflowPortManager(Module):
         "Return all ports of a specifed datapath"
         for m in self._wait_for_sync():
             yield m
-        self.apiroutine.retvalue = list(self.managed_ports.get((vhost, datapathid)).values())
+        r = self.managed_ports.get((vhost, datapathid))
+        if r is None:
+            self.apiroutine.retvalue = None
+        else:
+            self.apiroutine.retvalue = list(r.values())
     def getallports(self, vhost = None):
         "Return all (datapathid, port, vhost) tuples, optionally filterd by vhost"
         for m in self._wait_for_sync():
