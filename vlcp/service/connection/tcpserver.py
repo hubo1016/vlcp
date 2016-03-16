@@ -6,17 +6,19 @@ Created on 2015/10/19
 from vlcp.server.module import Module, api
 from vlcp.event import TcpServer
 from vlcp.event.runnable import RoutineContainer
+from vlcp.event.connection import Client
 
 class TcpServerBase(Module):
     '''
     Generic tcp server on specified URLs, vHosts are supported.
     '''
-    _default_url = 'ltcp:///'
+    _default_url = 'tcp:///'
     _default_connmanage = False
+    _default_client = False
     service = True
     def _createprotocol(self, config):
         return self._protocolclass()
-    def _createServers(self, config, vhostname, defaultconfig = {}, key = None, certificate = None, ca_certs = None, exists = {}):
+    def _createServers(self, config, vhostname, defaultconfig = {}, key = None, certificate = None, ca_certs = None, exists = {}, client = False):
         urls = list(getattr(config, 'urls', []))
         if hasattr(config, 'url') and config.url and config.url.strip():
             urls.append(config.url.strip())
@@ -26,6 +28,7 @@ class TcpServerBase(Module):
         key = getattr(config, 'key', key)
         certificate = getattr(config, 'certificate', certificate)
         ca_certs = getattr(config, 'ca_certs', ca_certs)
+        client = getattr(config, 'client', client)
         if urls:
             defaultProtocol = self._createprotocol(config)
             if self.connmanage:
@@ -51,11 +54,19 @@ class TcpServerBase(Module):
                 if (vhostname, url) in exists:
                     exists.remove((vhostname, url))
                 else:
-                    self.connections.append(TcpServer(url, defaultProtocol, self.scheduler,
+                    if client:
+                        self.connections.append(self._client_class(config, defaultProtocol, vhostname)(url, defaultProtocol, self.scheduler,
+                                                       key, certificate, ca_certs, getattr(config, 'bindaddress', None)))
+                    else:
+                        self.connections.append(self._server_class(config, defaultProtocol, vhostname)(url, defaultProtocol, self.scheduler,
                                                       key, certificate, ca_certs))
         if hasattr(config, 'vhost'):
             for k,v in config.vhost.items():
-                self._createServers(v, k, settings, key, certificate, ca_certs, exists)
+                self._createServers(v, k, settings, key, certificate, ca_certs, exists, client)
+    def _client_class(self, config, protocol, vhost):
+        return Client
+    def _server_class(self, config, protocol, vhost):
+        return TcpServer
     def __init__(self, server, protocolclass):
         Module.__init__(self, server)
         self._protocolclass = protocolclass

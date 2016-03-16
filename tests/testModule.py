@@ -360,7 +360,7 @@ class Test(unittest.TestCase):
         s.serve()
         print(repr(apiResults))
         self.assertEqual(apiResults, ['version1', 3, 'test', (3, 'version1'),
-                                      {'method1':'Run method1', 'method2':'Run method2', 'method3':'Run method3', 'method4': 'Run method4', 'discover':'Discover API definitions'},
+                                      {'method1':'Run method1', 'method2':'Run method2', 'method3':'Run method3', 'method4': 'Run method4', 'discover':'Discover API definitions. Set details=true to show details'},
                                       'version2', (3, 'version1'), (3, 'version2'), 'version3', (3, 'version3'), True])
 
 

@@ -16,6 +16,7 @@ from email.message import Message
 import json
 import ast
 from namedstruct import NamedStruct, dump
+from vlcp.utils.jsonencoder import encode_default, decode_object
 
 def _str(b, encoding = 'ascii'):
     if isinstance(b, str):
@@ -38,7 +39,7 @@ class WebAPIHandler(HttpHandler):
                     charset = m.get_content_charset('utf-8')
                     for m in env.inputstream.read(self):
                         yield m
-                    params = json.loads(self.data, charset)
+                    params = json.loads(self.data, charset, object_hook=decode_object)
         elif parent.typeextension:
             for k in params.keys():
                 v = params[k]
@@ -119,4 +120,7 @@ class WebAPI(Module):
                 else:
                     return repr(obj)
         else:
-            return repr(obj)
+            try:
+                return encode_default(obj)
+            except Exception:
+                return repr(obj)

@@ -34,14 +34,17 @@ class RedisClientBase(Configurable):
     _default_url = 'tcp://localhost/'
     _default_timeout = 30
     _default_db = 0
-    def __init__(self, conn = None, parent = None):
+    def __init__(self, conn = None, parent = None, protocol = None):
         Configurable.__init__(self)
         self._defaultconn = conn
         self._parent = parent
-        if parent:
-            self._protocol = parent._protocol
+        if protocol:
+            self._protocol = protocol
         else:
-            self._protocol = Redis()
+            if parent:
+                self._protocol = parent._protocol
+            else:
+                self._protocol = Redis()
     def _get_connection(self, container, connection):
         if not connection.connected:
             for m in container.waitWithTimeout(self.timeout, self._protocol.statematcher(connection, RedisConnectionStateEvent.CONNECTION_UP, False)):
@@ -160,15 +163,19 @@ class RedisClientBase(Configurable):
                     yield m
     
 class RedisClient(RedisClientBase):
-    def __init__(self, url = None, db = None):
+    def __init__(self, url = None, db = None, protocol = None):
         '''
-        Redis client to communicate with Redis server. Several connections are created for different functions. 
+        Redis client to communicate with Redis server. Several connections are created for different functions.
+         
         :param url: connectiom url, e.g. 'tcp://localhost/'.
-        If not specified, redisclient.url in configuration is used
+                    If not specified, redisclient.url in configuration is used
+        
         :param db: default database. If not specified, redisclient.db in configuration is used,
-        which defaults to 0.
+                   which defaults to 0.
+        
+        :param protocol: use a pre-created protocol instance instead of creating a new instance
         '''
-        RedisClientBase.__init__(self, None)
+        RedisClientBase.__init__(self, None, protocol)
         if url:
             self.url = url
         if db is not None:
@@ -200,11 +207,14 @@ class RedisClient(RedisClientBase):
             yield m
     def get_connection(self, container):
         '''
-        Get a exclusive connection, useful for blocked commands and transactions.
+        Get an exclusive connection, useful for blocked commands and transactions.
+        
         You must call release or shutdown (not recommanded) to return the connection after use.
+        
         :param container: routine container
+        
         :returns: RedisClientBase object, with some commands same as RedisClient like execute_command,
-        batch_execute, register_script etc.
+                  batch_execute, register_script etc.
         '''
         if self._connpool:
             conn = self._connpool.pop()
@@ -303,7 +313,7 @@ class RedisClient(RedisClientBase):
             yield m
     def shutdown(self, container):
         '''
-        Shutdown all connections. Exclusive connections created by get_connection will shutdown after relase()
+        Shutdown all connections. Exclusive connections created by get_connection will shutdown after release()
         '''
         p = self._connpool
         self._connpool = []
@@ -336,3 +346,21 @@ class RedisClient(RedisClientBase):
         to make RedisClient shutdown on module unloading.
         '''
         return self._RedisConnection(self, container)
+    def subscribe_state_matcher(self, container, connected = True):
+        '''
+        Return a matcher to match the subscribe connection status.
+        
+        :param container: a routine container. NOTICE: this method is not a routine.
+        
+        :param connected: if True, the matcher matches connection up. If False, the matcher matches
+               connection down.
+        
+        :returns: an event matcher.
+        '''
+        if not self._subscribeconn:
+            self._subscribeconn = self._create_client(container)
+        return RedisConnectionStateEvent.createMatcher(
+                    RedisConnectionStateEvent.CONNECTION_UP if connected else RedisConnectionStateEvent.CONNECTION_DOWN,
+                    self._subscribeconn
+                    )
+        

@@ -1,0 +1,253 @@
+'''
+Created on 2016/3/8
+
+:author: hubo
+'''
+from vlcp.config import defaultconfig
+from vlcp.service.connection.tcpserver import TcpServerBase
+from vlcp.protocol.redis import Redis
+from vlcp.server.module import api
+from vlcp.utils.redisclient import RedisClient
+from vlcp.event.runnable import RoutineContainer
+import pickle
+from _ctypes import set_conversion_mode
+try:
+    import cPickle
+except ImportError:
+    pass
+import json
+from vlcp.utils.jsonencoder import encode_default, decode_object
+import itertools
+import random
+
+class RedisWriteConflictException(Exception):
+    pass
+
+@defaultconfig
+class RedisDB(TcpServerBase):
+    '''
+    Create redis clients to connect to redis server
+    '''
+    _default_url = None
+    _default_db = None
+    _default_serialize = 'json'
+    _default_pickleversion = 'default'
+    _default_cpickle = True
+    _default_maxretry = 16
+    _default_maxspin = 10
+    client = True
+    def __init__(self, server):
+        TcpServerBase.__init__(self, server, Redis)
+        self._redis_clients = {}
+        self.apiroutine = RoutineContainer(self.scheduler)
+        if self.serialize == 'pickle' or self.serialize == 'cpickle' or self.serialize == 'cPickle':
+            if self.serialize == 'pickle':
+                if not self.cpickle:
+                    p = pickle
+                else:
+                    p = cPickle
+            else:
+                p = cPickle
+            if self.pickleversion is None or self.pickleversion == 'default':
+                pickleversion = None
+            elif self.pickleversion == 'highest':
+                pickleversion = p.HIGHEST_PROTOCOL
+            else:
+                pickleversion = self.pickleversion
+            def _encode(obj):
+                return p.dumps(obj, pickleversion)
+            self._encode = _encode
+            def _decode(data):
+                return p.loads(data)
+            self._decode = _decode
+        else:
+            def _encode(obj):
+                return json.dumps(obj, default=encode_default)
+            self._encode = _encode
+            def _decode(data):
+                return json.loads(data, object_hook=decode_object)
+            self._decode = _decode
+        self.appendAPI(api(self.getclient),
+                       api(self.get, self.apiroutine),
+                       api(self.set, self.apiroutine),
+                       api(self.delete, self.apiroutine),
+                       api(self.mget, self.apiroutine),
+                       api(self.mset, self.apiroutine),
+                       api(self.update, self.apiroutine),
+                       api(self.mupdate, self.apiroutine))
+    def _client_class(self, config, protocol, vhost):
+        db = getattr(config, 'db', None)
+        def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):
+            c = RedisClient(url, db, protocol)
+            if key:
+                c.key = key
+            if certificate:
+                c.certificate = certificate
+            if ca_certs:
+                c.ca_certs = ca_certs
+            self._redis_clients[vhost] = c
+            return c.make_connobj(self.apiroutine)
+        return _create_client
+    def getclient(self, vhost = ''):
+        return self._redis_clients.get(vhost)
+    def get(self, key, timeout = None, vhost = ''):
+        "Get value from key"
+        c = self.getclient(vhost)
+        if c is None:
+            raise ValueError('vhost ' + repr(vhost) + ' is not defined')
+        if timeout is not None:
+            if timeout <= 0:
+                for m in c.batch_execute(self.apiroutine, ('MULTI',), 
+                                                        ('GET', key),
+                                                        ('DEL', key),
+                                                        ('EXEC',)):
+                    yield m
+            else:
+                for m in c.batch_execute(self.apiroutine, ('MULTI',),
+                                                        ('GET', key),
+                                                        ('PEXPIRE', key, int(timeout * 1000)),
+                                                        ('EXEC',)):
+                    yield m
+            r = self.apiroutine.retvalue[3][0]
+            if isinstance(r, Exception):
+                raise r
+            self.apiroutine.retvalue = self._decode(r)
+        else:
+            for m in c.execute_command(self.apiroutine, 'GET', key):
+                yield m
+            self.apiroutine.retvalue = self._decode(self.apiroutine.retvalue)
+    def set(self, key, value, timeout = None, vhost = ''):
+        "Set value to key, with an optional timeout"
+        c = self.getclient(vhost)
+        if timeout is None:
+            for m in c.execute_command(self.apiroutine, 'SET', key, self._encode(value)):
+                yield m
+        elif timeout <= 0:
+            for m in c.execute_command(self.apiroutine, 'DEL', key):
+                yield m
+        else:
+            for m in c.execute_command(self.apiroutine, 'PSETEX', key, int(timeout * 1000), self._encode(value)):
+                yield m
+        self.apiroutine.retvalue = None
+    def delete(self, key, vhost = ''):
+        c = self.getclient(vhost)
+        for m in c.execute_command(self.apiroutine, 'DEL', key):
+            yield m
+        self.apiroutine.retvalue = None
+    def mget(self, keys, vhost = ''):
+        "Get multiple values from multiple keys"
+        c = self.getclient(vhost)
+        for m in c.execute_command(self.apiroutine, 'MGET', *keys):
+            yield m
+        self.apiroutine.retvalue = [self._decode(r) for r in self.apiroutine.retvalue]
+    def mset(self, kvpairs, timeout = None, vhost = ''):
+        "Set multiple values on multiple keys"
+        c = self.getclient(vhost)
+        d = kvpairs
+        if hasattr(d, 'items'):
+            d = d.items()
+        if timeout is not None and timeout <= 0:
+            for m in c.execute_command(self.apiroutine, 'DEL', *[k for k,_ in d]):
+                yield m
+        else:
+            if timeout is None:
+                for m in c.execute_command(self.apiroutine, 'MSET', *list(itertools.chain(d))):
+                    yield m
+            else:
+                # Use a transact
+                ptimeout = int(timeout * 1000)
+                for m in c.batch_execute(self.apiroutine, ('MULTI',),
+                                                        ('MSET',) + tuple(itertools.chain(d)),
+                                                        *[('PEXPIRE', k, ptimeout) for k, _ in d],
+                                                        ('EXEC',)
+                                                        ):
+                    yield m
+        self.apiroutine.retvalue = None
+    def update(self, key, updater, timeout = None, vhost = ''):
+        '''
+        Update in-place with a custom function
+        
+        :param key: key to update
+        
+        :param updater: func(k,v), should return a new value to update, or return None to delete. The function
+                        may be call more than once.
+        
+        :param timeout: new timeout
+        
+        :returns: the updated value, or None if deleted
+        '''
+        c = self.getclient(vhost)
+        for m in c.get_connection(self.apiroutine):
+            yield m
+        newconn = self.apiroutine.retvalue
+        spin = self.maxspin
+        with newconn.context(self.apiroutine):
+            for i in range(0, self.maxretry):
+                for m in newconn.execute_command(self.apiroutine, 'WATCH', key):
+                    yield m
+                for m in newconn.execute_command(self.apiroutine, 'GET', key):
+                    yield m
+                v = self.apiroutine.retvalue
+                v = updater(v)
+                if timeout is None:
+                    set_command = ('SET', key, v)
+                elif timeout <= 0:
+                    set_command = ('DEL', key)
+                else:
+                    set_command = ('PSETEX', key, int(timeout * 1000), v)
+                for m in newconn.batch_execute(self.apiroutine, ('MULTI',),
+                                                                set_command,
+                                                                ('EXEC',)):
+                    yield m
+                r = self.apiroutine.retvalue[2]
+                if r is not None:
+                    # Succeeded
+                    self.apiroutine.retvalue = v
+                    raise StopIteration
+                else:
+                    # Watch keys changed, retry
+                    if i > spin:
+                        # Wait for a random small while
+                        for m in self.apiroutine.waitWithTimeout(random.randrange(0, 1<<(i-spin)) * 0.05):
+                            yield m
+            raise RedisWriteConflictException('Transaction still fails after many retries: key=' + repr(key))
+                
+    def mupdate(self, keys, updater, timeout = None, vhost = ''):
+        "Update multiple keys in-place with a custom function, see update"
+        c = self.getclient(vhost)
+        for m in c.get_connection(self.apiroutine):
+            yield m
+        newconn = self.apiroutine.retvalue
+        spin = self.maxspin
+        with newconn.context(self.apiroutine):
+            for i in range(0, self.maxretry):
+                for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
+                    yield m
+                for m in newconn.execute_command(self.apiroutine, 'MGET', *keys):
+                    yield m
+                values = self.apiroutine.retvalue
+                values = [updater(v) for v in values]
+                if timeout is None:
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values))),)
+                elif timeout <= 0:
+                    set_commands = (('DEL',) + tuple(keys),)
+                else:
+                    ptimeout = int(timeout * 1000)
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values))),) \
+                                + tuple(('PEXPIRE', k, ptimeout) for k in keys)
+                for m in newconn.batch_execute(self.apiroutine, ('MULTI',),
+                                                                *set_commands,
+                                                                ('EXEC',)):
+                    yield m
+                r = self.apiroutine.retvalue[-1]
+                if r is not None:
+                    # Succeeded
+                    self.apiroutine.retvalue = values
+                    raise StopIteration
+                else:
+                    # Watch keys changed, retry
+                    if i > spin:
+                        # Wait for a random small while
+                        for m in self.apiroutine.waitWithTimeout(random.randrange(0, 1<<(i-spin)) * 0.05):
+                            yield m
+            raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))

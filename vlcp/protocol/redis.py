@@ -197,9 +197,9 @@ class Redis(Protocol):
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority - 1, RedisConnectionStateEvent.createMatcher(connection = connection), ('connstate', connection)))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority, RedisResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
+                self.messagepriority + 1, RedisResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority, RedisSubscribeEvent.createMatcher(connection = connection), ('subscribe', connection), self.messagequeuesize))
+                self.messagepriority + 1, RedisSubscribeEvent.createMatcher(connection = connection), ('subscribe', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, RedisSubscribeMessageEvent.createMatcher(connection = connection), ('message', connection), self.messagequeuesize))
         connection.redis_subscribe = False
@@ -389,9 +389,12 @@ class Redis(Protocol):
         for m in self.send_batch(connection, container, *cmds):
             yield m
         matchers = container.retvalue
+        sm = self.statematcher(connection)
         retvalue = []
         for m in matchers:
-            yield (m,)
+            yield (m, sm)
+            if connection.matcher is sm:
+                raise RedisProtocolException('Redis connection down before response received')
             retvalue.append(container.event.result)
         container.retvalue = retvalue
     def parse(self, connection, data, laststart):

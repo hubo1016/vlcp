@@ -619,7 +619,7 @@ class WebClient(Configurable):
         '''
         return self.open(container, Request(url, data, method, headers), *args, **kwargs)
     def manualredirect(self, container, exc, data, datagen = None):
-        "If data is a stream, it cannot be used again on redirect. Cache the ManualRedirectException and call a manual redirect with a new stream."
+        "If data is a stream, it cannot be used again on redirect. Catch the ManualRedirectException and call a manual redirect with a new stream."
         request = exc.request
         request.data = data
         return self.open(container, request, datagen = datagen, **exc.kwargs)

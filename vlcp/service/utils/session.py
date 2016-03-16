@@ -80,7 +80,7 @@ class Session(Module):
             m.update(opts)
             self.apiroutine.retvalue = (sh, [m])
     def get(self, sessionid, refresh = True):
-        for m in callAPI(self.apiroutine, 'knowledge', 'get', {'key': __name__ + '.' + sessionid, 'refresh': refresh}):
+        for m in callAPI(self.apiroutine, 'knowledge', 'get', {'key': __name__ + '.' + sessionid, 'timeout': self.timeout if refresh else None}):
             yield m
     def create(self):
         sid = uuid4().hex
