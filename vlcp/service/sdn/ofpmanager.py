@@ -118,6 +118,9 @@ class OpenflowManager(Module):
                             conns.remove(e.connection)
                         except ValueError:
                             pass
+                        else:
+                            remove.append(e.connection)
+                        
                         if not conns:
                             del self.managed_conns[(e.createby.vhost, e.datapathid)]
                         # Also delete from endpoint_conns
