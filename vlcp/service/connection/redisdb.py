@@ -63,13 +63,16 @@ class RedisDB(TcpServerBase):
             self._decode = _decode
         else:
             def _encode(obj):
-                return json.dumps(obj, default=encode_default)
+                return json.dumps(obj, default=encode_default).encode('utf-8')
             self._encode = _encode
             def _decode(data):
                 if data is None:
                     return None
-                else:
-                    return json.loads(data, object_hook=decode_object)
+                elif isinstance(data, Exception):
+                    raise data
+                elif not isinstance(data, str) and isinstance(data, bytes):
+                    data = data.decode('utf-8')
+                return json.loads(data, object_hook=decode_object)
             self._decode = _decode
         self.appendAPI(api(self.getclient),
                        api(self.get, self.apiroutine),
