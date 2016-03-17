@@ -250,7 +250,7 @@ class RedisDB(TcpServerBase):
                     ptimeout = int(timeout * 1000)
                     set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),) \
                                 + tuple(('PEXPIRE', k, ptimeout) for k in keys)
-                for m in newconn.batch_execute(self.apiroutine, ((('MULTI',),) + \
+                for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                                 set_commands + \
                                                                 ('EXEC',))):
                     yield m

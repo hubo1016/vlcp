@@ -74,12 +74,12 @@ class RedisClientBase(Configurable):
                         yield m
                     for m in container.waitWithTimeout(1, self._protocol.statematcher(connection)):
                         yield m
-                except:
+                except Exception:
                     for m in connection.shutdown():
                         yield m
                 else:
                     if container.timeout:
-                        for m in connection.shutdown():
+                        for m in connection.shutdown(True):
                             yield m
             else:
                 for m in connection.shutdown():
@@ -346,8 +346,7 @@ class RedisClient(RedisClientBase):
             p.append(self._subscribeconn)
             self._subscribeconn = None
         for o in p:
-            for m in self._shutdown_conn(container, o):
-                yield m
+            container.subroutine(self._shutdown_conn(container, o))
     class _RedisConnection(object):
         def __init__(self, client, container):
             self._client = client
