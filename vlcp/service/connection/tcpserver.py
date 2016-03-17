@@ -70,9 +70,9 @@ class TcpServerBase(Module):
     def __init__(self, server, protocolclass):
         Module.__init__(self, server)
         self._protocolclass = protocolclass
-        self._createServers(self, '')
         self.apiroutine = RoutineContainer(self.scheduler)
         self.managed_connections = set()
+        self._createServers(self, '')
         self.createAPI(api(self.getservers),
                        api(self.stoplisten, self.apiroutine),
                        api(self.startlisten, self.apiroutine),
