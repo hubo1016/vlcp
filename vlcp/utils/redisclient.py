@@ -360,6 +360,8 @@ class RedisClient(RedisClientBase):
                 finally:
                     self._client = None
                     self._container = None
+            if False:
+                yield
     def make_connobj(self, container):
         '''
         Return an object to be used like a connection. Put the connection-like object in module.connections
