@@ -38,7 +38,6 @@ class RedisDB(TcpServerBase):
     def __init__(self, server):
         TcpServerBase.__init__(self, server, Redis)
         self._redis_clients = {}
-        self.apiroutine = RoutineContainer(self.scheduler)
         if self.serialize == 'pickle' or self.serialize == 'cpickle' or self.serialize == 'cPickle':
             if self.serialize == 'pickle':
                 if not self.cpickle:
