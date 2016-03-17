@@ -156,10 +156,11 @@ class RedisDB(TcpServerBase):
             else:
                 # Use a transact
                 ptimeout = int(timeout * 1000)
-                for m in c.batch_execute(self.apiroutine, ('MULTI',),
-                                                        ('MSET',) + tuple(itertools.chain(d)),
-                                                        *[('PEXPIRE', k, ptimeout) for k, _ in d],
-                                                        ('EXEC',)
+                
+                for m in c.batch_execute(self.apiroutine, *((('MULTI',),
+                                                             ('MSET',) + tuple(itertools.chain(d))) + \
+                                                            tuple(('PEXPIRE', k, ptimeout) for k, _ in d) + \
+                                                            (('EXEC',),))
                                                         ):
                     yield m
         self.apiroutine.retvalue = None
@@ -235,9 +236,9 @@ class RedisDB(TcpServerBase):
                     ptimeout = int(timeout * 1000)
                     set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values))),) \
                                 + tuple(('PEXPIRE', k, ptimeout) for k in keys)
-                for m in newconn.batch_execute(self.apiroutine, ('MULTI',),
-                                                                *set_commands,
-                                                                ('EXEC',)):
+                for m in newconn.batch_execute(self.apiroutine, ((('MULTI',),) + \
+                                                                set_commands + \
+                                                                ('EXEC',))):
                     yield m
                 r = self.apiroutine.retvalue[-1]
                 if r is not None:
