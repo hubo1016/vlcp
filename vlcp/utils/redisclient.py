@@ -175,7 +175,7 @@ class RedisClient(RedisClientBase):
         
         :param protocol: use a pre-created protocol instance instead of creating a new instance
         '''
-        RedisClientBase.__init__(self, None, protocol)
+        RedisClientBase.__init__(self, protocol=protocol)
         if url:
             self.url = url
         if db is not None:
