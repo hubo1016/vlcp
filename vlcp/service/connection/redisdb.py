@@ -56,14 +56,20 @@ class RedisDB(TcpServerBase):
                 return p.dumps(obj, pickleversion)
             self._encode = _encode
             def _decode(data):
-                return p.loads(data)
+                if data is None:
+                    return None
+                else:
+                    return p.loads(data)
             self._decode = _decode
         else:
             def _encode(obj):
                 return json.dumps(obj, default=encode_default)
             self._encode = _encode
             def _decode(data):
-                return json.loads(data, object_hook=decode_object)
+                if data is None:
+                    return None
+                else:
+                    return json.loads(data, object_hook=decode_object)
             self._decode = _decode
         self.appendAPI(api(self.getclient),
                        api(self.get, self.apiroutine),
