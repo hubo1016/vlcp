@@ -252,7 +252,7 @@ class RedisDB(TcpServerBase):
                                 + tuple(('PEXPIRE', k, ptimeout) for k in keys)
                 for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                                 set_commands + \
-                                                                ('EXEC',))):
+                                                                (('EXEC',),))):
                     yield m
                 r = self.apiroutine.retvalue[-1]
                 if r is not None:
