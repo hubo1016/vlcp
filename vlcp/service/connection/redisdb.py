@@ -17,6 +17,12 @@ except ImportError:
 import json
 from vlcp.utils.jsonencoder import encode_default, decode_object
 import itertools
+try:
+    from itertools import izip
+except:
+    def izip(*args, **kwargs):
+        return iter(zip(*args, **kwargs))
+
 import random
 
 class RedisWriteConflictException(Exception):
@@ -237,12 +243,12 @@ class RedisDB(TcpServerBase):
                 values = [updater(self._decode(v)) for v in values]
                 values_encoded = [self._encode(v) for v in values]
                 if timeout is None:
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values_encoded))),)
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),)
                 elif timeout <= 0:
                     set_commands = (('DEL',) + tuple(keys),)
                 else:
                     ptimeout = int(timeout * 1000)
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values_encoded))),) \
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),) \
                                 + tuple(('PEXPIRE', k, ptimeout) for k in keys)
                 for m in newconn.batch_execute(self.apiroutine, ((('MULTI',),) + \
                                                                 set_commands + \
