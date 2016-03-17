@@ -215,7 +215,7 @@ class Redis(Protocol):
             else:
                 return str(a).encode(encoding)
         def format_request(*args):
-            return b'*' + str(len(args)).encode('ascii') + '\r\n' + b''.join(itertools.chain.from_iterable((b'$',str(len(sa)).encode('ascii'),b'\r\n',sa,b'\r\n') for sa in (_bytes(a) for a in args)))
+            return b'*' + str(len(args)).encode('ascii') + b'\r\n' + b''.join(itertools.chain.from_iterable((b'$',str(len(sa)).encode('ascii'),b'\r\n',sa,b'\r\n') for sa in (_bytes(a) for a in args)))
         self._bytes = _bytes
         self.format_request = format_request
     def reconnect_init(self, connection):
