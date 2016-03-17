@@ -27,7 +27,7 @@ class RedisDB(TcpServerBase):
     '''
     Create redis clients to connect to redis server
     '''
-    _default_url = None
+    _default_url = 'tcp://localhost/'
     _default_db = None
     _default_serialize = 'json'
     _default_pickleversion = 'default'
