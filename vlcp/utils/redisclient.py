@@ -38,6 +38,7 @@ class RedisClientBase(Configurable):
         Configurable.__init__(self)
         self._defaultconn = conn
         self._parent = parent
+        self._lockconnmark = None
         if protocol:
             self._protocol = protocol
         else:
@@ -54,8 +55,16 @@ class RedisClientBase(Configurable):
     def _get_default_connection(self, container):
         if not self._defaultconn:
             raise IOError('Not connected to redis server')
+        if self._lockconnmark is not None:
+            if self._lockconnmark >= 0:
+                if not self._defaultconn.connected or self._defaultconn.connmark != self._lockconnmark:
+                    raise IOError('Disconnected from redis server; reconnected is not allowed in with scope')
+                else:
+                    raise StopIteration
         for m in self._get_connection(container, self._defaultconn):
             yield m
+        if self._lockconnmark is not None and self._lockconnmark < 0:
+            self._lockconnmark = self._defaultconn.connmark
     def _shutdown_conn(self, container, connection):
         if connection:
             if connection.connected:
@@ -94,14 +103,28 @@ class RedisClientBase(Configurable):
             for m in self._parent._release_conn(container, self._defaultconn):
                 yield m
     @contextmanager
-    def context(self, container):
+    def context(self, container, release = True, lockconn = True):
         '''
-        Use with statement to manage the connection, release the connection when leaving with scope
+        Use with statement to manage the connection
+        
+        :params release: if True(default), release the connection when leaving with scope
+        
+        :params lockconn: if True(default), do not allow reconnect during with scope;
+                execute commands on a disconnected connection raises Exceptions.
         '''
         try:
+            if lockconn:
+                if self._lockconnmark is None:
+                    # Lock next connmark
+                    self._lockconnmark = -1
+                    locked = True
             yield self
         finally:
-            container.subroutine(self.release(container))
+            if locked:
+                self._lockconnmark = None
+            self._lockconnmark = None
+            if release:
+                container.subroutine(self.release(container))
     @_conn
     def execute_command(self, container, *args):
         '''
@@ -223,9 +246,7 @@ class RedisClient(RedisClientBase):
             conn = self._create_client(container)
             for m in RedisClientBase._get_connection(self, container, conn):
                 yield m
-            for m in RedisClientBase._get_default_connection(self, container):
-                yield m
-            for m in self._protocol.send_command(self._defaultconn, container, 'SELECT', str(self.db)):
+            for m in self._protocol.send_command(conn, container, 'SELECT', str(self.db)):
                 yield m
             container.retvalue = RedisClientBase(conn, self)
     def _release_conn(self, container, connection):
