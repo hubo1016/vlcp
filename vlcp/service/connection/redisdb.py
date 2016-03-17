@@ -10,7 +10,6 @@ from vlcp.server.module import api
 from vlcp.utils.redisclient import RedisClient
 from vlcp.event.runnable import RoutineContainer
 import pickle
-from _ctypes import set_conversion_mode
 try:
     import cPickle
 except ImportError:
