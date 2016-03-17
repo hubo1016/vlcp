@@ -195,14 +195,14 @@ class RedisDB(TcpServerBase):
                     yield m
                 for m in newconn.execute_command(self.apiroutine, 'GET', key):
                     yield m
-                v = self.apiroutine.retvalue
+                v = self._decode(self.apiroutine.retvalue)
                 v = updater(v)
                 if timeout is None:
-                    set_command = ('SET', key, v)
+                    set_command = ('SET', key, self._encode(v))
                 elif timeout <= 0:
                     set_command = ('DEL', key)
                 else:
-                    set_command = ('PSETEX', key, int(timeout * 1000), v)
+                    set_command = ('PSETEX', key, int(timeout * 1000), self._encode(v))
                 for m in newconn.batch_execute(self.apiroutine, ('MULTI',),
                                                                 set_command,
                                                                 ('EXEC',)):
@@ -234,14 +234,15 @@ class RedisDB(TcpServerBase):
                 for m in newconn.execute_command(self.apiroutine, 'MGET', *keys):
                     yield m
                 values = self.apiroutine.retvalue
-                values = [updater(v) for v in values]
+                values = [updater(self._decode(v)) for v in values]
+                values_encoded = [self._encode(v) for v in values]
                 if timeout is None:
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values))),)
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values_encoded))),)
                 elif timeout <= 0:
                     set_commands = (('DEL',) + tuple(keys),)
                 else:
                     ptimeout = int(timeout * 1000)
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values))),) \
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(itertools.izip(keys, values_encoded))),) \
                                 + tuple(('PEXPIRE', k, ptimeout) for k in keys)
                 for m in newconn.batch_execute(self.apiroutine, ((('MULTI',),) + \
                                                                 set_commands + \
