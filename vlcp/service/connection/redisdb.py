@@ -36,8 +36,8 @@ class RedisDB(TcpServerBase):
     _default_maxspin = 10
     client = True
     def __init__(self, server):
-        TcpServerBase.__init__(self, server, Redis)
         self._redis_clients = {}
+        TcpServerBase.__init__(self, server, Redis)
         if self.serialize == 'pickle' or self.serialize == 'cpickle' or self.serialize == 'cPickle':
             if self.serialize == 'pickle':
                 if not self.cpickle:
