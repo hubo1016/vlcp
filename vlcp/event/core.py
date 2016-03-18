@@ -53,6 +53,10 @@ class TimerEvent(Event):
 class SyscallReturnEvent(Event):
     pass
 
+class InterruptedBySignalException(Exception):
+    "In Python 3.x, we must raise an exception to interrupt the polling, or it will be automatically retried"
+    pass
+
 class Scheduler(object):
     '''
     Event-driven scheduler
@@ -366,7 +370,8 @@ class Scheduler(object):
         self.syscallmatcher = SyscallReturnEvent.createMatcher()
         return self.syscallmatcher
     def _quitsignal(self, signum, frame):
-        self.quitsignal = signum        
+        self.quitsignal = signum
+        raise InterruptedBySignalException()
     def main(self, installsignal = True, sendinit = True):
         '''
         Start main loop

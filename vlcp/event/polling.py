@@ -9,6 +9,7 @@ from vlcp.event import PollEvent, SystemControlLowPriorityEvent
 import errno
 import time
 import sys
+from vlcp.event.core import InterruptedBySignalException
 
 if hasattr(select, 'epoll'):
     class EPollPolling(object):
@@ -93,6 +94,8 @@ if hasattr(select, 'epoll'):
                 if not ret and generateFree:
                     ret.append(SystemControlLowPriorityEvent(SystemControlLowPriorityEvent.FREE))
                 return (ret, False)
+            except InterruptedBySignalException:
+                return ([], False)
             except IOError as exc:
                 if exc.args[0] == errno.EINTR:
                     return ([], False)
@@ -174,6 +177,8 @@ class SelectPolling(object):
             if not ret and generateFree:
                 ret.append(SystemControlLowPriorityEvent(SystemControlLowPriorityEvent.FREE))
             return (ret, False)
+        except InterruptedBySignalException:
+            return ([], False)
         except IOError as exc:
             if exc.args[0] == errno.EINTR:
                 return ([], False)
