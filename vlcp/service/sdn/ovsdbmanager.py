@@ -223,7 +223,7 @@ class OVSDBManager(Module):
             if vb is None or c.protocol.vhost in vb:
                 c._ovsdb_manager_get_bridges = self.apiroutine.subroutine(self._get_bridges(c, c.protocol))
         matchers = [OVSDBConnectionSetup.createMatcher(None, c, c.connmark) for c in conns]
-        for m in self.apiroutine.waitForAll(matchers):
+        for m in self.apiroutine.waitForAll(*matchers):
             yield m
         self._synchronized = True
         for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):
