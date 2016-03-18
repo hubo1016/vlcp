@@ -43,7 +43,10 @@ class TcpServerBase(Module):
                 
                     orig_final = prococol.final
                     def final(conn):
-                        self.managed_connections.remove(conn)
+                        try:
+                            self.managed_connections.remove(conn)
+                        except Exception:
+                            pass
                         for m in orig_final(conn):
                             yield m
                     prococol.final = final
