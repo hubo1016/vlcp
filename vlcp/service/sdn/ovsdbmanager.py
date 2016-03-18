@@ -276,7 +276,8 @@ class OVSDBManager(Module):
                                 pass
         finally:
             for c in self.managed_bridges.keys():
-                c._ovsdb_manager_get_bridges.close()
+                if hasattr(c, '_ovsdb_manager_get_bridges'):
+                    c._ovsdb_manager_get_bridges.close()
                 bridges = self.managed_bridges.get(c)
                 if bridges is not None:
                     for vhost, dpid, name, buuid in bridges:
