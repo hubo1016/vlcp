@@ -33,19 +33,21 @@ class TcpServerBase(Module):
             defaultProtocol = self._createprotocol(config)
             if self.connmanage:
                 # Patch init() and final()
-                orig_init = defaultProtocol.init
-                def init(conn):
-                    for m in orig_init(conn):
-                        yield m
-                    self.managed_connections.add(conn)
-                defaultProtocol.init = init
+                def patch(prococol):
+                    orig_init = prococol.init
+                    def init(conn):
+                        for m in orig_init(conn):
+                            yield m
+                        self.managed_connections.add(conn)
+                    prococol.init = init
                 
-                orig_final = defaultProtocol.final
-                def final(conn):
-                    self.managed_connections.remove(conn)
-                    for m in orig_final(conn):
-                        yield m
-                defaultProtocol.final = final
+                    orig_final = prococol.final
+                    def final(conn):
+                        self.managed_connections.remove(conn)
+                        for m in orig_final(conn):
+                            yield m
+                    prococol.final = final
+                patch(defaultProtocol)
             defaultProtocol.vhost = vhostname
             # Copy extra configurations to protocol
             for k,v in settings:
