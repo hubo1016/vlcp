@@ -119,49 +119,65 @@ class OVSDBManager(Module):
             pass
     def _get_bridges(self, connection, protocol):
         try:
-            vhost = protocol.vhost
-            if not hasattr(connection, 'ovsdb_systemid'):
-                method, params = ovsdb.transact('Open_vSwitch', ovsdb.select('Open_vSwitch', [], ['external_ids']))
-                for m in protocol.querywithreply(method, params, connection, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result[0]
-                system_id = ovsdb.omap_getvalue(result['rows'][0]['external_ids'], 'system-id')
-                connection.ovsdb_systemid = system_id
-            else:
-                system_id = connection.ovsdb_systemid
-            if (vhost, system_id) in self.managed_systemids:
-                oc = self.managed_systemids[(vhost, system_id)]
-                ep = _get_endpoint(oc)
-                econns = self.endpoint_conns.get((vhost, ep))
-                if econns:
-                    try:
-                        econns.remove(oc)
-                    except ValueError:
-                        pass
-                del self.managed_systemids[(vhost, system_id)]
-            self.managed_systemids[(vhost, system_id)] = connection
-            self.managed_bridges[connection] = []
-            ep = _get_endpoint(connection)
-            self.endpoint_conns.setdefault((vhost, ep), []).append(connection)
-            for m in self.apiroutine.waitForSend(OVSDBConnectionSetup(system_id, connection, connection.connmark, vhost)):
-                yield m
-            method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Open_vSwitch':ovsdb.monitor_request(['bridges'])})
-            for m in protocol.querywithreply(method, params, connection, self.apiroutine):
-                yield m
-            if 'error' in self.apiroutine.jsonrpc_result:
-                # The monitor is already set, cancel it first
-                method, params = ovsdb.monitor_cancel('ovsdb_manager_bridges_monitor')
-                for m in protocol.querywithreply(method, params, connection, self.apiroutine, False):
-                    yield m
-                method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Open_vSwitch':ovsdb.monitor_request(['bridges'], True, False, False, True)})
+            try:
+                vhost = protocol.vhost
+                if not hasattr(connection, 'ovsdb_systemid'):
+                    method, params = ovsdb.transact('Open_vSwitch', ovsdb.select('Open_vSwitch', [], ['external_ids']))
+                    for m in protocol.querywithreply(method, params, connection, self.apiroutine):
+                        yield m
+                    result = self.apiroutine.jsonrpc_result[0]
+                    system_id = ovsdb.omap_getvalue(result['rows'][0]['external_ids'], 'system-id')
+                    connection.ovsdb_systemid = system_id
+                else:
+                    system_id = connection.ovsdb_systemid
+                if (vhost, system_id) in self.managed_systemids:
+                    oc = self.managed_systemids[(vhost, system_id)]
+                    ep = _get_endpoint(oc)
+                    econns = self.endpoint_conns.get((vhost, ep))
+                    if econns:
+                        try:
+                            econns.remove(oc)
+                        except ValueError:
+                            pass
+                    del self.managed_systemids[(vhost, system_id)]
+                self.managed_systemids[(vhost, system_id)] = connection
+                self.managed_bridges[connection] = []
+                ep = _get_endpoint(connection)
+                self.endpoint_conns.setdefault((vhost, ep), []).append(connection)
+                method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Open_vSwitch':ovsdb.monitor_request(['bridges'])})
                 for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                     yield m
                 if 'error' in self.apiroutine.jsonrpc_result:
-                    raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(self.apiroutine.jsonrpc_result))
-            # Process initial bridges
-            for v in self.apiroutine.jsonrpc_result['Open_vSwitch'].values():
-                for _, buuid in ovsdb.getlist(v['new']['bridges']):
-                    self.apiroutine.subroutine(self._update_bridge(connection, protocol, buuid, vhost))
+                    # The monitor is already set, cancel it first
+                    method, params = ovsdb.monitor_cancel('ovsdb_manager_bridges_monitor')
+                    for m in protocol.querywithreply(method, params, connection, self.apiroutine, False):
+                        yield m
+                    method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Open_vSwitch':ovsdb.monitor_request(['bridges'], True, False, False, True)})
+                    for m in protocol.querywithreply(method, params, connection, self.apiroutine):
+                        yield m
+                    if 'error' in self.apiroutine.jsonrpc_result:
+                        raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(self.apiroutine.jsonrpc_result))
+            except Exception:
+                for m in self.apiroutine.waitForSend(OVSDBConnectionSetup(system_id, connection, connection.connmark, vhost)):
+                    yield m
+                raise
+            else:
+                # Process initial bridges
+                init_subprocesses = [self._update_bridge(connection, protocol, buuid, vhost)
+                                    for v in self.apiroutine.jsonrpc_result['Open_vSwitch'].values()
+                                    for _, buuid in ovsdb.getlist(v['new']['bridges'])]
+                def init_process():
+                    try:
+                        for m in self.apiroutine.executeAll(init_subprocesses, retnames = ()):
+                            yield m
+                    except Exception:
+                        for m in self.apiroutine.waitForSend(OVSDBConnectionSetup(system_id, connection, connection.connmark, vhost)):
+                            yield m
+                        raise
+                    else:
+                        for m in self.apiroutine.waitForSend(OVSDBConnectionSetup(system_id, connection, connection.connmark, vhost)):
+                            yield m
+                self.apiroutine.subroutine(init_process())
             # Wait for notify
             notification = JsonRPCNotificationEvent.createMatcher('update', connection, connection.connmark, _ismatch = lambda x: x.params[0] == 'ovsdb_manager_bridges_monitor')
             conn_down = protocol.statematcher(connection)
@@ -202,10 +218,12 @@ class OVSDBManager(Module):
         for m in callAPI(self.apiroutine, "jsonrpcserver", "getconnections", {}):
             yield m
         vb = self.vhostbind
-        for m in self.apiroutine.executeAll([self.apiroutine.subroutine(self._get_bridges(c, c.protocol),
-                                               '_ovsdb_manager_get_bridges')
-                                             for c in self.apiroutine.retvalue
-                                             if vb is None or c.protocol.vhost in vb], retnames = ()):
+        conns = self.apiroutine.retvalue
+        for c in conns:
+            if vb is None or c.protocol.vhost in vb:
+                c._ovsdb_manager_get_bridges = self.apiroutine.subroutine(self._get_bridges(c, c.protocol))
+        matchers = [OVSDBConnectionSetup.createMatcher(None, c, c.connmark) for c in conns]
+        for m in self.apiroutine.waitForAll(matchers):
             yield m
         self._synchronized = True
         for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):

@@ -81,7 +81,7 @@ class TcpServerBase(Module):
     def unload(self, container, force=False):
         if self.connmanage:
             self.connections.extend(self.managed_connections)
-            del self.managed_connections[:]
+            self.managed_connections.clear()
         for m in Module.unload(self, container, force=force):
             yield m
     def getservers(self, vhost = None):
