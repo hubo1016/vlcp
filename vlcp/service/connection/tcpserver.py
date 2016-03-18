@@ -35,16 +35,16 @@ class TcpServerBase(Module):
                 # Patch init() and final()
                 orig_init = defaultProtocol.init
                 def init(conn):
-                    self.managed_connections.add(conn)
                     for m in orig_init(conn):
                         yield m
+                    self.managed_connections.add(conn)
                 defaultProtocol.init = init
                 
                 orig_final = defaultProtocol.final
                 def final(conn):
+                    self.managed_connections.remove(conn)
                     for m in orig_final(conn):
                         yield m
-                    self.managed_connections.remove(conn)
                 defaultProtocol.final = final
             defaultProtocol.vhost = vhostname
             # Copy extra configurations to protocol

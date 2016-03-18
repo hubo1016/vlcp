@@ -214,6 +214,8 @@ class OVSDBManager(Module):
                                     break
         except JsonRPCProtocolException:
             pass
+        finally:
+            del connection._ovsdb_manager_get_bridges
     def _manage_existing(self):
         for m in callAPI(self.apiroutine, "jsonrpcserver", "getconnections", {}):
             yield m
@@ -221,7 +223,8 @@ class OVSDBManager(Module):
         conns = self.apiroutine.retvalue
         for c in conns:
             if vb is None or c.protocol.vhost in vb:
-                c._ovsdb_manager_get_bridges = self.apiroutine.subroutine(self._get_bridges(c, c.protocol))
+                if not hasattr(c, '_ovsdb_manager_get_bridges'):
+                    c._ovsdb_manager_get_bridges = self.apiroutine.subroutine(self._get_bridges(c, c.protocol))
         matchers = [OVSDBConnectionSetup.createMatcher(None, c, c.connmark) for c in conns]
         for m in self.apiroutine.waitForAll(*matchers):
             yield m
@@ -246,7 +249,8 @@ class OVSDBManager(Module):
             while True:
                 yield (conn_up, conn_down)
                 if self.apiroutine.matcher is conn_up:
-                    self.apiroutine.event.connection._ovsdb_manager_get_bridges = self.apiroutine.subroutine(self._get_bridges(self.apiroutine.event.connection, self.apiroutine.event.createby))
+                    if not hasattr(self.apiroutine.event.connection, '_ovsdb_manager_get_bridges'):
+                        self.apiroutine.event.connection._ovsdb_manager_get_bridges = self.apiroutine.subroutine(self._get_bridges(self.apiroutine.event.connection, self.apiroutine.event.createby))
                 else:
                     e = self.apiroutine.event
                     conn = e.connection
