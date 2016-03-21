@@ -102,7 +102,8 @@ class RedisDB(TcpServerBase):
             return c.make_connobj(self.apiroutine)
         return _create_client
     def getclient(self, vhost = ''):
-        return self._redis_clients.get(vhost)
+        "Return a tuple of (redisclient, encoder, decoder) for specified vhost"
+        return (self._redis_clients.get(vhost), self._encode, self._decode)
     def get(self, key, timeout = None, vhost = ''):
         "Get value from key"
         c = self.getclient(vhost)
