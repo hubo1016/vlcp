@@ -109,7 +109,7 @@ class RedisDB(TcpServerBase):
         return (self._redis_clients.get(vhost), self._encode, self._decode)
     def get(self, key, timeout = None, vhost = ''):
         "Get value from key"
-        c = self.getclient(vhost)
+        c = self._redis_clients.get(vhost)
         if c is None:
             raise ValueError('vhost ' + repr(vhost) + ' is not defined')
         if timeout is not None:
@@ -135,7 +135,7 @@ class RedisDB(TcpServerBase):
             self.apiroutine.retvalue = self._decode(self.apiroutine.retvalue)
     def set(self, key, value, timeout = None, vhost = ''):
         "Set value to key, with an optional timeout"
-        c = self.getclient(vhost)
+        c = self._redis_clients.get(vhost)
         if timeout is None:
             for m in c.execute_command(self.apiroutine, 'SET', key, self._encode(value)):
                 yield m
@@ -147,19 +147,19 @@ class RedisDB(TcpServerBase):
                 yield m
         self.apiroutine.retvalue = None
     def delete(self, key, vhost = ''):
-        c = self.getclient(vhost)
+        c = self._redis_clients.get(vhost)
         for m in c.execute_command(self.apiroutine, 'DEL', key):
             yield m
         self.apiroutine.retvalue = None
     def mget(self, keys, vhost = ''):
         "Get multiple values from multiple keys"
-        c = self.getclient(vhost)
+        c = self._redis_clients.get(vhost)
         for m in c.execute_command(self.apiroutine, 'MGET', *keys):
             yield m
         self.apiroutine.retvalue = [self._decode(r) for r in self.apiroutine.retvalue]
     def mset(self, kvpairs, timeout = None, vhost = ''):
         "Set multiple values on multiple keys"
-        c = self.getclient(vhost)
+        c = self._redis_clients.get(vhost)
         d = kvpairs
         if hasattr(d, 'items'):
             d = d.items()
@@ -194,7 +194,7 @@ class RedisDB(TcpServerBase):
         
         :returns: the updated value, or None if deleted
         '''
-        c = self.getclient(vhost)
+        c = self._redis_clients.get(vhost)
         for m in c.get_connection(self.apiroutine):
             yield m
         newconn = self.apiroutine.retvalue
@@ -237,7 +237,7 @@ class RedisDB(TcpServerBase):
                 
     def mupdate(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place with a custom function, see update. Either all success, or all fail."
-        c = self.getclient(vhost)
+        c = self._redis_clients.get(vhost)
         for m in c.get_connection(self.apiroutine):
             yield m
         newconn = self.apiroutine.retvalue
@@ -282,7 +282,7 @@ class RedisDB(TcpServerBase):
             raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
     def updateall(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place, with a function updater(keys, values) which returns a list of values. see update. Either all success or all fail"
-        c = self.getclient(vhost)
+        c = self._redis_clients.get(vhost)
         for m in c.get_connection(self.apiroutine):
             yield m
         newconn = self.apiroutine.retvalue
