@@ -78,11 +78,9 @@ def create_discover_info(func):
         optionals = []
     return {'description': func.__doc__,
             'parameters':
-                [
-                    [{'name':n,'optional':False} for n in requires]
-                    + [{'name':optionals[i],'optional':True,'default':func.__defaults__[i]}
-                       for i in range(0,len(optionals))]
-                ],
+                [{'name':n,'optional':False} for n in requires]
+                + [{'name':optionals[i],'optional':True,'default':func.__defaults__[i]}
+                   for i in range(0,len(optionals))],
             'extraparameters': haskwargs
                 }
     
