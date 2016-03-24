@@ -221,7 +221,7 @@ class Scheduler(object):
         :param runnable: an iterator that accept send method
         :param daemon: if True, the runnable will be registered as a daemon.
         '''
-        if getattr(self, 'syscallfunc', None) is not None:
+        if getattr(self, 'syscallfunc', None) is not None and getattr(self, 'syscallrunnable', None) is None:
             # Inject this register
             self.syscallrunnable = runnable
         else:

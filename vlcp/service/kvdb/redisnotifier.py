@@ -237,7 +237,6 @@ class RedisNotifier(Module):
     _default_prefix = 'vlcp.updatenotifier.'
     def __init__(self, server):
         Module.__init__(self, server)
-        self.apiroutine = RoutineContainer(self.scheduler)
         self.createAPI(api(self.createnotifier))
     def load(self, container):
         self.scheduler.queue.addSubQueue(999, ModifyListen.createMatcher(), "redisnotifier_modifylisten")
@@ -246,7 +245,7 @@ class RedisNotifier(Module):
     def unload(self, container, force=False):
         for m in Module.unload(self, container, force=force):
             yield m
-        for m in self.apiroutine.syscall_noreturn(syscall_removequeue(self.scheduler.queue, "redisnotifier_modifylisten")):
+        for m in container.syscall_noreturn(syscall_removequeue(self.scheduler.queue, "redisnotifier_modifylisten")):
             yield m
     def createnotifier(self):
         "Create a new notifier object"
