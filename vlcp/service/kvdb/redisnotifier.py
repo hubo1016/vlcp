@@ -58,7 +58,7 @@ class _Notifier(RoutineContainer):
             connection_down = client.subscribe_state_matcher(self, False)
             connection_up = client.subscribe_state_matcher(self, True)
             module_loaded = ModuleLoadStateChanged.createMatcher(state = ModuleLoadStateChanged.LOADED,
-                                                 _ismatch = lambda x: x.instance.getServiceName() == 'redisdb')
+                                                 _ismatch = lambda x: x._instance.getServiceName() == 'redisdb')
             matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
             last_transact = None
             while True:
