@@ -59,12 +59,12 @@ class _Notifier(RoutineContainer):
             connection_up = client.subscribe_state_matcher(self, True)
             module_loaded = ModuleLoadStateChanged.createMatcher(state = ModuleLoadStateChanged.LOADED,
                                                  _ismatch = lambda x: x.instance.getServiceName() == 'redisdb')
-            matchers = tuple(self._matchers.values()) + tuple(listen_modify, connection_down)
+            matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
             last_transact = None
             while True:
                 yield matchers
                 if self.matcher is listen_modify:
-                    matchers = tuple(self._matchers.values()) + tuple(listen_modify, connection_down)
+                    matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
                 elif self.matcher is connection_down:
                     # Connection is down, wait for restore
                     # The module may be reloaded
@@ -89,7 +89,7 @@ class _Notifier(RoutineContainer):
                             else:
                                 self._matchers = dict(zip(self._matchers.keys(), self.retvalue))
                                 self.subroutine(self._modifier(client), True, "modifierroutine")
-                                matchers = tuple(self._matchers.values()) + tuple(listen_modify, connection_down)
+                                matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
                                 break
                         else:
                             if recreate_matchers:
@@ -102,10 +102,10 @@ class _Notifier(RoutineContainer):
                                 else:
                                     self._matchers = dict(zip(self._matchers.keys(), self.retvalue))
                                     self.subroutine(self._modifier(client), True, "modifierroutine")
-                                    matchers = tuple(self._matchers.values()) + tuple(listen_modify, connection_down)
+                                    matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
                                     break
                             else:
-                                matchers = tuple(self._matchers.values()) + tuple(listen_modify, connection_down)
+                                matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
                                 break
                     if self._publish_wait:
                         self.subroutine(self.publish())
