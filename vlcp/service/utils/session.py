@@ -15,7 +15,7 @@ except:
     from http.cookies import SimpleCookie, Morsel
 from vlcp.event.lock import Lock
 
-@depend(knowledge.Knowledge)
+@depend(knowledge.MemoryStorage)
 @defaultconfig
 class Session(Module):
     '''
@@ -80,16 +80,16 @@ class Session(Module):
             m.update(opts)
             self.apiroutine.retvalue = (sh, [m])
     def get(self, sessionid, refresh = True):
-        for m in callAPI(self.apiroutine, 'knowledge', 'get', {'key': __name__ + '.' + sessionid, 'timeout': self.timeout if refresh else None}):
+        for m in callAPI(self.apiroutine, 'memorystorage', 'get', {'key': __name__ + '.' + sessionid, 'timeout': self.timeout if refresh else None}):
             yield m
     def create(self):
         sid = uuid4().hex
         sobj = self.SessionObject(sid)
-        for m in callAPI(self.apiroutine, 'knowledge', 'set', {'key': __name__ + '.' + sid, 'value': sobj, 'timeout': self.timeout}):
+        for m in callAPI(self.apiroutine, 'memorystorage', 'set', {'key': __name__ + '.' + sid, 'value': sobj, 'timeout': self.timeout}):
             yield m
         self.apiroutine.retvalue = self.SessionHandle(sobj, self.apiroutine)
     def destroy(self, sessionid):
-        for m in callAPI(self.apiroutine, 'knowledge', 'delete', {'key': __name__ + '.' + sessionid}):
+        for m in callAPI(self.apiroutine, 'memorystorage', 'delete', {'key': __name__ + '.' + sessionid}):
             yield m
         m = Morsel()
         m.key = self.cookiename

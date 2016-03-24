@@ -11,6 +11,7 @@ import sys
 from vlcp.utils.pycache import removeCache
 import functools
 import copy
+from vlcp.config.config import manager
 
 try:
     reload
@@ -23,7 +24,9 @@ except:
 
 def depend(*args):
     def decfunc(cls):
-        cls.depends = list(args)
+        if not 'depends' in cls.__dict__:
+            cls.depends = []
+        cls.depends.extend(list(args))
         for a in args:
             if not hasattr(a, 'referencedBy'):
                 a.referencedBy = []
@@ -294,8 +297,72 @@ class Module(Configurable):
             self.state = state
             for m in container.waitForSend(ModuleLoadStateChanged(self.target, state, self)):
                 yield m
+
+
 class ModuleLoadException(Exception):
     pass
+
+def findModule(path, autoimport = True):
+    dotpos = path.rfind('.')
+    if dotpos == -1:
+        raise ModuleLoadException('Must specify module with full path, including package name')
+    package = path[:dotpos]
+    classname = path[dotpos+1:]
+    p = None
+    module = None
+    try:
+        p = sys.modules[package]
+        module = getattr(p, classname)
+    except KeyError:
+        pass
+    except AttributeError:
+        pass
+    if p is None and autoimport:
+        p = __import__(package, fromlist=(classname,))
+        module = getattr(p, classname)
+    return (p, module)
+
+class _ProxyModule(Module):
+    '''
+    A proxy to create dependencies on configurable module
+    '''
+    service = True
+    def __init__(self, server):
+        '''
+        Constructor
+        '''
+        Module.__init__(self, server)        
+        self.proxyhandler = EventHandler(self.scheduler)
+    def load(self, container):
+        self._targetname = self._proxytarget._instance.getServiceName()
+        self.proxyhandler.registerHandler(ModuleAPICall.createMatcher(None, self.getServiceName()), self._proxyhandler)
+        for m in Module.load(self, container):
+            yield m
+    def unload(self, container, force=False):
+        self.proxyhandler.close()
+        for m in Module.unload(self, container, force=force):
+            yield m
+    def _proxyhandler(self, event, scheduler):
+        event.canignore = True
+        scheduler.emergesend(ModuleAPICall(event.handle, self._targetname, event.name, params = event.params))        
+
+def proxy(name, default = None):
+    path = manager.get('proxy.' + name.lower())
+    if path is not None:
+        try:
+            p, module = findModule(path, True)
+        except KeyError as exc:
+            raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc) + 'is not defined in the package')
+        except Exception as exc:
+            raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc))
+        if module is None:
+            raise ModuleLoadException('Cannot find module: ' + repr(path))
+    else:
+        module = default
+    proxymodule = type(name, (_ProxyModule,), {'_proxytarget': module})
+    proxymodule.__module__ = sys._getframe(1).f_globals.get('__name__')
+    depend(module)(proxymodule)
+    return proxymodule
 
 class ModuleLoader(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.ModuleLoader')
@@ -420,28 +487,9 @@ class ModuleLoader(RoutineContainer):
                 for d in module.depends:
                     if hasattr(d, '_instance') and module in d._instance.dependedBy:
                         self._removeDepend(module, d)
-    def _findModule(self, path, autoimport = True):
-        dotpos = path.rfind('.')
-        if dotpos == -1:
-            raise ModuleLoadException('Must specify module with full path, including package name')
-        package = path[:dotpos]
-        classname = path[dotpos+1:]
-        p = None
-        module = None
-        try:
-            p = sys.modules[package]
-            module = getattr(p, classname)
-        except KeyError:
-            pass
-        except AttributeError:
-            pass
-        if p is None and autoimport:
-            p = __import__(package, fromlist=(classname,))
-            module = getattr(p, classname)
-        return (p, module)
     def loadByPath(self, path):
         try:
-            p, module = self._findModule(path, True)
+            p, module = findModule(path, True)
         except KeyError as exc:
             raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc) + 'is not defined in the package')
         except Exception as exc:
@@ -451,7 +499,7 @@ class ModuleLoader(RoutineContainer):
         for m in self.loadmodule(module):
             yield m
     def unloadByPath(self, path):
-        p, module = self._findModule(path, False)
+        p, module = findModule(path, False)
         if module is None:
             raise ModuleLoadException('Cannot find module: ' + repr(path))
         for m in self.unloadmodule(module):
@@ -460,7 +508,7 @@ class ModuleLoader(RoutineContainer):
         loadedModules = []
         failures = []
         for path in pathlist:
-            p, module = self._findModule(path, False)
+            p, module = findModule(path, False)
             if module is not None and hasattr(module, '_instance') and module._instance.state != ModuleLoadStateChanged.UNLOADED:
                 loadedModules.append(module)
         # Unload all modules
@@ -480,7 +528,7 @@ class ModuleLoader(RoutineContainer):
             package = path[:dotpos]
             classname = path[dotpos + 1:]
             mlist = grouped.setdefault(package, [])
-            p, module = self._findModule(path, False)
+            p, module = findModule(path, False)
             mlist.append((classname, module))
         for package, mlist in grouped.items():
             # Reload each package only once

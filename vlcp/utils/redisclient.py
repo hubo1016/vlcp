@@ -204,9 +204,13 @@ class RedisClient(RedisClientBase):
         if db is not None:
             self.db = db
         self._subscribeconn = None
+        self._subscribecounter = {}
+        self._psubscribecounter = {}
         self._connpool = []
         self._shutdown = False
     def _create_client(self, container):
+        if self._shutdown:
+            raise IOError('RedisClient already shutdown')
         conn = Client(self.url, self._protocol, container.scheduler,
                                        getattr(self, 'key', None),
                                        getattr(self, 'certificate', None),
@@ -293,23 +297,43 @@ class RedisClient(RedisClientBase):
         Subscribe to specified channels
         :param container: routine container
         :param *keys: subscribed channels
-        :returns: list of event matchers for the specified channels 
+        :returns: list of event matchers for the specified channels
         '''
         for m in self._get_subscribe_connection(container):
             yield m
-        for m in self._protocol.send_command(self._subscribeconn, container, 'SUBSCRIBE', *keys):
-            yield m
+        realkeys = []
+        for k in keys:
+            count = self._subscribecounter.get(k, 0)
+            if count == 0:
+                realkeys.append(k)
+            self._subscribecounter[k] = count + 1
+        if realkeys:
+            for m in self._protocol.execute_command(self._subscribeconn, container, 'SUBSCRIBE', *realkeys):
+                yield m
         container.retvalue = [self._protocol.subscribematcher(self._subscribeconn, k, None, RedisSubscribeMessageEvent.MESSAGE) for k in keys]
     def unsubscribe(self, container, *keys):
         '''
-        Unsubscribe specified channels
+        Unsubscribe specified channels. Every subscribed key should be unsubscribed exactly once, even if duplicated subscribed.
         :param container: routine container
         :param *keys: subscribed channels
         '''
         for m in self._get_subscribe_connection(container):
             yield m
-        for m in self._protocol.execute_command(self._subscribeconn, container, 'UNSUBSCRIBE', *keys):
-            yield m
+        realkeys = []
+        for k in keys:
+            count = self._subscribecounter.get(k, 0)
+            if count <= 1:
+                realkeys.append(k)
+                try:
+                    del self._subscribecounter[k]
+                except KeyError:
+                    pass
+            else:
+                self._subscribecounter[k] = count - 1
+        if realkeys:
+            for m in self._protocol.execute_command(self._subscribeconn, container, 'UNSUBSCRIBE', *realkeys):
+                yield m
+        container.retvalue = None
     def psubscribe(self, container, *keys):
         '''
         Subscribe to specified globs
@@ -319,17 +343,31 @@ class RedisClient(RedisClientBase):
         '''
         for m in self._get_subscribe_connection(container):
             yield m
-        for m in self._protocol.send_command(self._subscribeconn, container, 'PSUBSCRIBE', *keys):
+        realkeys = []
+        for k in keys:
+            count = self._psubscribecounter.get(k, 0)
+            if count == 0:
+                realkeys.append(k)
+            self._psubscribecounter[k] = count + 1
+        for m in self._protocol.execute_command(self._subscribeconn, container, 'PSUBSCRIBE', *realkeys):
             yield m
         container.retvalue = [self._protocol.subscribematcher(self._subscribeconn, k, None, RedisSubscribeMessageEvent.PMESSAGE) for k in keys]
     def punsubscribe(self, container, *keys):
         '''
-        Unsubscribe specified globs
+        Unsubscribe specified globs. Every subscribed glob should be unsubscribed exactly once, even if duplicated subscribed.
         :param container: routine container
         :param *keys: subscribed globs
         '''
         for m in self._get_subscribe_connection(container):
             yield m
+        realkeys = []
+        for k in keys:
+            count = self._subscribecounter.get(k, 0)
+            if count == 1:
+                realkeys.append(k)
+                del self._subscribecounter[k]
+            else:
+                self._subscribecounter[k] = count - 1
         for m in self._protocol.execute_command(self._subscribeconn, container, 'PUNSUBSCRIBE', *keys):
             yield m
     def shutdown(self, container):

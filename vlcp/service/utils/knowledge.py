@@ -4,7 +4,7 @@ Created on 2015/11/9
 :author: hubo
 '''
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module, api
+from vlcp.server.module import Module, api, proxy
 from vlcp.event.core import TimerEvent
 from vlcp.event.runnable import RoutineContainer
 from time import time
@@ -34,7 +34,8 @@ class Knowledge(Module):
                        api(self.mget),
                        api(self.mset),
                        api(self.update),
-                       api(self.mupdate))
+                       api(self.mupdate),
+                       api(self.updateall))
     def _timeout(self):
         th = self.scheduler.setTimer(self.checkinterval, self.checkinterval)
         try:
@@ -121,10 +122,27 @@ class Knowledge(Module):
             self.delete(key)
         return newv
     def mupdate(self, keys, updater, timeout = None):
-        "Update multiple keys in-place with a custom function, see update"
+        "Update multiple keys in-place one by one with a custom function, see update. Either all success, or all fail."
         t = time()
-        for k in keys:
-            self._update(k, updater, t, timeout)
+        vs = [v[0] if v is not None else None for v in (self._get(k, t) for k in keys)]
+        newvs = [updater(k, v) for k,v in zip(keys, vs)]
+        for k,v in zip(keys, newvs):
+            if v is not None:
+                self._set(k, v, t, timeout)
+            else:
+                self.delete(k)
+        return newvs
+    def updateall(self, keys, updater, timeout = None):
+        "Update multiple keys in-place, with a function updater(keys, values) which returns a list of values. see update. Either all success or all fail"
+        t = time()
+        vs = [v[0] if v is not None else None  for v in (self._get(k, t) for k in keys)]
+        newvs = updater(keys, vs)
+        for k,v in zip(keys, newvs):
+            if v is not None:
+                self._set(k, v, t, timeout)
+            else:
+                self.delete(k)
+        return newvs
 
 def return_self_updater(func):
     '''
@@ -144,3 +162,5 @@ def escape_key(k):
 def unescape_key(k):
     "Unescape key to get '.' back"
     return k.replace('++', '.').replace('+_','+')
+
+MemoryStorage = proxy('MemoryStorage', Knowledge)

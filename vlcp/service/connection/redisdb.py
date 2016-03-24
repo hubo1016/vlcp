@@ -64,6 +64,8 @@ class RedisDB(TcpServerBase):
             def _decode(data):
                 if data is None:
                     return None
+                elif isinstance(data, Exception):
+                    raise data
                 else:
                     return p.loads(data)
             self._decode = _decode
@@ -87,7 +89,8 @@ class RedisDB(TcpServerBase):
                        api(self.mget, self.apiroutine),
                        api(self.mset, self.apiroutine),
                        api(self.update, self.apiroutine),
-                       api(self.mupdate, self.apiroutine))
+                       api(self.mupdate, self.apiroutine),
+                       api(self.updateall, self.apiroutine))
     def _client_class(self, config, protocol, vhost):
         db = getattr(config, 'db', None)
         def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):
@@ -203,7 +206,12 @@ class RedisDB(TcpServerBase):
                 for m in newconn.execute_command(self.apiroutine, 'GET', key):
                     yield m
                 v = self._decode(self.apiroutine.retvalue)
-                v = updater(v)
+                try:
+                    v = updater(key, v)
+                except:
+                    for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                        yield m
+                    raise
                 if timeout is None:
                     set_command = ('SET', key, self._encode(v))
                 elif timeout <= 0:
@@ -228,7 +236,7 @@ class RedisDB(TcpServerBase):
             raise RedisWriteConflictException('Transaction still fails after many retries: key=' + repr(key))
                 
     def mupdate(self, keys, updater, timeout = None, vhost = ''):
-        "Update multiple keys in-place with a custom function, see update"
+        "Update multiple keys in-place with a custom function, see update. Either all success, or all fail."
         c = self.getclient(vhost)
         for m in c.get_connection(self.apiroutine):
             yield m
@@ -241,8 +249,13 @@ class RedisDB(TcpServerBase):
                 for m in newconn.execute_command(self.apiroutine, 'MGET', *keys):
                     yield m
                 values = self.apiroutine.retvalue
-                values = [updater(self._decode(v)) for v in values]
-                values_encoded = [self._encode(v) for v in values]
+                try:
+                    values = [updater(k, self._decode(v)) for k,v in izip(keys,values)]
+                    values_encoded = [self._encode(v) for v in values]
+                except:
+                    for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                        yield m
+                    raise
                 if timeout is None:
                     set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),)
                 elif timeout <= 0:
@@ -267,3 +280,49 @@ class RedisDB(TcpServerBase):
                         for m in self.apiroutine.waitWithTimeout(random.randrange(0, 1<<(i-spin)) * 0.05):
                             yield m
             raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
+    def updateall(self, keys, updater, timeout = None, vhost = ''):
+        "Update multiple keys in-place, with a function updater(keys, values) which returns a list of values. see update. Either all success or all fail"
+        c = self.getclient(vhost)
+        for m in c.get_connection(self.apiroutine):
+            yield m
+        newconn = self.apiroutine.retvalue
+        spin = self.maxspin
+        with newconn.context(self.apiroutine):
+            for i in range(0, self.maxretry):
+                for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
+                    yield m
+                for m in newconn.execute_command(self.apiroutine, 'MGET', *keys):
+                    yield m
+                values = self.apiroutine.retvalue
+                try:
+                    values = updater(keys, values)
+                    values_encoded = [self._encode(v) for v in values]
+                except:
+                    for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                        yield m
+                    raise
+                if timeout is None:
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),)
+                elif timeout <= 0:
+                    set_commands = (('DEL',) + tuple(keys),)
+                else:
+                    ptimeout = int(timeout * 1000)
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),) \
+                                + tuple(('PEXPIRE', k, ptimeout) for k in keys)
+                for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
+                                                                set_commands + \
+                                                                (('EXEC',),))):
+                    yield m
+                r = self.apiroutine.retvalue[-1]
+                if r is not None:
+                    # Succeeded
+                    self.apiroutine.retvalue = values
+                    raise StopIteration
+                else:
+                    # Watch keys changed, retry
+                    if i > spin:
+                        # Wait for a random small while
+                        for m in self.apiroutine.waitWithTimeout(random.randrange(0, 1<<(i-spin)) * 0.05):
+                            yield m
+            raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
+    
