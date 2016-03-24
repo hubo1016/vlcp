@@ -35,11 +35,18 @@ def _delegate(func):
             yield m
     return f
 
+def _bytes(s):
+    if isinstance(s, bytes):
+        return s
+    else:
+        return s.encode('utf-8')
+
 class _Notifier(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.Notifier')
-    def __init__(self, vhostbind, scheduler=None, daemon=False):
+    def __init__(self, vhostbind, prefix, scheduler=None, daemon=False):
         RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
         self.vhostbind = vhostbind
+        self.prefix = _bytes(prefix)
         self._matchers = {}
         self._publishkey = uuid.uuid1().hex
         self._publishno = 1
@@ -94,7 +101,7 @@ class _Notifier(RoutineContainer):
                         else:
                             if recreate_matchers:
                                 try:
-                                    for m in client.subscribe(self, *tuple(self._matchers.keys())):
+                                    for m in client.subscribe(self, *[self.prefix + k for k in self._matchers.keys()]):
                                         yield m
                                 except Exception:
                                     recreate_matchers = True
@@ -139,7 +146,7 @@ class _Notifier(RoutineContainer):
                             self._matchadd_wait.clear()
                             add_keys = list(current_add.difference(self._matchers.keys()))
                             try:
-                                for m in client.subscribe(self, *add_keys):
+                                for m in client.subscribe(self, *[self.prefix + k for k in add_keys]):
                                     yield m
                             except:
                                 # Return to matchadd
@@ -155,7 +162,7 @@ class _Notifier(RoutineContainer):
                             self._matchremove_wait.clear()
                             del_keys = list(current_remove.intersection(self._matchers.keys()))
                             try:
-                                for m in client.unsubscribe(self, *del_keys):
+                                for m in client.unsubscribe(self, *[self.prefix + k for k in del_keys]):
                                     yield m
                             except:
                                 # Return to matchremove
@@ -175,22 +182,25 @@ class _Notifier(RoutineContainer):
             self.subroutine(self._clearup(client, list(self._matchers.keys())))
     def _clearup(self, client, keys):
         try:
-            for m in client.unsubscribe(self, *keys):
+            for m in client.unsubscribe(self, *[self.prefix + k for k in keys]):
                 yield m
         except Exception:
             pass
     def add_listen(self, *keys):
+        keys = [_bytes(k) for k in keys]
         self._matchremove_wait.difference_update(keys)
         self._matchadd_wait.update(keys)
         for m in self.waitForSend(ModifyListen(self, ModifyListen.SUBSCRIBE)):
             yield m
     def remove_listen(self, *keys):        
+        keys = [_bytes(k) for k in keys]
         self._matchadd_wait.difference_update(keys)
         self._matchremove_wait.update(keys)
         for m in self.waitForSend(ModifyListen(self, ModifyListen.SUBSCRIBE)):
             yield m
     @_delegate
     def publish(self, *keys):
+        keys = [_bytes(k) for k in keys]
         if self._publish_wait:
             merged_keys = list(self._publish_wait.union(keys))
             self._publish_wait.clear()
@@ -206,7 +216,7 @@ class _Notifier(RoutineContainer):
         msg = encoder({'id':transactid, 'keys':merged_keys})
         try:
             for m in client.batch_execute(self, *((('MULTI',),) +
-                                                tuple(('PUBLISH', k, msg) for k in merged_keys) +
+                                                tuple(('PUBLISH', self.prefix + k, msg) for k in merged_keys) +
                                                 (('EXEC',),))):
                 yield m
         except (IOError, ConnectionResetException):
@@ -224,6 +234,7 @@ class RedisNotifier(Module):
     Update notification with Redis Pub/Sub
     """
     _default_vhostbind = ''
+    _default_prefix = 'vlcp.updatenotifier.'
     def __init__(self, server):
         Module.__init__(self, server)
         self.createAPI(api(self.createnotifier))
@@ -238,7 +249,7 @@ class RedisNotifier(Module):
             yield m
     def createnotifier(self):
         "Create a new notifier object"
-        n = _Notifier(self.vhostbind, self.scheduler)
+        n = _Notifier(self.vhostbind, self.prefix, self.scheduler)
         n.start()
         return n
 
