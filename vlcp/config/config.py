@@ -308,11 +308,13 @@ def defaultconfig(cls):
         cls.configkey = base + '.default'
     else:
         key = cls.__name__.lower()
-        parentkeys = parentbase.split('.')
-        for pk in parentkeys:
-            if key.endswith(pk):
-                key = key[0:-len(pk)]
-            elif key.startswith(pk):
-                key = key[len(pk):]
+        #=======================================================================
+        # parentkeys = parentbase.split('.')
+        # for pk in parentkeys:
+        #     if key.endswith(pk):
+        #         key = key[0:-len(pk)]
+        #     elif key.startswith(pk):
+        #         key = key[len(pk):]
+        #=======================================================================
         cls.configkey = parentbase + "." + key
     return cls
