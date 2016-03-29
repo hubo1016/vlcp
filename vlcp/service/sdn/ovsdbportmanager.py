@@ -83,11 +83,12 @@ class OVSDBPortManager(Module):
             if 'error' in r:
                 raise JsonRPCErrorResultException('Error while acquiring interface: ' + repr(r['error']))
             if not r['rows']:
+                self.apiroutine.retvalue = []
                 raise StopIteration
             r0 = r['rows'][0]
-            if r0['ofport'] < 0 or r0['type'] == '':
+            if r0['ofport'] < 0:
                 # Ignore this port because it is in an error state
-                self.apiroutine.retvalue = None
+                self.apiroutine.retvalue = []
                 raise StopIteration
             r0['_uuid'] = r0['_uuid'][1]
             r0['ifindex'] = ovsdb.getoptional(r0['ifindex'])
