@@ -20,8 +20,6 @@ class ReferenceObject(object):
     def __init__(self, key, refobj = None):
         self._key = key
         self._ref = refobj
-    def __del__(self):
-        self.release()
     def getkey(self):
         return self._key
     def kvdb_retrievelist(self):
