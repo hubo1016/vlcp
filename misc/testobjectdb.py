@@ -174,7 +174,8 @@ class TestObjectDB(Module):
             physet.dataset().add(phynet.create_weakreference())
             return [physet, phynet, phymap]
         for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key(),
-                                                                           new_network.getkey()],'updater':create_phy}):
+                                                                           new_network.getkey(),
+                                                                           new_map.getkey()],'updater':create_phy}):
             yield m
         for m in self._dumpkeys([new_network.getkey()]):
             yield m
