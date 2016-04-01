@@ -212,7 +212,7 @@ class ObjectDB(Module):
                     return
                 mark_set.add(k)
                 v = self._managed_objs.get(k)
-                if v is None or not hasattr(v, 'kvdb_internalref'):
+                if v is not None and hasattr(v, 'kvdb_internalref'):
                     for k2 in v.kvdb_internalref():
                         dfs(k2)
             for k in self._watches.keys():
@@ -310,7 +310,7 @@ class ObjectDB(Module):
             updated_keys, updated_values = updater(keys, values)
             updated_keys_ref[0] = tuple(updated_keys)
             return (updated_keys, updated_values)
-        for m in callAPI(self.apiroutine, 'kvstorage', 'updateall', {'keys': keys, 'updater': updater}):
+        for m in callAPI(self.apiroutine, 'kvstorage', 'updateall', {'keys': keys, 'updater': object_updater}):
             yield m
         for m in self._notifier.publish(*updated_keys_ref[0]):
             yield m
