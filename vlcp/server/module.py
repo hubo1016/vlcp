@@ -12,6 +12,7 @@ from vlcp.utils.pycache import removeCache
 import functools
 import copy
 from vlcp.config.config import manager
+from vlcp.event.core import QuitException
 
 try:
     reload
@@ -366,8 +367,18 @@ class ModuleLoader(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.ModuleLoader')
     def __init__(self, server):
         self.server = server
-        RoutineContainer.__init__(self, scheduler=server.scheduler, daemon=False)
+        RoutineContainer.__init__(self, scheduler=server.scheduler, daemon=True)
         self.activeModules = {}
+    def main(self):
+        try:
+            yield ()
+        except QuitException:
+            c = ModuleAPICall.createMatcher()
+            while True:
+                yield (c,)
+                if not self.event.canignore:
+                    self.event.canignore = True
+                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(self.event.handle, QuitException()))
     def _removeDepend(self, module, depend):
         depend._instance.dependedBy.remove(module)
         if not depend._instance.dependedBy and depend._instance.service:

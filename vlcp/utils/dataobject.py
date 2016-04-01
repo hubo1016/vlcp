@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from vlcp.server.module import callAPI
 import functools
 from copy import deepcopy
+from vlcp.event.core import QuitException
 
 @withIndices('key', 'transactid', 'type')
 class DataObjectUpdateEvent(Event):
@@ -258,7 +259,13 @@ def watch_context(keys, result, reqid, container, module = 'objectdb'):
         yield result
     finally:
         if keys:
-            container.subroutine(callAPI(container, module, 'munwatch', {'keys': keys, 'requestid': reqid}))
+            def clearup():
+                try:
+                    for m in callAPI(container, module, 'munwatch', {'keys': keys, 'requestid': reqid}):
+                        yield m
+                except QuitException:
+                    pass
+            container.subroutine(clearup())
         
 def multiwaitif(references, container, expr, nextchange = False):
     keys = set(r.getkey() for r in references)
