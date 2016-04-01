@@ -171,7 +171,7 @@ class TestObjectDB(Module):
         def create_phy(physet, phynet, phymap):
             phynet = set_new(phynet, new_network)
             phymap = set_new(phymap, new_map)
-            physet.dataset().add(phynet.create_weakreference())
+            physet.set.dataset().add(phynet.create_weakreference())
             return [physet, phynet, phymap]
         for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key(),
                                                                            new_network.getkey(),
@@ -188,7 +188,7 @@ class TestObjectDB(Module):
             for i in range(0, len(new_networks)):
                 return_nets[i * 2] = set_new(phynets[i * 2], new_networks[i][0])
                 return_nets[i * 2 + 1] = set_new(phynets[i * 2 + 1], new_networks[i][1])
-                physet.dataset().add(new_networks[i][0].create_weakreference())
+                physet.set.dataset().add(new_networks[i][0].create_weakreference())
             return [physet] + return_nets
         keys = [sn.getkey() for n in new_networks for sn in n]
         for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key()] + keys,'updater':create_phys}):
@@ -255,7 +255,7 @@ class TestObjectDB(Module):
                             raise ValueError('Physical network %r is already allocated by another logical network', (phynet.id,))
                         phymap.network_allocation['native'] = n.create_weakreference()
                     phymap.networks.dataset().add(n.create_weakreference())
-                logset.dataset().add(n.create_weakreference())
+                logset.set.dataset().add(n.create_weakreference())
             return [logset] + return_nets + phy_maps
         for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys': [LogicalNetworkSet.default_key()] +\
                                                                             [sn.getkey() for n in new_networks for sn in n] +\
