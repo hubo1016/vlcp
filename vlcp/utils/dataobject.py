@@ -319,10 +319,10 @@ def dump(obj, attributes = True, _refset = None):
     if obj is None:
         return None
     elif isinstance(obj, DataObject):        
-        if obj in _refset:
+        if id(obj) in _refset:
             attributes = False
         else:
-            _refset.add(obj)
+            _refset.add(id(obj))
         cls = type(obj)
         clsname = getattr(cls, '__module__', '<unknown>') + '.' + getattr(cls, '__name__', '<unknown>')
         baseresult = {'_type': clsname, '_key': obj.getkey()}
