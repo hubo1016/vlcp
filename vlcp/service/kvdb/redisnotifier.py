@@ -17,7 +17,6 @@ from time import time
 import functools
 import uuid
 import logging
-from Crypto.PublicKey.pubkey import pubkey
 
 @withIndices('notifier', 'transactid', 'keys', 'reason', 'fromself')
 class UpdateNotification(Event):
