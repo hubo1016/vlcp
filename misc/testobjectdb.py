@@ -72,7 +72,7 @@ class TestObjectDB(Module):
     def _dumpkeys(self, keys):
         self._reqid += 1
         reqid = ('testobjectdb', self._reqid)
-        for m in callAPI(self.apiroutine, 'mget', {'keys': keys, 'requestid': reqid}):
+        for m in callAPI(self.apiroutine, 'objectdb', 'mget', {'keys': keys, 'requestid': reqid}):
             yield m
         retobjs = self.apiroutine.retvalue
         with watch_context(keys, retobjs, reqid, self.apiroutine):
@@ -82,7 +82,7 @@ class TestObjectDB(Module):
         def updateinner():
             self._reqid += 1
             reqid = ('testobjectdb', self._reqid)
-            for m in callAPI(self.apiroutine, 'get', {'key': key, 'requestid': reqid}):
+            for m in callAPI(self.apiroutine, 'objectdb', 'get', {'key': key, 'requestid': reqid}):
                 yield m
             portobj = self.apiroutine.retvalue
             with watch_context([key], [portobj], reqid, self.apiroutine):
