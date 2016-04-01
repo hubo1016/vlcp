@@ -105,7 +105,7 @@ class TcpServerBase(Module):
         :param vhost: return only servers of vhost if specified. '' to return only default servers.
                       None for all servers.
         '''
-        servers = self.getServers(vhost)
+        servers = self.getservers(vhost)
         for s in servers:
             for m in s.stoplisten():
                 yield m
@@ -116,7 +116,7 @@ class TcpServerBase(Module):
         :param vhost: return only servers of vhost if specified. '' to return only default servers.
                       None for all servers.
         '''
-        servers = self.getServers(vhost)
+        servers = self.getservers(vhost)
         for s in servers:
             for m in s.startlisten():
                 yield m
