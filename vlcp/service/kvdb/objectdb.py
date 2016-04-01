@@ -49,9 +49,9 @@ class ObjectDB(Module):
                        api(self.watchlist, self.apiroutine)
                        )
     def load(self, container):
-        for m in callAPI(self.apiroutine, 'updatenotifier', 'createnotifier'):
+        for m in callAPI(container, 'updatenotifier', 'createnotifier'):
             yield m
-        self._notifier = self.apiroutine.retvalue
+        self._notifier = container.retvalue
         for m in Module.load(self, container):
             yield m
         self.routines.append(self._notifier)
