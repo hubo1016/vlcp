@@ -59,6 +59,11 @@ class ObjectDB(Module):
     def _update(self):
         timestamp = '%012x' % (int(time() * 1000),) + '-'
         notification_matcher = self._notifier.notification_matcher(False)
+        def copywithkey(obj, key):
+            newobj = deepcopy(obj)
+            if hasattr(newobj, 'setkey'):
+                newobj.setkey(key)
+            return newobj
         def updateinner():
             processing_requests = []
             loopCount = 0
@@ -203,7 +208,7 @@ class ObjectDB(Module):
                               if v is not None else dataobj.ReferenceObject(k)
                               for k,v in ((k,self._managed_objs.get(k)) for k in r[0])]
                 else:
-                    result = [deepcopy(update_result.get(k, self._managed_objs.get(k))) for k in r[0]]
+                    result = [copywithkey(update_result.get(k, self._managed_objs.get(k)), k) for k in r[0]]
                 send_events.append(RetrieveReply(r[1], result = result))
             # Use DFS to remove unwatched objects
             mark_set = set()
