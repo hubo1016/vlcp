@@ -240,7 +240,7 @@ class ObjectDB(Module):
             if not self._updatekeys and not self._requests:
                 yield (notification_matcher, request_matcher)
                 if self.apiroutine.matcher is notification_matcher:
-                    onupdate(self.apiroutine.event)
+                    onupdate(self.apiroutine.event, self.apiroutine.matcher)
                 for m in self.apiroutine.withCallback(updateinner(), onupdate, notification_matcher):
                     yield m
     def mget(self, keys, requestid):
