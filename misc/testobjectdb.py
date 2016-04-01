@@ -246,6 +246,9 @@ class TestObjectDB(Module):
                                 for vlanid in range(start, end + 1):
                                     if str(vlanid) not in phymap.network_allocation:
                                         break
+                                else:
+                                    continue
+                                break
                             else:
                                 raise ValueError('Not enough VLAN ID to be allocated in physical network %r' % (phynet.id,))
                             n.vlanid = vlanid
