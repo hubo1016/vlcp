@@ -331,8 +331,8 @@ class TestObjectDB(Module):
         @updater
         def create_ports(portset, *objs):
             old_ports = objs[:len(new_ports)]
-            phymaps = objs[len(new_ports):len(new_ports) + len(physical_networks)]
-            phynets = objs[len(new_ports) + len(physical_networks):]
+            phymaps = list(objs[len(new_ports):len(new_ports) + len(physical_networks)])
+            phynets = list(objs[len(new_ports) + len(physical_networks):])
             phydict = dict(zip(physical_networks, zip(phynets, phymaps)))
             return_ports = [None] * len(new_ports)
             for i in range(0, len(new_ports)):
@@ -374,8 +374,8 @@ class TestObjectDB(Module):
         @updater
         def create_ports(portset, *objs):
             old_ports = objs[:len(new_ports)]
-            logmaps = objs[len(new_ports):len(new_ports) + len(logical_networks)]
-            lognets = objs[len(new_ports) + len(logical_networks):]
+            logmaps = list(objs[len(new_ports):len(new_ports) + len(logical_networks)])
+            lognets = list(objs[len(new_ports) + len(logical_networks):])
             logdict = dict(zip(logical_networks, zip(lognets, logmaps)))
             return_ports = [None] * len(new_ports)
             for i in range(0, len(new_ports)):
