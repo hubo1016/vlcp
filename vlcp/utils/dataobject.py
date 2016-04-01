@@ -167,6 +167,7 @@ class DataObject(object):
     def jsondecode(cls, data):
         obj = cls(None, False)
         obj.__dict__.update(data)
+        return obj
     def __getstate__(self):
         return dict((k,v) for k,v in self.__dict__.items() if k[:1] != '_' and k not in self._indices)
     def __setstate__(self, state):
@@ -224,6 +225,7 @@ class DataObjectSet(object):
     def jsondecode(cls, data):
         obj = cls.__new__(cls)
         obj._dataset = set(data)
+        return obj
     def __getstate__(self):
         return list(self._dataset)
     def __setstate__(self, state):
