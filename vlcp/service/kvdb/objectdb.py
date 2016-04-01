@@ -188,7 +188,7 @@ class ObjectDB(Module):
                 if v is not None and hasattr(v, 'kvdb_retrievefinished'):
                     v.kvdb_retrievefinished(self._managed_objs)
             allkeys = tuple(k for k,_,_ in update_objs)
-            send_events.extend((dataobj.DataObjectUpdateEvent(k, v, transactid, t, allkeys = allkeys) for k,v,t in update_objs))
+            send_events.extend((dataobj.DataObjectUpdateEvent(k, transactid, t, object = v, allkeys = allkeys) for k,v,t in update_objs))
             # Process requests
             for r in processing_requests:
                 if r[2] == 'get':

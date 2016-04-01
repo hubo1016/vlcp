@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from vlcp.server.module import callAPI
 import functools
 
-@withIndices('key', 'object', 'transactid', 'type')
+@withIndices('key', 'transactid', 'type')
 class DataObjectUpdateEvent(Event):
     UPDATED = 'updated'
     DELETED = 'deleted'
@@ -61,7 +61,7 @@ class ReferenceObject(object):
         return '<ReferenceObject: %r at %r>' % (self._ref, self._key)
     def wait(self, container):
         if self.isdeleted():
-            yield (DataObjectUpdateEvent.createMatcher(self.getkey(), None, None, DataObjectUpdateEvent.UPDATED),)
+            yield (DataObjectUpdateEvent.createMatcher(self.getkey(), None, DataObjectUpdateEvent.UPDATED),)
             self._ref = container.event.object
     def waitif(self, container, expr, nextchange = False):
         flag = nextchange
@@ -276,7 +276,7 @@ def multiwaitif(references, container, expr, nextchange = False):
         yield matchers
         transid = container.event.transactid
         updated_keys = keys.intersection(container.event.allkeys)
-        transact_matcher = DataObjectUpdateEvent.createMatcher(None, None, transid, _ismatch = lambda x: x.key in updated_keys)
+        transact_matcher = DataObjectUpdateEvent.createMatcher(None, transid, _ismatch = lambda x: x.key in updated_keys)
         while True:
             updateref()
             updated_keys.remove(container.event.key)
