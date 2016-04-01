@@ -330,6 +330,7 @@ def dump(obj, attributes = True, _refset = None):
             return baseresult
         else:
             baseresult.update((k,dump(v, attributes, _refset)) for k,v in vars(obj).items() if k[:1] != '_')
+        return baseresult
     elif isinstance(obj, ReferenceObject):
         if obj._ref is not None:
             return dump(obj._ref, attributes, _refset)
