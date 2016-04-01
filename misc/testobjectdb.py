@@ -71,7 +71,11 @@ class TestObjectDB(Module):
         self.createAPI(api(self.createlogicalnetwork, self.apiroutine),
                        api(self.createlogicalnetworks, self.apiroutine),
                        api(self.createphysicalnetwork, self.apiroutine),
-                       api(self.createphysicalnetworks, self.apiroutine))
+                       api(self.createphysicalnetworks, self.apiroutine),
+                       api(self.createphysicalport, self.apiroutine),
+                       api(self.createphysicalports, self.apiroutine),
+                       api(self.createlogicalport, self.apiroutine),
+                       api(self.createlogicalports, self.apiroutine))
     def _monitor(self):
         update_event = DataObjectUpdateEvent.createMatcher()
         while True:
@@ -349,14 +353,16 @@ class TestObjectDB(Module):
             yield m
         for m in self._dumpkeys([p.getkey() for p in new_ports]):
             yield m
-    def createlogicalport(self, logicalnetwork, name, systemid = '%', bridge = '%', **kwargs):
-        p = {'logicalnetwork':logicalnetwork, 'name':name, 'systemid':systemid,'bridge':bridge}
+    def createlogicalport(self, logicalnetwork, id = None, **kwargs):
+        p = {'logicalnetwork':logicalnetwork, 'id':id}
         p.update(kwargs)
         for m in self.createlogicalports([p]):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def _createlogicalport(self, logicalnetwork, name, systemid = '%', bridge = '%', **kwargs):
-        new_port = LogicalPort.create_instance(systemid, bridge, name)
+    def _createlogicalport(self, logicalnetwork, id = None, **kwargs):
+        if not id:
+            id = str(uuid1())
+        new_port = LogicalPort.create_instance(id)
         new_port.logicalnetwork = ReferenceObject(LogicalNetwork.default_key(logicalnetwork))
         for k,v in kwargs.items():
             setattr(new_port, k, v)
