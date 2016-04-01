@@ -164,13 +164,13 @@ class DataObject(object):
     @classmethod
     def jsondecode(cls, data):
         obj = cls(None, False)
-        obj.__dict__.update(data)
+        obj.__dict__.update((str(k),v) for k,v in data.items())
         return obj
     def __getstate__(self):
-        return dict((k,v) for k,v in self.__dict__.items() if k[:1] != '_' and k not in self._indices)
+        return (dict((k,v) for k,v in self.__dict__.items() if k[:1] != '_' and k not in self._indices), False)
     def __setstate__(self, state):
         self.__init__(None, False)
-        self.__dict__.update(state)
+        self.__dict__.update(state[0])
     def create_reference(self):
         return ReferenceObject(self.getkey(), self)
     def create_weakreference(self):
@@ -225,9 +225,9 @@ class DataObjectSet(object):
         obj._dataset = set(data)
         return obj
     def __getstate__(self):
-        return list(self._dataset)
+        return (list(self._dataset), True)
     def __setstate__(self, state):
-        self._dataset = set(state)
+        self._dataset = set(state[0])
     def find(self, cls, *args):
         return [robj for robj in self._dataset if cls.ismatch(robj.getkey(), args)]
     def __repr__(self, *args, **kwargs):
