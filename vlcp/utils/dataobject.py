@@ -165,12 +165,12 @@ class DataObject(object):
         return dict((k,v) for k,v in self.__dict__.items() if k[:1] != '_' and k not in self._indices)
     @classmethod
     def jsondecode(cls, data):
-        obj = cls(None, None, False)
+        obj = cls(None, False)
         obj.__dict__.update(data)
     def __getstate__(self):
         return dict((k,v) for k,v in self.__dict__.items() if k[:1] != '_' and k not in self._indices)
     def __setstate__(self, state):
-        self.__init__(None, None, False)
+        self.__init__(None, False)
         self.__dict__.update(state)
     def create_reference(self):
         return ReferenceObject(self.getkey(), self)
