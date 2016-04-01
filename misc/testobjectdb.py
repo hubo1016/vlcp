@@ -6,12 +6,13 @@ Created on 2016/3/31
 from __future__ import print_function, absolute_import, division
 from vlcp.utils.dataobject import DataObject, DataObjectSet, updater, DataObjectUpdateEvent, watch_context,\
     multiwaitif, dump, set_new, ReferenceObject
-from vlcp.server.module import depend, Module, callAPI, ModuleLoadStateChanged
+from vlcp.server.module import depend, Module, callAPI, ModuleLoadStateChanged,\
+    api
 import vlcp.service.kvdb.objectdb as objectdb
 from vlcp.config.config import defaultconfig
 from vlcp.event.runnable import RoutineContainer, RoutineException
 from uuid import uuid1
-import itertools
+from vlcp.server import main
 
 class PhysicalNetwork(DataObject):
     _prefix = 'vlcptest.physicalnetwork'
@@ -59,6 +60,10 @@ class TestObjectDB(Module):
         self.routines.append(self.apiroutine)
         self._reqid = 0
         self._ownerid = uuid1().hex
+        self.createAPI(api(self.createlogicalnetwork, self.apiroutine),
+                       api(self.createlogicalnetworks, self.apiroutine),
+                       api(self.createphysicalnetwork, self.apiroutine),
+                       api(self.createphysicalnetworks, self.apiroutine))
     def _monitor(self):
         update_event = DataObjectUpdateEvent.createMatcher()
         while True:
@@ -291,3 +296,8 @@ class TestObjectDB(Module):
         new_networkmap.networks = DataObjectSet()
         new_networkmap.network_allocation = dict()
         return (new_network, new_networkmap)
+    
+
+if __name__ == '__main__':
+    main("/etc/vlcp.conf", ("__main__.TestObjectDB", "vlcp.service.manage.webapi.WebAPI"))
+    
