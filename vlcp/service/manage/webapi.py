@@ -16,7 +16,7 @@ from email.message import Message
 import json
 import ast
 from namedstruct import NamedStruct, dump
-from vlcp.utils.jsonencoder import encode_default, decode_object
+from vlcp.utils.jsonencoder import encode_default, decode_object, JsonFormat
 
 def _str(b, encoding = 'ascii'):
     if isinstance(b, str):
@@ -28,6 +28,7 @@ class WebAPIHandler(HttpHandler):
     def __init__(self, parent):
         HttpHandler.__init__(self, scheduler=parent.scheduler, daemon=False, vhost=parent.vhostbind)
         self.parent = parent
+        self.jsonencoder = JsonFormat()
     def apiHandler(self, env, targetname, methodname, **kwargs):
         params = kwargs
         parent = self.parent
@@ -65,7 +66,7 @@ class WebAPIHandler(HttpHandler):
         for m in callAPI(self, targetname, methodname, params):
             yield m
         env.header('Content-Type', 'application/json')
-        env.outputdata(json.dumps({'result':self.retvalue}, default=parent.jsonencoder).encode('ascii'))
+        env.outputdata(json.dumps({'result':self.retvalue}, default=self.jsonencoder.jsonencoder).encode('ascii'))
     def start(self, asyncStart=False):
         HttpHandler.start(self, asyncStart=asyncStart)
         path = self.parent.rootpath.encode('utf-8')
@@ -91,12 +92,6 @@ class WebAPI(Module):
     _default_authmethod = None
     _default_allowtargets = None
     _default_denytargets = None
-    _default_namedstruct = True
-    _default_humanread = True
-    _default_bytesdecode = 'ascii'
-    _default_byteslimit = 256
-    _default_dumpextra = False
-    _default_dumptypeinfo = 'flat'
     _default_typeextension = True
     service = False
     def __init__(self, server):
@@ -105,22 +100,3 @@ class WebAPI(Module):
         '''
         Module.__init__(self, server)
         self.routines.append(WebAPIHandler(self))
-    def jsonencoder(self, obj):
-        if isinstance(obj, NamedStruct) and self.namedstruct:
-            return dump(obj, self.humanread, self.dumpextra, self.dumptypeinfo)
-        elif isinstance(obj, bytes):
-            if self.humanread and len(obj) > self.byteslimit:
-                return '<%d bytes...>' % (len(obj),)
-            else:
-                if self.bytesdecode:
-                    try:
-                        return obj.decode(self.bytesdecode)
-                    except:
-                        return repr(obj)
-                else:
-                    return repr(obj)
-        else:
-            try:
-                return encode_default(obj)
-            except Exception:
-                return repr(obj)

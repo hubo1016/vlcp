@@ -4,6 +4,7 @@ Created on 2016/3/14
 :author: hubo
 '''
 import sys
+from vlcp.config.config import config, Configurable
 
 try:
     from urllib import unquote, quote
@@ -12,6 +13,9 @@ try:
 except:
     from urllib.parse import unquote_to_bytes, quote_from_bytes
 from namedstruct.namedstruct import NamedStruct, EmbeddedStruct
+from namedstruct import dump as namedstruct_dump
+from vlcp.utils.dataobject import DataObject, ReferenceObject, WeakReferenceObject, DataObjectSet
+from vlcp.utils.dataobject import dump as dataobject_dump
 import base64
 import json
 
@@ -86,3 +90,36 @@ def decode_object(obj):
             return obj
     else:
         return obj
+
+@config('jsonformat')
+class JsonFormat(Configurable):
+    _default_namedstruct = True
+    _default_humanread = True
+    _default_bytesdecode = 'ascii'
+    _default_byteslimit = 256
+    _default_dumpextra = False
+    _default_dumptypeinfo = 'flat'
+    _default_dataobject = True
+    _default_dataattributes = True    
+    def jsonencoder(self, obj):
+        if isinstance(obj, NamedStruct) and self.namedstruct:
+            return namedstruct_dump(obj, self.humanread, self.dumpextra, self.dumptypeinfo)
+        elif isinstance(obj, (DataObject, DataObjectSet, ReferenceObject, WeakReferenceObject)) and self.dataobject:
+            return dataobject_dump(obj, self.dataattributes)
+        elif isinstance(obj, bytes):
+            if self.humanread and len(obj) > self.byteslimit:
+                return '<%d bytes...>' % (len(obj),)
+            else:
+                if self.bytesdecode:
+                    try:
+                        return obj.decode(self.bytesdecode)
+                    except:
+                        return repr(obj)
+                else:
+                    return repr(obj)
+        else:
+            try:
+                return encode_default(obj)
+            except Exception:
+                return repr(obj)
+    

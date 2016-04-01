@@ -281,7 +281,7 @@ class RedisDB(TcpServerBase):
                             yield m
             raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
     def updateall(self, keys, updater, timeout = None, vhost = ''):
-        "Update multiple keys in-place, with a function updater(keys, values) which returns a list of values. see update. Either all success or all fail"
+        "Update multiple keys in-place, with a function updater(keys, values) which returns (updated_keys, updated_values). Either all success or all fail"
         c = self._redis_clients.get(vhost)
         for m in c.get_connection(self.apiroutine):
             yield m
@@ -295,20 +295,20 @@ class RedisDB(TcpServerBase):
                     yield m
                 values = self.apiroutine.retvalue
                 try:
-                    values = updater(keys, values)
-                    values_encoded = [self._encode(v) for v in values]
+                    new_keys, new_values = updater(keys, values)
+                    values_encoded = [self._encode(v) for v in new_values]
                 except:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
                     raise
                 if timeout is None:
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),)
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(new_keys, values_encoded))),)
                 elif timeout <= 0:
-                    set_commands = (('DEL',) + tuple(keys),)
+                    set_commands = (('DEL',) + tuple(new_keys),)
                 else:
                     ptimeout = int(timeout * 1000)
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),) \
-                                + tuple(('PEXPIRE', k, ptimeout) for k in keys)
+                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(new_keys, values_encoded))),) \
+                                + tuple(('PEXPIRE', k, ptimeout) for k in new_keys)
                 for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                                 set_commands + \
                                                                 (('EXEC',),))):
