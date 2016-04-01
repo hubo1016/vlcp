@@ -180,6 +180,8 @@ class DataObject(object):
     def __eq__(self, obj):
         return isinstance(obj, DataObject) and (obj is self or \
             dict((k,v) for k,v in self.__dict__.items() if k[:1] != '_') == dict((k,v) for k,v in obj.__dict__.items() if k[:1] != '_'))
+    def __hash__(self):
+        raise TypeError('unhashable type: DataObject')
     def __ne__(self, obj):
         return not self.__eq__(obj)
     def kvdb_update(self, obj):
@@ -236,6 +238,8 @@ class DataObjectSet(object):
         return isinstance(obj, DataObjectSet) and (obj is self or self._dataset == obj._dataset)
     def __ne__(self, obj):
         return not self.__eq__(obj)
+    def __hash__(self):
+        raise TypeError('unhashable type: DataObject')
     def kvdb_update(self, obj):
         self._dataset.clear()
         self._dataset.update(obj._dataset)
@@ -292,13 +296,13 @@ class AlreadyExistsException(Exception):
     pass
 
 def create_new(cls, oldvalue, *args):
-    "Raise exception if the old value already exists"
+    "Raise  if the old value already exists"
     if oldvalue is not None:
         raise AlreadyExistsException('%r already exists' % (oldvalue,))
     return cls.create_instance(*args)
 
 def create_from_key(cls, oldvalue, key):
-    "Raise exception if the old value already exists"
+    "Raise  if the old value already exists"
     if oldvalue is not None:
         raise AlreadyExistsException('%r already exists' % (oldvalue,))
     return cls.create_from_key(key)
