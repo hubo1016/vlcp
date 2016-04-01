@@ -319,6 +319,8 @@ class ObjectDB(Module):
             yield m
         # Short cut update notification
         self._updatekeys.update(self._watchedkeys.intersection(updated_keys_ref[0]))
+        for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
+            yield m
         for m in self._notifier.publish(*updated_keys_ref[0]):
             yield m
     def watchlist(self, requestid = None):
