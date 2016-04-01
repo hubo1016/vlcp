@@ -208,7 +208,7 @@ class TestObjectDB(Module):
         return new_network,new_networkmap
     def createlogicalnetworks(self, networks):
         new_networks = [self._createlogicalnetwork(**n) for n in networks]
-        physical_networks = list(set(n.physicalnetwork.getkey() for n in new_networks))
+        physical_networks = list(set(n[0].physicalnetwork.getkey() for n in new_networks))
         physical_maps = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(k)[1][0]) for k in physical_networks]
         @updater
         def create_logs(logset, *networks):
