@@ -295,7 +295,7 @@ class RedisDB(TcpServerBase):
                     yield m
                 values = self.apiroutine.retvalue
                 try:
-                    new_keys, new_values = updater(keys, values)
+                    new_keys, new_values = updater(keys, [self._decode(v) for v in values])
                     values_encoded = [self._encode(v) for v in new_values]
                 except:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):

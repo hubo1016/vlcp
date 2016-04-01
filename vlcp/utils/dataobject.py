@@ -81,8 +81,6 @@ class WeakReferenceObject(object):
         self._key = key
     def getkey(self):
         return self._key
-    def setkey(self, key):
-        pass
     def jsonencode(self):
         return self._key
     @classmethod
@@ -116,6 +114,8 @@ class DataObject(object):
             return self._prefix + '.' + '.'.join(escape_key(str(getattr(self, ind))) for ind in self._indices)
     @classmethod
     def _getIndices(cls, key):
+        if not cls._indices:
+            return (key, [])
         keys = key.split('.')
         indices = cls._indices
         if len(keys) < len(indices):
