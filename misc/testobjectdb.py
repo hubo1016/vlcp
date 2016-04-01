@@ -112,7 +112,7 @@ class TestObjectDB(Module):
                         else:
                             raise ValueError('Already managed')
                     try:
-                        for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys': [portobj], 'updater': write_status}):
+                        for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys': [portobj.getkey()], 'updater': write_status}):
                             yield m
                     except ValueError:
                         pass
