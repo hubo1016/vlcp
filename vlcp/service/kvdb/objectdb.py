@@ -22,6 +22,14 @@ class RetrieveRequestSend(Event):
 class RetrieveReply(Event):
     pass
 
+def _str(b):
+    if isinstance(b, str):
+        return b
+    elif isinstance(b, bytes):
+        return b.decode('utf-8')
+    else:
+        return str(b)
+
 @defaultconfig
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
 class ObjectDB(Module):
@@ -235,7 +243,7 @@ class ObjectDB(Module):
                     yield m
         request_matcher = RetrieveRequestSend.createMatcher()
         def onupdate(event, matcher):
-            self._updatekeys.update(self._watchedkeys.intersection(event.keys))
+            self._updatekeys.update(self._watchedkeys.intersection([_str(k) for k in event.keys]))
         while True:
             if not self._updatekeys and not self._requests:
                 yield (notification_matcher, request_matcher)
