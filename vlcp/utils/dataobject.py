@@ -85,7 +85,7 @@ class WeakReferenceObject(object):
         return self._key
     @classmethod
     def jsondecode(cls, data):
-        return cls(data, None)
+        return cls(data)
     def __getstate__(self):
         return self._key
     def __setstate__(self, state):
