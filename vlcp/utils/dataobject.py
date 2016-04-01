@@ -9,6 +9,7 @@ from vlcp.event.event import withIndices, Event
 from contextlib import contextmanager
 from vlcp.server.module import callAPI
 import functools
+from copy import deepcopy
 
 @withIndices('key', 'transactid', 'type')
 class DataObjectUpdateEvent(Event):
@@ -171,6 +172,10 @@ class DataObject(object):
     def __setstate__(self, state):
         self.__init__(None, False)
         self.__dict__.update(state[0])
+    def clone_instance(self):
+        c = deepcopy(self)
+        c.setkey(self.getkey())
+        return c
     def create_reference(self):
         return ReferenceObject(self.getkey(), self)
     def create_weakreference(self):
@@ -310,7 +315,7 @@ def create_from_key(cls, oldvalue, key):
 def set_new(oldvalue, newvalue):
     if oldvalue is not None:
         raise AlreadyExistsException('%r already exists' % (oldvalue,))
-    return newvalue
+    return newvalue.clone_instance()
 
 def dump(obj, attributes = True, _refset = None):
     "Show full value of a data object"
