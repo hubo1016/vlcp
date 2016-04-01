@@ -396,7 +396,7 @@ class Scheduler(object):
                     except StopIteration:
                         self.unregisterall(r)
                     except:
-                        self.logger.exception('processing event %s failed with exception', repr(event))
+                        self.logger.exception('processing event %r failed with exception, runnable = %r', event, r)
                         self.unregisterall(r)
                     while self.syscallfunc is not None:
                         r = getattr(self, 'syscallrunnable', None)
@@ -418,7 +418,7 @@ class Scheduler(object):
                         except StopIteration:
                             self.unregisterall(r)
                         except:
-                            self.logger.exception('processing syscall failed with exception')
+                            self.logger.exception('processing syscall failed with exception, runnable = %r', r)
                             self.unregisterall(r)
                 if not event.canignore and not event.canignorenow():
                     self.eventtree.insert(event)
