@@ -180,17 +180,13 @@ class _Notifier(RoutineContainer):
                     # Wait for connection resume
                     connection_up = client.subscribe_state_matcher(self)
                     yield (connection_up,)
-        except QuitException:
-            pass
-        except:
+        finally:
             self.subroutine(self._clearup(client, list(self._matchers.keys())))
-            raise
-        else:
-            self.subroutine(self._clearup(client, list(self._matchers.keys())))            
     def _clearup(self, client, keys):
         try:
-            for m in client.unsubscribe(self, *[self.prefix + k for k in keys]):
-                yield m
+            if not self.scheduler.quitting:
+                for m in client.unsubscribe(self, *[self.prefix + k for k in keys]):
+                    yield m
         except Exception:
             pass
     def add_listen(self, *keys):
