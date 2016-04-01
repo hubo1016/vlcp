@@ -13,6 +13,7 @@ from vlcp.config.config import defaultconfig
 from vlcp.event.runnable import RoutineContainer, RoutineException
 from uuid import uuid1
 from vlcp.server import main
+import logging
 
 class PhysicalNetwork(DataObject):
     _prefix = 'vlcptest.physicalnetwork'
@@ -76,6 +77,7 @@ class TestObjectDB(Module):
                        api(self.createphysicalports, self.apiroutine),
                        api(self.createlogicalport, self.apiroutine),
                        api(self.createlogicalports, self.apiroutine))
+        self._logger.setLevel(logging.DEBUG)
     def _monitor(self):
         update_event = DataObjectUpdateEvent.createMatcher()
         while True:
