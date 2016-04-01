@@ -253,7 +253,7 @@ def watch_context(keys, result, reqid, container, module = 'objectdb'):
         yield result
     finally:
         if keys:
-            container.subroutine(callAPI(module, 'munwatch', {'keys': keys, 'requestid': reqid}))
+            container.subroutine(callAPI(container, module, 'munwatch', {'keys': keys, 'requestid': reqid}))
         
 def multiwaitif(references, container, expr, nextchange = False):
     keys = set(r.getkey() for r in references)
