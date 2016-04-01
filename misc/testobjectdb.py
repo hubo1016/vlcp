@@ -259,8 +259,8 @@ class TestObjectDB(Module):
             return [logset] + return_nets + phy_maps
         for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys': [LogicalNetworkSet.default_key()] +\
                                                                             [sn.getkey() for n in new_networks for sn in n] +\
-                                                                            physical_networks +\
-                                                                            physical_maps,
+                                                                            physical_maps +\
+                                                                            physical_networks,
                                                                    'updater': create_logs}):
             yield m
         for m in self._dumpkeys([n[0].getkey() for n in new_networks]):
