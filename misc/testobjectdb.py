@@ -134,7 +134,7 @@ class TestObjectDB(Module):
                 for m in setobj.waitif(self.apiroutine, lambda x: not x.isdeleted(), True):
                     yield m
     def _main(self):
-        self.apiroutine.subroutine(self._monitor())
+        self.routines.append(self.apiroutine.subroutine(self._monitor()))
         keys = [LogicalPortSet.default_key(), PhysicalPortSet.default_key()]
         for k in keys:
             self.routines.append(self.apiroutine.subroutine(self._waitforchange(k)))
@@ -160,8 +160,7 @@ class TestObjectDB(Module):
                                                                    PhysicalPortSet.default_key()],
                                                              'updater': initialize}):
             yield m
-        for m in Module.load(self, container):
-            yield m
+        self.apiroutine.start()
     def createphysicalnetwork(self, type = 'vlan', id = None, **kwargs):
         new_network, new_map = self._createphysicalnetwork(type, id, **kwargs)
         @updater
