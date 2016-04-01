@@ -34,6 +34,7 @@ class ObjectDB(Module):
         self._requests = []
         self._transactno = 0
         self._stale = False
+        self._updatekeys = set()
         self.apiroutine = RoutineContainer(self.scheduler)
         self.apiroutine.main = self._update
         self.routines.append(self.apiroutine)
@@ -56,9 +57,8 @@ class ObjectDB(Module):
             yield m
         self.routines.append(self._notifier)
     def _update(self):
-        update_keys = set()
         timestamp = '%012x' % (int(time() * 1000),) + '-'
-        notification_matcher = self._notifier.notification_matcher()
+        notification_matcher = self._notifier.notification_matcher(False)
         def updateinner():
             processing_requests = []
             loopCount = 0
@@ -66,20 +66,20 @@ class ObjectDB(Module):
             retrieve_list = set()
             retrieveonce_list = set()
             update_result = {}
-            while (retrieve_list or update_keys or self._requests):
+            while (retrieve_list or self._updatekeys or self._requests):
                 watch_keys = set()
                 # Updated keys
                 update_list = set()
                 if loopCount >= 10 and not retrieve_list:
-                    if not update_keys:
+                    if not self._updatekeys:
                         break
                     elif loopCount >= 100:
                         # Too many updates, we must stop to respond
                         self._logger.warning("There are still database updates after 100 loops of mget, respond with potential inconsistent values")
                         break
-                if update_keys:
-                    update_list.update(update_keys)
-                    update_keys.clear()
+                if self._updatekeys:
+                    update_list.update(self._updatekeys)
+                    self._updatekeys.clear()
                 if self._requests:
                     # Processing requests
                     for r in self._requests:
@@ -127,7 +127,7 @@ class ObjectDB(Module):
                         # Discard all retrieved results
                         update_result.clear()
                         # Retry update later
-                        update_keys.update(update_list)
+                        self._updatekeys.update(update_list)
                         break
                     else:
                         result = self.apiroutine.retvalue
@@ -145,7 +145,7 @@ class ObjectDB(Module):
                                         # There are some new keys to retrieve. The value itself may be updated
                                         # before the next retrieve returns, we will always assume that there
                                         # may be an update
-                                        update_keys.add(k)
+                                        self._updatekeys.add(k)
                                     new_retreive_list.update(newrt)
                 else:
                     new_retreive_list = set()
@@ -230,9 +230,9 @@ class ObjectDB(Module):
                     yield m
         request_matcher = RetrieveRequestSend.createMatcher()
         def onupdate(event, matcher):
-            update_keys.update(self._watchedkeys.intersection(event.keys))
+            self._updatekeys.update(self._watchedkeys.intersection(event.keys))
         while True:
-            if not update_keys and not self._requests:
+            if not self._updatekeys and not self._requests:
                 yield (notification_matcher, request_matcher)
                 if self.apiroutine.matcher is notification_matcher:
                     onupdate(self.apiroutine.event)
@@ -312,6 +312,8 @@ class ObjectDB(Module):
             return (updated_keys, updated_values)
         for m in callAPI(self.apiroutine, 'kvstorage', 'updateall', {'keys': keys, 'updater': object_updater}):
             yield m
+        # Short cut update notification
+        self._updatekeys.update(self._watchedkeys.intersection(updated_keys_ref[0]))
         for m in self._notifier.publish(*updated_keys_ref[0]):
             yield m
     def watchlist(self, requestid = None):

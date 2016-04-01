@@ -17,8 +17,9 @@ from time import time
 import functools
 import uuid
 import logging
+from Crypto.PublicKey.pubkey import pubkey
 
-@withIndices('notifier', 'transactid', 'keys', 'reason')
+@withIndices('notifier', 'transactid', 'keys', 'reason', 'fromself')
 class UpdateNotification(Event):
     UPDATED = 'updated'
     RESTORED = 'restored'
@@ -119,7 +120,7 @@ class _Notifier(RoutineContainer):
                     transactid = '%s%016x' % (timestamp, transactno)
                     transactno += 1
                     self.subroutine(self.waitForSend(
-                                UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED)
+                                UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED, False)
                                                                            ), False)
                 else:
                     transact = decoder(self.event.message)
@@ -127,10 +128,12 @@ class _Notifier(RoutineContainer):
                         # Ignore duplicated updates
                         continue
                     last_transact = transact['id']
+                    pubkey, sep, pubno = last_transact.partition('-')
+                    fromself = (sep and pubkey == self._publishkey)
                     transactid = '%s%016x' % (timestamp, transactno)
                     transactno += 1
                     self.subroutine(self.waitForSend(
-                                UpdateNotification(self, transactid, tuple(transact['keys']), UpdateNotification.UPDATED)
+                                UpdateNotification(self, transactid, tuple(transact['keys']), UpdateNotification.UPDATED, fromself)
                                                                            ), False)
         finally:
             self.terminate(self.modifierroutine)
@@ -224,8 +227,11 @@ class _Notifier(RoutineContainer):
             self._publish_wait.update(merged_keys)
         else:
             self._publish_wait.clear()
-    def notification_matcher(self):
-        return UpdateNotification.createMatcher(self)
+    def notification_matcher(self, fromself = None):
+        if fromself is None:
+            return UpdateNotification.createMatcher(self)
+        else:
+            return UpdateNotification.createMatcher(notifier = self, fromself = fromself)
 
 @defaultconfig
 @depend(redisdb.RedisDB)
