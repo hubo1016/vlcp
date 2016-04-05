@@ -119,7 +119,7 @@ class _Notifier(RoutineContainer):
                     transactid = '%s%016x' % (timestamp, transactno)
                     transactno += 1
                     self.subroutine(self.waitForSend(
-                                UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED, False)
+                                UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED, False, extrainfo = None)
                                                                            ), False)
                 else:
                     transact = decoder(self.event.message)
@@ -132,7 +132,7 @@ class _Notifier(RoutineContainer):
                     transactid = '%s%016x' % (timestamp, transactno)
                     transactno += 1
                     self.subroutine(self.waitForSend(
-                                UpdateNotification(self, transactid, tuple(transact['keys']), UpdateNotification.UPDATED, fromself)
+                                UpdateNotification(self, transactid, tuple(transact['keys']), UpdateNotification.UPDATED, fromself, extrainfo = transact.get('extrainfo'))
                                                                            ), False)
         finally:
             self.terminate(self.modifierroutine)
@@ -202,7 +202,7 @@ class _Notifier(RoutineContainer):
         for m in self.waitForSend(ModifyListen(self, ModifyListen.SUBSCRIBE)):
             yield m
     @_delegate
-    def publish(self, *keys):
+    def publish(self, keys = (), extrainfo = None):
         keys = [_bytes(k) for k in keys]
         if self._publish_wait:
             merged_keys = list(self._publish_wait.union(keys))
@@ -216,7 +216,7 @@ class _Notifier(RoutineContainer):
         client, encoder, _ = self.retvalue
         transactid = '%s-%016x' % (self._publishkey, self._publishno)
         self._publishno += 1
-        msg = encoder({'id':transactid, 'keys':merged_keys})
+        msg = encoder({'id':transactid, 'keys':merged_keys, 'extrainfo': extrainfo})
         try:
             for m in client.batch_execute(self, *((('MULTI',),) +
                                                 tuple(('PUBLISH', self.prefix + k, msg) for k in merged_keys) +
