@@ -88,12 +88,20 @@ class ObjectDB(Module):
         def onupdate(event, matcher):
             update_keys = self._watchedkeys.intersection([_str(k) for k in event.keys])
             self._updatekeys.update(update_keys)
-            for k,v in event.extrainfo.items():
-                if k in update_keys:
-                    v = tuple(v)
-                    oldv = self._update_version.get(k, (0, -1))
-                    if oldv < v:
-                        self._update_version[k] = v
+            if event.extrainfo:
+                for k,v in event.extrainfo.items():
+                    k = _str(k)
+                    if k in update_keys:
+                        v = tuple(v)
+                        oldv = self._update_version.get(k, (0, -1))
+                        if oldv < v:
+                            self._update_version[k] = v
+            else:
+                for k in event.keys:
+                    try:
+                        del self._update_version[_str(k)]
+                    except KeyError:
+                        pass
         def updateinner():
             processing_requests = []
             # New managed keys
