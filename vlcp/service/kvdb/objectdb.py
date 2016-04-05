@@ -145,7 +145,6 @@ class ObjectDB(Module):
                                 processing_requests.append(r)
                             elif r[2] == 'walk':
                                 retrieve_list.update(r[0])
-                                orig_retrieve_list.update(r[0])
                                 processing_requests.append(r)
                                 for k,v in r[3].items():
                                     walkers.setdefault(k, []).append((v, (r[0], r[1])))
@@ -222,7 +221,6 @@ class ObjectDB(Module):
                                 else:
                                     if newobj is not None:
                                         default_walker(k, newobj, walk)
-                    savelist.clear()
                     for k in orig_retrieve_list:
                         v = update_result.get(k)
                         if v is not None:
@@ -233,6 +231,10 @@ class ObjectDB(Module):
                                 new_retrieve_list.update(new_retrieve_keys)
                                 self._updatekeys.update(used_keys)
                                 self._updatekeys.add(k)
+                    savelist.clear()
+                    for k,ws in walkers.items():
+                        v = update_result.get(k)
+                        if v is not None:
                             ws = walkers.get(k)
                             if ws:
                                 for w,r in list(ws):
@@ -253,7 +255,18 @@ class ObjectDB(Module):
                                         if new_retrieve_keys:
                                             new_retrieve_list.update(new_retrieve_keys)
                                             self._updatekeys.update(used_keys)
-                                            self._updatekeys.add(k)                                        
+                                            self._updatekeys.add(k)
+                    for save in savelist.values():
+                        for k in save:
+                            v = update_result.get(k)
+                            if v is not None:
+                                new_retrieve_keys.clear()
+                                used_keys.clear()
+                                default_walker(k, v, walk)
+                                if new_retrieve_keys:
+                                    new_retrieve_list.update(new_retrieve_keys)
+                                    self._updatekeys.update(used_keys)
+                                    self._updatekeys.add(k)                            
                     retrieve_list.clear()
                     retrieveonce_list.clear()
                     retrieve_list.update(new_retrieve_list)
