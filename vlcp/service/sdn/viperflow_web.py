@@ -116,11 +116,12 @@ class ViperFlowWeb(Module):
 
         print(self.app_routine.retvalue)
         """
+        """
         jsonPhy = json.dumps(phy)
 
         for m in redisClient.execute_command(self.app_routine,'publish',key,jsonPhy):
             yield m
-
+        """
     def create_py_port(self,data):
         
         
@@ -143,7 +144,7 @@ class ViperFlowWeb(Module):
         port = {}
         port['sysid'] = ''
         port['brname'] = ''
-        port['portname'] = 'vxlan1'
+        port['portname'] = 'enp0s8'
         
         if port['sysid'] == '':
             port['sysid'] = '*'
