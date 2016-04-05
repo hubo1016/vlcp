@@ -115,7 +115,8 @@ class ViperFlow(Module):
             for m in callAPI(self.app_routine,'redisdb','get',{'key':key}):
                 yield m
             
-            stage1 = json.loads(self.app_routine.retvalue)
+            #stage1 = json.loads(self.app_routine.retvalue)
+            stage1 = self.app_routine.retvalue
             logger.info(" get VIF info stage 1 %r",stage1)
 
             key2 = "viperflow.logicnetwork." + stage1['logicnet']
@@ -123,7 +124,8 @@ class ViperFlow(Module):
             for m in callAPI(self.app_routine,'redisdb','get',{'key':key2}):
                 yield m
 
-            stage2 = json.loads(self.app_routine.retvalue)
+            #stage2 = json.loads(self.app_routine.retvalue)
+            stage2 = self.app_routine.retvalue
             logger.info(" get VIF info stage 2 %r",stage2)
 
             key3 = "viperflow.physicalnetwork." + stage2['physicnetname']
@@ -131,7 +133,8 @@ class ViperFlow(Module):
             for m in callAPI(self.app_routine,'redisdb','get',{'key':key3}):
                 yield m
 
-            stage3 = json.loads(self.app_routine.retvalue)
+            #stage3 = json.loads(self.app_routine.retvalue)
+            stage3 = self.app_routine.retvalue
             logger.info(" get VIF info stage 3 %r",stage3)
 
             # if we have an error , we must wait until get it from DB
@@ -177,10 +180,10 @@ class ViperFlow(Module):
                     
                     logger.info('-- get ukey value %r --',value)         
                     
-                    value_json = json.loads(value)
+                    #value_json = json.loads(value)
 
                     # find  
-                    for m in callAPI(self.app_routine,'redisdb','get',{'key':value_json['key']}):
+                    for m in callAPI(self.app_routine,'redisdb','get',{'key':value['key']}):
                         yield m
                     
                     value1 = self.app_routine.retvalue
@@ -197,20 +200,20 @@ class ViperFlow(Module):
                         yield m
 
                     if self.app_routine.retvalue != None:
-                        value = self.app_routine.retvalue
+                        value0 = self.app_routine.retvalue
 
-                        logger.info('-- get wkey value %r --',value)
+                        logger.info('-- get wkey value %r --',value0)
 
-                        value_json = json.loads(value)
+                        #value_json = json.loads(value)
                         
-                        logger.info(" value json key %r",value_json['key'])
+                        logger.info(" value json key %r",value0['key'])
                         
-                        for m in callAPI(self.app_routine,'redisdb','get',{'key':value_json['key']}):
+                        for m in callAPI(self.app_routine,'redisdb','get',{'key':value0['key']}):
                             yield m
 
                         value1 = self.app_routine.retvalue
                         
-                        phyJson = json.loads(value1)
+                        phyJson = value1
                         logger.info('-- get wkey value1 %r --',value1)         
                         # send event, physic network update port
                         

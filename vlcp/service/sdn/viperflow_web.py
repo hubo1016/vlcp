@@ -46,6 +46,10 @@ class ViperFlowWeb(Module):
         
         for m in self.create_logicnet_port("75df4b1dd386","port2"):
             yield m
+     
+        for m in self.create_logicnet_port("d8298adbe5c0","port2"):
+            yield m
+    
     
         if None:
             yield
@@ -97,7 +101,7 @@ class ViperFlowWeb(Module):
         redisClient = self.app_routine.retvalue
         
         # save into redis
-        for m in callAPI(self.app_routine,"redisdb","set",{'key':key,"value":json.dumps(phy)}):
+        for m in callAPI(self.app_routine,"redisdb","set",{'key':key,"value":phy}):
             yield m
         
         
@@ -157,7 +161,7 @@ class ViperFlowWeb(Module):
         portkey = 'vlcp.port.'+port['sysid'] + '.' + port['brname'] + '.' + port['portname']
         
         portvalue = {'type':'PN','key':phykey}
-        for m in callAPI(self.app_routine,'redisdb','set',{'key':portkey,'value':json.dumps(portvalue)}):
+        for m in callAPI(self.app_routine,'redisdb','set',{'key':portkey,'value':portvalue}):
             yield m
 
     def create_logic_network(self,data):
@@ -173,7 +177,7 @@ class ViperFlowWeb(Module):
 
         logicnetkey = LOGICNETWORKKEY + '.' + logicnet['name']
 
-        for m in callAPI(self.app_routine,'redisdb','set',{'key':logicnetkey,'value':json.dumps(logicnet)}):
+        for m in callAPI(self.app_routine,'redisdb','set',{'key':logicnetkey,'value':logicnet}):
             yield m
 
     def create_logicnet_port(self,data,name):
@@ -189,5 +193,5 @@ class ViperFlowWeb(Module):
 
         logicportkey = LOGICPORTKEY + '.' + logicnetport['id']
 
-        for m in callAPI(self.app_routine,'redisdb','set',{'key':logicportkey,'value':json.dumps(logicnetport)}):
+        for m in callAPI(self.app_routine,'redisdb','set',{'key':logicportkey,'value':logicnetport}):
             yield m
