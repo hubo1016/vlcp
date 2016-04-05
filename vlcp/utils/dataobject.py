@@ -339,9 +339,11 @@ def dump(obj, attributes = True, _refset = None):
         clsname = getattr(cls, '__module__', '<unknown>') + '.' + getattr(cls, '__name__', '<unknown>')
         baseresult = {'_type': clsname, '_key': obj.getkey()}
         if not attributes:
+            _refset.remove(id(obj))
             return baseresult
         else:
             baseresult.update((k,dump(v, attributes, _refset)) for k,v in vars(obj).items() if k[:1] != '_')
+            _refset.remove(id(obj))
         return baseresult
     elif isinstance(obj, ReferenceObject):
         if obj._ref is not None:
