@@ -8,6 +8,7 @@ from vlcp.server.module import Module,depend,ModuleNotification
 from vlcp.event.runnable import RoutineContainer
 from vlcp.service.sdn import viperflow,ofpmanager
 from vlcp.service.sdn import ofpctl
+from vlcp.utils.ethernet import *
 from vlcp.service.sdn.ofpctl import ACL_TABLE_ID,TAG_TABLE_ID,MAC_TABLE_ID,POS_ROUTINE_TABLE_ID,UNTAG_TABLE_ID,ARP_TABLE_ID,MAC_LEARN_TABLE_ID,PRE_ROUTINE_TABLE_ID,FUN_TABLE_ID
 
 
@@ -232,6 +233,10 @@ class l2(Module):
                 action = ofp_parser.nx_action_reg_load(ofs_nbits = (0 << 16)|(32 - 1),dst = ofp_parser.NXM_NX_REG5,
                     value = portInfo['logicnet']['id'])
                 ins1.actions.append(action)
+
+                action = ofp_parser.ofp_action(type = ofp_parser.OFPAT_POP_VLAN)
+                ins1.actions.append(action)
+                
                 ins2 = ofp_parser.ofp_instruction_goto_table(table_id = ACL_TABLE_ID)
                 for m in ofctl.add_flow(self.app_routine,match,[ins1,ins2],
                       ofp_parser.OFP_NO_BUFFER,table_id = TAG_TABLE_ID,priority = 100,
@@ -246,6 +251,13 @@ class l2(Module):
                 # add mac learn flow to PRE_ROUTINE_TABLE_ID
                 # (I think PRE_ROUTINE_TABLE_ID is not correct)
                 match = ofp_parser.ofp_match_oxm()
+
+                # here I don't want to learn broadcast packet
+
+                oxm = ofp_parser.create_oxm(ofp_parser.OXM_OF_ETH_DST_W,[0,0,0,0,0,0],
+                        [1,0,0,0,0,0])
+                match.oxm_fields.append(oxm)
+
                 ins1 = ofp_parser.ofp_instruction_actions(type = ofp_parser.OFPIT_APPLY_ACTIONS)
                 
                 spec1 = ofp_parser.create_nxfms_matchfield(src = ofp_parser.NXM_NX_REG5,
@@ -341,8 +353,30 @@ class l2(Module):
                         ofp_parser.OFP_NO_BUFFER,table_id = MAC_TABLE_ID,
                         priority = 50,cookie = cookie):
                     yield m
+                
+                # this phy port vlan ,  output it should add tag 
+                match = ofp_parser.ofp_match_oxm()
+                oxm = ofp_parser.create_oxm(ofp_parser.NXM_NX_REG5,portInfo['logicnet']['id'])
+                match.oxm_fields.append(oxm)
+                
+                oxm = ofp_parser.create_oxm(ofp_parser.NXM_NX_REG1,phynet['ports'][0]['portno'])
+                match.oxm_fields.append(oxm)
 
+                ins = ofp_parser.ofp_instruction_actions(type = ofp_parser.OFPIT_APPLY_ACTIONS)
+                action = ofp_parser.ofp_action_push(ethertype=ETHERTYPE_8021Q)
+                ins.actions.append(action)
 
+                set_vid_field = ofp_parser.create_oxm(ofp_parser.OXM_OF_VLAN_VID, 
+                        portInfo['logicnet']['segment_id']|ofp_parser.OFPVID_PRESENT)
+                action = ofp_parser.ofp_action_set_field(field = set_vid_field)
+                ins.actions.append(action)
+                
+                action = ofp_parser.ofp_action_output(port = phynet['ports'][0]['portno'])
+                ins.actions.append(action)
+                
+                for m in ofctl.add_flow(self.app_routine,match,[ins,],ofp_parser.OFP_NO_BUFFER,
+                        table_id = UNTAG_TABLE_ID,priority = 50,cookie = cookie):
+                    yield m
                 # arp table add this network default broadcast
                 match = ofp_parser.ofp_match_oxm()
                 oxm = ofp_parser.create_oxm(ofp_parser.NXM_NX_REG5,
@@ -441,7 +475,8 @@ class l2(Module):
             ins.actions.append(action)
 
             for m in ofctl.add_flow(self.app_routine,match,[ins,],
-                    ofp_parser.OFP_NO_BUFFER,table_id = UNTAG_TABLE_ID,priority = 50):
+                    ofp_parser.OFP_NO_BUFFER,table_id = UNTAG_TABLE_ID,priority = 50,
+                    cookie = cookie):
                 yield m
 
             # if this port have an mac 

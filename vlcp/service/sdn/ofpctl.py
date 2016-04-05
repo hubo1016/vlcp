@@ -119,12 +119,22 @@ class OfpCtlViper(OfpCtl):
             yield m
         
         # table FUN_TABLE_ID  add ARP packet goto ARP_TABLE_ID
+        # (arp table handle same mac packet , lookup mac learn table
+        #  goto broadcast group)
         match = self.ofp_parser.ofp_match_oxm()
         oxm = self.ofp_parser.create_oxm(self.ofp_parser.OXM_OF_ETH_TYPE,ETHERTYPE_ARP)
         match.oxm_fields.append(oxm)
         
-        ins = self.ofp_parser.ofp_instruction_goto_table(table_id = ARP_TABLE_ID)
+        #ins = self.ofp_parser.ofp_instruction_goto_table(table_id = ARP_TABLE_ID)
+        
+        ins = self.ofp_parser.ofp_instruction_actions(type = self.ofp_parser.OFPIT_APPLY_ACTIONS)
+        action1 = self.ofp_parser.nx_action_resubmit(in_port=self.ofp_parser.OFPP_IN_PORT & 0xffff, 
+                table = MAC_LEARN_TABLE_ID)
+        ins.actions.append(action1)
 
+        action2 = self.ofp_parser.nx_action_resubmit(in_port=self.ofp_parser.OFPP_IN_PORT & 0xffff,
+                table = ARP_TABLE_ID)
+        ins.actions.append(action2)
         for m in self.add_flow(container,match,[ins,],self.ofp_parser.OFP_NO_BUFFER,
                 table_id = FUN_TABLE_ID,priority = 200):
             yield m
