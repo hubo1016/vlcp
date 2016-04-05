@@ -232,6 +232,7 @@ class ObjectDB(Module):
                             if new_retrieve_keys:
                                 new_retrieve_list.update(new_retrieve_keys)
                                 self._updatekeys.update(used_keys)
+                                self._updatekeys.add(k)
                             ws = walkers.get(k)
                             if ws:
                                 for w,r in list(ws):
@@ -239,6 +240,8 @@ class ObjectDB(Module):
                                     def save(key):
                                         savelist.setdefault(r[1], set()).add(key)
                                     try:
+                                        new_retrieve_keys.clear()
+                                        used_keys.clear()
                                         w(k, v, walk, save)
                                     except Exception as exc:
                                         for orig_k in r[0]:
@@ -246,6 +249,11 @@ class ObjectDB(Module):
                                         processing_requests[:] = [r0 for r0 in processing_requests if r0[1] != r[1]]
                                         for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
                                             yield m
+                                    else:
+                                        if new_retrieve_keys:
+                                            new_retrieve_list.update(new_retrieve_keys)
+                                            self._updatekeys.update(used_keys)
+                                            self._updatekeys.add(k)                                        
                     retrieve_list.clear()
                     retrieveonce_list.clear()
                     retrieve_list.update(new_retrieve_list)
