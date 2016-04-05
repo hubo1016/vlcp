@@ -448,7 +448,7 @@ class ObjectDB(Module):
                     new_version.append((timestamp, 1))
             updated_ref[1] = new_version
             return (updated_keys, updated_values)
-        for m in callAPI(self.apiroutine, 'kvstorage', 'updateall', {'keys': keys, 'updater': object_updater}):
+        for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime', {'keys': keys, 'updater': object_updater}):
             yield m
         # Short cut update notification
         self._updatekeys.update(self._watchedkeys.intersection(updated_ref[0]))
