@@ -341,7 +341,7 @@ class RedisDB(TcpServerBase):
                                                                 ('TIME',)):
                     yield m
                 values, time_tuple = self.apiroutine.retvalue
-                server_time = time_tuple[0] * 1000000 + time_tuple[1]
+                server_time = int(time_tuple[0]) * 1000000 + int(time_tuple[1])
                 try:
                     new_keys, new_values = updater(keys, [self._decode(v) for v in values], server_time)
                     values_encoded = [self._encode(v) for v in new_values]
