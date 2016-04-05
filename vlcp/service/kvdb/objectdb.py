@@ -344,7 +344,7 @@ class ObjectDB(Module):
                               if v is not None else dataobj.ReferenceObject(k)
                               for k,v in ((k,self._managed_objs.get(k)) for k in r[0])]
                 elif r[2] == 'walk':
-                    saved_keys = savelist.get(r[1], [])
+                    saved_keys = list(savelist.get(r[1], []))
                     objs = [self._managed_objs.get(k) for k in saved_keys]
                     for k,v in zip(saved_keys, objs):
                         if v is not None:
