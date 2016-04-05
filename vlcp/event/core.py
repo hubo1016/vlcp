@@ -470,6 +470,8 @@ class Scheduler(object):
                                 self.logger.exception('Runnable quit failed with exception')
                                 self.unregisterall(r)
                     processedEvents += 1
+                if len(self.registerIndex) <= len(self.daemons):
+                    break
                 if self.generatecontinue or self.queue.canPop():
                     wait = 0
                 elif not self.timers:
