@@ -22,6 +22,14 @@ class RetrieveRequestSend(Event):
 class RetrieveReply(Event):
     pass
 
+def _str(b):
+    if isinstance(b, str):
+        return b
+    elif isinstance(b, bytes):
+        return b.decode('utf-8')
+    else:
+        return str(b)
+
 @defaultconfig
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
 class ObjectDB(Module):
@@ -235,12 +243,12 @@ class ObjectDB(Module):
                     yield m
         request_matcher = RetrieveRequestSend.createMatcher()
         def onupdate(event, matcher):
-            self._updatekeys.update(self._watchedkeys.intersection(event.keys))
+            self._updatekeys.update(self._watchedkeys.intersection([_str(k) for k in event.keys]))
         while True:
             if not self._updatekeys and not self._requests:
                 yield (notification_matcher, request_matcher)
                 if self.apiroutine.matcher is notification_matcher:
-                    onupdate(self.apiroutine.event)
+                    onupdate(self.apiroutine.event, self.apiroutine.matcher)
                 for m in self.apiroutine.withCallback(updateinner(), onupdate, notification_matcher):
                     yield m
     def mget(self, keys, requestid):
@@ -319,6 +327,8 @@ class ObjectDB(Module):
             yield m
         # Short cut update notification
         self._updatekeys.update(self._watchedkeys.intersection(updated_keys_ref[0]))
+        for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
+            yield m
         for m in self._notifier.publish(*updated_keys_ref[0]):
             yield m
     def watchlist(self, requestid = None):

@@ -104,6 +104,7 @@ class Server(Configurable):
         # If logging is not configured, configure it to the default (console)
         logging.basicConfig()
         self.resolver.start()
+        self.moduleloader.start()
         for path in self.startup:
             self.moduleloader.subroutine(self.moduleloader.loadByPath(path))
         self.scheduler.main()

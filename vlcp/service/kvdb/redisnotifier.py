@@ -11,7 +11,7 @@ import vlcp.service.connection.redisdb as redisdb
 from vlcp.event.event import withIndices, Event
 from vlcp.event.runnable import RoutineContainer
 from vlcp.event.connection import ConnectionResetException
-from vlcp.event.core import syscall_removequeue
+from vlcp.event.core import syscall_removequeue, QuitException
 import json
 from time import time
 import functools
@@ -184,8 +184,9 @@ class _Notifier(RoutineContainer):
             self.subroutine(self._clearup(client, list(self._matchers.keys())))
     def _clearup(self, client, keys):
         try:
-            for m in client.unsubscribe(self, *[self.prefix + k for k in keys]):
-                yield m
+            if not self.scheduler.quitting:
+                for m in client.unsubscribe(self, *[self.prefix + k for k in keys]):
+                    yield m
         except Exception:
             pass
     def add_listen(self, *keys):
