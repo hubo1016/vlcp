@@ -274,7 +274,7 @@ class ObjectDB(Module):
             while True:
                 for m in self.apiroutine.withCallback(updateloop(), onupdate, notification_matcher):
                     yield m
-                if self._loopCount >= 100:
+                if self._loopCount >= 100 or self._stale:
                     break
                 # If some updated result is newer than the notification version, we should wait for the notification
                 should_wait = False
@@ -345,6 +345,8 @@ class ObjectDB(Module):
                               for k,v in ((k,self._managed_objs.get(k)) for k in r[0])]
                 elif r[2] == 'walk':
                     saved_keys = list(savelist.get(r[1], []))
+                    if self._stale:
+                        saved_keys = [k for k in saved_keys if k in self._managed_objs]
                     objs = [self._managed_objs.get(k) for k in saved_keys]
                     for k,v in zip(saved_keys, objs):
                         if v is not None:
@@ -399,6 +401,8 @@ class ObjectDB(Module):
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
         yield (RetrieveReply.createMatcher(rid),)
+        if hasattr(self.apiroutine.event, 'exception'):
+            raise self.apiroutine.event.exception
         self.apiroutine.retvalue = self.apiroutine.event.result
     def get(self, key, requestid):
         "Get an object from specified key, and manage the object. Return a reference to the object or None if not exists."
@@ -414,6 +418,8 @@ class ObjectDB(Module):
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
         yield (RetrieveReply.createMatcher(rid),)
+        if hasattr(self.apiroutine.event, 'exception'):
+            raise self.apiroutine.event.exception
         self.apiroutine.retvalue = self.apiroutine.event.result
     def getonce(self, key):
         "Get a object without manage it. Return a copy of the object, or None if not exists. Referenced objects are not retrieved."
@@ -435,6 +441,8 @@ class ObjectDB(Module):
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
         yield (RetrieveReply.createMatcher(rid),)
+        if hasattr(self.apiroutine.event, 'exception'):
+            raise self.apiroutine.event.exception
         self.apiroutine.retvalue = self.apiroutine.event.result
     def unwatch(self, key, requestid):
         "Cancel management of a key"
@@ -450,6 +458,8 @@ class ObjectDB(Module):
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
         yield (RetrieveReply.createMatcher(rid),)
+        if hasattr(self.apiroutine.event, 'exception'):
+            raise self.apiroutine.event.exception
         self.apiroutine.retvalue = None
     def transact(self, keys, updater):
         "Try to update keys in a transact, with an updater(keys, values), which returns (updated_keys, updated_values). "\
@@ -499,5 +509,7 @@ class ObjectDB(Module):
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
         yield (RetrieveReply.createMatcher(rid),)
+        if hasattr(self.apiroutine.event, 'exception'):
+            raise self.apiroutine.event.exception
         self.apiroutine.retvalue = self.apiroutine.event.result
         
