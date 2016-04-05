@@ -90,6 +90,7 @@ class ObjectDB(Module):
             self._updatekeys.update(update_keys)
             for k,v in event.extrainfo.items():
                 if k in update_keys:
+                    v = tuple(v)
                     oldv = self._update_version.get(k, (0, -1))
                     if oldv < v:
                         self._update_version[k] = v
@@ -158,6 +159,9 @@ class ObjectDB(Module):
                     # Add watch_keys to notification
                     watch_keys.difference_update(self._watchedkeys)
                     if watch_keys:
+                        for k in watch_keys:
+                            if k in update_result:
+                                self._update_version[k] = getversion(update_result[k])
                         for m in self._notifier.add_listen(*tuple(watch_keys.difference(self._watchedkeys))):
                             yield m
                         self._watchedkeys.update(watch_keys)
@@ -183,6 +187,8 @@ class ObjectDB(Module):
                         for k,v in zip(get_list, result):
                             if v is not None and hasattr(v, 'setkey'):
                                 v.setkey(k)
+                            if k in self._watchedkeys and k not in self._update_version:
+                                self._update_version[k] = getversion(v)
                         update_result.update(zip(get_list, result))
                     new_retrieve_list = set()
                     new_retrieve_keys = set()
@@ -348,6 +354,8 @@ class ObjectDB(Module):
                     for k in remove_keys:
                         if k in self._managed_objs:
                             del self._managed_objs[k]
+                        if k in self._update_version:
+                            del self._update_version[k]
                 for e in send_events:
                     for m in self.apiroutine.waitForSend(e):
                         yield m
