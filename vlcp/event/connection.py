@@ -582,6 +582,10 @@ class Client(Connection):
             else:
                 nextSeq = 300
     def create_socket(self):
+        if self.socket is not None:
+            self.scheduler.unregisterPolling(self.socket)
+            self.socket.close()
+            self.socket = None            
         if not self.unix and self.hostname:
             request = (self.hostname, None if self.passive else self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG)
             # Resolve hostname
