@@ -143,6 +143,17 @@ class Knowledge(Module):
             else:
                 self.delete(k)
         return (newkeys, newvs)
+    def updateallwithtime(self, keys, updater, timeout = None):
+        "Update multiple keys in-place, with a function updater(keys, values, timestamp) which returns (updated_keys, updated_values). Either all success or all fail.  Timestamp is a integer standing for current time in microseconds."
+        t = time()
+        vs = [v[0] if v is not None else None  for v in (self._get(k, t) for k in keys)]
+        newkeys, newvs = updater(keys, vs, int(t * 1000000))
+        for k,v in zip(newkeys, newvs):
+            if v is not None:
+                self._set(k, v, t, timeout)
+            else:
+                self.delete(k)
+        return (newkeys, newvs)
 
 def return_self_updater(func):
     '''
