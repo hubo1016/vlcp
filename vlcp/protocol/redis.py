@@ -236,10 +236,10 @@ class Redis(Protocol):
             write_buffer.append(self.format_request(b'SELECT', connection.redis_select))
             connection.xid += 1
         if connection.redis_subscribe:
-            if connection.redis_subscribe:
-                write_buffer.append(self.format_request(b'SUBSCRIBE', *tuple(connection.redis_subscribe)))
-            if connection.redis_psubscribe:
-                write_buffer.append(self.format_request(b'PSUBSCRIBE', *tuple(connection.redis_psubscribe)))
+            if connection.redis_subscribe_keys:
+                write_buffer.append(self.format_request(b'SUBSCRIBE', *tuple(connection.redis_subscribe_keys)))
+            if connection.redis_subscribe_pkeys:
+                write_buffer.append(self.format_request(b'PSUBSCRIBE', *tuple(connection.redis_subscribe_pkeys)))
         connection.scheduler.emergesend(ConnectionWriteEvent(connection, connection.connmark, data=b''.join(write_buffer)))
         for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_UP, connection, connection.connmark, self)):
             yield m
