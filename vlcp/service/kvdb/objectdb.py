@@ -89,7 +89,7 @@ class ObjectDB(Module):
             update_keys = self._watchedkeys.intersection([_str(k) for k in event.keys])
             self._updatekeys.update(update_keys)
             if event.extrainfo:
-                for k,v in event.extrainfo.items():
+                for k,v in zip(event.keys, event.extrainfo):
                     k = _str(k)
                     if k in update_keys:
                         v = tuple(v)
@@ -502,7 +502,7 @@ class ObjectDB(Module):
         # Short cut update notification
         update_keys = self._watchedkeys.intersection(updated_ref[0])
         self._updatekeys.update(update_keys)
-        for k,v in updated_ref[1].items():
+        for k,v in zip(updated_ref[0], updated_ref[1]):
             k = _str(k)
             if k in update_keys:
                 v = tuple(v)
