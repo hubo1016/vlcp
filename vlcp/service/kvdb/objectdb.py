@@ -500,7 +500,15 @@ class ObjectDB(Module):
         for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime', {'keys': keys, 'updater': object_updater}):
             yield m
         # Short cut update notification
-        self._updatekeys.update(self._watchedkeys.intersection(updated_ref[0]))
+        update_keys = self._watchedkeys.intersection(updated_ref[0])
+        self._updatekeys.update(update_keys)
+        for k,v in updated_ref[1].items():
+            k = _str(k)
+            if k in update_keys:
+                v = tuple(v)
+                oldv = self._update_version.get(k, (0, -1))
+                if oldv < v:
+                    self._update_version[k] = v
         for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
             yield m
         for m in self._notifier.publish(updated_ref[0], updated_ref[1]):
