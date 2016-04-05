@@ -32,7 +32,7 @@ class RedisClientBase(Configurable):
     Connect to Redis server
     '''
     _default_url = 'tcp://localhost/'
-    _default_timeout = 30
+    _default_timeout = 10
     _default_db = 0
     def __init__(self, conn = None, parent = None, protocol = None):
         Configurable.__init__(self)

@@ -183,6 +183,7 @@ class Redis(Protocol):
     _default_hiredis = True
     _default_keepalivetime = 10
     _default_keepalivetimeout = 3
+    _default_connect_timeout = 5
     _logger = logging.getLogger(__name__ + '.Redis')
     def __init__(self):
         '''
@@ -444,4 +445,14 @@ class Redis(Protocol):
         except Exception:
             for m in connection.reset(True):
                 yield m
-            
+    @staticmethod
+    def reconnect_timeseq():
+        yield 0
+        nextSeq = 0.5
+        while True:
+            yield nextSeq                
+            if nextSeq < 16:
+                nextSeq = nextSeq * 2
+            else:
+                nextSeq = 20
+        
