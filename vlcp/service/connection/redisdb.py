@@ -90,7 +90,8 @@ class RedisDB(TcpServerBase):
                        api(self.mset, self.apiroutine),
                        api(self.update, self.apiroutine),
                        api(self.mupdate, self.apiroutine),
-                       api(self.updateall, self.apiroutine))
+                       api(self.updateall, self.apiroutine),
+                       api(self.updateallwithtime, self.apiroutine))
     def _client_class(self, config, protocol, vhost):
         db = getattr(config, 'db', None)
         def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):

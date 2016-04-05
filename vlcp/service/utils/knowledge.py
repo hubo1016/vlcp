@@ -35,7 +35,8 @@ class Knowledge(Module):
                        api(self.mset),
                        api(self.update),
                        api(self.mupdate),
-                       api(self.updateall))
+                       api(self.updateall),
+                       api(self.updateallwithtime))
     def _timeout(self):
         th = self.scheduler.setTimer(self.checkinterval, self.checkinterval)
         try:

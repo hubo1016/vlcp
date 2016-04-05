@@ -56,7 +56,8 @@ class ObjectDB(Module):
                        api(self.munwatch, self.apiroutine),
                        api(self.unwatch, self.apiroutine),
                        api(self.transact, self.apiroutine),
-                       api(self.watchlist)
+                       api(self.watchlist),
+                       api(self.walk, self.apiroutine)
                        )
     def load(self, container):
         for m in callAPI(container, 'updatenotifier', 'createnotifier'):
