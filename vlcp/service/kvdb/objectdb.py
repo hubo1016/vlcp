@@ -266,10 +266,11 @@ class ObjectDB(Module):
                 # If some updated result is newer than the notification version, we should wait for the notification
                 should_wait = False
                 for k,v in update_result.items():
-                    oldv = self._update_version.get(k)
-                    if isnewer(v, oldv):
-                        should_wait = True
-                        break
+                    if k in self._watchedkeys:
+                        oldv = self._update_version.get(k)
+                        if oldv is not None and isnewer(v, oldv):
+                            should_wait = True
+                            break
                 if should_wait:
                     for m in self.apiroutine.waitWithTimeout(0.2, notification_matcher):
                         yield m
