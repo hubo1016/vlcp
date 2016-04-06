@@ -76,7 +76,8 @@ class TestObjectDB(Module):
                        api(self.createphysicalport, self.apiroutine),
                        api(self.createphysicalports, self.apiroutine),
                        api(self.createlogicalport, self.apiroutine),
-                       api(self.createlogicalports, self.apiroutine))
+                       api(self.createlogicalports, self.apiroutine),
+                       api(self.getlogicalnetworks, self.apiroutine))
         self._logger.setLevel(logging.DEBUG)
     def _monitor(self):
         update_event = DataObjectUpdateEvent.createMatcher()
