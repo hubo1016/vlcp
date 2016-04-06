@@ -30,6 +30,11 @@ def _str(b):
     else:
         return str(b)
 
+class StaleResultException(Exception):
+    def __init__(self, result, desc = "Result is stale"):
+        Exception.__init__(desc)
+        self.result = result
+
 @defaultconfig
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
 class ObjectDB(Module):
@@ -181,7 +186,8 @@ class ObjectDB(Module):
                             raise
                         except Exception:
                             # Serve with cache
-                            self._logger.warning('KVStorage retrieve failed, serve with cache', exc_info = True)
+                            if not self._stale:
+                                self._logger.warning('KVStorage retrieve failed, serve with cache', exc_info = True)
                             self._stale = True
                             # Discard all retrieved results
                             update_result.clear()
@@ -364,7 +370,7 @@ class ObjectDB(Module):
                               for o in objs])
                 else:
                     result = [copywithkey(update_result.get(k, self._managed_objs.get(k)), k) for k in r[0]]
-                send_events.append(RetrieveReply(r[1], result = result))
+                send_events.append(RetrieveReply(r[1], result = result, stale = self._stale))
             # Use DFS to remove unwatched objects
             mark_set = set()
             def dfs(k):
@@ -400,7 +406,7 @@ class ObjectDB(Module):
                     onupdate(self.apiroutine.event, self.apiroutine.matcher)
                 for m in updateinner():
                     yield m
-    def mget(self, keys, requestid):
+    def mget(self, keys, requestid, nostale = False):
         "Get multiple objects and manage them. Return references to the objects."
         notify = not self._requests
         rid = object()
@@ -411,13 +417,15 @@ class ObjectDB(Module):
         yield (RetrieveReply.createMatcher(rid),)
         if hasattr(self.apiroutine.event, 'exception'):
             raise self.apiroutine.event.exception
+        if nostale and self.apiroutine.event.stale:
+            raise StaleResultException(self.apiroutine.event.result)
         self.apiroutine.retvalue = self.apiroutine.event.result
-    def get(self, key, requestid):
+    def get(self, key, requestid, nostale = False):
         "Get an object from specified key, and manage the object. Return a reference to the object or None if not exists."
-        for m in self.mget([key], requestid):
+        for m in self.mget([key], requestid, nostale):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def mgetonce(self, keys):
+    def mgetonce(self, keys, nostale = False):
         "Get multiple objects, return copies of them. Referenced objects are not retrieved."
         notify = not self._requests
         rid = object()
@@ -428,19 +436,21 @@ class ObjectDB(Module):
         yield (RetrieveReply.createMatcher(rid),)
         if hasattr(self.apiroutine.event, 'exception'):
             raise self.apiroutine.event.exception
+        if nostale and self.apiroutine.event.stale:
+            raise StaleResultException(self.apiroutine.event.result)
         self.apiroutine.retvalue = self.apiroutine.event.result
-    def getonce(self, key):
+    def getonce(self, key, nostale = False):
         "Get a object without manage it. Return a copy of the object, or None if not exists. Referenced objects are not retrieved."
-        for m in self.mgetonce([key]):
+        for m in self.mgetonce([key], nostale):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def watch(self, key, requestid):
+    def watch(self, key, requestid, nostale = False):
         "Try to find an object and return a reference. Use reference.isdeleted() to test whether the object exists. "\
         "Use reference.wait(container) to wait for the object to be existed. Use reference.release() to cancel the watch."
-        for m in self.mwatch([key], requestid):
+        for m in self.mwatch([key], requestid, nostale):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def mwatch(self, keys, requestid):
+    def mwatch(self, keys, requestid, nostale = False):
         "Try to return all the references, see watch()"
         notify = not self._requests
         rid = object()
@@ -451,6 +461,8 @@ class ObjectDB(Module):
         yield (RetrieveReply.createMatcher(rid),)
         if hasattr(self.apiroutine.event, 'exception'):
             raise self.apiroutine.event.exception
+        if nostale and self.apiroutine.event.stale:
+            raise StaleResultException(self.apiroutine.event.result)
         self.apiroutine.retvalue = self.apiroutine.event.result
     def unwatch(self, key, requestid):
         "Cancel management of a key"
@@ -516,7 +528,7 @@ class ObjectDB(Module):
     def watchlist(self, requestid = None):
         "Return a dictionary whose keys are database keys, and values are lists of request ids. Optionally filtered by request id"
         return dict((k,list(v)) for k,v in self._watches.items() if requestid is None or requestid in v)
-    def walk(self, keys, walkerdict, requestid):
+    def walk(self, keys, walkerdict, requestid, nostale = False):
         "Recursively retrieve keys with customized functions. walkerdict is a dictionary key->walker(obj, walk, save)."
         notify = not self._requests
         rid = object()
@@ -527,5 +539,7 @@ class ObjectDB(Module):
         yield (RetrieveReply.createMatcher(rid),)
         if hasattr(self.apiroutine.event, 'exception'):
             raise self.apiroutine.event.exception
+        if nostale and self.apiroutine.event.stale:
+            raise StaleResultException(self.apiroutine.event.result)
         self.apiroutine.retvalue = self.apiroutine.event.result
         
