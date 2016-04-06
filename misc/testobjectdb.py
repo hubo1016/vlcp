@@ -398,6 +398,64 @@ class TestObjectDB(Module):
             yield m
         for m in self._dumpkeys([p.getkey() for p in new_ports]):
             yield m
+    def getlogicalnetworks(self, id = None, physicalnetwork = None, **kwargs):
+        def set_walker(key, set, walk, save):
+            for o in set.dataset():
+                key = o.getkey()
+                try:
+                    net = walk(key)
+                except KeyError:
+                    pass
+                else:
+                    for k,v in kwargs.items():
+                        if getattr(net, k, None) != v:
+                            break
+                    else:
+                        save(key)
+        def walker_func(set_func):
+            def walker(key, obj, walk, save):
+                set_walker(key, set_func(obj), walk, save)
+            return walker
+        if id is not None:
+            self._reqid += 1
+            reqid = ('testobjectdb', self._reqid)
+            for m in callAPI(self.apiroutine, 'objectdb', 'get', {'key' : LogicalNetwork.default_key(id), 'requestid': reqid}):
+                yield m
+            result = self.apiroutine.retvalue
+            with watch_context([LogicalNetwork.default_key(id)], [result], reqid, self.apiroutine):
+                if result is None:
+                    self.apiroutine.retvalue = []
+                    raise StopIteration
+                if physicalnetwork is not None and physicalnetwork != result.physicalnetwork.id:
+                    self.apiroutine.retvalue = []
+                    raise StopIteration
+                for k,v in kwargs.items():
+                    if getattr(result, k, None) != v:
+                        self.apiroutine.retvalue = []
+                        raise StopIteration
+                self.apiroutine.retvalue = [dump(result)]
+        elif physicalnetwork is not None:
+            self._reqid += 1
+            reqid = ('testobjectdb', self._reqid)
+            pm_key = PhysicalNetworkMap.default_key(physicalnetwork)
+            for m in callAPI(self.apiroutine, 'objectdb', 'walk', {'keys': [pm_key],
+                                                                   'walkerdict': {pm_key: walker_func(lambda x: x.networks)},
+                                                                   'requestid': reqid}):
+                yield m
+            keys, result = self.apiroutine.retvalue
+            with watch_context(keys, result, reqid, self.apiroutine):
+                self.apiroutine.retvalue = [dump(r) for r in result]
+        else:
+            self._reqid += 1
+            reqid = ('testobjectdb', self._reqid)
+            ns_key = LogicalNetworkSet.default_key()
+            for m in callAPI(self.apiroutine, 'objectdb', 'walk', {'keys': [ns_key],
+                                                                   'walkerdict': {ns_key: walker_func(lambda x: x.set)},
+                                                                   'requestid': reqid}):
+                yield m
+            keys, result = self.apiroutine.retvalue
+            with watch_context(keys, result, reqid, self.apiroutine):
+                self.apiroutine.retvalue = [dump(r) for r in result]
     
 if __name__ == '__main__':
     main("/etc/vlcp.conf", ("__main__.TestObjectDB", "vlcp.service.manage.webapi.WebAPI"))
