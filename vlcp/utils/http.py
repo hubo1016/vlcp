@@ -112,7 +112,7 @@ class Environment(object):
                 self.cookies = {}
             # Parse query string
             if self.querystring:
-                result = parse_qs(self.querystring)
+                result = parse_qs(self.querystring, True)
                 def convert(k,v):
                     try:
                         k = str(k.decode('ascii'))
@@ -421,7 +421,7 @@ class Environment(object):
                         for m in self.inputstream.read(self.container):
                             yield m
                         data = self.container.data
-                    result = parse_qs(data)
+                    result = parse_qs(data, True)
                     def convert(k,v):
                         try:
                             k = str(k.decode('ascii'))
