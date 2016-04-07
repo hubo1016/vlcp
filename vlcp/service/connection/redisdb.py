@@ -209,10 +209,10 @@ class RedisDB(TcpServerBase):
                 v = self._decode(self.apiroutine.retvalue)
                 try:
                     v = updater(key, v)
-                except:
+                except Exception as exc:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
-                    raise
+                    raise exc
                 if timeout is None:
                     set_command = ('SET', key, self._encode(v))
                 elif timeout <= 0:
@@ -253,10 +253,10 @@ class RedisDB(TcpServerBase):
                 try:
                     values = [updater(k, self._decode(v)) for k,v in izip(keys,values)]
                     values_encoded = [self._encode(v) for v in values]
-                except:
+                except Exception as exc:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
-                    raise
+                    raise exc
                 if timeout is None:
                     set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),)
                 elif timeout <= 0:
@@ -298,10 +298,10 @@ class RedisDB(TcpServerBase):
                 try:
                     new_keys, new_values = updater(keys, [self._decode(v) for v in values])
                     values_encoded = [self._encode(v) for v in new_values]
-                except:
+                except Exception as exc:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
-                    raise
+                    raise exc
                 if timeout is None:
                     set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(new_keys, values_encoded))),)
                 elif timeout <= 0:
@@ -345,10 +345,10 @@ class RedisDB(TcpServerBase):
                 try:
                     new_keys, new_values = updater(keys, [self._decode(v) for v in values], server_time)
                     values_encoded = [self._encode(v) for v in new_values]
-                except:
+                except Exception as exc:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
-                    raise
+                    raise exc
                 if timeout is None:
                     set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(new_keys, values_encoded))),)
                 elif timeout <= 0:
