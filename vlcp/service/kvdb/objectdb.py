@@ -473,7 +473,7 @@ class ObjectDB(Module):
         keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
-        self._requests.append(keys, rid, 'watch', requestid))
+        self._requests.append(keys, rid, 'watch', requestid)
         if notify:
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
