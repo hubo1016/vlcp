@@ -11,7 +11,7 @@ except:
     pass
 from setuptools import setup, find_packages
 
-VERSION = '0.11.0'
+VERSION = '0.11.1'
 
 setup(name='vlcp',
       version=VERSION,
