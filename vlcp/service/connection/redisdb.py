@@ -19,7 +19,7 @@ from vlcp.utils.jsonencoder import encode_default, decode_object
 import itertools
 try:
     from itertools import izip
-except:
+except ImportError:
     def izip(*args, **kwargs):
         return iter(zip(*args, **kwargs))
 

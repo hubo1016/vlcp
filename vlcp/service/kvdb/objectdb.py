@@ -30,6 +30,17 @@ def _str(b):
     else:
         return str(b)
 
+def _str2(b):
+    if isinstance(b, str):
+        return b
+    elif isinstance(b, bytes):
+        return b.decode('utf-8')
+    elif hasattr(b, 'getkey'):
+        return b.getkey()
+    else:
+        return str(b)
+
+
 class StaleResultException(Exception):
     def __init__(self, result, desc = "Result is stale"):
         Exception.__init__(desc)
@@ -137,15 +148,20 @@ class ObjectDB(Module):
                         # Processing requests
                         for r in self._requests:
                             if r[2] == 'unwatch':
-                                for k in r[0]:
-                                    s = self._watches.get(k)
-                                    if s:
-                                        s.discard(r[3])
-                                        if not s:
-                                            del self._watches[k]
-                                # Do not need to wait
-                                for m in self.apiroutine.waitForSend(RetrieveReply(r[1], result = None)):
-                                    yield m
+                                try:
+                                    for k in r[0]:
+                                        s = self._watches.get(k)
+                                        if s:
+                                            s.discard(r[3])
+                                            if not s:
+                                                del self._watches[k]
+                                    # Do not need to wait
+                                except Exception as exc:
+                                    for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
+                                        yield m                                    
+                                else:
+                                    for m in self.apiroutine.waitForSend(RetrieveReply(r[1], result = None)):
+                                        yield m
                             elif r[2] == 'watch':
                                 retrieve_list.update(r[0])
                                 orig_retrieve_list.update(r[0])
@@ -408,9 +424,10 @@ class ObjectDB(Module):
                     yield m
     def mget(self, keys, requestid, nostale = False):
         "Get multiple objects and manage them. Return references to the objects."
+        keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
-        self._requests.append((tuple(keys), rid, 'get', requestid))
+        self._requests.append((keys, rid, 'get', requestid))
         if notify:
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
@@ -427,9 +444,10 @@ class ObjectDB(Module):
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
     def mgetonce(self, keys, nostale = False):
         "Get multiple objects, return copies of them. Referenced objects are not retrieved."
+        keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
-        self._requests.append((tuple(keys), rid, 'getonce'))
+        self._requests.append((keys, rid, 'getonce'))
         if notify:
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
@@ -452,9 +470,10 @@ class ObjectDB(Module):
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
     def mwatch(self, keys, requestid, nostale = False):
         "Try to return all the references, see watch()"
+        keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
-        self._requests.append((tuple(keys), rid, 'watch', requestid))
+        self._requests.append(keys, rid, 'watch', requestid))
         if notify:
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
@@ -471,9 +490,10 @@ class ObjectDB(Module):
         self.apiroutine.retvalue = None
     def munwatch(self, keys, requestid):
         "Cancel management of keys"
+        keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
-        self._requests.append((tuple(keys), rid, 'unwatch', requestid))
+        self._requests.append((keys, rid, 'unwatch', requestid))
         if notify:
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m
@@ -484,6 +504,7 @@ class ObjectDB(Module):
     def transact(self, keys, updater):
         "Try to update keys in a transact, with an updater(keys, values), which returns (updated_keys, updated_values). "\
         "The updater may be called more than once."
+        keys = tuple(_str2(k) for k in keys)
         updated_ref = [None, None]
         def object_updater(keys, values, timestamp):
             old_version = {}
@@ -530,9 +551,10 @@ class ObjectDB(Module):
         return dict((k,list(v)) for k,v in self._watches.items() if requestid is None or requestid in v)
     def walk(self, keys, walkerdict, requestid, nostale = False):
         "Recursively retrieve keys with customized functions. walkerdict is a dictionary key->walker(obj, walk, save)."
+        keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
-        self._requests.append((tuple(keys), rid, 'walk', dict(walkerdict), requestid))
+        self._requests.append((keys, rid, 'walk', dict(walkerdict), requestid))
         if notify:
             for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
                 yield m

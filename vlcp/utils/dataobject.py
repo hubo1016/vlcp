@@ -11,6 +11,12 @@ from vlcp.server.module import callAPI
 import functools
 from copy import deepcopy
 from vlcp.event.core import QuitException
+import itertools
+try:
+    from itertools import izip
+except ImportError:
+    def izip(*args, **kwargs):
+        return iter(zip(*args, **kwargs))
 
 @withIndices('key', 'transactid', 'type')
 class DataObjectUpdateEvent(Event):
@@ -297,12 +303,40 @@ def multiwaitif(references, container, expr, nextchange = False):
             yield (transact_matcher,)
 
 def updater(f):
-    "Decorate a function with named arguments"
+    "Decorate a function with named arguments into updater for transact"
     @functools.wraps(f)
     def wrapped_updater(keys, values):
         result = f(*values)
         return (keys[:len(result)], result)
     return wrapped_updater
+
+def list_updater(*args):
+    """
+    Decorate a function with named lists into updater for transact.
+    
+    :params args: parameter list sizes. -1 means all other items. None means a single item instead of a list.
+    only one -1 is allowed.
+    """
+    neg_index = [i for v,i in izip(args, itertools.count()) if v is not None and v < 0]
+    if len(neg_index) > 1:
+        raise ValueError("Cannot use negative values more than once")
+    if not neg_index:
+        slice_list = []
+        sum = 0
+        for arg in args:
+            if arg is None:
+                slice_list.append(sum)
+                sum += 1
+            else:
+                slice_list.append(slice(sum, sum + arg))
+                sum += arg
+    else:
+        sep = neg_index[0]
+        accum = list(_accum(args[:sep]))
+    def inner_wrapper(f):
+        @functools.wraps(f)
+        def wrapped_updater(keys, values):
+            
 
 class AlreadyExistsException(Exception):
     pass
