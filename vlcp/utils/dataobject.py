@@ -322,21 +322,43 @@ def list_updater(*args):
         raise ValueError("Cannot use negative values more than once")
     if not neg_index:
         slice_list = []
-        sum = 0
+        size = 0
         for arg in args:
             if arg is None:
-                slice_list.append(sum)
-                sum += 1
+                slice_list.append(size)
+                size += 1
             else:
-                slice_list.append(slice(sum, sum + arg))
-                sum += arg
+                slice_list.append(slice(size, size + arg))
+                size += arg
     else:
         sep = neg_index[0]
-        accum = list(_accum(args[:sep]))
+        slice_list = []
+        size = 0
+        for arg in args[:sep]:
+            if arg is None:
+                slice_list.append(size)
+                size += 1
+            else:
+                slice_list.append(slice(size, size + arg))
+                size += arg
+        rslice_list = []
+        rsize = 0
+        for arg in args[:sep:-1]:
+            if arg is None:
+                rslice_list.append(-1-rsize)
+                rsize += 1
+            else:
+                rslice_list.append(slice(None if not rsize else -rsize, -(rsize + arg)))
+                rsize += arg
+        slice_list.append(slice(size, rsize))
+        slice_list.extend(reversed(rslice_list))
     def inner_wrapper(f):
         @functools.wraps(f)
         def wrapped_updater(keys, values):
-            
+            result = f(*[values[s] for s in slice_list])
+            return (keys[:len(result)], result)
+        return wrapped_updater
+    return inner_wrapper
 
 class AlreadyExistsException(Exception):
     pass
