@@ -209,16 +209,18 @@ class RedisDB(TcpServerBase):
                 v = self._decode(self.apiroutine.retvalue)
                 try:
                     v = updater(key, v)
+                    if v is not None:
+                        ve = self._encode(v)
                 except Exception as exc:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
                     raise exc
-                if timeout is None:
-                    set_command = ('SET', key, self._encode(v))
-                elif timeout <= 0:
+                if timeout is not None and timeout <= 0 or v is None:
                     set_command = ('DEL', key)
+                elif timeout is None:
+                    set_command = ('SET', key, ve)
                 else:
-                    set_command = ('PSETEX', key, int(timeout * 1000), self._encode(v))
+                    set_command = ('PSETEX', key, int(timeout * 1000), ve)
                 for m in newconn.batch_execute(self.apiroutine, ('MULTI',),
                                                                 set_command,
                                                                 ('EXEC',)):
@@ -252,19 +254,30 @@ class RedisDB(TcpServerBase):
                 values = self.apiroutine.retvalue
                 try:
                     values = [updater(k, self._decode(v)) for k,v in izip(keys,values)]
-                    values_encoded = [self._encode(v) for v in values]
+                    keys_deleted = [k for k,v in izip(keys,values) if v is None]
+                    values_encoded = [(k,self._encode(v)) for k,v in izip(keys,values) if v is not None]
                 except Exception as exc:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
                     raise exc
                 if timeout is None:
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),)
+                    set_commands_list = []
+                    if values_encoded:
+                        set_commands_list.append(('MSET',) + tuple(itertools.chain.from_iterable(values_encoded)))
+                    if keys_deleted:
+                        set_commands_list.append(('DEL',) + tuple(keys_deleted))
+                    set_commands = tuple(set_commands_list)
                 elif timeout <= 0:
                     set_commands = (('DEL',) + tuple(keys),)
                 else:
                     ptimeout = int(timeout * 1000)
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(keys, values_encoded))),) \
-                                + tuple(('PEXPIRE', k, ptimeout) for k in keys)
+                    set_commands_list = []
+                    if values_encoded:
+                        set_commands_list.append(('MSET',) + tuple(itertools.chain.from_iterable(values_encoded)))
+                        set_commands_list.extend(('PEXPIRE', k, ptimeout) for k,_ in values_encoded)
+                    if keys_deleted:
+                        set_commands_list.append(('DEL',) + tuple(keys_deleted))
+                    set_commands = tuple(set_commands_list)
                 for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                                 set_commands + \
                                                                 (('EXEC',),))):
@@ -297,19 +310,30 @@ class RedisDB(TcpServerBase):
                 values = self.apiroutine.retvalue
                 try:
                     new_keys, new_values = updater(keys, [self._decode(v) for v in values])
-                    values_encoded = [self._encode(v) for v in new_values]
+                    keys_deleted = [k for k,v in izip(new_keys, new_values) if v is None]
+                    values_encoded = [(k,self._encode(v)) for k,v in izip(new_keys, new_values) if v is not None]
                 except Exception as exc:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
                     raise exc
                 if timeout is None:
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(new_keys, values_encoded))),)
+                    set_commands_list = []
+                    if values_encoded:
+                        set_commands_list.append(('MSET',) + tuple(itertools.chain.from_iterable(values_encoded)))
+                    if keys_deleted:
+                        set_commands_list.append(('DEL',) + tuple(keys_deleted))
+                    set_commands = tuple(set_commands_list)
                 elif timeout <= 0:
                     set_commands = (('DEL',) + tuple(new_keys),)
                 else:
                     ptimeout = int(timeout * 1000)
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(new_keys, values_encoded))),) \
-                                + tuple(('PEXPIRE', k, ptimeout) for k in new_keys)
+                    set_commands_list = []
+                    if values_encoded:
+                        set_commands_list.append(('MSET',) + tuple(itertools.chain.from_iterable(values_encoded)))
+                        set_commands_list.extend(('PEXPIRE', k, ptimeout) for k,_ in values_encoded)
+                    if keys_deleted:
+                        set_commands_list.append(('DEL',) + tuple(keys_deleted))
+                    set_commands = tuple(set_commands_list)
                 for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                                 set_commands + \
                                                                 (('EXEC',),))):
@@ -344,19 +368,30 @@ class RedisDB(TcpServerBase):
                 server_time = int(time_tuple[0]) * 1000000 + int(time_tuple[1])
                 try:
                     new_keys, new_values = updater(keys, [self._decode(v) for v in values], server_time)
-                    values_encoded = [self._encode(v) for v in new_values]
+                    keys_deleted = [k for k,v in izip(new_keys, new_values) if v is None]
+                    values_encoded = [(k,self._encode(v)) for k,v in izip(new_keys, new_values) if v is not None]
                 except Exception as exc:
                     for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
                         yield m
                     raise exc
                 if timeout is None:
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(new_keys, values_encoded))),)
+                    set_commands_list = []
+                    if values_encoded:
+                        set_commands_list.append(('MSET',) + tuple(itertools.chain.from_iterable(values_encoded)))
+                    if keys_deleted:
+                        set_commands_list.append(('DEL',) + tuple(keys_deleted))
+                    set_commands = tuple(set_commands_list)
                 elif timeout <= 0:
                     set_commands = (('DEL',) + tuple(new_keys),)
                 else:
                     ptimeout = int(timeout * 1000)
-                    set_commands = (('MSET',) + tuple(itertools.chain.from_iterable(izip(new_keys, values_encoded))),) \
-                                + tuple(('PEXPIRE', k, ptimeout) for k in new_keys)
+                    set_commands_list = []
+                    if values_encoded:
+                        set_commands_list.append(('MSET',) + tuple(itertools.chain.from_iterable(values_encoded)))
+                        set_commands_list.extend(('PEXPIRE', k, ptimeout) for k,_ in values_encoded)
+                    if keys_deleted:
+                        set_commands_list.append(('DEL',) + tuple(keys_deleted))
+                    set_commands = tuple(set_commands_list)
                 for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                                 set_commands + \
                                                                 (('EXEC',),))):
