@@ -86,12 +86,19 @@ def create_discover_info(func):
                 }
     
 
-def api(func, container = None):
+def api(func, container = None, criteria = None):
     '''
     Return an API def for a generic function
     '''
     return (func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container,
-            create_discover_info(func))
+            create_discover_info(func), criteria)
+
+def publicapi(func, container = None, criteria = None):
+    '''
+    Create an API def for public API processing
+    '''
+    return ("public/" + func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container,
+            create_discover_info(func), criteria)
 
 class ModuleAPIHandler(RoutineContainer):
     def __init__(self, moduleinst, apidefs = None, allowdiscover = True, rejectunknown = True):
@@ -109,13 +116,17 @@ class ModuleAPIHandler(RoutineContainer):
     @staticmethod
     def createExceptionReply(handle, exception):
         return ModuleAPIReply(handle, exception = exception)
-    def _createHandler(self, name, handler, container = None, discoverinfo = None):
+    def _createHandler(self, name, handler, container = None, discoverinfo = None, criteria = None):
+        extra_params = {}
+        if criteria:
+            extra_params['_ismatch'] = lambda e: not e.canignore and criteria(**e.params)
         if name is None:
-            matcher = ModuleAPICall.createMatcher(target = self.servicename)
+            matcher = ModuleAPICall.createMatcher(target = self.servicename, **extra_params)
+            matcher = ModuleAPICall.createMatcher(target = self.servicename, **extra_params)
         elif name.startswith('public/'):
-            matcher = ModuleAPICall.createMatcher(target = 'public', name = name[len('public/'):])
+            matcher = ModuleAPICall.createMatcher(target = 'public', name = name[len('public/'):], **extra_params)
         else:
-            matcher = ModuleAPICall.createMatcher(target = self.servicename, name = name)
+            matcher = ModuleAPICall.createMatcher(target = self.servicename, name = name, **extra_params)
         if container is not None:
             def wrapper(event):
                 try:
@@ -123,8 +134,7 @@ class ModuleAPIHandler(RoutineContainer):
                         yield m
                     for m in container.waitForSend(self.createReply(event.handle, container.retvalue)):
                         yield m
-                except:
-                    typ, val, tb = sys.exc_info()
+                except Exception as val:
                     for m in container.waitForSend(self.createExceptionReply(event.handle, val)):
                         yield m
             def event_handler(event, scheduler):
@@ -136,8 +146,7 @@ class ModuleAPIHandler(RoutineContainer):
                     result = handler(event.name, event.params)
                     for m in self.waitForSend(self.createReply(event.handle, result)):
                         yield m
-                except:
-                    typ, val, tb = sys.exc_info()
+                except Exception as val:
                     for m in self.waitForSend(self.createExceptionReply(event.handle, val)):
                         yield m
             def event_handler(event, scheduler):
@@ -163,8 +172,8 @@ class ModuleAPIHandler(RoutineContainer):
         handlers = [self._createHandler(*apidef) for apidef in apidefs]
         self.handler.registerAllHandlers(handlers)
         self.discoverinfo.update((apidef[0], apidef[3] if len(apidef) > 3 else {'description':apidef[1].__doc__}) for apidef in apidefs)
-    def registerAPI(self, name, handler, container = None, discoverinfo = None):
-        self.handler.registerHandler(*self._createHandler(name, handler, container))
+    def registerAPI(self, name, handler, container = None, discoverinfo = None, criteria = None):
+        self.handler.registerHandler(*self._createHandler(name, handler, container, criteria))
         if discoverinfo is None:
             self.discoverinfo[name] = {'description': handler.__doc__}
         else:
@@ -223,6 +232,8 @@ class Module(Configurable):
     def getFullPath(cls):
         return cls.__module__ + '.' + cls.__name__
     def createAPI(self, *apidefs):
+        if hasattr(self, 'apiHandler'):
+            self.appendAPI(*apidefs)
         self.apiHandler = ModuleAPIHandler(self, apidefs)
         self.routines.append(self.apiHandler)
     def appendAPI(self, *apidefs):
@@ -371,7 +382,13 @@ class ModuleLoader(RoutineContainer):
         self.activeModules = {}
     def main(self):
         try:
-            yield ()
+            # Reject unmatched public API
+            public_api = ModuleAPICall.createMatcher(target = "public")
+            while True:
+                yield (public_api,)
+                if not self.event.canignore:
+                    self.event.canignore = True
+                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(self.event.handle, ValueError("public API is not processed")))
         except QuitException:
             c = ModuleAPICall.createMatcher()
             while True:
