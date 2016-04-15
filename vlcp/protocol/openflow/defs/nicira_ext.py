@@ -3066,3 +3066,4 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         init = packvalue(NXAST_SAMPLE, action_subtype),
         name = 'nx_action_sample'
     )
+    namespace['nx_action_sample'] = nx_action_sample

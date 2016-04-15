@@ -62,9 +62,15 @@ class ReferenceObject(object):
     def __hash__(self, *args, **kwargs):
         return hash(self._key) ^ hash('ReferenceObject')
     def __eq__(self, obj):
-        return isinstance(obj, ReferenceObject) and (obj is self or obj._key == self._key)
+        if not isinstance(obj, ReferenceObject):
+            return NotImplemented
+        else:
+            return (obj is self or obj._key == self._key)
     def __ne__(self, obj):
-        return not self.__eq__(obj)
+        if not isinstance(obj, ReferenceObject):
+            return NotImplemented
+        else:
+            return not (obj is self or obj._key == self._key)
     def __repr__(self, *args, **kwargs):
         return '<ReferenceObject: %r at %r>' % (self._ref, self._key)
     def wait(self, container):
@@ -101,9 +107,15 @@ class WeakReferenceObject(object):
     def __hash__(self, *args, **kwargs):
         return hash(self._key) ^ hash('WeakReferenceObject')
     def __eq__(self, obj):
-        return isinstance(obj, WeakReferenceObject) and (obj is self or obj._key == self._key)
+        if not isinstance(obj, WeakReferenceObject):
+            return NotImplemented
+        else:
+            return (obj is self or obj._key == self._key)
     def __ne__(self, obj):
-        return not self.__eq__(obj)
+        if not isinstance(obj, WeakReferenceObject):
+            return NotImplemented
+        else:
+            return not (obj is self or obj._key == self._key)
     def __repr__(self, *args, **kwargs):
         return '<WeakReferenceObject: %r>' % (self._key,)
 
@@ -190,12 +202,19 @@ class DataObject(object):
     def __repr__(self, *args, **kwargs):
         return '<DataObject (%s) at %r>' % (object.__repr__(self, *args, **kwargs), self.getkey())
     def __eq__(self, obj):
-        return isinstance(obj, DataObject) and (obj is self or \
-            dict((k,v) for k,v in self.__dict__.items() if k[:1] != '_') == dict((k,v) for k,v in obj.__dict__.items() if k[:1] != '_'))
+        if not isinstance(obj, DataObject):
+            return NotImplemented
+        else:
+            return (obj is self or \
+                dict((k,v) for k,v in self.__dict__.items() if k[:1] != '_') == dict((k,v) for k,v in obj.__dict__.items() if k[:1] != '_'))
     def __hash__(self):
         raise TypeError('unhashable type: DataObject')
     def __ne__(self, obj):
-        return not self.__eq__(obj)
+        r = self.__eq__(obj)
+        if r is NotImplemented:
+            return r
+        else:
+            return not r
     def kvdb_update(self, obj):
         for k,v in list(self.__dict__.items()):
             if k[:1] != '_':
@@ -247,9 +266,15 @@ class DataObjectSet(object):
     def __repr__(self, *args, **kwargs):
         return '<DataObjectSet %r>' % (self._dataset,)
     def __eq__(self, obj):
-        return isinstance(obj, DataObjectSet) and (obj is self or self._dataset == obj._dataset)
+        if not isinstance(obj, DataObjectSet):
+            return NotImplemented
+        else:
+            return (obj is self or self._dataset == obj._dataset)
     def __ne__(self, obj):
-        return not self.__eq__(obj)
+        if not isinstance(obj, DataObjectSet):
+            return NotImplemented
+        else:
+            return not (obj is self or self._dataset == obj._dataset)
     def __hash__(self):
         raise TypeError('unhashable type: DataObject')
     def kvdb_update(self, obj):

@@ -263,7 +263,10 @@ class ObjectDB(Module):
                                 self._updatekeys.add(k)
                     savelist.clear()
                     for k,ws in walkers.items():
-                        v = update_result.get(k)
+                        if k in update_result:
+                            v = update_result.get(k)
+                        else:
+                            v = self._managed_objs.get(k)
                         if v is not None:
                             ws = walkers.get(k)
                             if ws:
