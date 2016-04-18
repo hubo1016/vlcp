@@ -124,13 +124,6 @@ class viperflow(Module):
             yield m
         with watch_context(keys,self.app_routine.retvalue,reqid,self.app_routine):
             pass
-    def _createphysicalnetwork(self,type,id,**kwargs):
-        try:
-            for m in callAPI(self.app_routine,'networkdriver','create'+type+'physicalnetwork',
-                    {'id':id,'args':kwargs},timeout = 1):
-                yield m
-        except:
-            logger.info("networkdriver : create" + type + 'physicalnetwork error')
 
     def createphysicalnetwork(self,type = 'vlan',id = None, **kwargs):
         
@@ -215,7 +208,7 @@ class viperflow(Module):
                 typemapvalues = values[start + len(v.get('networkskey')):start + len(v.get('networkskey')) + len(v.get('networksmapkey'))]
                 typemapkeys = keys[start + len(v.get('networkskey')):start + len(v.get('networkskey')) + len(v.get('networksmapkey'))]
 
-                typeretnetworkkeys, typeretnetworks = v.get('updater')(keys[0:1] + typekeys + typemapkeys,[physet]+typevalues+typemapvalues)
+                typeretnetworkkeys, typeretnetworks = v.get('updater')(list(keys[0:1]) + list(typekeys) + list(typemapkeys),[physet]+typevalues+typemapvalues)
                 
                 retnetworks.extend(typeretnetworks[1:])
                 retnetworkkeys.extend(typeretnetworkkeys[1:])
@@ -250,7 +243,7 @@ class viperflow(Module):
         networkobj = self.app_routine.retvalue
         
         # means this id physicalnetwork not exist 
-        if len(networkobj) == 0:
+        if len(networkobj) == 0 or networkobj[0] is None:
             raise ValueError("physicalnetwork id error")
 
         for m in callAPI(self.app_routine,'public','updatephysicalnetwork',
@@ -281,7 +274,7 @@ class viperflow(Module):
             yield m
         networkobj = self.app_routine.retvalue
 
-        if len(networkobj) == 0:
+        if len(networkobj) == 0 or networkobj[0] is None:
             raise ValueError("physicalnetwork id error")
         
         try:
