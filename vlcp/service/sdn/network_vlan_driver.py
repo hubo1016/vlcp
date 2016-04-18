@@ -23,7 +23,12 @@ class network_vlan_driver(Module):
                        publicapi(self.updatephysicalnetwork,
                                     criteria=lambda type,id,args:type == 'vlan'),
                        publicapi(self.deletephysicalnetwork,
-                                    criteria=lambda type,id:type == 'vlan'))
+                                    criteria=lambda type,id:type == 'vlan'),
+                       publicapi(self.createphysicalport,
+                                    criteria=lambda phynettype,name,vhost,systemid,
+                                    bridge,args:phynettype == 'vlan'),
+                       publicapi(self.createphysicalports,
+                                    criteria=lambda type,ports:type == 'vlan'))
 
     def _main(self):
 
@@ -162,3 +167,37 @@ class network_vlan_driver(Module):
             return [physet,None,None]
 
         return deletephynetwork
+
+
+    def createphysicalport(self,phynettype,name,vhost,systemid,bridge,args = {}):
+        pport = self._createphysicalport(name,vhost,systemid,bridge,**args)
+        
+        @updater
+        def createphyport(phyport,phynetmap,phyportset):
+            phyport = set_new(phyport,pport)
+            phynetmap.ports.dataset().add(pport.create_weakreference())
+            phyportset.set.dataset().add(pport.create_weakreference())
+
+            return [phyport,phynetmap,phyportset]
+
+        return createphyport
+    
+    def createphysicalports(self,type,ports):
+        portobjs = [self._createphysicalport(**n) for n in ports]
+
+        def createpyports(keys,values):
+            for i in range(0,len(portobjs)):
+                values[i + 1] = set_new(values[i + 1],portobjs[i])
+                values[i + 1 + len(portobjs)].ports.dataset().add(portobjs[i].create_weakreference())
+                
+                values[0].set.dataset().add(portobjs[i].create_weakreference())
+
+            return keys,values
+        return createpyports
+    def _createphysicalport(self,name,vhost,systemid,bridge,**args):
+        p = PhysicalPort.create_instance(vhost,systemid,bridge,name)
+
+        for k,v in args.items():
+            setattr(p,k,v)
+
+        return p

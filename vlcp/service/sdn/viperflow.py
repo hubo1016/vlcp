@@ -1,3 +1,6 @@
+#!/usr/bin/python
+#! --*-- utf-8 --*--
+
 from vlcp.config import defaultconfig
 from vlcp.server.module import Module,depend,callAPI,api
 from vlcp.event.runnable import RoutineContainer
@@ -29,8 +32,10 @@ class viperflow(Module):
                        api(self.updatephysicalnetwork,self.app_routine),
                        #api(self.updatephysicalnetworks,self.app_routine),
                        api(self.deletephysicalnetwork,self.app_routine),
-                       #api(self.deletephysicalnetworks,self.app_routine)
-                       api(self.listphysicalnetwork,self.app_routine)
+                       #api(self.deletephysicalnetworks,self.app_routine),
+                       api(self.listphysicalnetwork,self.app_routine),
+                       api(self.createphysicalport,self.app_routine),
+                       api(self.createphysicalports,self.app_routine)
                        ) 
     def _main(self):
         
@@ -56,17 +61,17 @@ class viperflow(Module):
 
         logger.info(" ######## update physicalnetwork =  %r ",self.app_routine.retvalue)
         
+        listid = self.app_routine.retvalue[0].get('id')
         # test delete
+        """
         for m in self.deletephysicalnetwork(self.app_routine.retvalue[0].get('id')):
             yield m
         
-        for m in self._dumpkeys([PhysicalNetworkSet.default_key()]):
-            yield m
         logger.info(" ####### delete %r",self.app_routine.retvalue)
-        
+        """
         # test list
 
-        listid = self.app_routine.retvalue[0].get('id')
+        logger.info(" listid = %r",listid)
         for m in self.listphysicalnetwork():
             yield m
 
@@ -81,7 +86,25 @@ class viperflow(Module):
             yield m
 
         logger.info(" ###### list one %r",self.app_routine.retvalue)
+        
 
+        # test create physical port
+        logger.info(" listid = %r",listid)
+        for m in self.createphysicalport(listid,'enp0s8',rate = '1000'):
+            yield m
+
+        logger.info(' ###### create physical port %r',self.app_routine.retvalue)
+
+        # test create physical ports
+
+        ports = [{'phynetid':listid,'name':'eth0'},{'phynetid':listid,'name':'eth1',
+            'rate':10000}]
+        
+
+        for m in self.createphysicalports(ports):
+            yield m
+
+        logger.info(' ##### create physical ports %r',self.app_routine.retvalue)
     def _dumpkeys(self,keys):
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
@@ -111,6 +134,7 @@ class viperflow(Module):
 
     def createphysicalnetwork(self,type = 'vlan',id = None, **kwargs):
         
+        # {'type':'vlan' or 'vxlan','id' = None,uuid1(),'vlanrange':[(1,100),(200,300)],kwargs}
         if not id:
             id = str(uuid1())
         try:
@@ -139,7 +163,7 @@ class viperflow(Module):
         self.app_routine.retvalue = self.app_routine.retvalue[0]    
     
     def createphysicalnetworks(self,networks):
-        #networks [{type='vlan' or 'vxlan',id = None or uuid1(),kwargs}]
+        #networks [{type='vlan' or 'vxlan',id = None or uuid1(),'vlanrange':[(100,200),(400,401)],kwargs}]
         
         typenetworks = dict()
         # first check id is None, allocate for it
@@ -186,18 +210,18 @@ class viperflow(Module):
                 # [0] is physet
                 start = 1
                 physet = values[0]
-                
-                typevalues = values[start:start + len(v.get('networkskey')) + 1]
-                typekeys = keys[start:start + len(v.get('networkskey')) + 1]
-                typemapvalues = values[start + len(v.get('networkskey')) + 1:start + len(v.get('networkskey')) + 1 + len(v.get('networksmapkey')) + 1]
-                typemapkeys = keys[start + len(v.get('networkskey')) + 1:start + len(v.get('networkskey')) + 1 + len(v.get('networksmapkey')) + 1]
+                typevalues = values[start:start + len(v.get('networkskey'))]
+                typekeys = keys[start:start + len(v.get('networkskey'))]
+                typemapvalues = values[start + len(v.get('networkskey')):start + len(v.get('networkskey')) + len(v.get('networksmapkey'))]
+                typemapkeys = keys[start + len(v.get('networkskey')):start + len(v.get('networkskey')) + len(v.get('networksmapkey'))]
+
                 typeretnetworkkeys, typeretnetworks = v.get('updater')(keys[0:1] + typekeys + typemapkeys,[physet]+typevalues+typemapvalues)
                 
                 retnetworks.extend(typeretnetworks[1:])
                 retnetworkkeys.extend(typeretnetworkkeys[1:])
                 physet = typeretnetworks[0]
-                start = start + len(v.get('networkskey')) + len(v.get('networksmapkey')) + 1
-             
+                start = start + len(v.get('networkskey')) + len(v.get('networksmapkey')) 
+               
             retnetworks[0] = physet
             return retnetworkkeys,retnetworks
         try:
@@ -259,10 +283,13 @@ class viperflow(Module):
 
         if len(networkobj) == 0:
             raise ValueError("physicalnetwork id error")
-
-        for m in callAPI(self.app_routine,'public','deletephysicalnetwork',
+        
+        try:
+            for m in callAPI(self.app_routine,'public','deletephysicalnetwork',
                 {'type':networkobj[0].type,'id':id},timeout = 1):
-            yield m
+                yield m
+        except:
+            raise
         updater = self.app_routine.retvalue
 
         try:
@@ -325,6 +352,143 @@ class viperflow(Module):
             else:
                 self.app_routine.retvalue = []
     
+    def createphysicalport(self,phynetid,name,vhost='',systemid='%',bridge='%',**kwargs):
+        #phyports {'phynetid':'phynetid','name':'eth0','vhost':'vhost','systemid':'%','bridge':'%',kwargs} 
+        phynetkey = PhysicalNetwork.default_key(phynetid)
+        
+        logger.info(' create port phynet key %r %r',phynetkey,phynetid)
+
+        for m in self._getkeys([phynetkey]):
+            yield m
+
+        phynetobj = self.app_routine.retvalue
+
+        logger.info(' phynetobj = %r',phynetobj[0].type)
+        if len(phynetobj) == 0 or phynetobj[0] is None:
+            raise ValueError('special phynet id is not existed')
+        
+        try:
+            for m in callAPI(self.app_routine,'public','createphysicalport',
+                    {'phynettype':phynetobj[0].type,'name':name,'vhost':vhost,
+                        'systemid':systemid,'bridge':bridge,'args':kwargs},
+                    timeout = 1):
+                yield m
+        except:
+            raise
+
+        updater = self.app_routine.retvalue
+        
+        phyportkey = PhysicalPort.default_key(vhost,systemid,bridge,name)
+        phynetmapkey = PhysicalNetworkMap.default_key(phynetid)
+        phyportsetkey = PhysicalPortSet.default_key()
+        keys = [phyportkey,phynetmapkey,phyportsetkey]
+        try:
+            for m in callAPI(self.app_routine,'objectdb','transact',
+                {'keys':keys,'updater':updater}):
+                yield m
+        except:
+            raise
+        
+        for m in self._dumpkeys([phyportkey]):
+            yield m
+
+    def createphysicalports(self,ports):
+        # ports [{'phynetid':id,'name':eth0,'vhost':'',systemid:'%'},{.....}]
+        
+        porttype = dict()
+        for port in ports:
+            port.setdefault('vhost','')
+            port.setdefault('systemid','%')
+            port.setdefault('bridge','%')
+            
+            portkey = PhysicalNetwork.default_key(port.get('phynetid'))
+
+            for m in self._getkeys([portkey]):
+                yield m
+            portobj = self.app_routine.retvalue 
+            if len(portobj) == 0 or portobj[0] is None:
+                raise ValueError("port phynet not existed",port.get('name'),portkey)
+
+            #port['type'] = portobj[0].type
+            type = portobj[0].type 
+            
+            if type not in porttype:
+                porttype.setdefault(type,{'ports':[port]})
+            else:
+                porttype.get(type).get('ports').append(port)
+        
+
+        for k,v in porttype.items():
+            
+            try:
+                for m in callAPI(self.app_routine,'public','createphysicalports',
+                        {'type':k,'ports':v.get('ports')},timeout=1):
+                    yield m
+            except:
+                raise
+            
+            phymapkeys = [PhysicalNetworkMap.default_key(port.get('phynetid')) 
+                        for port in v.get('ports') ]
+
+            phyportkeys = [PhysicalNetwork.default_key(port.get('vhost'),
+                    port.get('systemid'),port.get('bridge'),port.get('name'))
+                        for port in v.get('ports')]
+
+            phyportkeys = [PhysicalPort.default_key(port.get('vhost'),
+                    port.get('systemid'),port.get('bridge'),port.get('name'))
+                    for port in v.get('ports')]
+            
+            updater = self.app_routine.retvalue
+            
+            v['portkeys'] = phyportkeys
+            v['portmapkeys'] = phymapkeys
+            v['updater'] = updater
+        
+        keys = [PhysicalPortSet.default_key()]
+
+        for _,v in porttype.items():
+            keys.extend(v.get('portkeys'))
+            keys.extend(v.get('portmapkeys'))
+         
+        def updater(keys,values):
+
+            retkeys = [keys[0]]
+            retvalues = [None]
+
+            for k,v in porttype.items():
+                start = 1
+                physet = values[0]
+                typeportkeys = keys[start:start + len(v.get('portkeys'))]
+                typeportvalues = values[start:start + len(v.get('portkeys'))]
+                typeportmapkeys = keys[start + len(v.get('portkeys')):start +
+                        len(v.get('portkeys'))+ len(v.get('portmapkeys'))]
+                typeportmapvalues = values[start + len(v.get('portkeys')):start + 
+                        len(v.get('portkeys'))+ len(v.get('portmapkeys'))] 
+                
+
+                rettypekeys,rettypevalues = v.get('updater')(list(keys[0:1]) + 
+                        list(typeportkeys) +list(typeportmapkeys),[physet] + 
+                            typeportvalues + typeportmapvalues) 
+
+                retkeys.extend(rettypekeys[1:])
+                retvalues.extend(rettypevalues[1:])
+
+                start = start + len(v.get('portkeys')) + len(v.get('portmapkeys'))
+                physet = rettypevalues[0]
+
+            retvalues[0] = physet
+            return retkeys,retvalues
+        try:
+            for m in callAPI(self.app_routine,'objectdb','transact',
+                    {'keys':keys,'updater':updater}):
+                yield m
+        except:
+            raise
+
+        for m in self._dumpkeys(keys[1:len(keys)//2 + 1]):
+            yield m
+
+
     # the first run as routine going
     def load(self,container):
         
