@@ -5,7 +5,7 @@ from uuid import uuid1
 
 from vlcp.server.module import Module,api,publicapi
 from vlcp.event.runnable import RoutineContainer
-from vlcp.utils.dataobject import updater,set_new
+from vlcp.utils.dataobject import updater,set_new,ReferenceObject
 from vlcp.utils.networkmodel import *
 
 logger = logging.getLogger('network_vlan_driver')
@@ -25,8 +25,8 @@ class network_vlan_driver(Module):
                        publicapi(self.deletephysicalnetwork,
                                     criteria=lambda type,id:type == 'vlan'),
                        publicapi(self.createphysicalport,
-                                    criteria=lambda phynettype,name,vhost,systemid,
-                                    bridge,args:phynettype == 'vlan'),
+                                    criteria=lambda phynettype,phynetid,name,vhost,
+                                    systemid,bridge,args:phynettype == 'vlan'),
                        publicapi(self.createphysicalports,
                                     criteria=lambda type,ports:type == 'vlan'),
                        publicapi(self.updatephysicalport,
@@ -175,8 +175,8 @@ class network_vlan_driver(Module):
         return deletephynetwork
 
 
-    def createphysicalport(self,phynettype,name,vhost,systemid,bridge,args = {}):
-        pport = self._createphysicalport(name,vhost,systemid,bridge,**args)
+    def createphysicalport(self,phynettype,phynetid,name,vhost,systemid,bridge,args = {}):
+        pport = self._createphysicalport(phynetid,name,vhost,systemid,bridge,**args)
         
         @updater
         def createphyport(phyport,phynetmap,phyportset):
@@ -200,9 +200,10 @@ class network_vlan_driver(Module):
 
             return keys,values
         return createpyports
-    def _createphysicalport(self,name,vhost,systemid,bridge,**args):
+    def _createphysicalport(self,phynetid,name,vhost,systemid,bridge,**args):
         p = PhysicalPort.create_instance(vhost,systemid,bridge,name)
-
+        p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetid))
+        
         for k,v in args.items():
             setattr(p,k,v)
 

@@ -117,12 +117,10 @@ class viperflow(Module):
         logger.info(' ##### update physical ports %r',self.app_routine.retvalue)
 
         # test delete physical port
-        
         for m in self.deletephysicalport('eth0'):
             yield m
 
         logger.info(' ##### delete physical ports %r',self.app_routine.retvalue)
-        
         # test list physical port
 
         for m in self.listphysicalport('eth1'):
@@ -394,8 +392,8 @@ class viperflow(Module):
         
         try:
             for m in callAPI(self.app_routine,'public','createphysicalport',
-                    {'phynettype':phynetobj[0].type,'name':name,'vhost':vhost,
-                        'systemid':systemid,'bridge':bridge,'args':kwargs},
+                    {'phynettype':phynetobj[0].type,'phynetid':phynetid,'name':name,
+                        'vhost':vhost,'systemid':systemid,'bridge':bridge,'args':kwargs},
                     timeout = 1):
                 yield m
         except:
@@ -434,12 +432,6 @@ class viperflow(Module):
             if len(portobj) == 0 or portobj[0] is None:
                 raise ValueError("port phynet not existed",port.get('name'),portkey)
             
-            #
-            # set type info into port object 
-            # we can use it to find type driver quick , no need to get network info
-            #
-            # update,delete will use this feature !
-            port['type'] = portobj[0].type
             type = portobj[0].type 
             
             if type not in porttype:
@@ -531,8 +523,9 @@ class viperflow(Module):
         
         try: 
             for m in callAPI(self.app_routine,'public','updatephysicalport',
-                {"phynettype":portobj[0].type,'vhost':vhost,'systemid':systemid,
-                    'bridge':bridge,'name':name,'args':args},timeout = 1):
+                {"phynettype":portobj[0].physicalnetwork.type,'vhost':vhost,
+                    'systemid':systemid,'bridge':bridge,'name':name,'args':args},
+                        timeout = 1):
                 yield m
         except:
             raise
@@ -561,13 +554,13 @@ class viperflow(Module):
         if len(portobj) == 0 or portobj[0] is None:
             raise ValueError('delete port not existed',name)
         
-        keys = [portkey,PhysicalNetworkMap.default_key(portobj[0].phynetid),
+        keys = [portkey,PhysicalNetworkMap.default_key(portobj[0].physicalnetwork.id),
                 PhysicalPortSet.default_key()]
         
         try:
             for m in callAPI(self.app_routine,'public','deletephysicalport',
-                    {'phynettype':portobj[0].type,'vhost':vhost,'systemid':systemid,
-                        'bridge':bridge,'name':name},timeout = 1):
+                    {'phynettype':portobj[0].physicalnetwork.type,'vhost':vhost,
+                        'systemid':systemid,'bridge':bridge,'name':name},timeout = 1):
                 yield m
         except:
             raise
@@ -583,7 +576,8 @@ class viperflow(Module):
 
         self.app_routine.retvalue = {"status":'OK'}
     
-    def listphysicalport(self,name = None,vhost='',systemid='%',bridge='%',**args):
+    def listphysicalport(self,name = None,phynetid = None,vhost='',
+            systemid='%',bridge='%',**args):
         
         def set_walker(key,set,walk,save):
 
@@ -595,8 +589,14 @@ class viperflow(Module):
                 except:
                     pass
                 
-                if all(getattr(phyport,k,None) == v for k,v in args.items()):
-                    save(phyportkey)
+                if not phynetid:
+                    if all(getattr(phyport,k,None) == v for k,v in args.items()):
+                        save(phyportkey)
+                else:
+                    if getattr(phyport.physicalnetwork,'id',None) == phynetid:
+                        if all(getattr(phyport,k,None) == v for k,v in args.items()):
+                            save(phyportkey)
+        
         def walker_func(set_func):
 
             def walker(key,obj,walk,save):
@@ -633,7 +633,6 @@ class viperflow(Module):
             else:
                 self.app_routine.retvalue = []
                      
-
     # the first run as routine going
     def load(self,container):
         
