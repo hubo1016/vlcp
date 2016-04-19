@@ -35,7 +35,10 @@ class viperflow(Module):
                        #api(self.deletephysicalnetworks,self.app_routine),
                        api(self.listphysicalnetwork,self.app_routine),
                        api(self.createphysicalport,self.app_routine),
-                       api(self.createphysicalports,self.app_routine)
+                       api(self.createphysicalports,self.app_routine),
+                       api(self.updatephysicalport,self.app_routine),
+                       api(self.deletephysicalport,self.app_routine),
+                       api(self.listphysicalport,self.app_routine)
                        ) 
     def _main(self):
         
@@ -105,6 +108,38 @@ class viperflow(Module):
             yield m
 
         logger.info(' ##### create physical ports %r',self.app_routine.retvalue)
+
+        # test update physical port
+
+        for m in self.updatephysicalport('eth0',rate='999'):
+            yield m
+
+        logger.info(' ##### update physical ports %r',self.app_routine.retvalue)
+
+        # test delete physical port
+        
+        for m in self.deletephysicalport('eth0'):
+            yield m
+
+        logger.info(' ##### delete physical ports %r',self.app_routine.retvalue)
+        
+        # test list physical port
+
+        for m in self.listphysicalport('eth1'):
+            yield m
+        
+        logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
+
+        for m in self.listphysicalport():
+            yield m
+
+        logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
+        
+        for m in self.listphysicalport(phynetid = listid):
+            yield m
+
+        logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
+        
     def _dumpkeys(self,keys):
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
@@ -341,7 +376,7 @@ class viperflow(Module):
             retobj = self.app_routine.retvalue
 
             if all(getattr(retobj,k,None) == v for k,v in kwargs.items()):
-                self.app_routine.retvalue = [dump(retobj)]
+                self.app_routine.retvalue = dump(retobj)
             else:
                 self.app_routine.retvalue = []
     
@@ -349,14 +384,11 @@ class viperflow(Module):
         #phyports {'phynetid':'phynetid','name':'eth0','vhost':'vhost','systemid':'%','bridge':'%',kwargs} 
         phynetkey = PhysicalNetwork.default_key(phynetid)
         
-        logger.info(' create port phynet key %r %r',phynetkey,phynetid)
-
         for m in self._getkeys([phynetkey]):
             yield m
 
         phynetobj = self.app_routine.retvalue
 
-        logger.info(' phynetobj = %r',phynetobj[0].type)
         if len(phynetobj) == 0 or phynetobj[0] is None:
             raise ValueError('special phynet id is not existed')
         
@@ -401,8 +433,13 @@ class viperflow(Module):
             portobj = self.app_routine.retvalue 
             if len(portobj) == 0 or portobj[0] is None:
                 raise ValueError("port phynet not existed",port.get('name'),portkey)
-
-            #port['type'] = portobj[0].type
+            
+            #
+            # set type info into port object 
+            # we can use it to find type driver quick , no need to get network info
+            #
+            # update,delete will use this feature !
+            port['type'] = portobj[0].type
             type = portobj[0].type 
             
             if type not in porttype:
@@ -480,7 +517,122 @@ class viperflow(Module):
 
         for m in self._dumpkeys(keys[1:len(keys)//2 + 1]):
             yield m
+    
+    def updatephysicalport(self,name,vhost='',systemid='%',bridge='%',**args):
 
+        portkey = PhysicalPort.default_key(vhost,systemid,bridge,name)
+
+        for m in self._getkeys([portkey]):
+            yield m
+
+        portobj = self.app_routine.retvalue
+        if len(portobj) == 0 or portobj[0] is None:
+            raise ValueError("update port not exist",name)
+        
+        try: 
+            for m in callAPI(self.app_routine,'public','updatephysicalport',
+                {"phynettype":portobj[0].type,'vhost':vhost,'systemid':systemid,
+                    'bridge':bridge,'name':name,'args':args},timeout = 1):
+                yield m
+        except:
+            raise
+
+        updater = self.app_routine.retvalue
+        
+        try:
+            for m in callAPI(self.app_routine,'objectdb','transact',
+                {'keys':[portkey],'updater':updater}):
+                yield m
+        except:
+            raise
+        
+        for m in self._dumpkeys([portkey]):
+            yield m
+    
+    def deletephysicalport(self,name,vhost='',systemid='%',bridge='%'):
+
+        portkey = PhysicalPort.default_key(vhost,systemid,bridge,name)
+
+        for m in self._getkeys([portkey]):
+            yield m
+
+        portobj = self.app_routine.retvalue
+
+        if len(portobj) == 0 or portobj[0] is None:
+            raise ValueError('delete port not existed',name)
+        
+        keys = [portkey,PhysicalNetworkMap.default_key(portobj[0].phynetid),
+                PhysicalPortSet.default_key()]
+        
+        try:
+            for m in callAPI(self.app_routine,'public','deletephysicalport',
+                    {'phynettype':portobj[0].type,'vhost':vhost,'systemid':systemid,
+                        'bridge':bridge,'name':name},timeout = 1):
+                yield m
+        except:
+            raise
+        
+        updater = self.app_routine.retvalue
+
+        try:
+            for m in callAPI(self.app_routine,'objectdb','transact',
+                    {'keys':keys,'updater':updater}):
+                yield m
+        except:
+            raise
+
+        self.app_routine.retvalue = {"status":'OK'}
+    
+    def listphysicalport(self,name = None,vhost='',systemid='%',bridge='%',**args):
+        
+        def set_walker(key,set,walk,save):
+
+            for weakobj in set.dataset():
+                phyportkey = weakobj.getkey()
+
+                try:
+                    phyport = walk(phyportkey)
+                except:
+                    pass
+                
+                if all(getattr(phyport,k,None) == v for k,v in args.items()):
+                    save(phyportkey)
+        def walker_func(set_func):
+
+            def walker(key,obj,walk,save):
+                set_walker(key,set_func(obj),walk,save)
+                
+            return walker
+        
+        if not name:
+            # get all physical port
+            phyportsetkey = PhysicalPortSet.default_key()
+            # an unique id used to unwatch
+            self._reqid += 1
+            reqid = ('viperflow',self._reqid)
+            
+            for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[phyportsetkey],
+                'walkerdict':{phyportsetkey:walker_func(lambda x:x.set)},
+                'requestid':reqid}):
+                yield m
+            keys,values = self.app_routine.retvalue
+            # dump will get reference
+            with watch_context(keys,values,reqid,self.app_routine):
+                self.app_routine.retvalue = [dump(r) for r in values]
+
+        else:
+            phyportkey = PhysicalPort.default_key(vhost,systemid,bridge,name)
+
+            for m in self._getkeys([phyportkey]):
+                yield m
+
+            retobj = self.app_routine.retvalue
+
+            if all(getattr(retobj,k,None) == v for k,v in args.items()):
+                self.app_routine.retvalue = dump(retobj)
+            else:
+                self.app_routine.retvalue = []
+                     
 
     # the first run as routine going
     def load(self,container):

@@ -28,7 +28,13 @@ class network_vlan_driver(Module):
                                     criteria=lambda phynettype,name,vhost,systemid,
                                     bridge,args:phynettype == 'vlan'),
                        publicapi(self.createphysicalports,
-                                    criteria=lambda type,ports:type == 'vlan'))
+                                    criteria=lambda type,ports:type == 'vlan'),
+                       publicapi(self.updatephysicalport,
+                                    criteria=lambda phynettype,name,vhost,systemid,
+                                    bridge,args:phynettype == 'vlan'),
+                       publicapi(self.deletephysicalport,
+                                    criteria=lambda phynettype,name,vhost,systemid,
+                                    bridge:phynettype == 'vlan'))
 
     def _main(self):
 
@@ -201,3 +207,32 @@ class network_vlan_driver(Module):
             setattr(p,k,v)
 
         return p
+
+    def updatephysicalport(self,phynettype,name,vhost,systemid,bridge,args = {}):
+
+        @updater
+        def updatephyport(phyport):
+            for k, v in args.items():
+                setattr(phyport,k,v)
+
+            return [phyport]
+
+        return updatephyport
+
+    def deletephysicalport(self,phynettype,name,vhost,systemid,bridge):
+
+        @updater
+        def deletephyport(phyport,phynetmap,phyportset):
+            
+            for weakobj in phynetmap.ports.dataset().copy():
+                if weakobj.getkey() == phyport.getkey():
+                    phynetmap.ports.dataset().remove(weakobj)
+            
+
+            for weakobj in phyportset.set.dataset().copy():
+                if weakobj.getkey() == phyport.getkey():
+                    phyportset.set.dataset().remove(weakobj)
+            
+            return [None,phynetmap,phyportset]
+
+        return deletephyport
