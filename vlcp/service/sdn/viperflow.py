@@ -38,7 +38,8 @@ class viperflow(Module):
                        api(self.createphysicalports,self.app_routine),
                        api(self.updatephysicalport,self.app_routine),
                        api(self.deletephysicalport,self.app_routine),
-                       api(self.listphysicalport,self.app_routine)
+                       api(self.listphysicalport,self.app_routine),
+                       api(self.createlogicalnetwork,self.app_routine)
                        ) 
     def _main(self):
         
@@ -138,6 +139,31 @@ class viperflow(Module):
 
         logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
         
+        
+        # test create logicalnetwork
+        for m in self.createlogicalnetwork(listid):
+            yield m
+
+        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
+        
+        # test create logicalnetwork
+        for m in self.createlogicalnetwork(listid):
+            yield m
+
+        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
+        
+        # test create logicalnetwork
+        for m in self.createlogicalnetwork(listid,vlanid = 52):
+            yield m
+
+        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
+        
+        # test create logicalnetwork
+        for m in self.createlogicalnetwork(listid):
+            yield m
+
+        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
+  
     def _dumpkeys(self,keys):
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
@@ -632,7 +658,46 @@ class viperflow(Module):
                 self.app_routine.retvalue = dump(retobj)
             else:
                 self.app_routine.retvalue = []
-                     
+    
+    def createlogicalnetwork(self,phynetid,id = None,**kwargs):
+        
+        if not id:
+            id = str(uuid1())
+
+        phynetkey = PhysicalNetwork.default_key(phynetid)
+        phynetmapkey = PhysicalNetworkMap.default_key(phynetid)
+
+        for m in self._getkeys([phynetkey]):
+            yield m
+
+        phynetobj = self.app_routine.retvalue
+
+        if len(phynetobj) == 0 or phynetobj[0] is None:
+            raise ValueError(' physicalnetwork id not exist',phynetid)
+        
+        try:
+            for m in callAPI(self.app_routine,'public','createlogicalnetwork',
+                {'phynettype':phynetobj[0].type,'phynetid':phynetid,'id':id,
+                    'args':kwargs},timeout = 1):
+                yield m
+        except:
+            raise
+
+        updater = self.app_routine.retvalue
+
+        keys = [LogicalNetworkSet.default_key(),LogicalNetwork.default_key(id),
+                LogicalNetworkMap.default_key(id),phynetkey,phynetmapkey]
+
+        try:
+            for m in callAPI(self.app_routine,'objectdb','transact',
+                    {'keys':keys,'updater':updater}):
+                yield m
+        except:
+            raise
+        
+        for m in self._dumpkeys([LogicalNetwork.default_key(id)]):
+            yield m
+
     # the first run as routine going
     def load(self,container):
         

@@ -47,6 +47,11 @@ class LogicalNetwork(DataObject):
 class LogicalNetworkMap(DataObject):
     _prefix = 'viperflow.logicnetworkmap'
     _indices = ("id",)
+    
+    def __init__(self,prefix = None,deleted = None):
+        super(LogicalNetworkMap,self).__init__(
+                prefix = prefix,deleted = deleted)
+        self.ports = DataObjectSet()
 
 class LogicalNetworkSet(DataObject):
     _prefix = 'viperflow.logicalnetworkset'

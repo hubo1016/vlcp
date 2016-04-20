@@ -5,7 +5,7 @@ from uuid import uuid1
 
 from vlcp.server.module import Module,api,publicapi
 from vlcp.event.runnable import RoutineContainer
-from vlcp.utils.dataobject import updater,set_new,ReferenceObject
+from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
 
 logger = logging.getLogger('network_vlan_driver')
@@ -34,7 +34,10 @@ class network_vlan_driver(Module):
                                     bridge,args:phynettype == 'vlan'),
                        publicapi(self.deletephysicalport,
                                     criteria=lambda phynettype,name,vhost,systemid,
-                                    bridge:phynettype == 'vlan'))
+                                    bridge:phynettype == 'vlan'),
+                       publicapi(self.createlogicalnetwork,
+                                    criteria=lambda phynettype,phynetid,id,
+                                    args:phynettype == 'vlan'))
 
     def _main(self):
 
@@ -237,3 +240,88 @@ class network_vlan_driver(Module):
             return [None,phynetmap,phyportset]
 
         return deletephyport
+
+    def createlogicalnetwork(self,phynettype,phynetid,id,args = {}):
+
+        logicalnetwork,logicalnetworkmap = self._createlogicalnetwork(phynetid,id,**args)
+
+        @updater
+        def createlgnetwork(lgnetworkset,lgnetwork,lgnetworkmap,phynet,phynetmap):
+            
+            if not getattr(logicalnetwork,'vlanid',None):
+                # this is no vlanid in logicalnetwork,
+                # allocated one from vlanrange
+                vlanid = _findavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys())
+                
+                if not vlanid:
+                    raise ValueError(" there is no avaliable vlan id")
+
+                setattr(logicalnetwork,'vlanid',str(vlanid))
+                phynetmap.network_allocation[str(vlanid)] = logicalnetwork.create_weakreference()
+            else:
+                if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),str(getattr(logicalnetwork,'vlanid'))):
+                    phynetmap.network_allocation[str(getattr(logicalnetwork,'vlanid'))]= \
+                    logicalnetwork.create_weakreference()
+                else:
+                    raise ValueError("user defind vlan id has been used or out of range!")
+
+            lgnetwork = set_new(lgnetwork,logicalnetwork)
+            lgnetworkmap = set_new(lgnetworkmap,logicalnetworkmap)
+
+            phynetmap.logicnetworks.dataset().add(logicalnetwork.create_weakreference())
+            lgnetworkset.set.dataset().add(logicalnetwork.create_weakreference())
+            
+            return [lgnetworkset,lgnetwork,lgnetworkmap,phynet,phynetmap]
+
+        return createlgnetwork
+
+    def _createlogicalnetwork(self,phynetid,id,**args):
+
+        logicalnetwork = LogicalNetwork.create_instance(id)
+        logicalnetworkmap = LogicalNetworkMap.create_instance(id)
+        
+        for k,v in args.items():
+            setattr(logicalnetwork,k,v)
+
+        logicalnetworkmap.network = logicalnetwork.create_reference()
+        logicalnetwork.physicalnet = ReferenceObject(PhysicalNetwork.default_key(phynetid))
+
+        return (logicalnetwork,logicalnetworkmap)
+
+
+#
+# utils function
+#
+
+def _findavaliablevlanid(vlanrange,allocated):
+    
+    vlanid = None
+    for vr in vlanrange:
+        find = False
+        for v in range(vr[0],vr[1]):
+            if str(v) not in allocated:
+                vlanid = v
+                find = True
+                break
+
+        if find:
+            break
+    return vlanid
+
+def _isavaliablevlanid(vlanrange,allocated,vlanid):
+    
+    find = False
+    for start,end in vlanrange:
+        if start <= int(vlanid) <= end:
+            find = True
+            break
+
+    if find:
+        if vlanid not in allocated:
+            find = True
+        else:
+            find = False
+    else:
+        find = False
+
+    return find
