@@ -39,7 +39,8 @@ class viperflow(Module):
                        api(self.updatephysicalport,self.app_routine),
                        api(self.deletephysicalport,self.app_routine),
                        api(self.listphysicalport,self.app_routine),
-                       api(self.createlogicalnetwork,self.app_routine)
+                       api(self.createlogicalnetwork,self.app_routine),
+                       api(self.createlogicalnetworks,self.app_routine)
                        ) 
     def _main(self):
         
@@ -49,6 +50,9 @@ class viperflow(Module):
         #
         for m in self.createphysicalnetwork(vlanrange = [(1,100)]):
             yield m
+        
+        listid1 = self.app_routine.retvalue[0].get('id')
+        logger.info(" ######## create physicalnetwork =  %r ",self.app_routine.retvalue)
         
         networks = [{'type':'vlan','vlanrange':[(1,100)]},
                     {'type':'vlan','vlanrange':[(100,300)]}]
@@ -139,7 +143,6 @@ class viperflow(Module):
 
         logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
         
-        
         # test create logicalnetwork
         for m in self.createlogicalnetwork(listid):
             yield m
@@ -163,7 +166,16 @@ class viperflow(Module):
             yield m
 
         logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
-  
+        
+        # test create logicalnetworks
+        #n = [{'phynetid':listid}]
+        n = [{'phynetid':listid},{'phynetid':listid}]
+
+        for m in self.createlogicalnetworks(n):
+            yield m
+
+        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
+
     def _dumpkeys(self,keys):
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
@@ -185,7 +197,7 @@ class viperflow(Module):
             pass
 
     def createphysicalnetwork(self,type = 'vlan',id = None, **kwargs):
-        
+        """        
         # {'type':'vlan' or 'vxlan','id' = None,uuid1(),'vlanrange':[(1,100),(200,300)],kwargs}
         if not id:
             id = str(uuid1())
@@ -213,7 +225,15 @@ class viperflow(Module):
             yield m
 
         self.app_routine.retvalue = self.app_routine.retvalue[0]    
-    
+        """
+        if not id:
+            id = str(uuid1())
+        
+        network = {'type':type,'id':id}
+        network.update(kwargs)
+
+        for m in self.createphysicalnetworks([network]):
+            yield m
     def createphysicalnetworks(self,networks):
         #networks [{type='vlan' or 'vxlan',id = None or uuid1(),'vlanrange':[(100,200),(400,401)],kwargs}]
         
@@ -223,7 +243,8 @@ class viperflow(Module):
         for network in networks:
             if 'type' not in network:
                 raise ValueError("network must have type attr")
-            network.setdefault('id',str(uuid1())) 
+
+            network.setdefault('id',str(uuid1()))
             if network.get('type') not in typenetworks: 
                 typenetworks.setdefault(network.get('type'),{'networks':[network]})
             else:
@@ -405,6 +426,8 @@ class viperflow(Module):
                 self.app_routine.retvalue = []
     
     def createphysicalport(self,phynetid,name,vhost='',systemid='%',bridge='%',**kwargs):
+        
+        """
         #phyports {'phynetid':'phynetid','name':'eth0','vhost':'vhost','systemid':'%','bridge':'%',kwargs} 
         phynetkey = PhysicalNetwork.default_key(phynetid)
         
@@ -440,7 +463,13 @@ class viperflow(Module):
         
         for m in self._dumpkeys([phyportkey]):
             yield m
+        """
 
+        port = {'phynetid':phynetid,'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
+        port.update(kwargs)
+
+        for m in self.createphysicalports([port]):
+            yield m
     def createphysicalports(self,ports):
         # ports [{'phynetid':id,'name':eth0,'vhost':'',systemid:'%'},{.....}]
         
@@ -663,7 +692,7 @@ class viperflow(Module):
         
         if not id:
             id = str(uuid1())
-
+        """
         phynetkey = PhysicalNetwork.default_key(phynetid)
         phynetmapkey = PhysicalNetworkMap.default_key(phynetid)
 
@@ -697,7 +726,135 @@ class viperflow(Module):
         
         for m in self._dumpkeys([LogicalNetwork.default_key(id)]):
             yield m
+        """
 
+        network = {'phynetid':phynetid,'id':id}
+        network.update(kwargs)
+
+        for m in self.createlogicalnetworks([network]):
+            yield m
+    def createlogicalnetworks(self,networks):
+        
+        # networks [{'phynetid':'id','id':'id' ...},{'phynetid':'id',...}]
+        typenetwork = {}
+        for network in networks:
+            if 'phynetid' not in network:
+                raise ValueError("create logicalnet must special phynetid")
+
+            network.setdefault('id',str(uuid1()))
+
+            phynetkey = PhysicalNetwork.default_key(network.get('phynetid'))
+
+            for m in self._getkeys([phynetkey]):
+                yield m
+
+            phynetobj = self.app_routine.retvalue
+
+            if len(phynetobj) == 0 or phynetobj[0] is None:
+                raise ValueError("special phynetid not existed")
+            
+            phynettype = phynetobj[0].type
+
+            if phynettype not in typenetwork:
+                typenetwork.setdefault(phynettype,{'networks':[network]})
+            else:
+                typenetwork.get(phynettype).get('networks').append(network)
+
+
+        for k, v in typenetwork.items():
+            try:
+                for m in callAPI(self.app_routine,'public','createlogicalnetworks',
+                        {'phynettype':k,'networks':v.get('networks')},timeout = 1):
+                    yield m
+            except:
+                    raise
+
+            updater = self.app_routine.retvalue
+            
+            lgnetkey = [LogicalNetwork.default_key(n.get('id')) 
+                            for n in v.get('networks')] 
+            lgnetmapkey = [LogicalNetworkMap.default_key(n.get('id'))
+                            for n in v.get('networks')]
+
+            phynetkey = list(set([PhysicalNetwork.default_key(n.get('phynetid'))
+                            for n in v.get('networks')]))
+
+            #
+            # if we use map default key , to set , it will be disorder with
+            # phynetkey,  so we create map key use set(phynetkey)
+            #
+            phynetmapkey = [PhysicalNetworkMap.default_key(PhysicalNetwork.\
+                    _getIndices(n)[1][0]) for n in phynetkey]
+
+            v['lgnetkeys'] = lgnetkey
+            v['lgnetmapkeys'] = lgnetmapkey
+            # 
+            # will have more logicalnetwork create on one phynet,
+            # so we should reduce phynetkey , phynetmapkey
+            #
+            v['phynetkeys'] = phynetkey
+            v['phynetmapkeys'] = phynetmapkey
+            v['updater'] = updater
+
+        keys = [LogicalNetworkSet.default_key()]
+        for _,v in typenetwork.items():
+            keys.extend(v.get('lgnetkeys'))
+            keys.extend(v.get('lgnetmapkeys'))
+            keys.extend(v.get('phynetkeys'))
+            keys.extend(v.get('phynetmapkeys'))
+        
+        def updater(keys,values):
+            retkeys = [keys[0]]
+            retvalues = [None]
+            start = 1
+            for k,v in typenetwork.items():
+                lgnetset = values[0]
+                typelgnetworkkeys = keys[start:start+len(v.get('lgnetkeys'))]
+                typelgnetworkvalues = values[start:start+len(v.get('lgnetkeys'))]
+                typelgnetworkmapkeys = keys[start+len(v.get('lgnetkeys')):\
+                        start+len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys'))]
+                typelgnetworkmapvalues = values[start+len(v.get('lgnetkeys')):\
+                        start+len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys'))]
+
+                typephynetkeys = keys[start+len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys')):
+                        start+len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys'))+len(v.get('phynetkeys'))]
+
+                typephynetvalues = values[start+len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys')):
+                        start+len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys'))+len(v.get('phynetkeys'))]
+                
+                typephynetmapkeys = keys[start+len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys'))\
+                            +len(v.get('phynetkeys')):start + len(v.get('lgnetkeys'))\
+                            +len(v.get('lgnetmapkeys'))+len(v.get('phynetkeys'))+len(v.get('phynetmapkeys'))]
+                typephynetmapvalues = values[start+len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys'))\
+                        +len(v.get('phynetkeys')):start + len(v.get('lgnetkeys'))\
+                        +len(v.get('lgnetmapkeys'))+len(v.get('phynetkeys'))+len(v.get('phynetmapkeys'))]
+                
+                typeretkeys,typeretvalues = v.get('updater')(list(keys[0:1])+list(typelgnetworkkeys)+\
+                            list(typelgnetworkmapkeys)+list(typephynetkeys)+list(typephynetmapkeys),\
+                            [values[0]]+typelgnetworkvalues+typelgnetworkmapvalues+typephynetvalues+\
+                            typephynetmapvalues)
+                
+                retkeys.extend(typeretkeys[1:])
+                retvalues.extend(typeretvalues[1:])
+                lgnetset = typeretvalues[0]
+                start = start + len(v.get('lgnetkeys'))+len(v.get('lgnetmapkeys'))+\
+                        len(v.get('phynetkeys')) + len(v.get('phynetmapkeys'))
+            retvalues[0] = lgnetset
+            return retkeys,retvalues
+        try:
+            for m in callAPI(self.app_routine,'objectdb','transact',
+                    {'keys':keys,'updater':updater}):
+                yield m
+
+        except:
+            raise
+        
+        dumpkeys = []
+        for _,v in typenetwork.items():
+            dumpkeys.extend(v.get('lgnetkeys'))
+        for m in self._dumpkeys(dumpkeys):
+            yield m
+    
     # the first run as routine going
     def load(self,container):
         
