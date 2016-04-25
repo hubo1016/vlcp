@@ -57,6 +57,7 @@ class Openflow(Protocol):
     _default_createqueue = True
     _default_buffersize = 65536
     _default_debugging = False
+    _default_disablenxext = False
     _logger = logging.getLogger(__name__ + '.Openflow')
     def __init__(self, allowedVersions = None):
         '''

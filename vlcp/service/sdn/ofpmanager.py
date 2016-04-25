@@ -13,6 +13,8 @@ from vlcp.event.connection import ConnectionResetException, ResolveRequestEvent,
     ResolveResponseEvent
 import itertools
 import socket
+from vlcp.event.event import Event, withIndices
+from vlcp.event.core import QuitException
 
 def _get_endpoint(conn):
     raddr = getattr(conn, 'remoteaddr', None)
@@ -26,6 +28,13 @@ def _get_endpoint(conn):
     else:
         return ''
 
+@withIndices()
+class TableAcquireUpdate(Event):
+    pass
+
+@withIndices('connection', 'datapathid', 'vhost')
+class FlowInitialize(Event):
+    pass
 
 @defaultconfig
 @depend(openflowserver.OpenflowServer)
@@ -42,6 +51,10 @@ class OpenflowManager(Module):
         self.routines.append(self.apiroutine)
         self.managed_conns = {}
         self.endpoint_conns = {}
+        self.table_modules = set()
+        self._acquring = False
+        self._acquire_updated = False
+        self._lastacquire = None
         self._synchronized = False
         self.createAPI(api(self.getconnections, self.apiroutine),
                        api(self.getconnection, self.apiroutine),
@@ -53,6 +66,9 @@ class OpenflowManager(Module):
                        api(self.getconnectionsbyendpointname, self.apiroutine),
                        api(self.getendpoints, self.apiroutine),
                        api(self.getallendpoints, self.apiroutine),
+                       api(self.acquiretable, self.apiroutine),
+                       api(self.unacquiretable, self.apiroutine),
+                       api(self.lastacquiredtables)
                        )
     def _add_connection(self, conn):
         vhost = conn.protocol.vhost
@@ -77,7 +93,114 @@ class OpenflowManager(Module):
         ep = _get_endpoint(conn)
         econns = self.endpoint_conns.setdefault((vhost, ep), [])
         econns.append(conn)
+        if self._lastacquire and conn.openflow_auxiliaryid == 0:
+            self.apiroutine.subroutine(self._initialize_connection(conn))
         return remove
+    def _initialize_connection(self, conn):
+        ofdef = conn.openflowdef
+        flow_mod = ofdef.ofp_flow_mod(buffer_id = ofdef.OFP_NO_BUFFER,
+                                                 out_port = ofdef.OFPP_ANY,
+                                                 command = ofdef.OFPFC_DELETE
+                                                 )
+        if hasattr(ofdef, 'OFPG_ANY'):
+            flow_mod.out_group = ofdef.OFPG_ANY
+        if hasattr(ofdef, 'OFPTT_ALL'):
+            flow_mod.table_id = ofdef.OFPTT_ALL
+        if hasattr(ofdef, 'ofp_match_oxm'):
+            flow_mod.match = ofdef.ofp_match_oxm()
+        for m in conn.protocol.batch((conn.openflowdef.ofp_flow_mod,), conn, self.apiroutine):
+            yield m
+        for m in self.apiroutine.waitForSend(FlowInitialize(conn, conn.openflow_datapathid, conn.protocol.vhost)):
+            yield m
+    def _acquire_tables(self):
+        while self._acquire_updated:
+            result = None
+            exception = None
+            for m in self.apiroutine.doEvents():
+                yield m
+            module_list = list(self.table_modules)
+            self._acquire_updated = False
+            try:
+                for m in self.apiroutine.executeAll((callAPI(self.apiroutine, module, 'gettablerequest', {}) for module in module_list)):
+                    yield m
+            except QuitException:
+                raise
+            except Exception as exc:
+                self._logger.exception('Acquiring table failed')
+                exception = exc
+            else:
+                requests = [r[0] for r in self.apiroutine.retvalue]
+                vhosts = set(vh for _, vhs in requests if vhs is not None for vh in vhs)
+                vhost_result = {}
+                # Requests should be list of (name, (ancester, ancester, ...), pathname)
+                for vh in vhosts:
+                    graph = {}
+                    table_path = {}
+                    try:
+                        for r in requests:
+                            if r[1] is None or vh in r[1]:
+                                for name, ancesters, pathname in r[0]:
+                                    if name in table_path:
+                                        if table_path[name] != pathname:
+                                            raise ValueError("table conflict detected: %r can not be in two path: %r and %r" % (name, table_path[name], pathname))
+                                    else:
+                                        table_path[name] = pathname
+                                    if name not in graph:
+                                        graph[name] = (set(ancesters), set())
+                                    else:
+                                        graph[name][0].update(ancesters)
+                                        for anc in ancesters:
+                                            graph.setdefault(anc, (set(), set()))[1].add(name)
+                    except ValueError as exc:
+                        self._logger.error(str(exc))
+                        exception = exc
+                        break
+                    else:
+                        sequences = []
+                        def dfs_sort(current):
+                            sequences.append(current)
+                            for d in graph[current][1]:
+                                anc = graph[d][0]
+                                anc.remove(current)
+                                if not anc:
+                                    dfs_sort(d)
+                        nopre_tables = sorted([k for k,v in graph.items() if not v[0]], key = lambda x: (table_path[name],name))
+                        for t in nopre_tables:
+                            dfs_sort(t)
+                        if len(sequences) < len(graph):
+                            rest_tables = set(graph.keys()).difference(sequences)
+                            self._logger.error("Circle detected in table acquiring, following tables are related: %r, vhost = %r", sorted(rest_tables), vh)
+                            self._logger.error("Circle dependencies are: %s", ", ".join(repr(tuple(graph[t][0])) + "=>" + t for t in rest_tables))
+                            exception = ValueError("Circle detected in table acquiring, following tables are related: %r, vhost = %r" % (sorted(rest_tables),vh))
+                            break
+                        elif len(sequences) > 255:
+                            self._logger.error("Table limit exceeded: %d tables (only 255 allowed), vhost = %r", len(sequences), vh)
+                            exception = ValueError("Table limit exceeded: %d tables (only 255 allowed), vhost = %r" % (len(sequences),vh))
+                            break
+                        else:
+                            full_indices = list(zip(sequences, itertools.count()))
+                            tables = dict((k,tuple(g)) for k,g in itertools.groupby(sorted(full_indices, key = lambda x: table_path[x[0]]),
+                                                       lambda x: table_path[x[0]]))
+                            vhost_result[vh] = (full_indices, tables)
+        if exception:
+            for m in self.apiroutine.waitForSend(TableAcquireUpdate(exception = exception)):
+                yield m
+        else:
+            result = vhost_result
+            if result != self._lastacquire:
+                self._lastacquire = result
+                self._reinitall()
+            for m in self.apiroutine.waitForSend(TableAcquireUpdate(result = result)):
+                yield m
+    def load(self, container):
+        for m in container.waitForSend(TableAcquireUpdate(result = None)):
+            yield m
+        for m in Module.load(self, container):
+            yield m
+    def _reinitall(self):
+        for cl in self.managed_conns.values():
+            for c in cl:
+                self.apiroutine.subroutine(self._initialize_connection(c))
     def _manage_existing(self):
         for m in callAPI(self.apiroutine, "openflowserver", "getconnections", {}):
             yield m
@@ -241,3 +364,28 @@ class OpenflowManager(Module):
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = list(self.endpoint_conns.keys())
+    def lastacquiredtables(self, vhost = ""):
+        "Get acquired table IDs"
+        return self._lastacquire.get(vhost)
+    def acquiretable(self, modulename):
+        "Start to acquire tables for a module on module loading."
+        if not modulename in self.table_modules:
+            self.table_modules.add(modulename)
+            self._acquire_updated = True
+            if not self._acquring:
+                self._acquring = True
+                self.apiroutine.subroutine(self._acquire_tables())
+        self.apiroutine.retvalue = None
+        if False:
+            yield
+    def unacquiretable(self, modulename):
+        "When module is unloaded, stop acquiring tables for this module."
+        if modulename in self.table_modules:
+            self.table_modules.remove(modulename)
+            self._acquire_updated = True
+            if not self._acquring:
+                self._acquring = True
+                self.apiroutine.subroutine(self._acquire_tables())
+        self.apiroutine.retvalue = None
+        if False:
+            yield

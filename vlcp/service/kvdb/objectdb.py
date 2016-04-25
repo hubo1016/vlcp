@@ -553,7 +553,7 @@ class ObjectDB(Module):
         "Return a dictionary whose keys are database keys, and values are lists of request ids. Optionally filtered by request id"
         return dict((k,list(v)) for k,v in self._watches.items() if requestid is None or requestid in v)
     def walk(self, keys, walkerdict, requestid, nostale = False):
-        "Recursively retrieve keys with customized functions. walkerdict is a dictionary key->walker(obj, walk, save)."
+        "Recursively retrieve keys with customized functions. walkerdict is a dictionary key->walker(key, obj, walk, save)."
         keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()

@@ -638,7 +638,7 @@ def callAPI(container, targetname, name, params = {}, timeout = 60.0):
 def batchCallAPI(container, apis, timeout = 60.0):
     apiHandles = [(object(), api) for api in apis]
     apiEvents = [ModuleAPICall(handle, targetname, name, params = params)
-                 for handle, (targetname, name, params) in apis]
+                 for handle, (targetname, name, params) in apiHandles]
     apiMatchers = [ModuleAPIReply.createMatcher(handle) for handle, _ in apiHandles]
     def process():
         for e in apiEvents:
