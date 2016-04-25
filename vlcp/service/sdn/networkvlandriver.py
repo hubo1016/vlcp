@@ -8,11 +8,11 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
 
-logger = logging.getLogger('network_vlan_driver')
+logger = logging.getLogger('NetworkVlanDriver')
 
-class network_vlan_driver(Module):
+class NetworkVlanDriver(Module):
     def __init__(self,server):
-        super(network_vlan_driver,self).__init__(server)
+        super(NetworkVlanDriver,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)
         self.app_routine.main = self._main
         self.routines.append(self.app_routine)
