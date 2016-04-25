@@ -20,9 +20,9 @@ logger = logging.getLogger('viperflow')
 
 @defaultconfig
 @depend(objectdb.ObjectDB)
-class viperflow(Module):
+class ViperFlow(Module):
     def __init__(self,server):
-        super(viperflow,self).__init__(server)
+        super(ViperFlow,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)
         self.app_routine.main = self._main
         self.routines.append(self.app_routine)
@@ -46,7 +46,8 @@ class viperflow(Module):
                        api(self.createlogicalport,self.app_routine),
                        api(self.createlogicalports,self.app_routine),
                        api(self.updatelogcialport,self.app_routine),
-                       api(self.deletelogcialport,self.app_routine)
+                       api(self.deletelogcialport,self.app_routine),
+                       api(self.listlogicalport,self.app_routine)
                        ) 
     def _main(self):
         
