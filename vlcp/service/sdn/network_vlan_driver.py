@@ -41,7 +41,12 @@ class network_vlan_driver(Module):
                                     #args:phynettype == 'vlan'),
                        publicapi(self.createlogicalnetworks,
                                     criteria=lambda phynettype,
-                                    networks:phynettype == 'vlan'))
+                                    networks:phynettype == 'vlan'),
+                       publicapi(self.updatelogicalnetwork,
+                                    criteria=lambda phynettype,id,
+                                    args:phynettype == 'vlan'),
+                       publicapi(self.deletelogicalnetwork,
+                                    criteria=lambda phynettype,id:phynettype == "vlan"))
 
     def _main(self):
 
@@ -346,8 +351,43 @@ class network_vlan_driver(Module):
         logicalnetwork.physicalnet = ReferenceObject(PhysicalNetwork.default_key(phynetid))
 
         return (logicalnetwork,logicalnetworkmap)
+    
+    def updatelogicalnetwork(self,phynettype,id,args = {}):
+        
+        @updater
+        def updatelgnetwork(lgnet,phynet,phynetmap):
+            
+            for k,v in args.items():
+                if k == 'vlanid':
+                    # here want update vlanid
+                    if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),str(v)):
+                        phynetmap.network_allocation[str(v)] = lgnet.create_weakreference()
+                        del phynetmap.network_allocation[str(getattr(lgnet,k))]
+                    else:
+                        raise ValueError("new vlanid is not avaliable")
+                setattr(lgnet,k,str(v))
 
+            return [lgnet,phynet,phynetmap]
 
+        return updatelgnetwork
+
+    def deletelogicalnetwork(self,phynettype,id):
+
+        @updater
+        def deletelgnetwork(lgnetset,lgnet,lgnetmap,phynetmap):
+            
+            if len(lgnetmap.ports.dataset()) > 0:
+                raise ValueError("there ports on logicnet remove it before")
+            
+            for weakobj in lgnetset.set.dataset().copy():
+                if weakobj.getkey() == lgnet.getkey():
+                    lgnetset.set.dataset().remove(weakobj)
+
+            del phynetmap.network_allocation[str(getattr(lgnet,'vlanid'))]
+
+            return [lgnetset,None,None,phynetmap]
+
+        return deletelgnetwork
 #
 # utils function
 #
