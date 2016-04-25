@@ -173,10 +173,9 @@ class ViperFlow(Module):
             yield m
 
         logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
-        
         # test create logicalnetworks
         #n = [{'phynetid':listid}]
-        n = [{'phynetid':listid},{'phynetid':listid}]
+        n = [{'phynetid':listid},{'phynetid':listid,'vlanid':99}]
 
         for m in self.createlogicalnetworks(n):
             yield m
@@ -739,9 +738,15 @@ class ViperFlow(Module):
                     if all(getattr(phyport,k,None) == v for k,v in args.items()):
                         save(phyportkey)
                 else:
-                    if getattr(phyport.physicalnetwork,'id',None) == phynetid:
-                        if all(getattr(phyport,k,None) == v for k,v in args.items()):
-                            save(phyportkey)
+
+                    try:
+                        phynet = walk(phyport.physicalnetwork.getkey())
+                    except:
+                        pass
+                    else:
+                        if phynet.id == phynetid:
+                            if all(getattr(phyport,k,None) == v for k,v in args.items()):
+                                save(phyportkey)
         
         def walker_func(set_func):
 

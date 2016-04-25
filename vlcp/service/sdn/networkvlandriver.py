@@ -304,6 +304,34 @@ class NetworkVlanDriver(Module):
             phynetmapvalues = values[1+len(networkmap)*2 + phynetlen:]
             
             phynetmapdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
+            
+            #
+            # have an problem ,  when [{...},{... vlanid is least or last+1}]
+            # first one will allocate least one vlanid,second will conflict  
+            #
+            # so set new lgnet that have user defind 'vlanid' first
+            for i in range(0,len(networks)):
+                if getattr(networkmap[i][0],'vlanid',None):
+
+                    vlanid = str(getattr(networkmap[i][0],'vlanid')) 
+
+                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
+                    if _isavaliablevlanid(phynet.vlanrange,phymap.network_allocation.keys(),vlanid):
+                        phymap.network_allocation[vlanid] = networkmap[i][0].create_weakreference()
+                    else:
+                        raise ValueError("user defind vlan id has been used or out of range!")
+                    
+                    # set lgnetwork
+                    values[1+i] = set_new(values[i + 1],networkmap[i][0])
+                    # set lgnetworkmap
+                    values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
+                    # set phynetmap
+                  
+                    _,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
+                    phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
+
+                    values[0].set.dataset().add(networkmap[i][0].create_weakreference())
+
 
             for i in range(0,len(networks)):
                 if not getattr(networkmap[i][0],'vlanid',None):
@@ -316,25 +344,17 @@ class NetworkVlanDriver(Module):
                         raise ValueError("there is no avaliable vlan id")
                     setattr(networkmap[i][0],'vlanid',str(vlanid))
                     phymap.network_allocation[str(vlanid)] = networkmap[i][0].create_weakreference()
-                else:
-                    # have user defind vlanid
-                    vlanid = str(getattr(networkmap[i][0],'vlanid'))
+                    
+                    # set lgnetwork
+                    values[1+i] = set_new(values[i + 1],networkmap[i][0])
+                    # set lgnetworkmap
+                    values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
+                    # set phynetmap
+                  
+                    _,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
+                    phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
 
-                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
-                    if _isavaliablevlanid(phynet.vlanrange,phymap.network_allocation.keys(),vlanid):
-                        phymap.network_allocation[vlanid] = networkmap[i][0].create_weakreference()
-                    else:
-                        raise ValueError("user defind vlan id has been used or out of range!")
-                # set lgnetwork
-                values[1+i] = set_new(values[i + 1],networkmap[i][0])
-                # set lgnetworkmap
-                values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
-                # set phynetmap
-              
-                _,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
-                phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
-
-                values[0].set.dataset().add(networkmap[i][0].create_weakreference())
+                    values[0].set.dataset().add(networkmap[i][0].create_weakreference())
 
             return keys,values
         return createlgnetworks
