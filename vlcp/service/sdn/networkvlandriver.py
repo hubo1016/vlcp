@@ -23,8 +23,12 @@ class NetworkVlanDriver(Module):
                                     criteria=lambda networks,type:type == 'vlan'),
                        publicapi(self.updatephysicalnetwork,
                                     criteria=lambda type,id,args:type == 'vlan'),
+                       publicapi(self.updatephysicalnetworks,
+                                    criteria=lambda type,networks:type == 'vlan'),
                        publicapi(self.deletephysicalnetwork,
                                     criteria=lambda type,id:type == 'vlan'),
+                       publicapi(self.deletephysicalnetworks,
+                                    criteria=lambda type,networks:type == 'vlan'),
                        #publicapi(self.createphysicalport,
                                     #criteria=lambda phynettype,phynetid,name,vhost,
                                     #systemid,bridge,args:phynettype == 'vlan'),
@@ -152,7 +156,7 @@ class NetworkVlanDriver(Module):
                     for k,_ in phymap.network_allocation.items():
                         find = False
                         for start,end in v:
-                            if k >= start and k <= end:
+                            if int(k) >= start and int(k) <= end:
                                 find = True
                                 break
                         if find == False:
@@ -172,7 +176,44 @@ class NetworkVlanDriver(Module):
             return [phynet]
         
         return updatephynetwork
+    
+    def updatephysicalnetworks(self,type,networks):
+        def updatephynetworks(keys,values):
+            phykeys = keys[0:len(keys)//2]
+            phyvalues = values[0:len(values)//2]
+            
+            phymapkeys = keys[len(keys)//2:]
+            phymapvalues = values[len(keys)//2:]
 
+            phynetdict = dict(zip(phykeys,zip(phyvalues,phymapvalues)))
+
+            for network in networks:
+                phynet,phymap = phynetdict.get(PhysicalNetwork.default_key(network.get('id')))
+                if 'vlanrange' in network:
+                    findflag = False
+                    for k,_ in phymap.network_allocation.items():
+                        find = False
+                        for start,end in network.get('vlanrange'):
+                            if int(k) >= start and int(k) <= end:
+                                find = True
+                                break
+                        if find == False:
+                            findflag = False
+                            break
+                        else:
+                            findflag = True
+                    
+                    if len(phymap.network_allocation) == 0:
+                        findflag = True
+                    
+                    # new vlanrange do not 
+                    if findflag == False:
+                        raise ValueError('new vlan range do not match with allocation')
+                for k,v in network.items():   
+                    setattr(phynet,k,v)
+            return keys,values
+
+        return updatephynetworks
     def deletephysicalnetwork(self,type,id):
         @updater
         def deletephynetwork(physet,phynet,phymap):
@@ -188,7 +229,33 @@ class NetworkVlanDriver(Module):
             return [physet,None,None]
 
         return deletephynetwork
+    
+    def deletephysicalnetworks(self,type,networks):
 
+        def deletephynetwork(keys,values):
+            
+            phynetlen = (len(keys) - 1)//2
+            phynetkeys = keys[1:1+phynetlen]
+            phynetvalues = values[1:1+phynetlen]
+
+            phynetmapkeys = keys[1+phynetlen:]
+            phynetmapvalues = values[1+phynetlen:]
+
+            phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
+
+            for network in networks:
+                phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get('id')))
+
+                if len(phynetmap.network_allocation) > 0:
+                    raise ValueError('delete all logicnetwork on this phynet before delete')
+                
+                for weakobj in values[0].set.dataset().copy():
+                    if weakobj.getkey() == phynet.getkey():
+                        values[0].set.dataset().remove(weakobj)
+
+            return [keys[0]],[values[0]]
+        
+        return deletephynetwork
     """
     def createphysicalport(self,phynettype,phynetid,name,vhost,systemid,bridge,args = {}):
         pport = self._createphysicalport(phynetid,name,vhost,systemid,bridge,**args)
