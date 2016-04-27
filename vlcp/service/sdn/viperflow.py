@@ -50,8 +50,10 @@ class ViperFlow(Module):
                        api(self.listlogicalnetwork,self.app_routine),
                        api(self.createlogicalport,self.app_routine),
                        api(self.createlogicalports,self.app_routine),
-                       api(self.updatelogcialport,self.app_routine),
-                       api(self.deletelogcialport,self.app_routine),
+                       api(self.updatelogicalport,self.app_routine),
+                       api(self.updatelogicalports,self.app_routine),
+                       api(self.deletelogicalport,self.app_routine),
+                       api(self.deletelogicalports,self.app_routine),
                        api(self.listlogicalport,self.app_routine)
                        ) 
     def _main(self):
@@ -243,14 +245,14 @@ class ViperFlow(Module):
         logicalportid = self.app_routine.retvalue[0]["id"]
         # test update logicalport
 
-        for m in self.updatelogcialport(logicalportid,name = "eth0"):
+        for m in self.updatelogicalport(logicalportid,name = "eth0"):
             yield m
         logger.info(' ##### update logical port %r',self.app_routine.retvalue)
 
         """
         # test delete logicalport
         
-        for m in self.deletelogcialport(logicalportid):
+        for m in self.deletelogicalport(logicalportid):
             yield m
         logger.info(' ##### delete logical port %r',self.app_routine.retvalue)
         """
@@ -1668,7 +1670,7 @@ class ViperFlow(Module):
 
         return lgport
 
-    def updatelogcialport(self,id,**kwargs):
+    def updatelogicalport(self,id,**kwargs):
         
         lgportkey = LogicalPort.default_key(id)
 
@@ -1698,7 +1700,41 @@ class ViperFlow(Module):
         for m in self._dumpkeys([lgportkey]):
             yield m
     
-    def deletelogcialport(self,id):
+    def updatelogicalports(self,ports):
+        
+        # ports [{"id":id,...},{...}]
+        for port in ports:
+            lgportkey = LogicalPort.default_key(port.get("id"))
+            
+            for m in self._getkeys([lgportkey]):
+                yield m
+
+            lgportobj = self.app_routine.retvalue
+            if len(lgportobj) == 0 or lgportobj[0] is None:
+                raise ValueError("logical port id not existed "+id)
+        
+        lgportkeys = [LogicalPort.default_key(port.get("id")) 
+                        for port in ports]
+        
+        def update(keys,values):
+            lgportdict = dict(zip(keys,values))
+            for port in ports:
+                lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
+
+                for k,v in port.items():
+                    setattr(lgport,k,v)
+
+            return keys,values
+        try:
+            for m in callAPI(self.app_routine,"objectdb","transact",
+                    {"keys":lgportkeys,"updater":update}):
+                yield m
+        except:
+            raise
+
+        for m in self._dumpkeys(lgportkeys):
+            yield m
+    def deletelogicalport(self,id):
 
         lgportkey = LogicalPort.default_key(id)
 
@@ -1734,7 +1770,59 @@ class ViperFlow(Module):
             raise
 
         self.app_routine.retvalue = {"status":'OK'}
+    
+    def deletelogicalports(self,ports):
+        
+        for port in ports:
+            lgportkey = LogicalPort.default_key(port.get("id"))
+            for m in self._getkeys([lgportkey]):
+                yield m
+            lgportobj = self.app_routine.retvalue
 
+            if len(lgportobj) == 0 or lgportobj[0] is None:
+                ports.remove
+                continue
+
+            port['lgnetid'] = lgportobj[0].logicalnetwork.id
+
+        lgportkeys = [LogicalPort.default_key(port.get("id"))
+                        for port in ports]
+         
+        lgnetmapkeys = list(set([LogicalNetworkMap.default_key(port.get("lgnetid"))
+                        for port in ports]))
+        
+        keys = [LogicalPortSet.default_key()] + lgportkeys + lgnetmapkeys
+        
+        def update(keys,values):
+            lgportkeys = keys[1:1+len(ports)]
+            lgportvalues = values[1:1+len(ports)]
+            
+            lgnetmapkeys = keys[1+len(ports):]
+            lgnetmapvalues = values[1+len(ports):]
+            
+            lgportdict = dict(zip(lgportkeys,lgportvalues))
+            lgnetmapdict = dict(zip(lgnetmapkeys,lgnetmapvalues))
+
+            for port in ports:
+                lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
+                lgnetmap = lgnetmapdict.get(LogicalNetworkMap.default_key(port.get("lgnetid")))
+
+                for weakobj in lgnetmap.ports.dataset().copy():
+                    if weakobj.getkey() == lgport.getkey():
+                        lgnetmap.ports.dataset().remove(weakobj)
+
+                for weakobj in values[0].set.dataset().copy():
+                    if weakobj.getkey() == lgport.getkey():
+                        values[0].set.dataset().remove(weakobj)
+
+            return keys,[values[0]]+[None]*len(ports)+lgnetmapvalues
+        try:
+            for m in callAPI(self.app_routine,"objectdb","transact",
+                {"keys":keys,"updater":update}):
+                yield m
+        except:
+            raise
+        self.app_routine.retvalue = {"status":'OK'}
     def listlogicalport(self,id = None,logicnetid = None,**kwargs):
         def set_walker(key,set,walk,save):
 
