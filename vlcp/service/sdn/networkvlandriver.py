@@ -55,8 +55,13 @@ class NetworkVlanDriver(Module):
                        publicapi(self.updatelogicalnetwork,
                                     criteria=lambda phynettype,id,
                                     args:phynettype == 'vlan'),
+                       publicapi(self.updatelogicalnetworks,
+                                    criteria=lambda phynettype,
+                                    networks:phynettype == 'vlan'),
                        publicapi(self.deletelogicalnetwork,
-                                    criteria=lambda phynettype,id:phynettype == "vlan"))
+                                    criteria=lambda phynettype,id:phynettype == "vlan"),
+                       publicapi(self.deletelogicalnetworks,
+                                    criteria=lambda phynettype,networks:phynettype == "vlan"))
 
     def _main(self):
 
@@ -504,7 +509,52 @@ class NetworkVlanDriver(Module):
             return [lgnet,phynet,phynetmap]
 
         return updatelgnetwork
+    
+    def updatelogicalnetworks(self,phynettype,networks):
 
+        def updatelgnetworks(keys,values):
+            
+            phynetlen = (len(keys) - len(networks))//2
+            
+            lgnetkeys = keys[0:len(networks)]
+            lgnetvalues = values[0:len(networks)]
+            phynetkeys = keys[len(networks):len(keys)+phynetlen]
+            phynetvalues = values[len(networks):len(keys)+phynetlen]
+            
+            phynetmapkeys = keys[len(networks)+phynetlen:]
+            phynetmapvalues = values[len(networks)+phynetlen:]
+
+            phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
+            lgnetdict = dict(zip(lgnetkeys,lgnetvalues))
+            
+            for network in networks:
+                # 
+                # to update vlanid, we should delete it first ,
+                #
+                if "vlanid" in network:
+                    phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get("phynetid")))
+                    lgnet = lgnetdict.get(LogicalNetwork.default_key(network.get("id")))
+                    
+                    del phynetmap.network_allocation[str(lgnet.vlanid)]
+
+            for network in networks:
+                phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get("phynetid")))
+                lgnet = lgnetdict.get(LogicalNetwork.default_key(network.get("id")))
+               
+                if "vlanid" in network:
+                    vlanid = str(network.get("vlanid"))
+                    if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),vlanid):
+                        phynetmap.network_allocation[vlanid] = lgnet.create_weakreference()
+                    else:
+                        raise ValueError("new vlanid is not avaliable")
+                
+                for k,v in network.items():
+                    # this phynetid is fack attr for find phynet phymap
+                    if k != 'phynetid':
+                        setattr(lgnet,k,str(v))
+            return keys,values
+
+        return updatelgnetworks
     def deletelogicalnetwork(self,phynettype,id):
 
         @updater
@@ -522,6 +572,40 @@ class NetworkVlanDriver(Module):
             return [lgnetset,None,None,phynetmap]
 
         return deletelgnetwork
+
+    def deletelogicalnetworks(self,phynettype,networks):
+
+        def deletelgnetworks(keys,values):
+            phynetlen = (len(keys) - 1 - len(networks))//2
+
+            lgnetkeys = keys[1:1+len(networks)]
+            lgnetvalues = values[1:1+len(networks)]
+            
+            lgnetmapkeys = keys[1+len(networks):1+len(networks)+len(networks)]
+            lgnetmapvalues = values[1+len(networks):1+len(networks)+len(networks)]
+            
+            phynetmapkeys = keys[1+len(networks)+len(networks):]
+            phynetmapvalues = values[1+len(networks)+len(networks):]
+
+            lgnetdict = dict(zip(lgnetkeys,zip(lgnetvalues,lgnetmapvalues)))
+            phynetmapdict = dict(zip(phynetmapkeys,phynetmapvalues))
+            
+            for network in networks:
+                lgnet,lgnetmap = lgnetdict.get(LogicalNetwork.default_key(network.get("id")))
+
+                phymap = phynetmapdict.get(PhysicalNetworkMap.default_key(network.get("phynetid")))
+                
+                if len(lgnetmap.ports.dataset()):
+                    raise ValueError("there ports on logicnet remove it before")
+
+                for weakobj in values[0].set.dataset().copy():
+                    if weakobj.getkey() == lgnet.getkey():
+                        values[0].set.dataset().remove(weakobj)
+
+                del phymap.network_allocation[str(lgnet.vlanid)]
+            
+            return keys,[values[0]]+[None]*len(networks)*2+phynetmapvalues
+        return deletelgnetworks
 #
 # utils function
 #
