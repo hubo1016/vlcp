@@ -37,9 +37,15 @@ class NetworkVlanDriver(Module):
                        publicapi(self.updatephysicalport,
                                     criteria=lambda phynettype,name,vhost,systemid,
                                     bridge,args:phynettype == 'vlan'),
+                       publicapi(self.updatephysicalports,
+                                    criteria=lambda phynettype,
+                                    ports:phynettype == 'vlan'),
                        publicapi(self.deletephysicalport,
                                     criteria=lambda phynettype,name,vhost,systemid,
                                     bridge:phynettype == 'vlan'),
+                       publicapi(self.deletephysicalports,
+                                    criteria=lambda phynettype,
+                                    ports:phynettype == 'vlan'),
                        #publicapi(self.createlogicalnetwork,
                                     #criteria=lambda phynettype,phynetid,id,
                                     #args:phynettype == 'vlan'),
@@ -252,8 +258,8 @@ class NetworkVlanDriver(Module):
                 for weakobj in values[0].set.dataset().copy():
                     if weakobj.getkey() == phynet.getkey():
                         values[0].set.dataset().remove(weakobj)
-
-            return [keys[0]],[values[0]]
+            
+            return keys,[values[0]]+[None]*(len(keys)-1)
         
         return deletephynetwork
     """
@@ -301,7 +307,22 @@ class NetworkVlanDriver(Module):
             return [phyport]
 
         return updatephyport
+    
+    def updatephysicalports(self,phynettype,ports):
 
+        def updatephyports(keys,values):
+            
+            portdict = dict(zip(keys,values))
+            for port in ports:
+
+                phyport = portdict.get(PhysicalPort.default_key(port.get("vhost"),
+                        port.get("systemid"),port.get("bridge"),port.get("name")))
+                if phyport:
+                    for k,v in port.items():
+                        setattr(phyport,k,v)
+            return keys,values
+
+        return updatephyports
     def deletephysicalport(self,phynettype,name,vhost,systemid,bridge):
 
         @updater
@@ -320,6 +341,33 @@ class NetworkVlanDriver(Module):
 
         return deletephyport
     
+    def deletephysicalports(self,phynettype,ports):
+
+        def deletephyports(keys,values):
+            portkeys = keys[1:1+len(ports)]
+            portvalues = values[1:1+len(ports)]
+            
+            phynetmapkeys = keys[1+len(ports):]
+            phynetmapvalues = values[1+len(ports):]
+            
+            phynetmapdict = dict(zip(phynetmapkeys,phynetmapvalues))
+            portdict = dict(zip(portkeys,portvalues))
+
+            for port in ports:
+                phymap = phynetmapdict.get(PhysicalNetworkMap.default_key(port.get("phynetid")))
+                portobj = portdict.get(PhysicalPort.default_key(port.get("vhost"),
+                            port.get("systemid"),port.get("bridge"),port.get("name")))
+                
+                for weakobj in phymap.ports.dataset().copy():
+                    if weakobj.getkey() == portobj.getkey():
+                        phymap.ports.dataset().remove(weakobj)
+
+                for weakobj in values[0].set.dataset().copy():
+                    if weakobj.getkey() == portobj.getkey():
+                        values[0].set.dataset().remove(weakobj)
+            
+            return keys,[values[0]]+[None]*len(ports) + phynetmapvalues
+        return deletephyports
     """
     def createlogicalnetwork(self,phynettype,phynetid,id,args = {}):
 
@@ -359,7 +407,6 @@ class NetworkVlanDriver(Module):
     def createlogicalnetworks(self,phynettype,networks):
         
         networkmap = [self._createlogicalnetwork(**n) for n in networks]
-
 
         def createlgnetworks(keys,values):
             
