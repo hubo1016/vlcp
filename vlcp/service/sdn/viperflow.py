@@ -378,9 +378,9 @@ class ViperFlow(Module):
             retnetworks = [None]
             retnetworkkeys = [keys[0]]
             start = 1
+            physet = values[0]
             for k,v in typenetworks.items():
                 # [0] is physet
-                physet = values[0]
                 typevalues = values[start:start + len(v.get('networkskey'))]
                 typekeys = keys[start:start + len(v.get('networkskey'))]
                 typemapvalues = values[start + len(v.get('networkskey')):start + len(v.get('networkskey')) + len(v.get('networksmapkey'))]
@@ -402,7 +402,11 @@ class ViperFlow(Module):
         except:
             raise
         
-        for m in self._dumpkeys(keys[1:len(keys)//2 + 1]):
+        dumpkeys = []
+        for _,v in typenetworks.items():
+            dumpkeys.extend(v.get("networkskey"))
+        
+        for m in self._dumpkeys(dumpkeys):
             yield m
     
     def updatephysicalnetwork(self,id,**kwargs):
@@ -516,8 +520,11 @@ class ViperFlow(Module):
                 yield m
         except:
             raise
-
-        for m in self._dumpkeys(keys[0:len(keys)//2]):
+        
+        dumpkeys = []
+        for _,v in typenetworks.items():
+            dumpkeys.extend(v.get("phynetkey"))
+        for m in self._dumpkeys(dumpkeys):
             yield m
     def deletephysicalnetwork(self,id):
         if id is None:
@@ -814,7 +821,10 @@ class ViperFlow(Module):
                 yield m
         except:
             raise
-
+        
+        dumpkeys = []
+        for _,v in porttype.items():
+            dumpkeys.extend(v.get('portkeys'))
         for m in self._dumpkeys(keys[1:len(keys)//2 + 1]):
             yield m
     
