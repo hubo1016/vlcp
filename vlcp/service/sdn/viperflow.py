@@ -237,7 +237,7 @@ class ViperFlow(Module):
 
         logger.info(' ##### create logical port %r',self.app_routine.retvalue)
         
-        logicalports = [{"logicnetwork":lgnetid},{"logicnetwork":lgnetid}]
+        logicalports = [{"logicalnetwork":lgnetid},{"logicalnetwork":lgnetid}]
         for m in self.createlogicalports(logicalports):
             yield m
         logger.info(' ##### create logical ports %r',self.app_routine.retvalue)
@@ -268,7 +268,7 @@ class ViperFlow(Module):
 
         logger.info(' ##### list logical port %r',self.app_routine.retvalue)
 
-        for m in self.listlogicalport(logicnetwork = lgnetid):
+        for m in self.listlogicalport(logicalnetwork = lgnetid):
             yield m
 
         logger.info(' ##### list logical port %r',self.app_routine.retvalue)
@@ -1615,12 +1615,12 @@ class ViperFlow(Module):
                 self.app_routine.retvalue = []
     
 
-    def createlogicalport(self,logicnetwork,id = None,**args):
+    def createlogicalport(self,logicalnetwork,id = None,**args):
 
         if not id:
             id = str(uuid1())
 
-        port = {'logicnetwork':logicnetwork,'id':id}
+        port = {'logicalnetwork':logicalnetwork,'id':id}
         port.update(args)
 
         for m in self.createlogicalports([port]):
@@ -1629,7 +1629,7 @@ class ViperFlow(Module):
     def createlogicalports(self,ports):
         
         for port in ports:
-            lognetkey = LogicalNetwork.default_key(port.get("logicnetwork"))
+            lognetkey = LogicalNetwork.default_key(port.get("logicalnetwork"))
 
             for m in self._getkeys([lognetkey]):
                 yield m
@@ -1637,14 +1637,14 @@ class ViperFlow(Module):
             lognetobj = self.app_routine.retvalue
 
             if len(lognetobj) == 0 or lognetobj[0] is None:
-                raise ValueError("logicalnetwork not existed " +port.get("logicnetwork"))
+                raise ValueError("logicalnetwork not existed " +port.get("logicalnetwork"))
             
             port.setdefault('id',str(uuid1()))
         
         lgportsetkey = LogicalPortSet.default_key()
         lgportkeys = [LogicalPort.default_key(p.get('id')) for p in ports]
         lgports = [self._createlogicalports(**p) for p in ports]
-        lgnetkeys = list(set([p.logicalnetwork.getkey() for p in lgports]))
+        lgnetkeys = list(set([p.network.getkey() for p in lgports]))
         lgnetmapkeys = [LogicalNetworkMap.default_key(LogicalNetwork._getIndices(k)[1][0]) for k in lgnetkeys]
         
         def updater(keys,values):
@@ -1657,7 +1657,7 @@ class ViperFlow(Module):
             for i in range(0,len(ports)):
                 values[1+i] = set_new(values[1+i],lgports[i])
 
-                _,netmap = lgnetdict.get(lgports[i].logicalnetwork.getkey())
+                _,netmap = lgnetdict.get(lgports[i].network.getkey())
                 netmap.ports.dataset().add(lgports[i].create_weakreference())
                 values[0].set.dataset().add(lgports[i].create_weakreference())
             return keys,values
@@ -1670,10 +1670,10 @@ class ViperFlow(Module):
 
         for m in self._dumpkeys(lgportkeys):
             yield m
-    def _createlogicalports(self,id,logicnetwork,**args):
+    def _createlogicalports(self,id,logicalnetwork,**args):
 
         lgport = LogicalPort.create_instance(id)
-        lgport.logicalnetwork = ReferenceObject(LogicalNetwork.default_key(logicnetwork))
+        lgport.network = ReferenceObject(LogicalNetwork.default_key(logicalnetwork))
 
         for k,v in args.items():
             setattr(lgport,k,v)
@@ -1756,7 +1756,7 @@ class ViperFlow(Module):
         if len(lgportobj) == 0 or lgportobj[0] is None:
             raise ValueError("logical port id not existed "+id)
 
-        lgnetmapkey = LogicalNetworkMap.default_key(lgportobj[0].logicalnetwork.id)
+        lgnetmapkey = LogicalNetworkMap.default_key(lgportobj[0].network.id)
 
         lgportsetkey = LogicalPortSet.default_key()
 
@@ -1793,7 +1793,7 @@ class ViperFlow(Module):
                 ports.remove
                 continue
 
-            port['lgnetid'] = lgportobj[0].logicalnetwork.id
+            port['lgnetid'] = lgportobj[0].network.id
 
         lgportkeys = [LogicalPort.default_key(port.get("id"))
                         for port in ports]
@@ -1833,7 +1833,7 @@ class ViperFlow(Module):
         except:
             raise
         self.app_routine.retvalue = {"status":'OK'}
-    def listlogicalport(self,id = None,logicnetwork = None,**kwargs):
+    def listlogicalport(self,id = None,logicalnetwork = None,**kwargs):
         def set_walker(key,set,walk,save):
 
             for weakobj in set.dataset():
@@ -1844,16 +1844,16 @@ class ViperFlow(Module):
                 except KeyError:
                     pass
                 else: 
-                    if not logicnetwork:
+                    if not logicalnetwork:
                         if all(getattr(lgport,k,None) == v for k,v in kwargs.items()):
                             save(lgportkey)
                     else:
                         try:
-                            lgnet = walk(lgport.logicalnetwork.getkey())
+                            lgnet = walk(lgport.network.getkey())
                         except:
                             pass
                         else:
-                            if lgnet.id == logicnetwork:
+                            if lgnet.id == logicalnetwork:
                                 if all(getattr(lgport,k,None) == v for k,v in kwargs.items()):
                                     save(lgportkey)
             

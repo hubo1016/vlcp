@@ -7,6 +7,7 @@ from vlcp.server.module import Module,api,publicapi
 from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
+from vlcp.utils.ethernet import ETHERTYPE_8021Q 
 
 logger = logging.getLogger('NetworkVlanDriver')
 
@@ -61,7 +62,14 @@ class NetworkVlanDriver(Module):
                        publicapi(self.deletelogicalnetwork,
                                     criteria=lambda phynettype,id:phynettype == "vlan"),
                        publicapi(self.deletelogicalnetworks,
-                                    criteria=lambda phynettype,networks:phynettype == "vlan"))
+                                    criteria=lambda phynettype,networks:phynettype == "vlan"),
+                       #used in IOprocessing module
+                       publicapi(self.createioflowparts,
+                                    criteria=lambda connection,logicalnetwork,
+                                    physicalport,logicalnetworkid,physicalportid:
+                                    logicalnetwork.physicalnetwork == "vlan")
+
+                       )
 
     def _main(self):
 
@@ -606,6 +614,50 @@ class NetworkVlanDriver(Module):
             
             return keys,[values[0]]+[None]*len(networks)*2+phynetmapvalues
         return deletelgnetworks
+
+    def createioflowparts(self,connection,logicalnetwork,physicalport,logicalnetworkid,physicalportid):
+
+        #
+        #  1. used in IOProcessing , when physicalport add to logicalnetwork 
+        #     return : input flow match vlan oxm, input flow vlan parts actions
+        #              output flow vlan parts actions, output group bucket
+        #
+        
+        input_match_oxm = [
+                    connection.openflowdef.create_oxm(
+                        connection.openflowdef.OXM_OF_VLAN_VID,
+                        logicalnetwork.vlanid|connection.openflowdef.OFPVID_PRESENT)
+                ]
+
+        input_action = [
+                   connection.openflowdef.ofp_action(type = 
+                        connection.openflowdef.OFPAT_POP_VLAN)    
+              ]
+
+        output_action = [
+                    connection.openflowdef.ofp_action_push(ethertype=ETHERTYPE_8021Q),
+                    connection.openflowdef.ofp_action_set_field(
+                            field = connection.openflowdef.create_oxm(
+                                    connection.openflowdef.OXM_OF_VLAN_VID,
+                                    logicalnetwork.vlanid |
+                                    connection.openflowdef.OFPVID_PRESENT
+                                )
+                        )
+                ]
+        
+        # this action is save as ouput_action  on type vlan
+        output_group_bucket_action = [
+                    connection.openflowdef.ofp_action_push(ethertype=ETHERTYPE_8021Q),
+                    connection.openflowdef.ofp_action_set_field(
+                            field = connection.openflowdef.create_oxm(
+                                    connection.openflowdef.OXM_OF_VLAN_VID,
+                                    logicalnetwork.vlanid |
+                                    connection.openflowdef.OFPVID_PRESENT
+                                )
+                        )
+                ]
+
+        return input_match_oxm,input_action,output_action,output_group_bucket_action
 #
 # utils function
 #
