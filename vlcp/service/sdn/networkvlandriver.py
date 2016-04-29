@@ -293,9 +293,9 @@ class NetworkVlanDriver(Module):
 
             return keys,values
         return createpyports
-    def _createphysicalport(self,phynetid,name,vhost,systemid,bridge,**args):
+    def _createphysicalport(self,phynetwork,name,vhost,systemid,bridge,**args):
         p = PhysicalPort.create_instance(vhost,systemid,bridge,name)
-        p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetid))
+        p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetwork))
         
         for k,v in args.items():
             setattr(p,k,v)
@@ -434,7 +434,7 @@ class NetworkVlanDriver(Module):
 
                     vlanid = str(getattr(networkmap[i][0],'vlanid')) 
 
-                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
+                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
                     if _isavaliablevlanid(phynet.vlanrange,phymap.network_allocation.keys(),vlanid):
                         phymap.network_allocation[vlanid] = networkmap[i][0].create_weakreference()
                     else:
@@ -446,7 +446,7 @@ class NetworkVlanDriver(Module):
                     values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
                     # set phynetmap
                   
-                    _,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
+                    _,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
                     phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
 
                     values[0].set.dataset().add(networkmap[i][0].create_weakreference())
@@ -457,7 +457,7 @@ class NetworkVlanDriver(Module):
                     # there is no 'vlanid' in lgnetwork
                     # allocated one from vlanrange
 
-                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
+                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
                     vlanid = _findavaliablevlanid(phynet.vlanrange,phymap.network_allocation.keys())
                     if not vlanid:
                         raise ValueError("there is no avaliable vlan id")
@@ -470,7 +470,7 @@ class NetworkVlanDriver(Module):
                     values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
                     # set phynetmap
                   
-                    _,phymap = phynetmapdict.get(networkmap[i][0].physicalnet.getkey())
+                    _,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
                     phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
 
                     values[0].set.dataset().add(networkmap[i][0].create_weakreference())
@@ -478,7 +478,7 @@ class NetworkVlanDriver(Module):
             return keys,values
         return createlgnetworks
         
-    def _createlogicalnetwork(self,phynetid,id,**args):
+    def _createlogicalnetwork(self,phynetwork,id,**args):
 
         logicalnetwork = LogicalNetwork.create_instance(id)
         logicalnetworkmap = LogicalNetworkMap.create_instance(id)
@@ -487,7 +487,7 @@ class NetworkVlanDriver(Module):
             setattr(logicalnetwork,k,v)
 
         logicalnetworkmap.network = logicalnetwork.create_reference()
-        logicalnetwork.physicalnet = ReferenceObject(PhysicalNetwork.default_key(phynetid))
+        logicalnetwork.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetwork))
 
         return (logicalnetwork,logicalnetworkmap)
     

@@ -119,7 +119,7 @@ class ViperFlow(Module):
 
         # test create physical ports
 
-        ports = [{'phynetid':listid,'name':'eth0'},{'phynetid':listid,'name':'eth1',
+        ports = [{'phynetwork':listid,'name':'eth0'},{'phynetwork':listid,'name':'eth1',
             'rate':10000}]
         
 
@@ -152,7 +152,7 @@ class ViperFlow(Module):
 
         logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
         
-        for m in self.listphysicalport(phynetid = listid):
+        for m in self.listphysicalport(phynetwork = listid):
             yield m
 
         logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
@@ -182,7 +182,7 @@ class ViperFlow(Module):
         logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
         # test create logicalnetworks
         #n = [{'phynetid':listid}]
-        n = [{'phynetid':listid},{'phynetid':listid,'vlanid':99}]
+        n = [{'phynetwork':listid},{'phynetwork':listid,'vlanid':99}]
 
         for m in self.createlogicalnetworks(n):
             yield m
@@ -224,7 +224,7 @@ class ViperFlow(Module):
 
         logger.info(' ##### list logical network %r',self.app_routine.retvalue)
         
-        for m in self.listlogicalnetwork(phynetid = listid):
+        for m in self.listlogicalnetwork(phynetwork = listid):
             yield m
 
         logger.info(' ##### list logical network %r',self.app_routine.retvalue)
@@ -237,7 +237,7 @@ class ViperFlow(Module):
 
         logger.info(' ##### create logical port %r',self.app_routine.retvalue)
         
-        logicalports = [{"logicnetid":lgnetid},{"logicnetid":lgnetid}]
+        logicalports = [{"logicnetwork":lgnetid},{"logicnetwork":lgnetid}]
         for m in self.createlogicalports(logicalports):
             yield m
         logger.info(' ##### create logical ports %r',self.app_routine.retvalue)
@@ -268,7 +268,7 @@ class ViperFlow(Module):
 
         logger.info(' ##### list logical port %r',self.app_routine.retvalue)
 
-        for m in self.listlogicalport(logicnetid = lgnetid):
+        for m in self.listlogicalport(logicnetwork = lgnetid):
             yield m
 
         logger.info(' ##### list logical port %r',self.app_routine.retvalue)
@@ -686,7 +686,7 @@ class ViperFlow(Module):
             else:
                 self.app_routine.retvalue = []
     
-    def createphysicalport(self,phynetid,name,vhost='',systemid='%',bridge='%',**kwargs):
+    def createphysicalport(self,phynetwork,name,vhost='',systemid='%',bridge='%',**kwargs):
         
         """
         #phyports {'phynetid':'phynetid','name':'eth0','vhost':'vhost','systemid':'%','bridge':'%',kwargs} 
@@ -726,13 +726,13 @@ class ViperFlow(Module):
             yield m
         """
 
-        port = {'phynetid':phynetid,'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
+        port = {'phynetwork':phynetwork,'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
         port.update(kwargs)
 
         for m in self.createphysicalports([port]):
             yield m
     def createphysicalports(self,ports):
-        # ports [{'phynetid':id,'name':eth0,'vhost':'',systemid:'%'},{.....}]
+        # ports [{'phynetwork':id,'name':eth0,'vhost':'',systemid:'%'},{.....}]
         
         porttype = dict()
         for port in ports:
@@ -740,7 +740,7 @@ class ViperFlow(Module):
             port.setdefault('systemid','%')
             port.setdefault('bridge','%')
             
-            portkey = PhysicalNetwork.default_key(port.get('phynetid'))
+            portkey = PhysicalNetwork.default_key(port.get('phynetwork'))
 
             for m in self._getkeys([portkey]):
                 yield m
@@ -765,7 +765,7 @@ class ViperFlow(Module):
             except:
                 raise
             
-            phymapkeys = [PhysicalNetworkMap.default_key(port.get('phynetid')) 
+            phymapkeys = [PhysicalNetworkMap.default_key(port.get('phynetwork')) 
                         for port in v.get('ports') ]
 
             phyportkeys = [PhysicalNetwork.default_key(port.get('vhost'),
@@ -861,7 +861,7 @@ class ViperFlow(Module):
             yield m
     
     def updatephysicalports(self,ports):
-        # ports [{'phynetid':id,'name':eth0,'vhost':'',systemid:'%'},{.....}]
+        # ports [{'name':eth0,'vhost':'',systemid:'%'},{.....}]
         
         typeport = dict()
         for port in ports:
@@ -1051,7 +1051,7 @@ class ViperFlow(Module):
             raise 
 
         self.app_routine.retvalue = {"status":'OK'}
-    def listphysicalport(self,name = None,phynetid = None,vhost='',
+    def listphysicalport(self,name = None,phynetwork = None,vhost='',
             systemid='%',bridge='%',**args):
         
         def set_walker(key,set,walk,save):
@@ -1064,7 +1064,7 @@ class ViperFlow(Module):
                 except:
                     pass
                 
-                if not phynetid:
+                if not phynetwork:
                     if all(getattr(phyport,k,None) == v for k,v in args.items()):
                         save(phyportkey)
                 else:
@@ -1074,7 +1074,7 @@ class ViperFlow(Module):
                     except:
                         pass
                     else:
-                        if phynet.id == phynetid:
+                        if phynet.id == phynetwork:
                             if all(getattr(phyport,k,None) == v for k,v in args.items()):
                                 save(phyportkey)
         
@@ -1114,7 +1114,7 @@ class ViperFlow(Module):
             else:
                 self.app_routine.retvalue = []
     
-    def createlogicalnetwork(self,phynetid,id = None,**kwargs):
+    def createlogicalnetwork(self,phynetwork,id = None,**kwargs):
         
         if not id:
             id = str(uuid1())
@@ -1154,22 +1154,22 @@ class ViperFlow(Module):
             yield m
         """
 
-        network = {'phynetid':phynetid,'id':id}
+        network = {'phynetwork':phynetwork,'id':id}
         network.update(kwargs)
 
         for m in self.createlogicalnetworks([network]):
             yield m
     def createlogicalnetworks(self,networks):
         
-        # networks [{'phynetid':'id','id':'id' ...},{'phynetid':'id',...}]
+        # networks [{'phynetwork':'id','id':'id' ...},{'phynetwork':'id',...}]
         typenetwork = {}
         for network in networks:
-            if 'phynetid' not in network:
-                raise ValueError("create logicalnet must special phynetid")
+            if 'phynetwork' not in network:
+                raise ValueError("create logicalnet must special phynetwork id")
 
             network.setdefault('id',str(uuid1()))
 
-            phynetkey = PhysicalNetwork.default_key(network.get('phynetid'))
+            phynetkey = PhysicalNetwork.default_key(network.get('phynetwork'))
 
             for m in self._getkeys([phynetkey]):
                 yield m
@@ -1177,7 +1177,7 @@ class ViperFlow(Module):
             phynetobj = self.app_routine.retvalue
 
             if len(phynetobj) == 0 or phynetobj[0] is None:
-                raise ValueError("special phynetid not existed")
+                raise ValueError("special phynetwork id not existed")
             
             phynettype = phynetobj[0].type
 
@@ -1202,7 +1202,7 @@ class ViperFlow(Module):
             lgnetmapkey = [LogicalNetworkMap.default_key(n.get('id'))
                             for n in v.get('networks')]
 
-            phynetkey = list(set([PhysicalNetwork.default_key(n.get('phynetid'))
+            phynetkey = list(set([PhysicalNetwork.default_key(n.get('phynetwork'))
                             for n in v.get('networks')]))
 
             #
@@ -1296,7 +1296,7 @@ class ViperFlow(Module):
 
         try:
             for m in callAPI(self.app_routine,'public','updatelogicalnetwork',
-                    {'phynettype':lgnetworkobj[0].physicalnet.type,'id':id,'args':kwargs},timeout=1):
+                    {'phynettype':lgnetworkobj[0].physicalnetwork.type,'id':id,'args':kwargs},timeout=1):
                 yield m
 
         except:
@@ -1304,7 +1304,7 @@ class ViperFlow(Module):
 
         updater = self.app_routine.retvalue
         
-        phynetkey = lgnetworkobj[0].physicalnet.getkey()
+        phynetkey = lgnetworkobj[0].physicalnetwork.getkey()
         phynetmapkey = PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(phynetkey)[1][0])
         keys = [lgnetworkkey,phynetkey,phynetmapkey]
 
@@ -1334,14 +1334,14 @@ class ViperFlow(Module):
             
             # we save phynetid in update object, used to find phynet,phymap
             # will del this attr when update in driver
-            network["phynetid"] = lgnetworkobj[0].physicalnet.id
+            network["phynetid"] = lgnetworkobj[0].physicalnetwork.id
             
-            if lgnetworkobj[0].physicalnet.type not in typenetwork:
-                typenetwork.setdefault(lgnetworkobj[0].physicalnet.type,{'networks':[network],
-                    'phynetkey':[lgnetworkobj[0].physicalnet.getkey()]})
+            if lgnetworkobj[0].physicalnetwork.type not in typenetwork:
+                typenetwork.setdefault(lgnetworkobj[0].physicalnetwork.type,{'networks':[network],
+                    'phynetkey':[lgnetworkobj[0].physicalnetwork.getkey()]})
             else:
-                typenetwork.get(lgnetworkobj[0].physicalnet.type).get('networks').append(network)
-                typenetwork.get(lgnetworkobj[0].physicalnet.type).get('phynetkey').append(lgnetworkobj[0].physicalnet.getkey())
+                typenetwork.get(lgnetworkobj[0].physicalnetwork.type).get('networks').append(network)
+                typenetwork.get(lgnetworkobj[0].physicalnetwork.type).get('phynetkey').append(lgnetworkobj[0].physicalnetwork.getkey())
         
         for k,v in typenetwork.items():
             try:
@@ -1432,7 +1432,7 @@ class ViperFlow(Module):
 
         try:
             for m in callAPI(self.app_routine,'public','deletelogicalnetwork',
-                    {'phynettype':lgnetworkobj[0].physicalnet.type,'id':id},timeout=1):
+                    {'phynettype':lgnetworkobj[0].physicalnetwork.type,'id':id},timeout=1):
                 yield m
 
         except:
@@ -1440,7 +1440,7 @@ class ViperFlow(Module):
 
         updater = self.app_routine.retvalue
         
-        phynetkey = lgnetworkobj[0].physicalnet.getkey()
+        phynetkey = lgnetworkobj[0].physicalnetwork.getkey()
         phynetmapkey = PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(phynetkey)[1][0])
         
         lgnetworksetkey = LogicalNetworkSet.default_key() 
@@ -1469,14 +1469,14 @@ class ViperFlow(Module):
                 continue 
             # we save phynetid in update object, used to find phynet,phymap
             # will del this attr when update in driver
-            network["phynetid"] = lgnetworkobj[0].physicalnet.id
+            network["phynetid"] = lgnetworkobj[0].physicalnetwork.id
             
-            if lgnetworkobj[0].physicalnet.type not in typenetwork:
-                typenetwork.setdefault(lgnetworkobj[0].physicalnet.type,{'networks':[network],
-                    'phynetkey':[lgnetworkobj[0].physicalnet.getkey()]})
+            if lgnetworkobj[0].physicalnetwork.type not in typenetwork:
+                typenetwork.setdefault(lgnetworkobj[0].physicalnetwork.type,{'networks':[network],
+                    'phynetkey':[lgnetworkobj[0].physicalnetwork.getkey()]})
             else:
-                typenetwork.get(lgnetworkobj[0].physicalnet.type).get('networks').append(network)
-                typenetwork.get(lgnetworkobj[0].physicalnet.type).get('phynetkey').append(lgnetworkobj[0].physicalnet.getkey())
+                typenetwork.get(lgnetworkobj[0].physicalnetwork.type).get('networks').append(network)
+                typenetwork.get(lgnetworkobj[0].physicalnetwork.type).get('phynetkey').append(lgnetworkobj[0].physicalnetwork.getkey())
         
         for k,v in typenetwork.items():
             try:
@@ -1552,7 +1552,7 @@ class ViperFlow(Module):
 
         self.app_routine.retvalue = {"status":'OK'}
  
-    def listlogicalnetwork(self,id = None,phynetid = None,**args):
+    def listlogicalnetwork(self,id = None,phynetwork = None,**args):
         
         def set_walker(key,set,walk,save):
 
@@ -1564,16 +1564,16 @@ class ViperFlow(Module):
                 except KeyError:
                     pass
                 else: 
-                    if not phynetid:
+                    if not phynetwork:
                         if all(getattr(lgnet,k,None) == v for k,v in args.items()):
                             save(lgnetkey)
                     else:
                         try:
-                            phynet = walk(lgnet.physicalnet.getkey())
+                            phynet = walk(lgnet.physicalnetwork.getkey())
                         except KeyError:
                             pass
                         else:
-                            if phynet.id == phynetid:
+                            if phynet.id == phynetwork:
                                 if all(getattr(lgnet,k,None) == v for k,v in args.items()):
                                     save(lgnetkey)
             
@@ -1615,12 +1615,12 @@ class ViperFlow(Module):
                 self.app_routine.retvalue = []
     
 
-    def createlogicalport(self,logicnetid,id = None,**args):
+    def createlogicalport(self,logicnetwork,id = None,**args):
 
         if not id:
             id = str(uuid1())
 
-        port = {'logicnetid':logicnetid,'id':id}
+        port = {'logicnetwork':logicnetwork,'id':id}
         port.update(args)
 
         for m in self.createlogicalports([port]):
@@ -1629,7 +1629,7 @@ class ViperFlow(Module):
     def createlogicalports(self,ports):
         
         for port in ports:
-            lognetkey = LogicalNetwork.default_key(port.get("logicnetid"))
+            lognetkey = LogicalNetwork.default_key(port.get("logicnetwork"))
 
             for m in self._getkeys([lognetkey]):
                 yield m
@@ -1637,7 +1637,7 @@ class ViperFlow(Module):
             lognetobj = self.app_routine.retvalue
 
             if len(lognetobj) == 0 or lognetobj[0] is None:
-                raise ValueError("logicalnetwork not existed " +port.get("logicnetid"))
+                raise ValueError("logicalnetwork not existed " +port.get("logicnetwork"))
             
             port.setdefault('id',str(uuid1()))
         
@@ -1670,10 +1670,10 @@ class ViperFlow(Module):
 
         for m in self._dumpkeys(lgportkeys):
             yield m
-    def _createlogicalports(self,id,logicnetid,**args):
+    def _createlogicalports(self,id,logicnetwork,**args):
 
         lgport = LogicalPort.create_instance(id)
-        lgport.logicalnetwork = ReferenceObject(LogicalNetwork.default_key(logicnetid))
+        lgport.logicalnetwork = ReferenceObject(LogicalNetwork.default_key(logicnetwork))
 
         for k,v in args.items():
             setattr(lgport,k,v)
@@ -1833,7 +1833,7 @@ class ViperFlow(Module):
         except:
             raise
         self.app_routine.retvalue = {"status":'OK'}
-    def listlogicalport(self,id = None,logicnetid = None,**kwargs):
+    def listlogicalport(self,id = None,logicnetwork = None,**kwargs):
         def set_walker(key,set,walk,save):
 
             for weakobj in set.dataset():
@@ -1844,7 +1844,7 @@ class ViperFlow(Module):
                 except KeyError:
                     pass
                 else: 
-                    if not logicnetid:
+                    if not logicnetwork:
                         if all(getattr(lgport,k,None) == v for k,v in kwargs.items()):
                             save(lgportkey)
                     else:
@@ -1853,7 +1853,7 @@ class ViperFlow(Module):
                         except:
                             pass
                         else:
-                            if lgnet.id == logicnetid:
+                            if lgnet.id == logicnetwork:
                                 if all(getattr(lgport,k,None) == v for k,v in kwargs.items()):
                                     save(lgportkey)
             
