@@ -250,6 +250,8 @@ class DataObjectSet(object):
     "A set of data objects, usually of a same type. Allow weak references only."
     def __init__(self):
         self._dataset = set()
+        self._dataindices = None
+        self._lastclass = None
     def jsonencode(self):
         return list(self._dataset)
     @classmethod
@@ -261,8 +263,31 @@ class DataObjectSet(object):
         return (list(self._dataset), True)
     def __setstate__(self, state):
         self._dataset = set(state[0])
+    def _create_indices(self, cls):
+        if self._dataindices is not None and cls is self._lastclass:
+            return
+        self._dataindices = None
+        self._lastclass = cls
+        for robj in self._dataset:
+            _, values = cls._getIndices(robj.getkey())
+            if self._dataindices is None:
+                self._dataindices = [{}] * len(values)
+            for i in range(0, len(values)):
+                self._dataindices[i].setdefault(values[i], set()).add(robj)
     def find(self, cls, *args):
-        return [robj for robj in self._dataset if cls.ismatch(robj.getkey(), args)]
+        self._create_indices(cls)
+        curr = None
+        for i in range(0, len(args)):
+            if args[i] is not None:
+                curr_match = self._dataindices[i].get(args[i], set()).union(self._dataindices[i].get('%', set()))
+                if curr is None:
+                    curr = curr_match
+                else:
+                    curr.intersection_update(curr_match)
+        if curr is None:
+            return list(self._dataset)
+        else:
+            return list(curr)
     def __repr__(self, *args, **kwargs):
         return '<DataObjectSet %r>' % (self._dataset,)
     def __eq__(self, obj):
@@ -280,6 +305,8 @@ class DataObjectSet(object):
     def kvdb_update(self, obj):
         self._dataset.clear()
         self._dataset.update(obj._dataset)
+        self._dataindices = None
+        self._lastclass = None
     def dataset(self):
         return self._dataset
 
@@ -310,11 +337,13 @@ def multiwaitif(references, container, expr, nextchange = False):
             if r.getkey() == k:
                 if r._ref is not o:
                     r._ref = o
+    updated_keys = ()
     while True:
-        r = not flag and expr(references)
+        updated_values = [ref for ref in references if ref.getkey() in updated_keys]
+        r = not flag and expr(references, updated_values)
         flag = False
         if r:
-            container.retvalue = r
+            container.retvalue = ([ref for ref in references if ref.getkey() in updated_keys], r)
             break
         yield matchers
         transid = container.event.transactid
