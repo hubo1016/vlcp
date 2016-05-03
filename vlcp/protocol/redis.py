@@ -394,7 +394,7 @@ class Redis(Protocol):
         retvalue = []
         for m in matchers:
             yield (m, sm)
-            if connection.matcher is sm:
+            if container.matcher is sm:
                 raise RedisProtocolException('Redis connection down before response received')
             retvalue.append(container.event.result)
         container.retvalue = retvalue
@@ -437,11 +437,12 @@ class Redis(Protocol):
             yield m
     def keepalive(self, connection):
         try:
-            for m in connection.executeWithTimeout(self.keepalivetimeout, self.execute_command(connection, connection, 'PING')):
-                yield m
-            if connection.timeout:
-                for m in connection.reset(True):
+            if connection.redis_replyxid == connection.xid:
+                for m in connection.executeWithTimeout(self.keepalivetimeout, self.execute_command(connection, connection, 'PING')):
                     yield m
+                if connection.timeout:
+                    for m in connection.reset(True):
+                        yield m
         except Exception:
             for m in connection.reset(True):
                 yield m
