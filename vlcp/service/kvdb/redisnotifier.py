@@ -14,6 +14,7 @@ from vlcp.event.connection import ConnectionResetException
 from vlcp.event.core import syscall_removequeue, QuitException
 import json
 from time import time
+from zlib import compress, decompress
 import functools
 import uuid
 import logging
@@ -122,7 +123,7 @@ class _Notifier(RoutineContainer):
                                 UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED, False, extrainfo = None)
                                                                            ), False)
                 else:
-                    transact = decoder(self.event.message)
+                    transact = decoder(decompress(self.event.message))
                     if transact['id'] == last_transact:
                         # Ignore duplicated updates
                         continue
@@ -216,7 +217,7 @@ class _Notifier(RoutineContainer):
         client, encoder, _ = self.retvalue
         transactid = '%s-%016x' % (self._publishkey, self._publishno)
         self._publishno += 1
-        msg = encoder({'id':transactid, 'keys':merged_keys, 'extrainfo': extrainfo})
+        msg = compress(encoder({'id':transactid, 'keys':merged_keys, 'extrainfo': extrainfo}))
         try:
             for m in client.batch_execute(self, *((('MULTI',),) +
                                                 tuple(('PUBLISH', self.prefix + k, msg) for k in merged_keys) +
