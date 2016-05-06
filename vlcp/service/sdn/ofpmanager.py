@@ -108,7 +108,13 @@ class OpenflowManager(Module):
             flow_mod.table_id = ofdef.OFPTT_ALL
         if hasattr(ofdef, 'ofp_match_oxm'):
             flow_mod.match = ofdef.ofp_match_oxm()
-        for m in conn.protocol.batch((conn.openflowdef.ofp_flow_mod,), conn, self.apiroutine):
+        cmds = [flow_mod]
+        if hasattr(ofdef, 'ofp_group_mod'):
+            group_mod = ofdef.ofp_group_mod(command = ofdef.OFPGC_DELETE,
+                                            group_id = ofdef.OFPG_ALL
+                                            )
+            cmds.append(group_mod)
+        for m in conn.protocol.batch(cmds, conn, self.apiroutine):
             yield m
         for m in self.apiroutine.waitForSend(FlowInitialize(conn, conn.openflow_datapathid, conn.protocol.vhost)):
             yield m

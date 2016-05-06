@@ -1419,7 +1419,7 @@ ofp_group_mod = nstruct(
     (ofp_group_mod_command, 'command'),     #        /* One of OFPGC_*. */
     (ofp_group_type, 'type'),         #        /* One of OFPGT_*. */
     (uint8,),                #        /* Pad to 64 bits. */
-    (uint32, 'group_id'),    #        /* Group identifier. */
+    (ofp_group, 'group_id'),    #        /* Group identifier. */
     (ofp_bucket[0], 'buckets'),    #  /* The length of the bucket array is inferred from the length field in the header. */
     base = ofp_msg,
     criteria = lambda x: x.header.type == OFPT_GROUP_MOD,

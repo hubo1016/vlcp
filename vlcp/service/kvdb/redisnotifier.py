@@ -14,7 +14,7 @@ from vlcp.event.connection import ConnectionResetException
 from vlcp.event.core import syscall_removequeue, QuitException
 import json
 from time import time
-from zlib import compress, decompress
+from zlib import compress, decompress, error as zlib_error
 import functools
 import uuid
 import logging
@@ -42,9 +42,15 @@ def _bytes(s):
     else:
         return s.encode('utf-8')
 
+def _str(s):
+    if isinstance(s, str):
+        return s
+    else:
+        return s.decode('utf-8')
+
 class _Notifier(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.Notifier')
-    def __init__(self, vhostbind, prefix, scheduler=None, daemon=False):
+    def __init__(self, vhostbind, prefix, scheduler=None, daemon=False, singlecastlimit = 256, deflate = False):
         RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
         self.vhostbind = vhostbind
         self.prefix = _bytes(prefix)
@@ -54,6 +60,8 @@ class _Notifier(RoutineContainer):
         self._publish_wait = set()
         self._matchadd_wait = set()
         self._matchremove_wait = set()
+        self._singlecastlimit = singlecastlimit
+        self._deflate = deflate
     def main(self):
         try:
             timestamp = '%012x' % (int(time() * 1000),) + '-'
@@ -61,6 +69,19 @@ class _Notifier(RoutineContainer):
             for m in callAPI(self, 'redisdb', 'getclient', {'vhost':self.vhostbind}):
                 yield m
             client, encoder, decoder = self.retvalue
+            for m in client.subscribe(self, self.prefix):
+                yield m
+            self._matchers[b''] = self.retvalue[0]
+            if self._deflate:
+                oldencoder = encoder
+                olddecoder = decoder
+                def encoder(x):
+                    return compress(oldencoder(x))
+                def decoder(x):
+                    try:
+                        return olddecoder(decompress(x))
+                    except zlib_error:
+                        return olddecoder(x)
             self.subroutine(self._modifier(client), True, "modifierroutine")
             listen_modify = ModifyListen.createMatcher(self, ModifyListen.LISTEN)
             connection_down = client.subscribe_state_matcher(self, False)
@@ -85,6 +106,16 @@ class _Notifier(RoutineContainer):
                             for m in callAPI(self, 'redisdb', 'getclient', {'vhost':self.vhostbind}):
                                 yield m
                             client, encoder, decoder = self.retvalue
+                            if self._deflate:
+                                oldencoder = encoder
+                                olddecoder = decoder
+                                def encoder(x):
+                                    return compress(oldencoder(x))
+                                def decoder(x):
+                                    try:
+                                        return olddecoder(decompress(x))
+                                    except zlib_error:
+                                        return olddecoder(x)
                             # Recreate listeners
                             connection_down = client.subscribe_state_matcher(self, False)
                             connection_up = client.subscribe_state_matcher(self, True)
@@ -123,7 +154,7 @@ class _Notifier(RoutineContainer):
                                 UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED, False, extrainfo = None)
                                                                            ), False)
                 else:
-                    transact = decoder(decompress(self.event.message))
+                    transact = decoder(self.event.message)
                     if transact['id'] == last_transact:
                         # Ignore duplicated updates
                         continue
@@ -133,7 +164,7 @@ class _Notifier(RoutineContainer):
                     transactid = '%s%016x' % (timestamp, transactno)
                     transactno += 1
                     self.subroutine(self.waitForSend(
-                                UpdateNotification(self, transactid, tuple(transact['keys']), UpdateNotification.UPDATED, fromself, extrainfo = transact.get('extrainfo'))
+                                UpdateNotification(self, transactid, tuple(_bytes(k) for k in transact['keys']), UpdateNotification.UPDATED, fromself, extrainfo = transact.get('extrainfo'))
                                                                            ), False)
         finally:
             self.terminate(self.modifierroutine)
@@ -217,12 +248,16 @@ class _Notifier(RoutineContainer):
         client, encoder, _ = self.retvalue
         transactid = '%s-%016x' % (self._publishkey, self._publishno)
         self._publishno += 1
-        msg = compress(encoder({'id':transactid, 'keys':merged_keys, 'extrainfo': extrainfo}))
+        msg = encoder({'id':transactid, 'keys':[_str(k) for k in merged_keys], 'extrainfo': extrainfo})
         try:
-            for m in client.batch_execute(self, *((('MULTI',),) +
-                                                tuple(('PUBLISH', self.prefix + k, msg) for k in merged_keys) +
-                                                (('EXEC',),))):
-                yield m
+            if len(merged_keys) > self._singlecastlimit:
+                for m in client.execute_command(self, 'PUBLISH', self.prefix, msg):
+                    yield m
+            else:
+                for m in client.batch_execute(self, *((('MULTI',),) +
+                                                    tuple(('PUBLISH', self.prefix + k, msg) for k in merged_keys) +
+                                                    (('EXEC',),))):
+                    yield m
         except (IOError, ConnectionResetException):
             self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
             self._publish_wait.update(merged_keys)
@@ -242,6 +277,8 @@ class RedisNotifier(Module):
     """
     _default_vhostbind = ''
     _default_prefix = 'vlcp.updatenotifier.'
+    _default_singlecastlimit = 256
+    _default_deflate = False
     def __init__(self, server):
         Module.__init__(self, server)
         self.createAPI(api(self.createnotifier))
@@ -256,7 +293,7 @@ class RedisNotifier(Module):
             yield m
     def createnotifier(self):
         "Create a new notifier object"
-        n = _Notifier(self.vhostbind, self.prefix, self.scheduler)
+        n = _Notifier(self.vhostbind, self.prefix, self.scheduler, self.singlecastlimit, self.singlecastdeflate)
         n.start()
         return n
 

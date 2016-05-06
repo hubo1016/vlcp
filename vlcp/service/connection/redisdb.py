@@ -9,6 +9,7 @@ from vlcp.protocol.redis import Redis
 from vlcp.server.module import api
 from vlcp.utils.redisclient import RedisClient
 from vlcp.event.runnable import RoutineContainer
+from zlib import compress, decompress, error as zlib_error
 import pickle
 try:
     import cPickle
@@ -36,6 +37,7 @@ class RedisDB(TcpServerBase):
     _default_url = 'tcp://localhost/'
     _default_db = None
     _default_serialize = 'json'
+    _default_deflate = True
     _default_pickleversion = 'default'
     _default_cpickle = True
     _default_maxretry = 16
@@ -58,30 +60,64 @@ class RedisDB(TcpServerBase):
                 pickleversion = p.HIGHEST_PROTOCOL
             else:
                 pickleversion = self.pickleversion
-            def _encode(obj):
-                return p.dumps(obj, pickleversion)
+            if self.deflate:
+                def _encode(obj):
+                    return compress(p.dumps(obj, pickleversion), 1)
+            else:
+                def _encode(obj):
+                    return p.dumps(obj, pickleversion)
             self._encode = _encode
-            def _decode(data):
-                if data is None:
-                    return None
-                elif isinstance(data, Exception):
-                    raise data
-                else:
-                    return p.loads(data)
+            if self.deflate:
+                def _decode(data):
+                    if data is None:
+                        return None
+                    elif isinstance(data, Exception):
+                        raise data
+                    else:
+                        try:
+                            return p.loads(decompress(data))
+                        except zlib_error:
+                            return p.loads(data)
+            else:
+                def _decode(data):
+                    if data is None:
+                        return None
+                    elif isinstance(data, Exception):
+                        raise data
+                    else:
+                        return p.loads(data)
             self._decode = _decode
         else:
-            def _encode(obj):
-                return json.dumps(obj, default=encode_default).encode('utf-8')
-            self._encode = _encode
-            def _decode(data):
-                if data is None:
-                    return None
-                elif isinstance(data, Exception):
-                    raise data
-                elif not isinstance(data, str) and isinstance(data, bytes):
-                    data = data.decode('utf-8')
-                return json.loads(data, object_hook=decode_object)
-            self._decode = _decode
+            if self.deflate:
+                def _encode(obj):
+                    return compress(json.dumps(obj, default=encode_default).encode('utf-8'), 1)
+                self._encode = _encode
+                def _decode(data):
+                    if data is None:
+                        return None
+                    elif isinstance(data, Exception):
+                        raise data
+                    elif not isinstance(data, str) and isinstance(data, bytes):
+                        try:
+                            data = decompress(data)
+                        except zlib_error:
+                            pass
+                        data = data.decode('utf-8')
+                    return json.loads(data, object_hook=decode_object)
+                self._decode = _decode
+            else:
+                def _encode(obj):
+                    return json.dumps(obj, default=encode_default).encode('utf-8')
+                self._encode = _encode
+                def _decode(data):
+                    if data is None:
+                        return None
+                    elif isinstance(data, Exception):
+                        raise data
+                    elif not isinstance(data, str) and isinstance(data, bytes):
+                        data = data.decode('utf-8')
+                    return json.loads(data, object_hook=decode_object)
+                self._decode = _decode                
         self.appendAPI(api(self.getclient),
                        api(self.get, self.apiroutine),
                        api(self.set, self.apiroutine),
