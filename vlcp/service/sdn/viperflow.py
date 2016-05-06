@@ -12,6 +12,7 @@ import vlcp.service.kvdb.objectdb as objectdb
 from vlcp.utils.networkmodel import *
 
 from uuid import uuid1
+import copy
 import logging
 
 logger = logging.getLogger('viperflow')
@@ -24,7 +25,7 @@ class ViperFlow(Module):
     def __init__(self,server):
         super(ViperFlow,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)
-        self.app_routine.main = self._main
+        self.app_routine.main = self.main
         self.routines.append(self.app_routine)
         self._reqid = 0
         self.createAPI(api(self.createphysicalnetwork,self.app_routine),
@@ -56,224 +57,9 @@ class ViperFlow(Module):
                        api(self.deletelogicalports,self.app_routine),
                        api(self.listlogicalport,self.app_routine)
                        ) 
-    def _main(self):
-        
-
-        #
-        #  main func is test , will be deleted laster
-        #
-        for m in self.createphysicalnetwork(vlanrange = [(1,100)]):
-            yield m
-        
-        listid1 = self.app_routine.retvalue[0].get('id')
-        logger.info(" ######## create physicalnetwork =  %r ",self.app_routine.retvalue)
-        
-        networks = [{'type':'vlan','vlanrange':[(1,100)]},
-                    {'type':'vlan','vlanrange':[(100,300)]}]
-        #networks = [{'type':'vlan'},{'type':'vlan'}]
-        for m in self.createphysicalnetworks(networks):
-            yield m
-        
-        logger.info(" ######## create physicalnetwork =  %r ",self.app_routine.retvalue)
-
-        # test update
-        updateattr = {'name':'abc','vlanrange':[(50,100)]}
-        for m in self.updatephysicalnetwork(self.app_routine.retvalue[0].get('id'),**updateattr):
-            yield m
-
-        logger.info(" ######## update physicalnetwork =  %r ",self.app_routine.retvalue)
-        
-        listid = self.app_routine.retvalue[0].get('id')
-        # test delete
-        """
-        for m in self.deletephysicalnetwork(self.app_routine.retvalue[0].get('id')):
-            yield m
-        
-        logger.info(" ####### delete %r",self.app_routine.retvalue)
-        """
-        # test list
-
-        logger.info(" listid = %r",listid)
-        for m in self.listphysicalnetwork():
-            yield m
-
-        logger.info(" ####### list %r",self.app_routine.retvalue)
-
-        for m in self.listphysicalnetwork(listid):
-            yield m
-
-        logger.info(" ###### list one %r",self.app_routine.retvalue)
-
-        for m in self.listphysicalnetwork(listid,name = "abc"):
-            yield m
-
-        logger.info(" ###### list one %r",self.app_routine.retvalue)
-        
-
-        # test create physical port
-        logger.info(" listid = %r",listid)
-        for m in self.createphysicalport(listid,'enp0s8',rate = '1000'):
-            yield m
-
-        logger.info(' ###### create physical port %r',self.app_routine.retvalue)
-
-        # test create physical ports
-
-        ports = [{'phynetwork':listid,'name':'eth0'},{'phynetwork':listid,'name':'eth1',
-            'rate':10000}]
-        
-
-        for m in self.createphysicalports(ports):
-            yield m
-
-        logger.info(' ##### create physical ports %r',self.app_routine.retvalue)
-
-        # test update physical port
-
-        for m in self.updatephysicalport('eth0',rate='999'):
-            yield m
-
-        logger.info(' ##### update physical ports %r',self.app_routine.retvalue)
-
-        # test delete physical port
-        for m in self.deletephysicalport('eth0'):
-            yield m
-
-        logger.info(' ##### delete physical ports %r',self.app_routine.retvalue)
-        # test list physical port
-
-        for m in self.listphysicalport('eth1'):
-            yield m
-        
-        logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
-
-        for m in self.listphysicalport():
-            yield m
-
-        logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
-        
-        for m in self.listphysicalport(phynetwork = listid):
-            yield m
-
-        logger.info(' ##### list physical ports %r',self.app_routine.retvalue)
-        
-        # test create logicalnetwork
-        for m in self.createlogicalnetwork(listid):
-            yield m
-
-        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
-        
-        # test create logicalnetwork
-        for m in self.createlogicalnetwork(listid):
-            yield m
-
-        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
-        
-        # test create logicalnetwork
-        for m in self.createlogicalnetwork(listid,vlanid = 52):
-            yield m
-
-        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
-        
-        # test create logicalnetwork
-        for m in self.createlogicalnetwork(listid):
-            yield m
-
-        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
-        # test create logicalnetworks
-        #n = [{'phynetid':listid}]
-        n = [{'phynetwork':listid},{'phynetwork':listid,'vlanid':99}]
-
-        for m in self.createlogicalnetworks(n):
-            yield m
-
-        logger.info(' ##### list createlogical network %r',self.app_routine.retvalue)
-        
-        lgnetid = self.app_routine.retvalue[0]['id'] 
-        
-        logger.info(' ##### createlogical network lgnetid %r',lgnetid)
-        
-        # test update lgnetwork
-        
-        for m in self.updatelogicalnetwork(lgnetid,name = "google"):
-            yield m
-
-        logger.info(' ##### list updatelogical network %r',self.app_routine.retvalue)
-
-        for m in self.updatelogicalnetwork(lgnetid,vlanid = 58):
-            yield m
-
-        logger.info(' ##### list updatelogical network %r',self.app_routine.retvalue)
-        
-        # test delete lgnetwork
-        """
-        for m in self.deletelogicalnetwork(lgnetid):
-            yield m
-
-        logger.info(' ##### list del network %r',self.app_routine.retvalue)
-        """
-        # test list lgnetwork
-
-        for m in self.listlogicalnetwork():
-            yield m
-
-        logger.info(' ##### list logical network %r',self.app_routine.retvalue)
- 
-        for m in self.listlogicalnetwork(name = 'google'):
-            yield m
-
-        logger.info(' ##### list logical network %r',self.app_routine.retvalue)
-        
-        for m in self.listlogicalnetwork(phynetwork = listid):
-            yield m
-
-        logger.info(' ##### list logical network %r',self.app_routine.retvalue)
-        
-
-        # test create logicalport
-
-        for m in self.createlogicalport(lgnetid,name = "ABC"):
-            yield m
-
-        logger.info(' ##### create logical port %r',self.app_routine.retvalue)
-        
-        logicalports = [{"logicalnetwork":lgnetid},{"logicalnetwork":lgnetid}]
-        for m in self.createlogicalports(logicalports):
-            yield m
-        logger.info(' ##### create logical ports %r',self.app_routine.retvalue)
-        
-        logicalportid = self.app_routine.retvalue[0]["id"]
-        # test update logicalport
-
-        for m in self.updatelogicalport(logicalportid,name = "eth0"):
-            yield m
-        logger.info(' ##### update logical port %r',self.app_routine.retvalue)
-
-        """
-        # test delete logicalport
-        
-        for m in self.deletelogicalport(logicalportid):
-            yield m
-        logger.info(' ##### delete logical port %r',self.app_routine.retvalue)
-        """
-        # test list logical port
-
-        for m in self.listlogicalport(name='eth0'):
-            yield m
-
-        logger.info(' ##### list logical port %r',self.app_routine.retvalue)
-
-        for m in self.listlogicalport(id = logicalportid):
-            yield m
-
-        logger.info(' ##### list logical port %r',self.app_routine.retvalue)
-
-        for m in self.listlogicalport(logicalnetwork = lgnetid):
-            yield m
-
-        logger.info(' ##### list logical port %r',self.app_routine.retvalue)
-
-
+    def main(self):
+        if False:
+            yield
     def _dumpkeys(self,keys):
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
@@ -341,8 +127,13 @@ class ViperFlow(Module):
         for network in networks:
             if 'type' not in network:
                 raise ValueError("network must have type attr")
-
+            #
+            # deepcopy every networks elements
+            # case:[network]*N point to same object will auto create same id
+            #        
+            network = copy.deepcopy(network)
             network.setdefault('id',str(uuid1()))
+
             if network.get('type') not in typenetworks: 
                 typenetworks.setdefault(network.get('type'),{'networks':[network]})
             else:
@@ -394,6 +185,7 @@ class ViperFlow(Module):
                 start = start + len(v.get('networkskey')) + len(v.get('networksmapkey')) 
                
             retnetworks[0] = physet
+
             return retnetworkkeys,retnetworks
         try:
             for m in callAPI(self.app_routine,'objectdb','transact',
@@ -449,6 +241,9 @@ class ViperFlow(Module):
         
         typenetworks = dict()
         for network in networks:
+
+            network = copy.deepcopy(network)
+
             phynetkey = PhysicalNetwork.default_key(network.get('id'))
 
             for m in self._getkeys([phynetkey]):
@@ -562,6 +357,9 @@ class ViperFlow(Module):
 
         typenetworks = dict()
         for network in networks:
+
+            network = copy.deepcopy(network)
+            
             phynetkey = PhysicalNetwork.default_key(network.get("id"))
             for m in self._getkeys([phynetkey]):
                 yield m
@@ -680,11 +478,13 @@ class ViperFlow(Module):
             for m in self._getkeys([phynetkey]):
                 yield m
             retobj = self.app_routine.retvalue
-
-            if all(getattr(retobj,k,None) == v for k,v in kwargs.items()):
-                self.app_routine.retvalue = dump(retobj)
-            else:
+            if len(retobj) == 0 or retobj[0] is None:
                 self.app_routine.retvalue = []
+            else:
+                if all(getattr(retobj[0],k,None) == v for k,v in kwargs.items()):
+                    self.app_routine.retvalue = dump(retobj)
+                else:
+                    self.app_routine.retvalue = []
     
     def createphysicalport(self,phynetwork,name,vhost='',systemid='%',bridge='%',**kwargs):
         
@@ -736,6 +536,9 @@ class ViperFlow(Module):
         
         porttype = dict()
         for port in ports:
+
+            port = copy.deepcopy(port)
+            
             port.setdefault('vhost','')
             port.setdefault('systemid','%')
             port.setdefault('bridge','%')
@@ -865,6 +668,9 @@ class ViperFlow(Module):
         
         typeport = dict()
         for port in ports:
+
+            port = copy.deepcopy(port)
+
             port.setdefault("vhost","")
             port.setdefault("systemid","%")
             port.setdefault("bridge","%")
@@ -967,6 +773,9 @@ class ViperFlow(Module):
         
         typeport = dict()
         for port in ports:
+
+            port = copy.deepcopy(port)
+            
             port.setdefault('vhost',"")
             port.setdefault('systemid',"%")
             port.setdefault('bridge',"%")
@@ -1109,10 +918,13 @@ class ViperFlow(Module):
 
             retobj = self.app_routine.retvalue
 
-            if all(getattr(retobj,k,None) == v for k,v in args.items()):
-                self.app_routine.retvalue = dump(retobj)
-            else:
+            if len(retobj) == 0 or retobj[0] is None:
                 self.app_routine.retvalue = []
+            else:
+                if all(getattr(retobj,k,None) == v for k,v in args.items()):
+                    self.app_routine.retvalue = dump(retobj)
+                else:
+                    self.app_routine.retvalue = []
     
     def createlogicalnetwork(self,phynetwork,id = None,**kwargs):
         
@@ -1164,6 +976,9 @@ class ViperFlow(Module):
         # networks [{'phynetwork':'id','id':'id' ...},{'phynetwork':'id',...}]
         typenetwork = {}
         for network in networks:
+            
+            network = copy.deepcopy(network)
+
             if 'phynetwork' not in network:
                 raise ValueError("create logicalnet must special phynetwork id")
 
@@ -1323,6 +1138,9 @@ class ViperFlow(Module):
 
         typenetwork = {}
         for network in networks:
+
+            network = copy.deepcopy(network)
+
             lgnetworkkey = LogicalNetwork.default_key(network.get("id"))
             
             for m in self._getkeys([lgnetworkkey]):
@@ -1459,6 +1277,9 @@ class ViperFlow(Module):
         # networks [{"id":id},{"id":id}]
         typenetwork = {}
         for network in networks:
+
+            network = copy.deepcopy(network)
+
             lgnetworkkey = LogicalNetwork.default_key(network.get("id"))
             
             for m in self._getkeys([lgnetworkkey]):
@@ -1629,6 +1450,9 @@ class ViperFlow(Module):
     def createlogicalports(self,ports):
         
         for port in ports:
+
+            port = copy.deepcopy(port)
+
             lognetkey = LogicalNetwork.default_key(port.get("logicalnetwork"))
 
             for m in self._getkeys([lognetkey]):
@@ -1714,6 +1538,9 @@ class ViperFlow(Module):
         
         # ports [{"id":id,...},{...}]
         for port in ports:
+            
+            port = copy.deepcopy(port)
+
             lgportkey = LogicalPort.default_key(port.get("id"))
             
             for m in self._getkeys([lgportkey]):
@@ -1721,7 +1548,7 @@ class ViperFlow(Module):
 
             lgportobj = self.app_routine.retvalue
             if len(lgportobj) == 0 or lgportobj[0] is None:
-                raise ValueError("logical port id not existed "+id)
+                raise ValueError("logical port id not existed "+ port.get("id"))
         
         lgportkeys = [LogicalPort.default_key(port.get("id")) 
                         for port in ports]
@@ -1783,23 +1610,26 @@ class ViperFlow(Module):
     
     def deletelogicalports(self,ports):
         
+        p = []
         for port in ports:
+
+            port = copy.deepcopy(port)
+            
             lgportkey = LogicalPort.default_key(port.get("id"))
             for m in self._getkeys([lgportkey]):
                 yield m
             lgportobj = self.app_routine.retvalue
 
             if len(lgportobj) == 0 or lgportobj[0] is None:
-                ports.remove
                 continue
 
             port['lgnetid'] = lgportobj[0].network.id
-
+            p.append(port)
         lgportkeys = [LogicalPort.default_key(port.get("id"))
-                        for port in ports]
+                        for port in p]
          
         lgnetmapkeys = list(set([LogicalNetworkMap.default_key(port.get("lgnetid"))
-                        for port in ports]))
+                        for port in p]))
         
         keys = [LogicalPortSet.default_key()] + lgportkeys + lgnetmapkeys
         
@@ -1813,7 +1643,7 @@ class ViperFlow(Module):
             lgportdict = dict(zip(lgportkeys,lgportvalues))
             lgnetmapdict = dict(zip(lgnetmapkeys,lgnetmapvalues))
 
-            for port in ports:
+            for port in p:
                 lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
                 lgnetmap = lgnetmapdict.get(LogicalNetworkMap.default_key(port.get("lgnetid")))
 
@@ -1833,6 +1663,7 @@ class ViperFlow(Module):
         except:
             raise
         self.app_routine.retvalue = {"status":'OK'}
+    
     def listlogicalport(self,id = None,logicalnetwork = None,**kwargs):
         def set_walker(key,set,walk,save):
 
