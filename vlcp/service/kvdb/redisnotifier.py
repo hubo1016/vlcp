@@ -293,7 +293,7 @@ class RedisNotifier(Module):
             yield m
     def createnotifier(self):
         "Create a new notifier object"
-        n = _Notifier(self.vhostbind, self.prefix, self.scheduler, self.singlecastlimit, self.singlecastdeflate)
+        n = _Notifier(self.vhostbind, self.prefix, self.scheduler, self.singlecastlimit, self.deflate)
         n.start()
         return n
 
