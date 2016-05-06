@@ -143,7 +143,7 @@ class NetworkVlanDriver(Module):
         
         # create 1 : 1 physical network map
         new_networkmap = PhysicalNetworkMap.create_instance(id)
-        new_networkmap.network = new_network.create_reference()
+        new_networkmap.network = new_network.create_weakreference()
         
         return new_network,new_networkmap
 
@@ -236,11 +236,15 @@ class NetworkVlanDriver(Module):
     def deletephysicalnetwork(self,type,id):
         @updater
         def deletephynetwork(physet,phynet,phymap):
+            # if there is phynetworkport on the phynet 
+            # delete will fail
+            if phymap.ports.dataset():
+                raise ValueError("delete all phynetworkport on this phynet before delete")
+            
             # if there is logicnetwork on the phynet
             # delete will fail
             if len(phymap.network_allocation) > 0:
                 raise ValueError('delete all logicnetwork on this phynet before delete')
-            
             
             for weakobj in physet.set.dataset().copy():
                 if weakobj.getkey() == phynet.getkey():
