@@ -362,11 +362,12 @@ def multiwaitif(references, container, expr, nextchange = False):
         yield matchers
         transid = container.event.transactid
         updated_keys = keys.intersection(container.event.allkeys)
+        last_key = [k for k in container.event.allkeys if k in keys][-1]
         transact_matcher = DataObjectUpdateEvent.createMatcher(None, transid, _ismatch = lambda x: x.key in updated_keys)
         while True:
             updateref()
             updated_keys.remove(container.event.key)
-            if not updated_keys:
+            if not updated_keys or container.event.key == last_key:
                 break
             yield (transact_matcher,)
 
