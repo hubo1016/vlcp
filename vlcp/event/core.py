@@ -395,6 +395,8 @@ class Scheduler(object):
                         r.send((event, m))
                     except StopIteration:
                         self.unregisterall(r)
+                    except QuitException:
+                        self.unregisterall(r)
                     except:
                         self.logger.exception('processing event %s failed with exception', repr(event))
                         self.unregisterall(r)
