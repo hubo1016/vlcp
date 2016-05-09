@@ -67,7 +67,7 @@ class NetworkVlanDriver(Module):
                        publicapi(self.createioflowparts,
                                     criteria=lambda connection,logicalnetwork,
                                     physicalport,logicalnetworkid,physicalportid:
-                                    logicalnetwork.physicalnetwork == "vlan")
+                                    logicalnetwork.physicalnetwork.type == "vlan")
 
                        )
 
