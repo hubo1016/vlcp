@@ -417,6 +417,8 @@ class Scheduler(object):
                                 r.send((SyscallReturnEvent(retvalue = retvalue), self.syscallmatcher))
                         except StopIteration:
                             self.unregisterall(r)
+                        except QuitException:
+                            self.unregisterall(r)
                         except:
                             self.logger.exception('processing syscall failed with exception')
                             self.unregisterall(r)
