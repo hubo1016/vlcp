@@ -637,7 +637,7 @@ class IOFlowUpdater(FlowUpdater):
                 if lognet.isinstance(LogicalNetwork):
                     lognetid = _networkids.get(lognet.getkey())
                     if lognetid is not None:
-                        cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
+                        cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                        command = ofdef.OFPFC_ADD,
                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                        buffer_id = ofdef.OFP_NO_BUFFER,
