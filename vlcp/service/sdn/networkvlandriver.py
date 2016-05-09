@@ -442,13 +442,13 @@ class NetworkVlanDriver(Module):
             #
             # so set new lgnet that have user defind 'vlanid' first
             for i in range(0,len(networks)):
-                if getattr(networkmap[i][0],'vlanid',None):
+                if hasattr(networkmap[i][0],'vlanid'):
 
-                    vlanid = str(getattr(networkmap[i][0],'vlanid')) 
-
+                    vlanid = int(networkmap[i][0].vlanid)
+                    networkmap[i][0].vlanid = vlanid
                     phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
                     if _isavaliablevlanid(phynet.vlanrange,phymap.network_allocation.keys(),vlanid):
-                        phymap.network_allocation[vlanid] = networkmap[i][0].create_weakreference()
+                        phymap.network_allocation[str(vlanid)] = networkmap[i][0].create_weakreference()
                     else:
                         raise ValueError("user defind vlan id has been used or out of range!")
                     
@@ -473,7 +473,7 @@ class NetworkVlanDriver(Module):
                     vlanid = _findavaliablevlanid(phynet.vlanrange,phymap.network_allocation.keys())
                     if not vlanid:
                         raise ValueError("there is no avaliable vlan id")
-                    setattr(networkmap[i][0],'vlanid',str(vlanid))
+                    setattr(networkmap[i][0],'vlanid',vlanid)
                     phymap.network_allocation[str(vlanid)] = networkmap[i][0].create_weakreference()
                     
                     # set lgnetwork
@@ -510,10 +510,14 @@ class NetworkVlanDriver(Module):
             
             for k,v in args.items():
                 if k == 'vlanid':
+                    vlanid = int(v)
+                    svlanid = str(vlanid)
+                    if vlanid == lgnet.vlanid:
+                        continue
                     # here want update vlanid
-                    if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),str(v)):
-                        phynetmap.network_allocation[str(v)] = lgnet.create_weakreference()
-                        del phynetmap.network_allocation[str(getattr(lgnet,k))]
+                    if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),vlanid):
+                        phynetmap.network_allocation[svlanid] = lgnet.create_weakreference()
+                        del phynetmap.network_allocation[str(lgnet.vlanid)]
                     else:
                         raise ValueError("new vlanid is not avaliable")
                 setattr(lgnet,k,str(v))
@@ -545,16 +549,16 @@ class NetworkVlanDriver(Module):
                 #
                 if "vlanid" in network:
                     phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get("phynetid")))
-                    lgnet = lgnetdict.get(LogicalNetwork.default_key(network.get("id")))
+                    lgnet = lgnetdict.get(LogicalNetwork.default_key(network["id"]))
                     
                     del phynetmap.network_allocation[str(lgnet.vlanid)]
 
             for network in networks:
                 phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get("phynetid")))
-                lgnet = lgnetdict.get(LogicalNetwork.default_key(network.get("id")))
+                lgnet = lgnetdict.get(LogicalNetwork.default_key(network["id"]))
                
                 if "vlanid" in network:
-                    vlanid = str(network.get("vlanid"))
+                    vlanid = str(network["vlanid"])
                     if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),vlanid):
                         phynetmap.network_allocation[vlanid] = lgnet.create_weakreference()
                     else:
@@ -690,7 +694,7 @@ def _isavaliablevlanid(vlanrange,allocated,vlanid):
             break
 
     if find:
-        if vlanid not in allocated:
+        if str(vlanid) not in allocated:
             find = True
         else:
             find = False
