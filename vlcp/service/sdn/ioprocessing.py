@@ -717,7 +717,7 @@ class IOProcessing(FlowBase):
                                                                             'vhost': ovsdb_vhost}):
             yield m
         bridgename, systemid, _ = self.apiroutine.retvalue            
-        new_updater = IOFlowUpdater(conn, systemid, bridgename)
+        new_updater = IOFlowUpdater(conn, systemid, bridgename, self)
         self._flowupdaters[conn] = new_updater
         new_updater.start()
         for m in self._portchange(conn):
