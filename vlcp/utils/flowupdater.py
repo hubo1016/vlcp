@@ -17,6 +17,7 @@ class FlowUpdaterNotification(Event):
 
 class FlowUpdater(RoutineContainer):
     def __init__(self, connection, initialkeys, requestid = None):
+        RoutineContainer.__init__(self, connection.scheduler)
         self._initialkeys = initialkeys
         self._connection = connection
         self._walkerdict = {}
