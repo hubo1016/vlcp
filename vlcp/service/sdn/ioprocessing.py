@@ -335,7 +335,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                                  )])
                                                        ))
                         cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
-                                                       cookie = 0x000100000000000 | (ofport << 16),
+                                                       cookie = 0x0001000000000000 | (ofport << 16),
                                                        cookie_mask = 0xffffffffffff0000,
                                                        command = ofdef.OFPFC_DELETE,
                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
