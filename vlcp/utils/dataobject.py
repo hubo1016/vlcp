@@ -278,6 +278,9 @@ class DataObjectSet(object):
                 self._dataindices[i].setdefault(values[i], set()).add(robj)
     def find(self, cls, *args):
         self._create_indices(cls)
+        if self._dataindices is None:
+            # No Data
+            return []
         curr = None
         for i in range(0, len(args)):
             if args[i] is not None:
