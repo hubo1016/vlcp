@@ -520,7 +520,9 @@ class NetworkVlanDriver(Module):
                         del phynetmap.network_allocation[str(lgnet.vlanid)]
                     else:
                         raise ValueError("new vlanid is not avaliable")
-                setattr(lgnet,k,str(v))
+                    setattr(lgnet, k, vlanid)
+                else:
+                    setattr(lgnet,k, v)
 
             return [lgnet,phynet,phynetmap]
 
