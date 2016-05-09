@@ -282,7 +282,7 @@ class DataObjectSet(object):
         for robj in self._dataset:
             _, values = cls._getIndices(robj.getkey())
             if self._dataindices is None:
-                self._dataindices = [{}] * len(values)
+                self._dataindices = [{} for _ in range(0, len(values))]
             for i in range(0, len(values)):
                 self._dataindices[i].setdefault(values[i], set()).add(robj)
     def find(self, cls, *args):
