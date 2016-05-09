@@ -263,6 +263,7 @@ class DataObjectSet(object):
     def __getstate__(self):
         return (list(self._dataset), True)
     def __setstate__(self, state):
+        self.__init__()
         self._dataset = set(state[0])
     def _create_indices(self, cls):
         if self._dataindices is not None and cls is self._lastclass:
