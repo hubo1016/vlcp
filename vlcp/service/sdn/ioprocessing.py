@@ -376,7 +376,7 @@ class IOFlowUpdater(FlowUpdater):
             # Never use flow mod to update an input flow of physical port, because the input_oxm may change.
             for obj in updatedvalues:
                 if obj.isinstance(PhysicalPort):
-                    ofport = _lastportnames.get(obj.name)
+                    ofport = _portnames.get(obj.name)
                     if ofport is not None:
                         cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
                                                        command = ofdef.OFPFC_DELETE,
@@ -390,7 +390,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                                  )])
                                                        ))
                 elif obj.isinstance(LogicalNetwork):
-                    groupid = _lastnetworkids.get(obj.getkey())
+                    groupid = _networkids.get(obj.getkey())
                     if groupid is not None:
                         cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
                                                        cookie = 0x0001000000000000 | groupid,
@@ -402,6 +402,22 @@ class IOFlowUpdater(FlowUpdater):
                                                        out_group = ofdef.OFPG_ANY,
                                                        match = ofdef.ofp_match_oxm()
                                                        ))
+                elif obj.isinstance(PhysicalNetwork):
+                    if obj in phyportdict:
+                        for p in phyportdict[obj]:
+                            ofport = _portnames.get(p.name)
+                            if ofport is not None and p not in addvalues and p not in updatedvalues:
+                                cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
+                                                               command = ofdef.OFPFC_DELETE,
+                                                               priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                               buffer_id = ofdef.OFP_NO_BUFFER,
+                                                               out_port = ofdef.OFPP_ANY,
+                                                               out_group = ofdef.OFPG_ANY,
+                                                               match = ofdef.ofp_match_oxm(oxm_fields = [
+                                                                        ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
+                                                                                         ofport
+                                                                                         )])
+                                                               ))
             for m in execute_commands():
                 yield m
             for obj in removevalues:
@@ -449,7 +465,7 @@ class IOFlowUpdater(FlowUpdater):
             updated_physicalnetworks.update(p.physicalnetwork for p in updatedvalues if p.isinstance(PhysicalPort))
             otherupdates.update(lnet for pnet in updated_physicalnetworks
                                  if pnet in lognetdict
-                                 for lnet in lognetdict[p.physicalnetwork])
+                                 for lnet in lognetdict[pnet])
             for obj in otherupdates:
                 groupid = _networkids.get(obj.getkey())
                 if groupid is not None:
@@ -632,6 +648,43 @@ class IOFlowUpdater(FlowUpdater):
                                                                instructions = [ofdef.ofp_instruction_actions(actions = 
                                                                             list(output_actions))]
                                                                ))
+            # Physical network is updated
+            for pnet in updatedvalues:
+                if pnet.isinstance(PhysicalNetwork) and pnet in lognetdict:
+                    for lognet in lognetdict[pnet]:
+                        if lognet.isinstance(LogicalNetwork):
+                            lognetid = _networkids.get(lognet.getkey())
+                            if lognetid is not None and lognet not in updatedvalues and lognet not in addvalues and lognet.physicalnetwork in phyportdict:
+                                for obj in phyportdict[lognet.physicalnetwork]:
+                                    ofport = _portnames.get(obj.name)
+                                    if ofport is not None and (lognet, obj) in flowparts and obj not in addvalues and obj not in updatedvalues:
+                                        input_oxm, input_actions, output_actions, _ = flowparts[(lognet, obj)]
+                                        cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
+                                                                       cookie = 0x0001000000000000 | lognetid,
+                                                                       cookie_mask = 0xffffffffffffffff,
+                                                                       command = ofdef.OFPFC_ADD,
+                                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                                       buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                       out_port = ofdef.OFPP_ANY,
+                                                                       out_group = ofdef.OFPG_ANY,
+                                                                       match = ofdef.ofp_match_oxm(oxm_fields = [
+                                                                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
+                                                                                                 ofport
+                                                                                                 )] + input_oxm),
+                                                                       instructions = create_input_instructions(lognetid, input_actions)
+                                                                       ))
+                                        cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
+                                                                       cookie = 0x0001000000000000 | lognetid | (ofport << 16),
+                                                                       cookie_mask = 0xffffffffffffffff,
+                                                                       command = ofdef.OFPFC_MODIFY,
+                                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                                       buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                       out_port = ofdef.OFPP_ANY,
+                                                                       out_group = ofdef.OFPG_ANY,
+                                                                       match = ofdef.ofp_match_oxm(oxm_fields = create_output_oxm(lognetid, ofport)),
+                                                                       instructions = [ofdef.ofp_instruction_actions(actions = 
+                                                                                    list(output_actions))]
+                                                                       ))
             # Logical network broadcast
             for lognet in addvalues:
                 if lognet.isinstance(LogicalNetwork):
