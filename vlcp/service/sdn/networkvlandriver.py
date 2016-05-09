@@ -558,9 +558,9 @@ class NetworkVlanDriver(Module):
                 lgnet = lgnetdict.get(LogicalNetwork.default_key(network["id"]))
                
                 if "vlanid" in network:
-                    vlanid = str(network["vlanid"])
+                    vlanid = int(network["vlanid"])
                     if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),vlanid):
-                        phynetmap.network_allocation[vlanid] = lgnet.create_weakreference()
+                        phynetmap.network_allocation[str(vlanid)] = lgnet.create_weakreference()
                     else:
                         raise ValueError("new vlanid is not avaliable")
                 
