@@ -51,7 +51,7 @@ class IDAssigner(object):
             return self._indices[key]
         else:
             ind = self._lastindex
-            while ind not in self._revindices:
+            while ind in self._revindices:
                 ind += 1
                 ind &= 0xffff
             self._revindices[ind] = key
