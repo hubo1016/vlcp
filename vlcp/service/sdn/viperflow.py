@@ -361,16 +361,18 @@ class ViperFlow(Module):
             network = copy.deepcopy(network)
             
             phynetkey = PhysicalNetwork.default_key(network.get("id"))
+            """
             for m in self._getkeys([phynetkey]):
                 yield m
             phynetobj = self.app_routine.retvalue
             
             if len(phynetobj) == 0 or phynetobj[0] is None:
                 continue
-            if phynetobj[0].type not in typenetworks:
-                typenetworks.setdefault(phynetobj[0].type,{"networks":[network]})
+            """
+            if "vlan" not in typenetworks:
+                typenetworks.setdefault("vlan",{"networks":[network]})
             else:
-                typenetworks.get(phynetobj[0].type).get('networks').append(network)
+                typenetworks.get("vlan").get('networks').append(network)
 
         for k,v in typenetworks.items():
             
@@ -1590,13 +1592,10 @@ class ViperFlow(Module):
         @updater
         def update(portset,lgnetmap,lgport):
             
-            for weakobj in portset.set.dataset().copy():
-                if weakobj.getkey() == lgport.getkey():
-                    portset.set.dataset().remove(weakobj)
-            
-            for weakobj in lgnetmap.ports.dataset().copy():
-                if weakobj.getkey() == lgport.getkey():
-                    lgnetmap.ports.dataset().remove(weakobj)
+            portset.set.dataset().discard(lgport.create_weakreference())
+           
+            lgnetmap.ports.dataset().discard(lgport.create_weakreference())
+           
             return [portset,lgnetmap,None]
         
         try:
@@ -1646,15 +1645,10 @@ class ViperFlow(Module):
             for port in p:
                 lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
                 lgnetmap = lgnetmapdict.get(LogicalNetworkMap.default_key(port.get("lgnetid")))
-
-                for weakobj in lgnetmap.ports.dataset().copy():
-                    if weakobj.getkey() == lgport.getkey():
-                        lgnetmap.ports.dataset().remove(weakobj)
-
-                for weakobj in values[0].set.dataset().copy():
-                    if weakobj.getkey() == lgport.getkey():
-                        values[0].set.dataset().remove(weakobj)
-
+                
+                lgnetmap.ports.dataset().discard(lgport.create_weakreference())
+               
+                values[0].set.dataset().discard(lgport.create_weakreference())
             return keys,[values[0]]+[None]*len(ports)+lgnetmapvalues
         try:
             for m in callAPI(self.app_routine,"objectdb","transact",

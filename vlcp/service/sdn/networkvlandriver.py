@@ -246,9 +246,7 @@ class NetworkVlanDriver(Module):
             if len(phymap.network_allocation) > 0:
                 raise ValueError('delete all logicnetwork on this phynet before delete')
             
-            for weakobj in physet.set.dataset().copy():
-                if weakobj.getkey() == phynet.getkey():
-                    physet.set.dataset().remove(weakobj)
+            physet.set.dataset().discard(phynet.create_weakreference())
             return [physet,None,None]
 
         return deletephynetwork
@@ -265,17 +263,15 @@ class NetworkVlanDriver(Module):
             phynetmapvalues = values[1+phynetlen:]
 
             phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
-
+            phynetset = values[0].set.dataset()
             for network in networks:
                 phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get('id')))
 
                 if len(phynetmap.network_allocation) > 0:
                     raise ValueError('delete all logicnetwork on this phynet before delete')
                 
-                for weakobj in values[0].set.dataset().copy():
-                    if weakobj.getkey() == phynet.getkey():
-                        values[0].set.dataset().remove(weakobj)
-            
+                phynetset.discard(phynet.create_weakreference())
+           
             return keys,[values[0]]+[None]*(len(keys)-1)
         
         return deletephynetwork
@@ -345,15 +341,10 @@ class NetworkVlanDriver(Module):
         @updater
         def deletephyport(phyport,phynetmap,phyportset):
             
-            for weakobj in phynetmap.ports.dataset().copy():
-                if weakobj.getkey() == phyport.getkey():
-                    phynetmap.ports.dataset().remove(weakobj)
-            
-
-            for weakobj in phyportset.set.dataset().copy():
-                if weakobj.getkey() == phyport.getkey():
-                    phyportset.set.dataset().remove(weakobj)
-            
+            phynetmap.ports.dataset().discard(phyport.create_weakreference())
+           
+            phyportset.set.dataset().discard(phyport.create_weakreference())
+           
             return [None,phynetmap,phyportset]
 
         return deletephyport
@@ -375,14 +366,10 @@ class NetworkVlanDriver(Module):
                 portobj = portdict.get(PhysicalPort.default_key(port.get("vhost"),
                             port.get("systemid"),port.get("bridge"),port.get("name")))
                 
-                for weakobj in phymap.ports.dataset().copy():
-                    if weakobj.getkey() == portobj.getkey():
-                        phymap.ports.dataset().remove(weakobj)
-
-                for weakobj in values[0].set.dataset().copy():
-                    if weakobj.getkey() == portobj.getkey():
-                        values[0].set.dataset().remove(weakobj)
-            
+                phymap.ports.dataset().discard(portobj.create_weakreference())
+               
+                values[0].set.dataset().discard(portobj.create_weakreference())
+           
             return keys,[values[0]]+[None]*len(ports) + phynetmapvalues
         return deletephyports
     """
@@ -575,10 +562,8 @@ class NetworkVlanDriver(Module):
             if len(lgnetmap.ports.dataset()) > 0:
                 raise ValueError("there ports on logicnet remove it before")
             
-            for weakobj in lgnetset.set.dataset().copy():
-                if weakobj.getkey() == lgnet.getkey():
-                    lgnetset.set.dataset().remove(weakobj)
-
+            lgnetset.set.dataset().discard(lgnet.create_weakreference())
+            
             del phynetmap.network_allocation[str(getattr(lgnet,'vlanid'))]
 
             return [lgnetset,None,None,phynetmap]
@@ -609,11 +594,8 @@ class NetworkVlanDriver(Module):
                 
                 if len(lgnetmap.ports.dataset()):
                     raise ValueError("there ports on logicnet remove it before")
-
-                for weakobj in values[0].set.dataset().copy():
-                    if weakobj.getkey() == lgnet.getkey():
-                        values[0].set.dataset().remove(weakobj)
-
+                
+                values[0].set.dataset().discard(lgnet.create_weakreference())
                 del phymap.network_allocation[str(lgnet.vlanid)]
             
             return keys,[values[0]]+[None]*len(networks)*2+phynetmapvalues
@@ -649,7 +631,7 @@ class NetworkVlanDriver(Module):
                         )
                 ]
         
-        # this action is save as ouput_action  on type vlan
+        # this action is same as ouput_action  on type vlan
         output_group_bucket_action = [
                     connection.openflowdef.ofp_action_push(ethertype=ETHERTYPE_8021Q),
                     connection.openflowdef.ofp_action_set_field(
