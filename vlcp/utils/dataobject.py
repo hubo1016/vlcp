@@ -148,6 +148,15 @@ class DataObject(object):
         _, values = cls._getIndices(key)
         return all(v == '%' or mv is None or v == mv for v, mv in zip(values, matchvalues))
     @classmethod
+    def isinstance(cls, cls2):
+        # Compare by name
+        def clsname(c):
+            return c.__module__ + '.' + c.__name__
+        try:
+            return clsname(cls2) in (clsname(c) for c in cls.__mro__)
+        except Exception:
+            return isinstance(cls, cls2)
+    @classmethod
     def create_instance(cls, *args):
         obj = cls()
         for k,v in zip(obj._indices, args):

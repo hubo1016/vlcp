@@ -163,7 +163,7 @@ class IOFlowUpdater(FlowUpdater):
                                  (LogicalNetwork, LogicalNetworkChanged, '_logicalnetworkkeys', lambda x: self._networkids.assign(x.getkey()), self._networkids),
                                  (PhysicalNetwork, PhysicalNetworkChanged, '_physicalnetworkkeys', lambda x: self._phynetworkids.assign(x.getkey()), self._phynetworkids),
                                  ):
-            objs = [v for v in values if isinstance(v, cls)]
+            objs = [v for v in values if v.isinstance(cls)]
             objkeys = set([v.getkey() for v in objs])
             oldkeys = getattr(self, name)
             if objkeys != oldkeys:
@@ -195,10 +195,10 @@ class IOFlowUpdater(FlowUpdater):
             _portnames = dict(self._currentportnames)
             _networkids = self._networkids.frozen()
             # We must generate actions from network driver
-            phyportset = [obj for obj in self._savedresult if isinstance(obj, PhysicalPort)]
-            phynetset = [obj for obj in self._savedresult if isinstance(obj, PhysicalNetwork)]
-            lognetset = [obj for obj in self._savedresult if isinstance(obj, LogicalNetwork)]
-            logportset = [obj for obj in self._savedresult if isinstance(obj, LogicalPort)]
+            phyportset = [obj for obj in self._savedresult if obj.isinstance(PhysicalPort)]
+            phynetset = [obj for obj in self._savedresult if obj.isinstance(PhysicalNetwork)]
+            lognetset = [obj for obj in self._savedresult if obj.isinstance(LogicalNetwork)]
+            logportset = [obj for obj in self._savedresult if obj.isinstance(LogicalPort)]
             # If a port is both a logical port and a physical port, flows may conflict.
             # Remove the port from dictionary if it is duplicated.
             logportofps = set(_portids[lp.id] for lp in logportset if lp.id in _portids)
@@ -303,7 +303,7 @@ class IOFlowUpdater(FlowUpdater):
                 def create_output_oxm2(lognetid):
                     return [ofdef.create_oxm(ofdef.NXM_NX_REG5, lognetid)]
             for obj in removevalues:
-                if isinstance(obj, LogicalPort):
+                if obj.isinstance(LogicalPort):
                     ofport = _lastportids.get(obj.id)
                     if ofport is not None:
                         cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
@@ -324,7 +324,7 @@ class IOFlowUpdater(FlowUpdater):
                                                        out_port = ofport,
                                                        out_group = ofdef.OFPG_ANY,
                                                        match = ofdef.ofp_match_oxm()))
-                elif isinstance(obj, PhysicalPort):
+                elif obj.isinstance(PhysicalPort):
                     ofport = _lastportnames.get(obj.name)
                     if ofport is not None:
                         cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
@@ -347,7 +347,7 @@ class IOFlowUpdater(FlowUpdater):
                                                        out_port = ofdef.OFPP_ANY,
                                                        out_group = ofdef.OFPG_ANY,
                                                        match = ofdef.ofp_match_oxm()))
-                elif isinstance(obj, LogicalNetwork):
+                elif obj.isinstance(LogicalNetwork):
                     groupid = _lastnetworkids.get(obj.getkey())
                     if groupid is not None:
                         cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
@@ -379,7 +379,7 @@ class IOFlowUpdater(FlowUpdater):
                                                        match = ofdef.ofp_match_oxm()))
             # Never use flow mod to update an input flow of physical port, because the input_oxm may change.
             for obj in updatedvalues:
-                if isinstance(obj, PhysicalPort):
+                if obj.isinstance(PhysicalPort):
                     ofport = _lastportnames.get(obj.name)
                     if ofport is not None:
                         cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
@@ -393,7 +393,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                                  ofport
                                                                                  )])
                                                        ))
-                elif isinstance(obj, LogicalNetwork):
+                elif obj.isinstance(LogicalNetwork):
                     groupid = _lastnetworkids.get(obj.getkey())
                     if groupid is not None:
                         cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
@@ -409,7 +409,7 @@ class IOFlowUpdater(FlowUpdater):
             for m in execute_commands():
                 yield m
             for obj in removevalues:
-                if isinstance(obj, LogicalNetwork):
+                if obj.isinstance(LogicalNetwork):
                     groupid = _lastnetworkids.get(obj.getkey())
                     if groupid is not None:
                         cmds.append(ofdef.ofp_group_mod(command = ofdef.OFPGC_DELETE,
@@ -430,7 +430,7 @@ class IOFlowUpdater(FlowUpdater):
                             buckets.append(ofdef.ofp_bucket(actions=list(fp[3])))
                 return buckets
             for obj in addvalues:
-                if isinstance(obj, LogicalNetwork):
+                if obj.isinstance(LogicalNetwork):
                     groupid = _networkids.get(obj.getkey())
                     if groupid is not None:
                         cmds.append(ofdef.ofp_group_mod(command = ofdef.OFPGC_ADD,
@@ -443,14 +443,14 @@ class IOFlowUpdater(FlowUpdater):
             # 2. Physical network of this logical network is updated
             # 3. Logical port is added or removed from the network
             # 4. Physical port is added or removed from the physical network
-            otherupdates = set([obj for obj in updatedvalues if isinstance(obj, LogicalNetwork)])
-            otherupdates.update(obj.network for obj in addvalues if isinstance(obj, LogicalPort))
-            #otherupdates.update(obj.network for obj in updatedvalues if isinstance(obj, LogicalPort))
-            otherupdates.update(obj.network for obj in removevalues if isinstance(obj, LogicalPort))
-            updated_physicalnetworks = set(obj for obj in updatedvalues if isinstance(obj, PhysicalNetwork))
-            updated_physicalnetworks.update(p.physicalnetwork for p in addvalues if isinstance(p, PhysicalPort))
-            updated_physicalnetworks.update(p.physicalnetwork for p in removevalues if isinstance(p, PhysicalPort))
-            updated_physicalnetworks.update(p.physicalnetwork for p in updatedvalues if isinstance(p, PhysicalPort))
+            otherupdates = set([obj for obj in updatedvalues if obj.isinstance(LogicalNetwork)])
+            otherupdates.update(obj.network for obj in addvalues if obj.isinstance(LogicalPort))
+            #otherupdates.update(obj.network for obj in updatedvalues if obj.isinstance(LogicalPort))
+            otherupdates.update(obj.network for obj in removevalues if obj.isinstance(LogicalPort))
+            updated_physicalnetworks = set(obj for obj in updatedvalues if obj.isinstance(PhysicalNetwork))
+            updated_physicalnetworks.update(p.physicalnetwork for p in addvalues if p.isinstance(PhysicalPort))
+            updated_physicalnetworks.update(p.physicalnetwork for p in removevalues if p.isinstance(PhysicalPort))
+            updated_physicalnetworks.update(p.physicalnetwork for p in updatedvalues if p.isinstance(PhysicalPort))
             otherupdates.update(lnet for pnet in updated_physicalnetworks
                                  if pnet in lognetdict
                                  for lnet in lognetdict[p.physicalnetwork])
@@ -471,7 +471,7 @@ class IOFlowUpdater(FlowUpdater):
             # 4. out_port = (Physical_Port), network = (Logical_Network)
             # 5. out_port = OFPP_ANY, network = (Logical_Network)
             for obj in addvalues:
-                if isinstance(obj, LogicalPort):
+                if obj.isinstance(LogicalPort):
                     ofport = _portids.get(obj.id)
                     lognetid = _networkids.get(obj.network.getkey())
                     if ofport is not None and lognetid is not None:
@@ -501,7 +501,7 @@ class IOFlowUpdater(FlowUpdater):
             # Ignore update of logical port
             # Physical port:
             for obj in addvalues:
-                if isinstance(obj, PhysicalPort):
+                if obj.isinstance(PhysicalPort):
                     ofport = _portnames.get(obj.name)
                     if ofport is not None and obj.physicalnetwork in lognetdict:
                         for lognet in lognetdict[obj.physicalnetwork]:
@@ -535,7 +535,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                             list(output_actions))]
                                                                ))
             for lognet in addvalues:
-                if isinstance(lognet, LogicalNetwork):
+                if lognet.isinstance(LogicalNetwork):
                     lognetid = _networkids.get(lognet.getkey())
                     if lognetid is not None and lognet.physicalnetwork in phyportdict:
                         for obj in phyportdict[lognet.physicalnetwork]:
@@ -569,7 +569,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                             list(output_actions))]
                                                                ))
             for obj in updatedvalues:
-                if isinstance(obj, PhysicalPort):
+                if obj.isinstance(PhysicalPort):
                     ofport = _portnames.get(obj.name)
                     if ofport is not None and obj.physicalnetwork in lognetdict:
                         for lognet in lognetdict[obj.physicalnetwork]:
@@ -603,7 +603,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                             list(output_actions))]
                                                                ))
             for lognet in updatedvalues:
-                if isinstance(lognet, LogicalNetwork):
+                if lognet.isinstance(LogicalNetwork):
                     lognetid = _networkids.get(lognet.getkey())
                     if lognetid is not None and lognet.physicalnetwork in phyportdict:
                         for obj in phyportdict[lognet.physicalnetwork]:
@@ -638,7 +638,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                ))
             # Logical network broadcast
             for lognet in addvalues:
-                if isinstance(lognet, LogicalNetwork):
+                if lognet.isinstance(LogicalNetwork):
                     lognetid = _networkids.get(lognet.getkey())
                     if lognetid is not None:
                         cmds.append(ofdef.ofp_flow_mod(table_id = input_table,
