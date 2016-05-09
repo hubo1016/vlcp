@@ -272,8 +272,6 @@ class IOFlowUpdater(FlowUpdater):
                     return instructions
                 def create_output_oxm(lognetid, portid):
                     return [ofdef.create_oxm(ofdef.OXM_OF_METADATA_W, (portid & 0xFFFF) | ((lognetid & 0xFFFF) << 32), 0x0000FFFF0000FFFF)]
-                def create_output_oxm2(lognetid):
-                    return [ofdef.create_oxm(ofdef.OXM_OF_METADATA_W, ((lognetid & 0xFFFF) << 32), 0x0000FFFF00000000)]
             else:
                 # With nicira extension, we store input network, output network and output port in REG4, REG5 and REG6
                 def create_input_instructions(lognetid, extra_actions):
@@ -300,8 +298,6 @@ class IOFlowUpdater(FlowUpdater):
                 def create_output_oxm(lognetid, portid):
                     return [ofdef.create_oxm(ofdef.NXM_NX_REG5, lognetid),
                             ofdef.create_oxm(ofdef.NXM_NX_REG6, portid)]
-                def create_output_oxm2(lognetid):
-                    return [ofdef.create_oxm(ofdef.NXM_NX_REG5, lognetid)]
             for obj in removevalues:
                 if obj.isinstance(LogicalPort):
                     ofport = _lastportids.get(obj.id)
@@ -647,7 +643,7 @@ class IOFlowUpdater(FlowUpdater):
                                                        buffer_id = ofdef.OFP_NO_BUFFER,
                                                        out_port = ofdef.OFPP_ANY,
                                                        out_group = ofdef.OFPG_ANY,
-                                                       match = ofdef.ofp_match_oxm(oxm_fields = create_output_oxm2(lognetid)),
+                                                       match = ofdef.ofp_match_oxm(oxm_fields = create_output_oxm(lognetid, ofdef.OFPP_ANY)),
                                                        instructions = [ofdef.ofp_instruction_actions(actions =
                                                                             [ofdef.ofp_action_group(group_id = lognetid)])]
                                                        ))
