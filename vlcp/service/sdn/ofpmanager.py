@@ -152,11 +152,13 @@ class OpenflowManager(Module):
                                     else:
                                         table_path[name] = pathname
                                     if name not in graph:
-                                        graph[name] = (set(ancesters), set())
+                                        decs = set()
+                                        graph[name] = (set(ancesters), decs)                                        
                                     else:
-                                        graph[name][0].update(ancesters)
-                                        for anc in ancesters:
-                                            graph.setdefault(anc, (set(), set()))[1].add(name)
+                                        ancs, decs = graph[name]
+                                        ancs.update(ancesters)
+                                    for anc in ancesters:
+                                        decs.add(name)
                     except ValueError as exc:
                         self._logger.error(str(exc))
                         exception = exc
