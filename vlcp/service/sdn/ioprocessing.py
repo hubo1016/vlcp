@@ -663,7 +663,7 @@ class IOFlowUpdater(FlowUpdater):
 class IOProcessing(FlowBase):
     "Ingress and Egress processing"
     _tablerequest = (("ingress", (), ''),
-                     ("egress", ("ingress"),''))
+                     ("egress", ("ingress",),''))
     _default_vhostmap = {}
     def __init__(self, server):
         FlowBase.__init__(self, server)
