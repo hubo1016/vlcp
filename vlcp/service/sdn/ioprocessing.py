@@ -212,7 +212,7 @@ class IOFlowUpdater(FlowUpdater):
                 phyportdict.setdefault(p.physicalnetwork, []).append(p)
             lognetdict = {}
             for n in lognetset:
-                lognetdict.setdefault(n.phynetwork, []).append(n)
+                lognetdict.setdefault(n.physicalnetwork, []).append(n)
             logportdict = {}
             for p in logportset:
                 logportdict.setdefault(p.network, []).append(p)
