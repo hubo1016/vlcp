@@ -628,6 +628,9 @@ class NetworkVlanDriver(Module):
                                     logicalnetwork.vlanid |
                                     connection.openflowdef.OFPVID_PRESENT
                                 )
+                        ),
+                    connection.openflowdef.ofp_action_output(
+                            port = physicalportid 
                         )
                 ]
         
@@ -640,6 +643,9 @@ class NetworkVlanDriver(Module):
                                     logicalnetwork.vlanid |
                                     connection.openflowdef.OFPVID_PRESENT
                                 )
+                        ),
+                    connection.openflowdef.ofp_action_output(
+                            port = physicalportid
                         )
                 ]
 
