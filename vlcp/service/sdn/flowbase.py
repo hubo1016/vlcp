@@ -89,7 +89,7 @@ class FlowBase(Module):
                         yield m
                 except QuitException:
                     pass
-            self.subroutine(unacquire(), False)
+            self._tableacquire_routine.subroutine(unacquire(), False)
     def gettablerequest(self):
         "Table requirement for this module"
         return (self._tablerequest, self.vhostbind)
