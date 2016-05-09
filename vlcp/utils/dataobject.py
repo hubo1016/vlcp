@@ -257,6 +257,7 @@ class DataObjectSet(object):
     @classmethod
     def jsondecode(cls, data):
         obj = cls.__new__(cls)
+        obj.__init__()
         obj._dataset = set(data)
         return obj
     def __getstate__(self):
