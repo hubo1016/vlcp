@@ -148,6 +148,15 @@ class DataObject(object):
         _, values = cls._getIndices(key)
         return all(v == '%' or mv is None or v == mv for v, mv in zip(values, matchvalues))
     @classmethod
+    def isinstance(cls, cls2):
+        # Compare by name
+        def clsname(c):
+            return c.__module__ + '.' + c.__name__
+        try:
+            return clsname(cls2) in (clsname(c) for c in cls.__mro__)
+        except Exception:
+            return isinstance(cls, cls2)
+    @classmethod
     def create_instance(cls, *args):
         obj = cls()
         for k,v in zip(obj._indices, args):
@@ -257,11 +266,13 @@ class DataObjectSet(object):
     @classmethod
     def jsondecode(cls, data):
         obj = cls.__new__(cls)
+        obj.__init__()
         obj._dataset = set(data)
         return obj
     def __getstate__(self):
         return (list(self._dataset), True)
     def __setstate__(self, state):
+        self.__init__()
         self._dataset = set(state[0])
     def _create_indices(self, cls):
         if self._dataindices is not None and cls is self._lastclass:
@@ -276,6 +287,9 @@ class DataObjectSet(object):
                 self._dataindices[i].setdefault(values[i], set()).add(robj)
     def find(self, cls, *args):
         self._create_indices(cls)
+        if self._dataindices is None:
+            # No Data
+            return []
         curr = None
         for i in range(0, len(args)):
             if args[i] is not None:
@@ -348,11 +362,11 @@ def multiwaitif(references, container, expr, nextchange = False):
         yield matchers
         transid = container.event.transactid
         updated_keys = keys.intersection(container.event.allkeys)
+        last_key = [k for k in container.event.allkeys if k in keys][-1]
         transact_matcher = DataObjectUpdateEvent.createMatcher(None, transid, _ismatch = lambda x: x.key in updated_keys)
         while True:
             updateref()
-            updated_keys.remove(container.event.key)
-            if not updated_keys:
+            if container.event.key == last_key:
                 break
             yield (transact_matcher,)
 

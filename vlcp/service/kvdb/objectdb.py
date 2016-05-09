@@ -12,7 +12,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.event.event import Event, withIndices
 from time import time
 from copy import deepcopy
-from vlcp.event.core import QuitException
+from vlcp.event.core import QuitException, syscall_removequeue
 
 @withIndices()
 class RetrieveRequestSend(Event):
@@ -50,6 +50,7 @@ class StaleResultException(Exception):
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
 class ObjectDB(Module):
     service = True
+    _default_objectupdatepriority = 450
     def __init__(self, server):
         Module.__init__(self, server)
         self._managed_objs = {}
@@ -76,12 +77,19 @@ class ObjectDB(Module):
                        api(self.walk, self.apiroutine)
                        )
     def load(self, container):
+        self.scheduler.queue.addSubQueue(\
+                self.objectupdatepriority, dataobj.DataObjectUpdateEvent.createMatcher(), 'dataobjectupdate')
         for m in callAPI(container, 'updatenotifier', 'createnotifier'):
             yield m
         self._notifier = container.retvalue
         for m in Module.load(self, container):
             yield m
         self.routines.append(self._notifier)
+    def unload(self, container, force=False):
+        for m in self.apiroutine.syscall(syscall_removequeue(self.scheduler.queue, 'dataobjectupdate')):
+            yield m
+        for m in Module.unload(self, container, force=force):
+            yield m
     def _update(self):
         timestamp = '%012x' % (int(time() * 1000),) + '-'
         notification_matcher = self._notifier.notification_matcher(False)

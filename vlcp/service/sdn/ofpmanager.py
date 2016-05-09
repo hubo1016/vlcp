@@ -155,8 +155,8 @@ class OpenflowManager(Module):
                                         graph[name] = (set(ancesters), set())
                                     else:
                                         graph[name][0].update(ancesters)
-                                        for anc in ancesters:
-                                            graph.setdefault(anc, (set(), set()))[1].add(name)
+                                    for anc in ancesters:
+                                        graph.setdefault(anc, (set(), set()))[1].add(name)
                     except ValueError as exc:
                         self._logger.error(str(exc))
                         exception = exc
