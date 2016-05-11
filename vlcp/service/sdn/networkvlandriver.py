@@ -291,17 +291,33 @@ class NetworkVlanDriver(Module):
     """
     def createphysicalports(self,type,ports):
         portobjs = [self._createphysicalport(**n) for n in ports]
-
+        
         def createpyports(keys,values):
+            phynetlen = (len(keys) - 1 - len(portobjs))//2
+            
+            phynetkeys = keys[1+len(portobjs):1+len(portobjs)+phynetlen]
+            phynetvalues = values[1+len(portobjs):1+len(portobjs)+phynetlen]
+            
+            phynetmapkeys = keys[1+len(portobjs)+phynetlen:]
+            phynetmapvalues = values[1+len(portobjs)+phynetlen:]
+            
+            phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
+
+            phynetkeys = keys[1+len(portobjs):1+len(portobjs)+phynetlen]
+            
             for i in range(0,len(portobjs)):
                 values[i + 1] = set_new(values[i + 1],portobjs[i])
-                values[i + 1 + len(portobjs)].ports.dataset().add(portobjs[i].create_weakreference())
                 
+                key = portobjs[i].physicalnetwork.getkey()
+                phynet,phymap = phynetdict.get(key)
+                
+                phymap.ports.dataset().add(portobjs[i].create_weakreference())
                 values[0].set.dataset().add(portobjs[i].create_weakreference())
 
             return keys,values
         return createpyports
     def _createphysicalport(self,phynetwork,name,vhost,systemid,bridge,**args):
+
         p = PhysicalPort.create_instance(vhost,systemid,bridge,name)
         p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetwork))
         
