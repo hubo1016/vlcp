@@ -208,6 +208,10 @@ class NetworkVlanDriver(Module):
 
             for network in networks:
                 phynet,phymap = phynetdict.get(PhysicalNetwork.default_key(network.get('id')))
+                if not phynet or not phymap:
+                    raise ValueError("key object not existed "+\
+                            PhysicalNetwork.default_key(network['id']))
+                
                 if 'vlanrange' in network:
                     findflag = False
                     for k,_ in phymap.network_allocation.items():
@@ -230,7 +234,7 @@ class NetworkVlanDriver(Module):
                         raise ValueError('new vlan range do not match with allocation')
                 for k,v in network.items():   
                     setattr(phynet,k,v)
-            return keys,values
+            return phykeys,phyvalues
 
         return updatephynetworks
     def deletephysicalnetwork(self,type,id):
@@ -266,8 +270,13 @@ class NetworkVlanDriver(Module):
             phynetset = values[0].set.dataset()
             for network in networks:
                 phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get('id')))
-
-                if len(phynetmap.network_allocation) > 0:
+                # if there is phynetworkport on the phynet 
+                # delete will fail
+                if phynetmap and phynetmap.ports.dataset():
+                    raise ValueError("delete all phynetworkport on this phynet before delete")
+                # if there is logicnetwork on the phynet
+                # delete will fail
+                if phynetmap and phynetmap.network_allocation:
                     raise ValueError('delete all logicnetwork on this phynet before delete')
                 
                 phynetset.discard(phynet.create_weakreference())

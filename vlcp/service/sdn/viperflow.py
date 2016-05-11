@@ -86,35 +86,7 @@ class ViperFlow(Module):
             pass
 
     def createphysicalnetwork(self,type = 'vlan',id = None, **kwargs):
-        """        
-        # {'type':'vlan' or 'vxlan','id' = None,uuid1(),'vlanrange':[(1,100),(200,300)],kwargs}
-        if not id:
-            id = str(uuid1())
-        try:
-            for m in callAPI(self.app_routine,'public',
-                    'createphysicalnetwork',{'type':type,'id':id,'args':kwargs},timeout = 1):
-                yield m
-        except:
-            # here means driver is not find .. error
-            raise 
         
-        updater = self.app_routine.retvalue
-        
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                    {'keys':[PhysicalNetworkSet.default_key(),
-                        PhysicalNetwork.default_key(id),
-                        PhysicalNetworkMap.default_key(id)],'updater':updater}):
-                yield m
-        except:
-            # here means updtate DB error,  
-            raise 
-
-        for m in self._dumpkeys([PhysicalNetwork.default_key(id),]):
-            yield m
-
-        self.app_routine.retvalue = self.app_routine.retvalue[0]    
-        """
         if not id:
             id = str(uuid1())
         
@@ -139,21 +111,25 @@ class ViperFlow(Module):
             network = copy.deepcopy(network)
             network.setdefault('id',str(uuid1()))
 
-            if network.get('type') not in typenetworks: 
-                typenetworks.setdefault(network.get('type'),{'networks':[network]})
+            if network['type'] not in typenetworks: 
+                typenetworks.setdefault(network['type'],{'networks':[network]})
             else:
-                typenetworks.get(network.get('type')).get('networks').append(network) 
+                typenetworks.get(network['type'])['networks'].append(network) 
          
         for k,v in typenetworks.items():
             try:
                 for m in callAPI(self.app_routine,'public','createphysicalnetworks',
-                        {'networks':v.get('networks'),'type':k},timeout = 1):
+                        {'networks':v['networks'],'type':k},timeout = 1):
                     yield m
+                #
+                # this keys will have repeat, we don't care it,
+                # object will same with keys lasted
+                #
 
-                networkskey = [PhysicalNetwork.default_key(network.get('id'))
-                                    for network in v.get('networks')]
-                networksmapkey = [PhysicalNetworkMap.default_key(network.get('id'))
-                                    for network in v.get('networks')]
+                networkskey = [PhysicalNetwork.default_key(network['id'])
+                                    for network in v['networks']]
+                networksmapkey = [PhysicalNetworkMap.default_key(network['id'])
+                                    for network in v['networks']]
 
                 updater = self.app_routine.retvalue
 
@@ -166,8 +142,8 @@ class ViperFlow(Module):
         
         keys = [PhysicalNetworkSet.default_key()]
         for _,v in typenetworks.items():
-            keys.extend(v.get('networkskey'))
-            keys.extend(v.get('networksmapkey'))
+            keys.extend(v['networkskey'])
+            keys.extend(v['networksmapkey'])
         
         def updater(keys,values):
 
@@ -177,6 +153,8 @@ class ViperFlow(Module):
             physet = values[0]
             for k,v in typenetworks.items():
                 # [0] is physet
+
+                """
                 typevalues = values[start:start + len(v.get('networkskey'))]
                 typekeys = keys[start:start + len(v.get('networkskey'))]
                 typemapvalues = values[start + len(v.get('networkskey')):start + len(v.get('networkskey')) + len(v.get('networksmapkey'))]
@@ -188,7 +166,20 @@ class ViperFlow(Module):
                 retnetworkkeys.extend(typeretnetworkkeys[1:])
                 physet = typeretnetworks[0]
                 start = start + len(v.get('networkskey')) + len(v.get('networksmapkey')) 
-               
+                """
+                typekeylen = len(v["networkskey"]) + len(v["networksmapkey"])
+
+                try:
+                    typeretnetworkkeys,typeretnetworks = v['updater'](tuple(keys[0:1])+keys[start:start+typekeylen],
+                                                            [physet]+values[start:start+typekeylen])
+                except:
+                    raise
+                else:
+                    retnetworks.extend(typeretnetworks[1:])
+                    retnetworkkeys.extend(typeretnetworkkeys[1:])
+                    physet = typeretnetworks[0]
+                    start = start + typekeylen 
+                 
             retnetworks[0] = physet
 
             return retnetworkkeys,retnetworks
@@ -213,6 +204,12 @@ class ViperFlow(Module):
         if id is None:
             raise ValueError("update must be special id")
         
+        network = {"id":id}
+        network.update(kwargs)
+
+        for m in self.updatephysicalnetworks([network]):
+            yield m
+        """
         networkkey = PhysicalNetwork.default_key(id)
         # we use networkmap to check vlanrange 
         networkmapkey = PhysicalNetworkMap.default_key(id)
@@ -240,124 +237,123 @@ class ViperFlow(Module):
         
         for m in self._dumpkeys([networkkey]):
             yield m
-    
+        """
+
     def updatephysicalnetworks(self,networks):
         # networks [{"id":phynetid,....}]
         
-        while True:
-            fphynetkeys = list(set([PhysicalNetwork.default_key(network.get("id")) for network in networks]))
+        phynetkeys = []
+        typenetworks = dict()
+        for network in networks:
+            if 'type' in network:
+                raise ValueError("physicalnetwork type can't be change")
             
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
-            for m in callAPI(self.app_routine,'objectdb','mget',{'keys':fphynetkeys,'requestid':reqid}):
-                yield m
+            phynetkeys.append(PhysicalNetwork.default_key(network["id"])) 
+        
+        phynetkeys = list(set(phynetkeys))
+        
+        for m in self._getkeys(phynetkeys):
+            yield m
+
+        phynetvalues = self.app_routine.retvalue
+
+        if None in phynetvalues:
+            raise ValueError("physicalnetwork key not existed " +\
+                    PhysicalNetwork._getIndices(phynetkeys[phynetvalues.index(None)])[1][0])
+        
+        phynetdict = dict(zip(phynetkeys,phynetvalues))
+        
+        for network in networks:
+            phynetobj = phynetdict[PhysicalNetwork.default_key(network['id'])]
             
-            fphynetvalues = self.app_routine.retvalue
-            
-            if None in fphynetvalues:
-                raise ValueError ("physical net id " + PhysicalNetwork._getIndices(fphynetkeys[fphynetvalues.index(None)])[1][0] + " not existed")
-
-            phynetdict = dict(zip(fphynetkeys,fphynetvalues))
-
-            typenetworks = dict()
-            for network in networks:
-
-                #network = copy.deepcopy(network)
-
-                phynetkey = PhysicalNetwork.default_key(network.get('id'))
-
-                #for m in self._getkeys([phynetkey]):
-                #    yield m
-
-                phynetobj = phynetdict.get(phynetkey)
-
-                #if len(phynetobj) == 0 or phynetobj[0] is None:
-                #    raise ValueError("physical net id " + network.get('id') + " not existed")
-                
-                if phynetobj.type not in typenetworks:
-                    typenetworks.setdefault(phynetobj.type,{"networks":[network]})
-                else:
-                    typenetworks.get(phynetobj.type).get('networks').append(network)
-            
-            for k,v in typenetworks.items():
-                try:
-                    for m in callAPI(self.app_routine,'public','updatephysicalnetworks',
-                            {'type':k,'networks':v.get('networks')},timeout = 1):
-                        yield m
-                except:
-                    raise
-
-                updater = self.app_routine.retvalue
-
-                #
-                # when networks have element to update same phynet,
-                # len(phynetkey) != len(networks) 
-                #
-                phynetkey = list(set([PhysicalNetwork.default_key(n.get("id"))
-                                for n in v.get('networks')]))
-                
-                phynetmapkey = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                    for key in phynetkey]
-
-                v['updater'] = updater
-                v['phynetkey'] = phynetkey
-                v['phynetmapkey'] = phynetmapkey
-            
-            keys = []
-            typesortvalues = [] 
-            for _,v in typenetworks.items():
-                keys.extend(v.get("phynetkey"))
-                keys.extend(v.get("phynetmapkey"))
-
-                typesortvalues.extend([phynetdict.get(key) for key in v.get("phynetkey")])
-            def updater(keys,values):
-                start = 0
-                retkeys = []
-                retvalues = []
-                for k,v in typenetworks.items():
-                    typekeys = keys[start:start + len(v.get('phynetkey'))]
-                    typevalues = values[start:start + len(v.get('phynetkey'))]
-                    
-                    if [n.type if n is not None else None for n in typevalues] != [n.type if n is not None else None for n in typesortvalues[start:start + len(v.get('phynetkey'))]]:
-                        raise UpdateConflictException
-
-                    logger.info(" 33333 ")            
-                    typemapkeys = keys[start+len(v.get('phynetkey')):
-                                    start+len(v.get('phynetkey'))+len(v.get('phynetmapkey'))]
-                    typemapvalues = values[start+len(v.get('phynetkey')):
-                                    start+len(v.get('phynetkey'))+len(v.get('phynetmapkey'))]
-
-                    rettypekeys,rettypevalues = v.get('updater')(typekeys+typemapkeys,
-                                                    typevalues+typemapvalues)
-                    
-                    retkeys.extend(rettypekeys)
-                    retvalues.extend(rettypevalues)
-                    start = start + len(v.get('phynetkey')) + len(v.get("phynetmapkey"))
-
-                return retkeys,retvalues
+            if phynetobj.type not in typenetworks:
+                typenetworks.setdefault(phynetobj.type,{"networks":[network]})
+            else:
+                typenetworks[phynetobj.type]['networks'].append(network)
+        
+        for k,v in typenetworks.items():
             try:
-                for m in callAPI(self.app_routine,'objectdb','transact',
-                        {'keys':keys,'updater':updater}):
+                for m in callAPI(self.app_routine,'public','updatephysicalnetworks',
+                        {'type':k,'networks':v.get('networks')},timeout = 1):
                     yield m
-            except UpdateConflictException:
-                logger.info(" cause UpdateConflict Exception try once")
-                continue
             except:
                 raise
-            else:
-                with watch_context(fphynetkeys,fphynetvalues,reqid,self.app_routine):
-                    pass
-                break
+
+            updater = self.app_routine.retvalue
+
+            #
+            # when networks have element to update same phynet,
+            # len(phynetkey) != len(networks) 
+            #
+            phynetkey = list(set([PhysicalNetwork.default_key(n.get("id"))
+                            for n in v.get('networks')]))
             
-        dumpkeys = []
+            phynetmapkey = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
+                                for key in phynetkey]
+
+            v['updater'] = updater
+            v['phynetkey'] = phynetkey
+            v['phynetmapkey'] = phynetmapkey
+
+        keys = []
         for _,v in typenetworks.items():
-            dumpkeys.extend(v.get("phynetkey"))
-        for m in self._dumpkeys(dumpkeys):
-            yield m
+            keys.extend(v.get("phynetkey"))
+            keys.extend(v.get("phynetmapkey"))
+
+        def updater(keys,values):
+            start = 0
+            retkeys = []
+            retvalues = []
+            for k,v in typenetworks.items():
+                """
+                typekeys = keys[start:start + len(v.get('phynetkey'))]
+                typevalues = values[start:start + len(v.get('phynetkey'))]
+                
+                typemapkeys = keys[start+len(v.get('phynetkey')):
+                                start+len(v.get('phynetkey'))+len(v.get('phynetmapkey'))]
+                typemapvalues = values[start+len(v.get('phynetkey')):
+                                start+len(v.get('phynetkey'))+len(v.get('phynetmapkey'))]
+
+                rettypekeys,rettypevalues = v.get('updater')(typekeys+typemapkeys,
+                                                typevalues+typemapvalues)
+                
+                retkeys.extend(rettypekeys)
+                retvalues.extend(rettypevalues)
+                start = start + len(v.get('phynetkey')) + len(v.get("phynetmapkey"))
+                """
+                typekeylen = len(v['phynetkey']) + len(v['phynetmapkey'])
+
+                try:
+                    rettypekeys,rettypevalues = v['updater'](keys[start:start+typekeylen],
+                                values[start:start+typekeylen])
+                except:
+                    raise
+                else:
+                    retkeys.extend(rettypekeys)
+                    retvalues.extend(rettypevalues)
+                    start = start + typekeylen
+            return retkeys,retvalues
+
+        try:
+            for m in callAPI(self.app_routine,'objectdb','transact',
+                    {'keys':keys,'updater':updater}):
+                yield m
+        except:
+            raise
+        else:
+            dumpkeys = []
+            for _,v in typenetworks.items():
+                dumpkeys.extend(v.get("phynetkey"))
+            for m in self._dumpkeys(dumpkeys):
+                yield m
     def deletephysicalnetwork(self,id):
         if id is None:
             raise ValueError("delete netwrok must special id")
+        network = {"id":id}
 
+        for m in self.deletephysicalnetworks([network]):
+            yield m
+        """
         networkkey = PhysicalNetwork.default_key(id)
         networkmapkey = PhysicalNetworkMap.default_key(id)
         pynetsetkey = PhysicalNetworkSet.default_key()
@@ -384,7 +380,7 @@ class ViperFlow(Module):
         except:
             raise
         self.app_routine.retvalue = {"status":'OK'}
-    
+        """ 
     def deletephysicalnetworks(self,networks):
         # networks [{"id":id},{"id":id}]
         
@@ -394,109 +390,105 @@ class ViperFlow(Module):
         # we will try another once
         #
         
+        typenetworks = dict()
+        phynetkeys = list(set([PhysicalNetwork.default_key(network['id']) for network in networks]))
+        
+        for m in self._getkeys(phynetkeys):
+            yield m
+        
+        phynetvalues = self.app_routine.retvalue
+        
+        if None in phynetvalues:
+            raise ValueError("physicalnetwork key not existed " +\
+                    PhysicalNetwork._getIndices(phynetkeys[phynetvalues.index(None)])[1][0])
+        
+        phynetdict = dict(zip(phynetkeys,phynetvalues))
+        
+        for network in networks:
+            phynetobj = phynetdict[PhysicalNetwork.default_key(network["id"])]
 
-        while True:
+            if phynetobj.type not in typenetworks:
+                typenetworks.setdefault(phynetobj.type,{"networks":[network]})
+            else:
+                typenetworks[phynetobj.type]['networks'].append(network)
 
-            fphynetkeys = list(set([PhysicalNetwork.default_key(network.get("id")) for network in networks]))
+        for k,v in typenetworks.items():
             
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
-            for m in callAPI(self.app_routine,'objectdb','mget',{'keys':fphynetkeys,'requestid':reqid}):
-                yield m
+            try:
+                for m in callAPI(self.app_routine,'public','deletephysicalnetworks',
+                        {'type':k,'networks':v.get('networks')}):
+                    yield m
+            except:
+                raise
+
+            updater = self.app_routine.retvalue
+            phynetkeys = list(set([PhysicalNetwork.default_key(n.get("id"))
+                            for n in v.get('networks')]))
             
-            #
-            # there maybe None in phynetvalues, but on deletes we ignore it !
-            #
-            fphynetvalues = self.app_routine.retvalue 
-            phynetdict = dict(zip(fphynetkeys,fphynetvalues))  
-
-            typenetworks = dict()
-            for network in networks:
-                
-                #
-                # we don't change network var , so no need to 
-                # deep copy
-                #network = copy.deepcopy(network)
-                
-                phynetobj = phynetdict.get(PhysicalNetwork.default_key(network.get("id")))
-
-                if phynetobj.type not in typenetworks:
-                    typenetworks.setdefault(phynetobj.type,{"networks":[network]})
-                else:
-                    typenetworks.get(phynetobj.type).get('networks').append(network)
-
+            phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
+                                for key in phynetkeys]
+            
+            v['updater'] = updater
+            v['phynetkeys'] = phynetkeys
+            v['phynetmapkeys'] = phynetmapkeys
+      
+        keys = [PhysicalNetworkSet.default_key()]
+        for _,v in typenetworks.items():
+            keys.extend(v.get('phynetkeys'))
+            keys.extend(v.get('phynetmapkeys'))
+        
+        def updater(keys,values):
+            start = 1
+            physet = values[0]
+            
+            retkeys = [keys[0]]
+            retvalues = [None]
             for k,v in typenetworks.items():
                 
+                """
+                typekeys = keys[start:start + len(v.get('phynetkeys'))]
+                typevalues = values[start:start + len(v.get('phynetkeys'))]
+
+                typemapkeys = keys[start+len(v.get('phynetkeys')):
+                                    start + len(v.get('phynetkeys')) + len(v.get("phynetmapkeys"))]
+                typemapvalues = values[start+len(v.get('phynetkeys')):
+                                    start + len(v.get('phynetkeys')) + len(v.get("phynetmapkeys"))]
+                
+                rettypekeys,rettypevalues = v.get('updater')(keys[0:1]+typekeys+typemapkeys,
+                                                [physet]+typevalues + typemapvalues)
+                
+                retkeys.extend(rettypekeys[1:])
+                retvalues.extend(rettypevalues[1:])
+                physet = rettypevalues[0]
+
+                start = start + len(v.get('phynetkeys')) + len(v.get("phynetmapkeys"))
+                """
+                typekeylen = len(v['phynetkeys']) + len(v['phynetmapkeys'])
+
                 try:
-                    for m in callAPI(self.app_routine,'public','deletephysicalnetworks',
-                            {'type':k,'networks':v.get('networks')}):
-                        yield m
+                    rettypekeys,rettypevalues = v['updater'](tuple(keys[0:1])+keys[start:start+typekeylen],
+                            [physet]+values[start:start+typekeylen])
                 except:
                     raise
-
-                updater = self.app_routine.retvalue
-                phynetkeys = list(set([PhysicalNetwork.default_key(n.get("id"))
-                                for n in v.get('networks')]))
-                
-                phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                    for key in phynetkeys]
-                
-                v['updater'] = updater
-                v['phynetkeys'] = phynetkeys
-                v['phynetmapkeys'] = phynetmapkeys
-            
-            keys = [PhysicalNetworkSet.default_key()]
-            typesortvalues = []
-            for _,v in typenetworks.items():
-                keys.extend(v.get('phynetkeys'))
-                keys.extend(v.get('phynetmapkeys'))
-
-                typesortvalues.extend(phynetdict.get(key) for key in v.get('phynetkeys'))
-            
-            def updater(keys,values):
-                start = 1
-                physet = values[0]
-                
-                retkeys = [keys[0]]
-                retvalues = [None]
-                for k,v in typenetworks.items():
-                    typekeys = keys[start:start + len(v.get('phynetkeys'))]
-                    typevalues = values[start:start + len(v.get('phynetkeys'))]
-                    
-                    if [n.type if n is not None else None for n in typevalues] != [n.type if n is not None else None for n in typesortvalues[start - 1:start - 1 + len(v.get('phynetkeys'))]]:
-                        raise UpdateConflictException
-
-                    typemapkeys = keys[start+len(v.get('phynetkeys')):
-                                        start + len(v.get('phynetkeys')) + len(v.get("phynetmapkeys"))]
-                    typemapvalues = values[start+len(v.get('phynetkeys')):
-                                        start + len(v.get('phynetkeys')) + len(v.get("phynetmapkeys"))]
-                    
-                    rettypekeys,rettypevalues = v.get('updater')(keys[0:1]+typekeys+typemapkeys,
-                                                    [physet]+typevalues + typemapvalues)
-                    
+                else:
                     retkeys.extend(rettypekeys[1:])
                     retvalues.extend(rettypevalues[1:])
                     physet = rettypevalues[0]
+                    start = start + typekeylen
 
-                    start = start + len(v.get('phynetkeys')) + len(v.get("phynetmapkeys"))
-                
-                retvalues[0] = physet
+            retvalues[0] = physet
 
-                return retkeys,retvalues
-            try:
-                for m in callAPI(self.app_routine,'objectdb','transact',
-                        {'keys':keys,'updater':updater}):
-                    yield m
-            except UpdateConflictException:
-                logger.info(" cause UpdateConflict Exception try once")
-                continue
-            except:
-                raise
-            else:
-                with watch_context(fphynetkeys,fphynetvalues,reqid,self.app_routine):
-                    pass
-                break
-        self.app_routine.retvalue = {"status":'OK'}
+            return retkeys,retvalues
+
+        try:
+            for m in callAPI(self.app_routine,'objectdb','transact',
+                    {'keys':keys,'updater':updater}):
+                yield m
+        except:
+            raise
+        else:
+            self.app_routine.retvalue = {"status":'OK'}
+
     def listphysicalnetwork(self,id = None,**kwargs):
         
         def set_walker(key,set,walk,save):
@@ -1204,7 +1196,7 @@ class ViperFlow(Module):
             fphynetvalues = self.app_routine.retvalue
                 
             if None in fphynetvalues:
-                raise ValueError ("physical net id " + PhysicalNetwork._getIndices(fphynetkeys[fphynetvalues.index(None)])[1][0] + " not existed")
+                raise ValueError("physical net id " + PhysicalNetwork._getIndices(fphynetkeys[fphynetvalues.index(None)])[1][0] + " not existed")
 
             phynetdict = dict(zip(list(set(fphynetkeys)),fphynetvalues))
 
