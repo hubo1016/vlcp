@@ -312,23 +312,23 @@ class NetworkVlanDriver(Module):
             
             phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
 
-            phynetkeys = keys[1+len(portobjs):1+len(portobjs)+phynetlen]
-            
             for i in range(0,len(portobjs)):
                 values[i + 1] = set_new(values[i + 1],portobjs[i])
                 
                 key = portobjs[i].physicalnetwork.getkey()
                 phynet,phymap = phynetdict.get(key)
-                
+                if not phynet or not phymap:
+                    raise ValueError("key object not existed "+ key) 
+
                 phymap.ports.dataset().add(portobjs[i].create_weakreference())
                 values[0].set.dataset().add(portobjs[i].create_weakreference())
 
-            return keys,values
+            return keys[0:1+len(ports)] + phynetmapkeys,values[0:1+len(ports)] + phynetmapvalues
         return createpyports
-    def _createphysicalport(self,phynetwork,name,vhost,systemid,bridge,**args):
+    def _createphysicalport(self,physicalnetwork,name,vhost,systemid,bridge,**args):
 
         p = PhysicalPort.create_instance(vhost,systemid,bridge,name)
-        p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetwork))
+        p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(physicalnetwork))
         
         for k,v in args.items():
             setattr(p,k,v)
@@ -352,12 +352,16 @@ class NetworkVlanDriver(Module):
             
             portdict = dict(zip(keys,values))
             for port in ports:
-
-                phyport = portdict.get(PhysicalPort.default_key(port.get("vhost"),
-                        port.get("systemid"),port.get("bridge"),port.get("name")))
+                
+                key = PhysicalPort.default_key(port['vhost'],port['systemid'],
+                            port['bridge'],port['name'])
+                phyport = portdict[key]
                 if phyport:
                     for k,v in port.items():
                         setattr(phyport,k,v)
+                else:
+                    raise ValueError("key object not existed "+ key) 
+            
             return keys,values
 
         return updatephyports
