@@ -1430,7 +1430,7 @@ class ViperFlow(Module):
         
         flgnetworkkeys = list(flgnetworkkeys)
         
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':list(set(flgnetworkkeys)),'requestid':reqid}):
+        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':flgnetworkkeys,'requestid':reqid}):
             yield m
             
         flgnetworkvalues = self.app_routine.retvalue
@@ -1567,143 +1567,10 @@ class ViperFlow(Module):
         finally:
             with watch_context(flgnetworkkeys,flgnetworkvalues,reqid,self.app_routine):
                 pass
-        """
-        while True:
-            flgnetworkkeys = [] 
-            newnetworks = [] 
-            for network in networks:
-                network = copy.deepcopy(network)
-                
-                flgnetworkkeys.append(LogicalNetwork.default_key(network["id"]))
-                newnetworks.append(network)
-                
-            for m in callAPI(self.app_routine,'objectdb','mget',{'keys':list(set(flgnetworkkeys)),'requestid':reqid}):
-                yield m
-            
-            flgnetworkvalues = self.app_routine.retvalue
-            
-            if None in flgnetworkvalues:
-                raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
-            
-            lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
-
-            typenetwork = {}
-            for network in newnetworks:
-
-                #network = copy.deepcopy(network)
-
-                #lgnetworkkey = LogicalNetwork.default_key(network.get("id"))
-                
-                #for m in self._getkeys([lgnetworkkey]):
-                #    yield m
-
-                #lgnetworkobj = self.app_routine.retvalue
-                #if len(lgnetworkobj) == 0 or lgnetworkobj[0] is None:
-                #    raise ValueError("logicalnetwork key %r is not existd",network.get('id'))
-                
-                # we save phynetid in update object, used to find phynet,phymap
-                # will del this attr when update in driver
-
-                lgnetworkobj = lgnetworkdict[LogicalNetwork.default_key(network["id"])] 
-                
-                network["phynetid"] = lgnetworkobj.physicalnetwork.id
-                
-                if lgnetworkobj.physicalnetwork.type not in typenetwork:
-                    typenetwork.setdefault(lgnetworkobj.physicalnetwork.type,{'networks':[network],
-                        'phynetkey':[lgnetworkobj.physicalnetwork.getkey()]})
-                else:
-                    typenetwork.get(lgnetworkobj.physicalnetwork.type).get('networks').append(network)
-                    typenetwork.get(lgnetworkobj.physicalnetwork.type).get('phynetkey').append(lgnetworkobj.physicalnetwork.getkey())
-            
-            for k,v in typenetwork.items():
-                try:
-                    for m in callAPI(self.app_routine,'public','updatelogicalnetworks',
-                        {'phynettype':k,'networks':v.get('networks')},timeout=1):
-                        yield m
-                except:
-                    raise
-
-                updater = self.app_routine.retvalue
-                
-                lgnetworkkeys = [LogicalNetwork.default_key(n.get('id')) 
-                            for n in v.get('networks')]
-                
-                phynetkeys = list(set([k for k in v.get('phynetkey')])) 
-                
-                phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                    for key in phynetkeys]
-                v['lgnetworkkeys'] = lgnetworkkeys
-                v['updater'] = updater
-                v['phynetkeys'] = phynetkeys
-                v['phynetmapkeys'] = phynetmapkeys
-            
-            keys = []
-            typesortvalues = []
-            for _,v in typenetwork.items():
-                keys.extend(v.get("lgnetworkkeys")) 
-                keys.extend(v.get("phynetkeys"))
-                keys.extend(v.get("phynetmapkeys"))
-                typesortvalues.extend(lgnetworkdict[key] for key in v.get("lgnetworkkeys"))
-            
-            def updater(keys,values):
-                
-                start = 0
-                sortd_index = 0 
-                retkeys = []
-                retvalues = []
-                for k,v in typenetwork.items():
-                    typelgnetkeys = keys[start:start+len(v.get('lgnetworkkeys'))]    
-                    typelgnetvalues = values[start:start+len(v.get('lgnetworkkeys'))]   
-                    
-                    if [n.physicalnetwork.getkey() if n is not None else None for n in typelgnetvalues] != [n.physicalnetwork.getkey() for n in typesortvalues[sortd_index:sortd_index + len(v.get("lgnetworkkeys"))]]:
-                        raise UpdateConflictException
-                    
-                    phynetkeys = keys[start + len(v.get('lgnetworkkeys')):
-                                        start + len(v.get('lgnetworkkeys'))+len(v.get("phynetkeys"))]
-                    phynetvalues = values[start + len(v.get('lgnetworkkeys')):
-                                        start + len(v.get('lgnetworkkeys'))+len(v.get("phynetkeys"))]
-                   
-                    phynetmapkeys = keys[start+len(v.get("lgnetworkkeys"))+len(v.get('phynetkeys')):
-                                        start+len(v.get("lgnetworkkeys"))+len(v.get('phynetkeys'))+
-                                        len(v.get("phynetmapkeys"))] 
-                    phynetmapvalues = values[start+len(v.get("lgnetworkkeys"))+len(v.get('phynetkeys')):
-                                        start+len(v.get("lgnetworkkeys"))+len(v.get('phynetkeys'))+
-                                        len(v.get("phynetmapkeys"))] 
-                    typeretkeys,typeretvalues = v.get('updater')(typelgnetkeys+phynetkeys+phynetmapkeys,
-                                        typelgnetvalues+phynetvalues+phynetmapvalues)
-                    
-                    retkeys.extend(typeretkeys)
-                    retvalues.extend(typeretvalues)
-                    start = start + len(v.get('lgnetworkkeys'))+len(v.get("phynetkeys")) + \
-                                len(v.get("phynetmapkeys"))
-                    sortd_index = sortd_index + len(v.get("lgnetworkkeys"))
-                return retkeys,retvalues
-
-
-            try:
-                for m in callAPI(self.app_routine,"objectdb",'transact',
-                        {"keys":keys,'updater':updater}):
-                    yield m
-            except UpdateConflictException:
-                logger.info(" cause UpdateConflict Exception try once")
-                continue 
-            except:
-                raise
-            else:
-                with watch_context(flgnetworkkeys,flgnetworkvalues,reqid,self.app_routine):
-                    pass
-                break
-
-        dumpkeys = []
-        for _,v in typenetwork.items():
-            dumpkeys.extend(v.get("lgnetworkkeys"))
-
-        for m in self._dumpkeys(dumpkeys):
-            yield m
-        """
 
     def deletelogicalnetwork(self,id):
         
+        """
         lgnetworkkey = LogicalNetwork.default_key(id)
         lgnetworkmapkey = LogicalNetworkMap.default_key(id)
         
@@ -1739,141 +1606,157 @@ class ViperFlow(Module):
             raise
 
         self.app_routine.retvalue = {"status":'OK'}
-    
+        """
+
+        if not id:
+            raise ValueError("must special id")
+
+        network = {'id':id}
+        for m in self.deletelogicalnetworks([network]):
+            yield m
+
     def deletelogicalnetworks(self,networks):
         # networks [{"id":id},{"id":id}]
-        while True:
-            flgnetworkkeys = []
-            newnetworks = []
-            for network in networks:
-                network = copy.deepcopy(network)
-                flgnetworkkeys.append(LogicalNetwork.default_key(network["id"]))
-                newnetworks.append(network)
-                
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
-            for m in callAPI(self.app_routine,'objectdb','mget',{'keys':list(set(flgnetworkkeys)),'requestid':reqid}):
-                yield m
-               
-            flgnetworkvalues = self.app_routine.retvalue
+
+        self._reqid += 1
+        reqid = ('viperflow',self._reqid)
+        maxtry = 1
+
+        flgnetworkkeys = set()
+        newnetworks = []
+
+        for network in networks:
+            network = copy.deepcopy(network)
+            key = LogicalNetwork.default_key(network["id"])
+            if key not in flgnetworkkeys:
+                flgnetworkkeys.add(key)
+            else:
+                raise ValueError("key repeate "+key)
+            newnetworks.append(network)
+        
+        flgnetworkkeys = list(flgnetworkkeys)
+
+        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':flgnetworkkeys,'requestid':reqid}):
+            yield m
             
-            lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
+        flgnetworkvalues = self.app_routine.retvalue
+        if None in flgnetworkvalues:
+            raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
+        
+        lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
+        
+        try:
+            while True:
+                typenetwork = dict()
+                for network in newnetworks:
+                    lgnetworkobj = lgnetworkdict[LogicalNetwork.default_key(network["id"])]
+                    
+                    # we save phynetid in update object, used to find phynet,phymap
+                    # will del this attr when update in driver
+                    network["phynetid"] = lgnetworkobj.physicalnetwork.id
+                    
+                    if lgnetworkobj.physicalnetwork.type not in typenetwork:
+                        typenetwork.setdefault(lgnetworkobj.physicalnetwork.type,{'networks':[network],
+                            'phynetkey':[lgnetworkobj.physicalnetwork.getkey()]})
+                    else:
+                        typenetwork[lgnetworkobj.physicalnetwork.type]['networks'].append(network)
+                        typenetwork[lgnetworkobj.physicalnetwork.type]['phynetkey'].append(lgnetworkobj.physicalnetwork.getkey())
+                        
+                for k,v in typenetwork.items():
+                    try:
+                        for m in callAPI(self.app_routine,'public','deletelogicalnetworks',
+                            {'phynettype':k,'networks':v.get('networks')},timeout=1):
+                            yield m
+                    except:
+                        raise
 
-            typenetwork = {}
-            for network in networks:
+                    updater = self.app_routine.retvalue
+                    
+                    lgnetworkkeys = [LogicalNetwork.default_key(n.get('id')) 
+                                for n in v.get('networks')]
+                    
+                    lgnetworkmapkeys = [LogicalNetworkMap.default_key(n.get('id')) 
+                                for n in v.get('networks')]
+                    
+                    phynetkeys = list(set([k for k in v.get('phynetkey')])) 
+                    
+                    phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
+                                        for key in phynetkeys]
+                    v['lgnetworkkeys'] = lgnetworkkeys
+                    v['updater'] = updater
+                    v['lgnetworkmapkeys'] = lgnetworkmapkeys
+                    v['phynetmapkeys'] = phynetmapkeys
 
-                #network = copy.deepcopy(network)
-
-                #lgnetworkkey = LogicalNetwork.default_key(network.get("id"))
+                keys = [LogicalNetworkSet.default_key()]
+                typesortvalues = []
+                for _,v in typenetwork.items():
+                    keys.extend(v.get("lgnetworkkeys")) 
+                    keys.extend(v.get("lgnetworkmapkeys"))
+                    keys.extend(v.get("phynetmapkeys"))
+                    typesortvalues.extend(lgnetworkdict[key] for key in v.get("lgnetworkkeys"))
                 
-                #for m in self._getkeys([lgnetworkkey]):
-                #    yield m
+                def updater(keys,values):
+                    
+                    start = 1
+                    sortd_index = 0
+                    retkeys = [keys[0]]
+                    retvalues = [None]
+                    lgnetset = values[0]
+                    for k,v in typenetwork.items():
+                        typelgnetkeys = keys[start:start+len(v.get('lgnetworkkeys'))]    
+                        typelgnetvalues = values[start:start+len(v.get('lgnetworkkeys'))]   
+                        
+                        if [n.physicalnetwork.getkey() if n is not None else None for n in typelgnetvalues] != [n.physicalnetwork.getkey() if n is not None else None for n in typesortvalues[sortd_index:sortd_index + len(v.get('lgnetworkkeys'))]]:
+                            raise UpdateConflictException
 
-                #lgnetworkobj = self.app_routine.retvalue
-                #if len(lgnetworkobj) == 0 or lgnetworkobj[0] is None:
-                #    continue 
+                        phynetkeys = keys[start + len(v.get('lgnetworkkeys')):
+                                            start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys"))]
+                        phynetvalues = values[start + len(v.get('lgnetworkkeys')):
+                                            start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys"))]
+                       
+                        phynetmapkeys = keys[start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys')):
+                                            start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys'))+
+                                            len(v.get("phynetmapkeys"))] 
+                        phynetmapvalues = values[start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys')):
+                                            start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys'))+
+                                            len(v.get("phynetmapkeys"))] 
+                        typeretkeys,typeretvalues = v.get('updater')(keys[0:1]+typelgnetkeys+phynetkeys+phynetmapkeys,
+                                            [lgnetset]+typelgnetvalues+phynetvalues+phynetmapvalues)
+                        
+                        retkeys.extend(typeretkeys[1:])
+                        retvalues.extend(typeretvalues[1:])
+                        lgnetset = typeretvalues[0]
+                        start = start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys")) + \
+                                    len(v.get("phynetmapkeys"))
+                        sortd_index = sortd_index + len(v.get('lgnetworkkeys'))
+                    retvalues[0] = lgnetset
+                    return retkeys,retvalues
 
-                lgnetworkobj = lgnetworkdict[LogicalNetwork.default_key(network["id"])]
-                
-                # we save phynetid in update object, used to find phynet,phymap
-                # will del this attr when update in driver
-                network["phynetid"] = lgnetworkobj.physicalnetwork.id
-                
-                if lgnetworkobj.physicalnetwork.type not in typenetwork:
-                    typenetwork.setdefault(lgnetworkobj.physicalnetwork.type,{'networks':[network],
-                        'phynetkey':[lgnetworkobj.physicalnetwork.getkey()]})
-                else:
-                    typenetwork.get(lgnetworkobj.physicalnetwork.type).get('networks').append(network)
-                    typenetwork.get(lgnetworkobj.physicalnetwork.type).get('phynetkey').append(lgnetworkobj.physicalnetwork.getkey())
-            
-            for k,v in typenetwork.items():
                 try:
-                    for m in callAPI(self.app_routine,'public','deletelogicalnetworks',
-                        {'phynettype':k,'networks':v.get('networks')},timeout=1):
+                    for m in callAPI(self.app_routine,"objectdb",'transact',
+                            {"keys":keys,'updater':updater}):
                         yield m
+
+                except UpdateConflictException:
+                    maxtry -= 1
+                    if maxtry < 0:
+                        raise
+                    else:
+                        logger.info(" cause UpdateConflict Exception try once")
+                        continue 
                 except:
                     raise
+                else:
+                    break
 
-                updater = self.app_routine.retvalue
-                
-                lgnetworkkeys = [LogicalNetwork.default_key(n.get('id')) 
-                            for n in v.get('networks')]
-                
-                lgnetworkmapkeys = [LogicalNetworkMap.default_key(n.get('id')) 
-                            for n in v.get('networks')]
-                
-                phynetkeys = list(set([k for k in v.get('phynetkey')])) 
-                
-                phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                    for key in phynetkeys]
-                v['lgnetworkkeys'] = lgnetworkkeys
-                v['updater'] = updater
-                v['lgnetworkmapkeys'] = lgnetworkmapkeys
-                v['phynetmapkeys'] = phynetmapkeys
-            
-            keys = [LogicalNetworkSet.default_key()]
-            typesortvalues = []
-            for _,v in typenetwork.items():
-                keys.extend(v.get("lgnetworkkeys")) 
-                keys.extend(v.get("lgnetworkmapkeys"))
-                keys.extend(v.get("phynetmapkeys"))
-                typesortvalues.extend(lgnetworkdict[key] for key in v.get("lgnetworkkeys"))
-            
-            def updater(keys,values):
-                
-                start = 1
-                sortd_index = 0
-                retkeys = [keys[0]]
-                retvalues = [None]
-                lgnetset = values[0]
-                for k,v in typenetwork.items():
-                    typelgnetkeys = keys[start:start+len(v.get('lgnetworkkeys'))]    
-                    typelgnetvalues = values[start:start+len(v.get('lgnetworkkeys'))]   
-                    
-                    if [n.physicalnetwork.getkey() if n is not None else None for n in typelgnetvalues] != [n.physicalnetwork.getkey() if n is not None else None for n in typesortvalues[sortd_index:sortd_index + len(v.get('lgnetworkkeys'))]]:
-                        raise UpdateConflictException
-
-                    phynetkeys = keys[start + len(v.get('lgnetworkkeys')):
-                                        start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys"))]
-                    phynetvalues = values[start + len(v.get('lgnetworkkeys')):
-                                        start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys"))]
-                   
-                    phynetmapkeys = keys[start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys')):
-                                        start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys'))+
-                                        len(v.get("phynetmapkeys"))] 
-                    phynetmapvalues = values[start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys')):
-                                        start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys'))+
-                                        len(v.get("phynetmapkeys"))] 
-                    typeretkeys,typeretvalues = v.get('updater')(keys[0:1]+typelgnetkeys+phynetkeys+phynetmapkeys,
-                                        [lgnetset]+typelgnetvalues+phynetvalues+phynetmapvalues)
-                    
-                    retkeys.extend(typeretkeys[1:])
-                    retvalues.extend(typeretvalues[1:])
-                    lgnetset = typeretvalues[0]
-                    start = start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys")) + \
-                                len(v.get("phynetmapkeys"))
-                    sortd_index = sortd_index + len(v.get('lgnetworkkeys'))
-                retvalues[0] = lgnetset
-                return retkeys,retvalues
-
-
-            try:
-                for m in callAPI(self.app_routine,"objectdb",'transact',
-                        {"keys":keys,'updater':updater}):
-                    yield m
-
-            except UpdateConflictException:
-                logger.info(" cause UpdateConflict Exception try once")
-                continue 
-            except:
-                raise
-            else:
-                with watch_context(flgnetworkkeys,flgnetworkvalues,reqid,self.app_routine):
-                    pass
-                break
-
-        self.app_routine.retvalue = {"status":'OK'}
- 
+        except:
+            raise
+        else:
+            self.app_routine.retvalue = {"status":'OK'}
+        finally:
+             with watch_context(flgnetworkkeys,flgnetworkvalues,reqid,self.app_routine):
+                pass
+        
     def listlogicalnetwork(self,id = None,phynetwork = None,**args):
         
         def set_walker(key,set,walk,save):
@@ -1950,47 +1833,23 @@ class ViperFlow(Module):
 
     def createlogicalports(self,ports):
         
-        flgnetworkkeys = []
+        
+        idset = set()
         newports = []
         for port in ports:
             port = copy.deepcopy(port)
-            
-            #lgnetworkkeys.append(LogicalNetwork.default_key(port["logicalnetwork"]))
-            port.setdefault('id',str(uuid1()))
-            
+            if 'id' in ports:
+                if ports['id'] not in idset():
+                    idset.add(ports['id'])
+                else:
+                    raise ValueError("id repeat "+ id)
+            else:
+                port.setdefault('id',str(uuid1()))
+
             newports.append(port)
-        
-        """
-        self._reqid += 1
-        reqid = ('viperflow',self._reqid)
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':list(set(flgnetworkkeys)),'requestid':reqid}):
-            yield m
-       
-        flgnetworkvalues = self.app_routine.retvalue
-        
-        
-        if None in flgnetworkvalues:
-            raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
-        
-        lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
-        #for port in new:ports:
 
-            #port = copy.deepcopy(port)
-
-            #lognetkey = LogicalNetwork.default_key(port.get("logicalnetwork"))
-
-            #for m in self._getkeys([lognetkey]):
-            #    yield m
-
-            #lognetobj = self.app_routine.retvalue
-
-            #if len(lognetobj) == 0 or lognetobj[0] is None:
-            #    raise ValueError("logicalnetwork not existed " +port.get("logicalnetwork"))
-            
-            #port.setdefault('id',str(uuid1()))
-        """
         lgportsetkey = LogicalPortSet.default_key()
-        lgportkeys = [LogicalPort.default_key(p.get('id')) for p in newports]
+        lgportkeys = [LogicalPort.default_key(p['id']) for p in newports]
         lgports = [self._createlogicalports(**p) for p in newports]
         lgnetkeys = list(set([p.network.getkey() for p in lgports]))
         lgnetmapkeys = [LogicalNetworkMap.default_key(LogicalNetwork._getIndices(k)[1][0]) for k in lgnetkeys]
@@ -2021,9 +1880,9 @@ class ViperFlow(Module):
                 yield m
         except:
             raise
-
-        for m in self._dumpkeys(lgportkeys):
-            yield m
+        else:
+            for m in self._dumpkeys(lgportkeys):
+                yield m
     def _createlogicalports(self,id,logicalnetwork,**args):
 
         lgport = LogicalPort.create_instance(id)
@@ -2036,6 +1895,7 @@ class ViperFlow(Module):
 
     def updatelogicalport(self,id,**kwargs):
         
+        """
         lgportkey = LogicalPort.default_key(id)
 
         for m in self._getkeys([lgportkey]):
@@ -2063,67 +1923,57 @@ class ViperFlow(Module):
 
         for m in self._dumpkeys([lgportkey]):
             yield m
-    
-    def updatelogicalports(self,ports):
+        """
+        if not id :
+            raise ValueError("must special id")
+
+        port = {"id":id}
+        port.update(kwargs)
         
-        # ports [{"id":id,...},{...}]
-        """
-        for port in ports:
-            
-            port = copy.deepcopy(port)
-
-            lgportkey = LogicalPort.default_key(port.get("id"))
-            
-            for m in self._getkeys([lgportkey]):
-                yield m
-
-            lgportobj = self.app_routine.retvalue
-            if len(lgportobj) == 0 or lgportobj[0] is None:
-                raise ValueError("logical port id not existed "+ port.get("id"))
-        """
-        while True:
-            lgportkeys = list(set([LogicalPort.default_key(port.get("id")) 
-                            for port in ports]))
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
-            for m in callAPI(self.app_routine,'objectdb','mget',{'keys':lgportkeys,'requestid':reqid}):
-                yield m
-            
-            lgportvalues = self.app_routine.retvalue
-            if None in lgportvalues:
-                raise ValueError("logical port id not existed "+LogicalPort._getIndices(lgportkeys[lgportvalues.index(None)])[1][0])
-            
-            def update(keys,values):
-
-                if [v.id if v is not None else None for v in values] != [v.id for v in lgportvalues]:
-                    raise UpdateConflictException
-                
-                lgportdict = dict(zip(keys,values))
-                for port in ports:
-                    lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
-
-                    for k,v in port.items():
-                        setattr(lgport,k,v)
-
-                return keys,values
-            try:
-                for m in callAPI(self.app_routine,"objectdb","transact",
-                        {"keys":lgportkeys,"updater":update}):
-                    yield m
-            except UpdateConflictException:
-                logger.info(" cause UpdateConflict Exception try once")
-                continue
-            except:
-                raise
-            else:
-                with watch_context(lgportkeys,lgportvalues,reqid,self.app_routine):
-                    pass
-                break
-
-        for m in self._dumpkeys(lgportkeys):
+        for m in self.updatelogicalports([port]):
             yield m
-    def deletelogicalport(self,id):
+    def updatelogicalports(self,ports):
+         
+        # ports [{"id":id,...},{...}]
+        lgportkeys = set()
+        for port in ports:
+            if 'id' in port:
+                if port['id'] not in lgportkeys:
+                    lgportkeys.add(port['id'])
+                else:
+                    raise ValueError("key repeat "+ port['id'])
+            else:
+                raise ValueError("must special id")
+        
+        lgportkeys = [LogicalPort.default_key(key) for key in lgportkeys]
+        def update(keys,values):
 
+            lgportdict = dict(zip(keys,values))
+            for port in ports:
+
+                lgport = lgportdict.get(LogicalPort.default_key(port["id"]))
+                
+                if not lgport:
+                    raise ValueError("key object not existed "+ port['id'])
+                
+                for k,v in port.items():
+                    setattr(lgport,k,v)
+
+            return keys,values
+
+        try:
+            for m in callAPI(self.app_routine,"objectdb","transact",
+                    {"keys":lgportkeys,"updater":update}):
+                yield m
+        except:
+            raise
+        else:
+            for m in self._dumpkeys(lgportkeys):
+                yield m
+
+    def deletelogicalport(self,id):
+        
+        """
         lgportkey = LogicalPort.default_key(id)
 
         for m in self._getkeys([lgportkey]):
@@ -2155,90 +2005,103 @@ class ViperFlow(Module):
             raise
 
         self.app_routine.retvalue = {"status":'OK'}
-    
+        """
+        if not id:
+            raise ValueError("must special id")
+        p = {"id":id}
+        for m in self.deletelogicalports([p]):
+            yield m
     def deletelogicalports(self,ports):
-        
-        """
-        p = []
+
+        self._reqid += 1
+        reqid = ('viperflow',self._reqid)
+        maxtry = 1
+        lgportkeys = set()
         for port in ports:
-
-            port = copy.deepcopy(port)
-            
-            lgportkey = LogicalPort.default_key(port.get("id"))
-            for m in self._getkeys([lgportkey]):
-                yield m
-            lgportobj = self.app_routine.retvalue
-
-            if len(lgportobj) == 0 or lgportobj[0] is None:
-                continue
-
-            port['lgnetid'] = lgportobj[0].network.id
-            p.append(port)
-        """
-        while True:
-
-            lgportkeys = [LogicalPort.default_key(port.get("id"))
-                            for port in ports]
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
-            for m in callAPI(self.app_routine,'objectdb','mget',{'keys':lgportkeys,'requestid':reqid}):
-                yield m
-                
-            flgportvalues = self.app_routine.retvalue
-
-            lgportdict = dict(zip(lgportkeys,flgportvalues))
-            
-            p = []
-            for port in ports:
-                port = copy.deepcopy(port)
-
-                portobj = lgportdict[LogicalPort.default_key(port["id"])]
-                if portobj:
-                    port['lgnetid'] = portobj.network.id
-                    p.append(port)
-
-
-            lgnetmapkeys = list(set([LogicalNetworkMap.default_key(port.get("lgnetid"))
-                            for port in p]))
-            
-            keys = [LogicalPortSet.default_key()] + lgportkeys + lgnetmapkeys
-            
-            def update(keys,values):
-                lgportkeys = keys[1:1+len(ports)]
-                lgportvalues = values[1:1+len(ports)]
-                
-                if [v.network.getkey() if v is not None else None for v in flgportvalues] != [v.network.getkey() if v is not None else None for v in lgportvalues]:
-                    raise UpdateConflictException
-                
-                lgnetmapkeys = keys[1+len(ports):]
-                lgnetmapvalues = values[1+len(ports):]
-                
-                lgportdict = dict(zip(lgportkeys,lgportvalues))
-                lgnetmapdict = dict(zip(lgnetmapkeys,lgnetmapvalues))
-
-                for port in p:
-                    lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
-                    lgnetmap = lgnetmapdict.get(LogicalNetworkMap.default_key(port.get("lgnetid")))
-                    
-                    lgnetmap.ports.dataset().discard(lgport.create_weakreference())
-                   
-                    values[0].set.dataset().discard(lgport.create_weakreference())
-                return keys,[values[0]]+[None]*len(ports)+lgnetmapvalues
-            try:
-                for m in callAPI(self.app_routine,"objectdb","transact",
-                    {"keys":keys,"updater":update}):
-                    yield m
-            except UpdateConflictException:
-                logger.info(" cause UpdateConflict Exception try once")
-                continue
-            except:
-                raise
+            if 'id' in port:
+                if port['id'] not in lgportkeys:
+                    lgportkeys.add(port['id'])
+                else:
+                    raise ValueError("key repeat "+ port['id'])
             else:
-                with watch_context(lgportkeys,flgportvalues,reqid,self.app_routine):
-                    pass
-                break
-        self.app_routine.retvalue = {"status":'OK'}
-    
+                raise ValueError("must special id")
+
+
+        lgportkeys = [LogicalPort.default_key(key) for key in lgportkeys]
+        
+        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':lgportkeys,'requestid':reqid}):
+            yield m
+        
+        lgportvalues = self.app_routine.retvalue
+
+        if None in lgportvalues:
+            raise ValueError("logicalport is not existed "+\
+                    LogicalPort._getIndices(lgportkeys[lgportvalues.index(None)])[1][0])
+
+        lgportdict = dict(zip(lgportkeys,lgportvalues))
+        
+        try:
+            while True:
+                newports = dict() 
+                for port in ports:
+                    port = copy.deepcopy(port)
+                    key = LogicalPort.default_key(port["id"])
+                    portobj = lgportdict[key]
+                    
+                    # fake attr for delete
+                    port['lgnetid'] = portobj.network.id
+
+                lgnetmapkeys = list(set([LogicalNetworkMap.default_key(p['lgnetid'])
+                            for p in newports]))
+
+                keys = [LogicalPortSet.default_key()] + lgportkeys + lgnetmapkeys
+                
+                def update(keys,values):
+                    lgportkeys = keys[1:1+len(ports)]
+                    lgportvalues = values[1:1+len(ports)]
+                    
+                    if [v.network.getkey() if v is not None else None for v in lgportvalues] !=\
+                            [v.network.getkey() for v in lgportvalues]:
+                        raise UpdateConflictException
+                    
+                    lgnetmapkeys = keys[1+len(ports):]
+                    lgnetmapvalues = values[1+len(ports):]
+                    
+                    lgportdict = dict(zip(lgportkeys,lgportvalues))
+                    lgnetmapdict = dict(zip(lgnetmapkeys,lgnetmapvalues))
+
+                    for port in newports:
+                        lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
+                        lgnetmap = lgnetmapdict.get(LogicalNetworkMap.default_key(port.get("lgnetid")))
+                        
+                        lgnetmap.ports.dataset().discard(lgport.create_weakreference())
+                       
+                        values[0].set.dataset().discard(lgport.create_weakreference())
+                    return keys,[values[0]]+[None]*len(ports)+lgnetmapvalues
+                
+                try:
+                    for m in callAPI(self.app_routine,"objectdb","transact",
+                        {"keys":keys,"updater":update}):
+                        yield m
+                except UpdateConflictException:
+                    maxtry -= 1
+                    if maxtry < 0:
+                        raise
+                    else:
+                        logger.info(" cause UpdateConflict Exception try once")
+                        continue
+                except:
+                    raise
+                else:
+                    break
+        except:
+            raise
+        else:
+            self.app_routine.retvalue = {"status":'OK'}
+        finally:
+            with watch_context(lgportkeys,lgportvalues,reqid,self.app_routine):
+                pass
+
     def listlogicalport(self,id = None,logicalnetwork = None,**kwargs):
         def set_walker(key,set,walk,save):
 
