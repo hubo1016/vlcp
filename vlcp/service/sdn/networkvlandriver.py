@@ -208,6 +208,10 @@ class NetworkVlanDriver(Module):
 
             for network in networks:
                 phynet,phymap = phynetdict.get(PhysicalNetwork.default_key(network.get('id')))
+                if not phynet or not phymap:
+                    raise ValueError("key object not existed "+\
+                            PhysicalNetwork.default_key(network['id']))
+                
                 if 'vlanrange' in network:
                     findflag = False
                     for k,_ in phymap.network_allocation.items():
@@ -230,7 +234,7 @@ class NetworkVlanDriver(Module):
                         raise ValueError('new vlan range do not match with allocation')
                 for k,v in network.items():   
                     setattr(phynet,k,v)
-            return keys,values
+            return phykeys,phyvalues
 
         return updatephynetworks
     def deletephysicalnetwork(self,type,id):
@@ -266,8 +270,13 @@ class NetworkVlanDriver(Module):
             phynetset = values[0].set.dataset()
             for network in networks:
                 phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get('id')))
-
-                if len(phynetmap.network_allocation) > 0:
+                # if there is phynetworkport on the phynet 
+                # delete will fail
+                if phynetmap and phynetmap.ports.dataset():
+                    raise ValueError("delete all phynetworkport on this phynet before delete")
+                # if there is logicnetwork on the phynet
+                # delete will fail
+                if phynetmap and phynetmap.network_allocation:
                     raise ValueError('delete all logicnetwork on this phynet before delete')
                 
                 phynetset.discard(phynet.create_weakreference())
@@ -291,17 +300,33 @@ class NetworkVlanDriver(Module):
     """
     def createphysicalports(self,type,ports):
         portobjs = [self._createphysicalport(**n) for n in ports]
-
+        
         def createpyports(keys,values):
+            phynetlen = (len(keys) - 1 - len(portobjs))//2
+            
+            phynetkeys = keys[1+len(portobjs):1+len(portobjs)+phynetlen]
+            phynetvalues = values[1+len(portobjs):1+len(portobjs)+phynetlen]
+            
+            phynetmapkeys = keys[1+len(portobjs)+phynetlen:]
+            phynetmapvalues = values[1+len(portobjs)+phynetlen:]
+            
+            phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
+
+            phynetkeys = keys[1+len(portobjs):1+len(portobjs)+phynetlen]
+            
             for i in range(0,len(portobjs)):
                 values[i + 1] = set_new(values[i + 1],portobjs[i])
-                values[i + 1 + len(portobjs)].ports.dataset().add(portobjs[i].create_weakreference())
                 
+                key = portobjs[i].physicalnetwork.getkey()
+                phynet,phymap = phynetdict.get(key)
+                
+                phymap.ports.dataset().add(portobjs[i].create_weakreference())
                 values[0].set.dataset().add(portobjs[i].create_weakreference())
 
             return keys,values
         return createpyports
     def _createphysicalport(self,phynetwork,name,vhost,systemid,bridge,**args):
+
         p = PhysicalPort.create_instance(vhost,systemid,bridge,name)
         p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetwork))
         
