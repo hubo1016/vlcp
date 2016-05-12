@@ -615,7 +615,7 @@ class NetworkVlanDriver(Module):
                     # this phynetid is fack attr for find phynet phymap
                     if k != 'phynetid' and k != 'vlanid':
                         setattr(lgnet,k,str(v))
-            return keys,values
+            return keys[0:len(networks)] + phynetmapkeys ,values[0:len(networks)] + phynetmapvalues
 
         return updatelgnetworks
     def deletelogicalnetwork(self,phynettype,id):
