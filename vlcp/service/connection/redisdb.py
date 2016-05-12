@@ -97,13 +97,14 @@ class RedisDB(TcpServerBase):
                         return None
                     elif isinstance(data, Exception):
                         raise data
-                    elif not isinstance(data, str) and isinstance(data, bytes):
+                    else:
                         try:
                             data = decompress(data)
                         except zlib_error:
                             pass
-                        data = data.decode('utf-8')
-                    return json.loads(data, object_hook=decode_object)
+                        if not isinstance(data, str) and isinstance(data, bytes):
+                            data = data.decode('utf-8')
+                        return json.loads(data, object_hook=decode_object)
                 self._decode = _decode
             else:
                 def _encode(obj):
