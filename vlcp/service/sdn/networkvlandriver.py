@@ -520,7 +520,7 @@ class NetworkVlanDriver(Module):
                     values[0:1]+values[1:1+len(networks)+len(networks)] + phynetmapvalues
         return createlgnetworks
         
-    def _createlogicalnetwork(self,phynetwork,id,**args):
+    def _createlogicalnetwork(self,physicalnetwork,id,**args):
 
         logicalnetwork = LogicalNetwork.create_instance(id)
         logicalnetworkmap = LogicalNetworkMap.create_instance(id)
@@ -529,7 +529,7 @@ class NetworkVlanDriver(Module):
             setattr(logicalnetwork,k,v)
 
         logicalnetworkmap.network = logicalnetwork.create_reference()
-        logicalnetwork.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetwork))
+        logicalnetwork.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(physicalnetwork))
 
         return (logicalnetwork,logicalnetworkmap)
     
