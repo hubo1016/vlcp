@@ -1307,33 +1307,23 @@ class ViperFlow(Module):
                     retvalues = [None]
                     lgnetset = values[0]
                     for k,v in typenetwork.items():
-                        typelgnetkeys = keys[start:start+len(v.get('lgnetworkkeys'))]    
-                        typelgnetvalues = values[start:start+len(v.get('lgnetworkkeys'))]   
+                        typekeylen = len(v['lgnetworkkeys']) + len(v['lgnetworkmapkeys']) + len(v['phynetmapkeys'])
+                        objlen = len(v['lgnetworkkeys'])
                         
-                        if [n.physicalnetwork.getkey() if n is not None else None for n in typelgnetvalues] !=\
-                                [n.physicalnetwork.getkey() if n is not None else None for n in typesortvalues[index:index + len(v.get('lgnetworkkeys'))]]:
+                        if [n.physicalnetwork.getkey() if n is not None else None for n in values[start:start+objlen]] !=\
+                                [n.physicalnetwork.getkey() for n in typesortvalues[index:index+objlen]]:
                             raise UpdateConflictException
-
-                        phynetkeys = keys[start + len(v.get('lgnetworkkeys')):
-                                            start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys"))]
-                        phynetvalues = values[start + len(v.get('lgnetworkkeys')):
-                                            start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys"))]
-                       
-                        phynetmapkeys = keys[start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys')):
-                                            start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys'))+
-                                            len(v.get("phynetmapkeys"))] 
-                        phynetmapvalues = values[start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys')):
-                                            start+len(v.get("lgnetworkkeys"))+len(v.get('lgnetworkmapkeys'))+
-                                            len(v.get("phynetmapkeys"))] 
-                        typeretkeys,typeretvalues = v.get('updater')(keys[0:1]+typelgnetkeys+phynetkeys+phynetmapkeys,
-                                            [lgnetset]+typelgnetvalues+phynetvalues+phynetmapvalues)
-                        
-                        retkeys.extend(typeretkeys[1:])
-                        retvalues.extend(typeretvalues[1:])
-                        lgnetset = typeretvalues[0]
-                        start = start + len(v.get('lgnetworkkeys'))+len(v.get("lgnetworkmapkeys")) + \
-                                    len(v.get("phynetmapkeys"))
-                        index = index + len(v.get('lgnetworkkeys'))
+                        try:
+                            typeretkeys,typeretvalues = v['updater'](keys[0:1]+keys[start:start+typekeylen],
+                                    [lgnetset]+values[start:start+typekeylen])
+                        except:
+                            raise
+                        else:
+                            retkeys.extend(typeretkeys[1:])
+                            retvalues.extend(typeretvalues[1:])
+                            lgnetset = typeretvalues[0]
+                            start = start + typekeylen
+                            index = index + objlen
                     retvalues[0] = lgnetset
                     return retkeys,retvalues
 
