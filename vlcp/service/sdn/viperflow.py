@@ -86,7 +86,7 @@ class ViperFlow(Module):
             pass
 
     def createphysicalnetwork(self,type = 'vlan',id = None, **kwargs):
-        
+        "create physicalnetwork , return created info"        
         if not id:
             id = str(uuid1())
         
@@ -96,6 +96,7 @@ class ViperFlow(Module):
         for m in self.createphysicalnetworks([network]):
             yield m
     def createphysicalnetworks(self,networks):
+        "create multi physicalnetworks, return created infos"
         #networks [{type='vlan' or 'vxlan',id = None or uuid1(),'vlanrange':[(100,200),(400,401)],kwargs}]
         
         typenetworks = dict()
@@ -185,9 +186,8 @@ class ViperFlow(Module):
             yield m
     
     def updatephysicalnetwork(self,id,**kwargs):
-        """
-        update physicalnetwork that id info
-        """
+        "update physicalnetwork that id info,return updated info"
+        
         if id is None:
             raise ValueError("update must be special id")
         
@@ -198,6 +198,8 @@ class ViperFlow(Module):
             yield m
 
     def updatephysicalnetworks(self,networks):
+        "update multi physicalnetworks that id info,return updated infos"
+        
         # networks [{"id":phynetid,....}]
         
         phynetkeys = set()
@@ -296,6 +298,7 @@ class ViperFlow(Module):
             for m in self._dumpkeys(dumpkeys):
                 yield m
     def deletephysicalnetwork(self,id):
+        "delete physicalnetwork that id,return status OK"
         if id is None:
             raise ValueError("delete netwrok must special id")
         network = {"id":id}
@@ -303,6 +306,7 @@ class ViperFlow(Module):
         for m in self.deletephysicalnetworks([network]):
             yield m
     def deletephysicalnetworks(self,networks):
+        "delete physicalnetworks that ids,return status OK"
         # networks [{"id":id},{"id":id}]
         
         typenetworks = dict()
@@ -398,7 +402,7 @@ class ViperFlow(Module):
             self.app_routine.retvalue = {"status":'OK'}
 
     def listphysicalnetworks(self,id = None,**kwargs):
-        
+        "list physcialnetwork infos" 
         def set_walker(key,set,walk,save):
             for refnetwork in set.dataset():
                 networkkey = refnetwork.getkey()
@@ -452,20 +456,15 @@ class ViperFlow(Module):
                     self.app_routine.retvalue = []
     
     def createphysicalport(self,physicalnetwork,name,vhost='',systemid='%',bridge='%',**kwargs):
-        
+        "create physicalport,return created info" 
         port = {'physicalnetwork':physicalnetwork,'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
         port.update(kwargs)
 
         for m in self.createphysicalports([port]):
             yield m
     def createphysicalports(self,ports):
+        "create multi physicalport, return created infos"
         # ports [{'physicalnetwork':id,'name':eth0,'vhost':'',systemid:'%'},{.....}]
-        
-        #
-        # we should use this while , when first get obj, to get type
-        # second update , get obj , if fobj type or None conflict with sobj
-        # we will try another once
-        #
         
         phynetkeys = []
         newports = []
@@ -580,7 +579,7 @@ class ViperFlow(Module):
                 yield m
 
     def updatephysicalport(self,name,vhost='',systemid='%',bridge='%',**args):
-        
+        "update physicalport info that id, return updated info" 
         if not name:
             raise ValueError("must speclial physicalport name")
         
@@ -591,6 +590,7 @@ class ViperFlow(Module):
             yield m
     
     def updatephysicalports(self,ports):
+        "update multi physicalport info that ids, return updated infos" 
         # ports [{'name':eth0,'vhost':'',systemid:'%'},{.....}]
         
         self._reqid += 1
@@ -718,7 +718,7 @@ class ViperFlow(Module):
             with watch_context(fphysicalportkeys,fphysicalportvalues,reqid,self.app_routine):
                 pass
     def deletephysicalport(self,name,vhost='',systemid='%',bridge='%'):
-        
+        "delete physicalport that id, return status OK" 
         if not name:
             raise ValueError("must speclial physicalport name")
         port = {'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
@@ -726,7 +726,7 @@ class ViperFlow(Module):
         for m in self.deletephysicalports([port]):
             yield m
     def deletephysicalports(self,ports):
-        
+        "delete physicalports that ids, return status OK" 
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
         max_try = 1
@@ -868,7 +868,7 @@ class ViperFlow(Module):
         
     def listphysicalports(self,name = None,physicalnetwork = None,vhost='',
             systemid='%',bridge='%',**args):
-        
+        "list physicalports info" 
         def set_walker(key,set,walk,save):
 
             for weakobj in set.dataset():
@@ -933,7 +933,7 @@ class ViperFlow(Module):
                     self.app_routine.retvalue = []
     
     def createlogicalnetwork(self,physicalnetwork,id = None,**kwargs):
-        
+        "create logicalnetwork info,return creared info" 
         if not id:
             id = str(uuid1())
         network = {'physicalnetwork':physicalnetwork,'id':id}
@@ -942,7 +942,7 @@ class ViperFlow(Module):
         for m in self.createlogicalnetworks([network]):
             yield m
     def createlogicalnetworks(self,networks):
-        
+        "create logicalnetworks info,return creared infos" 
         # networks [{'physicalnetwork':'id','id':'id' ...},{'physicalnetwork':'id',...}]
         
         idset = set()
@@ -1068,7 +1068,7 @@ class ViperFlow(Module):
             yield m
    
     def updatelogicalnetwork(self,id,**kwargs):
-        
+        "update logicalnetwork info that id, return updated info" 
         # update phynetid is disabled 
 
         if not id:
@@ -1080,6 +1080,7 @@ class ViperFlow(Module):
         for m in self.updatelogicalnetworks([network]):
             yield m
     def updatelogicalnetworks(self,networks):
+        "update logicalnetworks info that ids, return updated infos" 
         #networks [{'id':id,....},{'id':id,....}]
 
         self._reqid += 1
@@ -1211,7 +1212,7 @@ class ViperFlow(Module):
                 pass
 
     def deletelogicalnetwork(self,id):
-        
+        "delete logicalnetwork that id,return status OK" 
         if not id:
             raise ValueError("must special id")
 
@@ -1220,6 +1221,7 @@ class ViperFlow(Module):
             yield m
 
     def deletelogicalnetworks(self,networks):
+        "delete logicalnetworks that ids,return status OK" 
         # networks [{"id":id},{"id":id}]
 
         self._reqid += 1
@@ -1353,7 +1355,7 @@ class ViperFlow(Module):
                 pass
         
     def listlogicalnetworks(self,id = None,physicalnetwork = None,**args):
-        
+        "list logcialnetworks infos" 
         def set_walker(key,set,walk,save):
 
             for weakobj in set.dataset():
@@ -1416,7 +1418,7 @@ class ViperFlow(Module):
     
 
     def createlogicalport(self,logicalnetwork,id = None,**args):
-
+        "create logicalport info,return created info"
         if not id:
             id = str(uuid1())
 
@@ -1428,6 +1430,7 @@ class ViperFlow(Module):
 
     def createlogicalports(self,ports):
         
+        "create multi logicalport info,return created infos"
         
         idset = set()
         newports = []
@@ -1489,7 +1492,7 @@ class ViperFlow(Module):
         return lgport
 
     def updatelogicalport(self,id,**kwargs):
-        
+        "update logicalport that id,return updated info" 
         if not id :
             raise ValueError("must special id")
 
@@ -1499,7 +1502,7 @@ class ViperFlow(Module):
         for m in self.updatelogicalports([port]):
             yield m
     def updatelogicalports(self,ports):
-         
+        "update logicalports that ids,return updated info" 
         # ports [{"id":id,...},{...}]
         lgportkeys = set()
         for port in ports:
@@ -1538,14 +1541,14 @@ class ViperFlow(Module):
                 yield m
 
     def deletelogicalport(self,id):
-        
+        "delete logcialport that id, return status OK" 
         if not id:
             raise ValueError("must special id")
         p = {"id":id}
         for m in self.deletelogicalports([p]):
             yield m
     def deletelogicalports(self,ports):
-
+        "delete logcialports that ids, return status OK" 
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
         maxtry = 1
@@ -1636,6 +1639,7 @@ class ViperFlow(Module):
                 pass
 
     def listlogicalports(self,id = None,logicalnetwork = None,**kwargs):
+        "list logicalports infos"
         def set_walker(key,set,walk,save):
 
             for weakobj in set.dataset():
