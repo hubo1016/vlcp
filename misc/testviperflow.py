@@ -32,7 +32,6 @@ class MainModule(Module):
             logger.info("\033[1;31;40m test 1 createphysicalnetwork success \033[0m")
         else:
             logger.info("\033[1;31;40m test 1 createphysicalnetwork failed \033[0m")
-
         
         # case 2 : special vlanrange [[100,200]]
         try:
@@ -50,7 +49,7 @@ class MainModule(Module):
                 logger.info("\033[1;31;40m test 2 special vlanrange [[100,200]] createphysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 2 special vlanrange [[100,200]] createphysicalnetwork success \033[0m")
-
+        
         # case 3 : special vlanrange [[100,200],[200,201]]
         try:
             for m in callAPI(self.app_routine,'viperflow','createphysicalnetwork',{'vlanrange':[(100,200),(200,201)]},timeout = 1):
@@ -133,7 +132,7 @@ class MainModule(Module):
 
         #case 7 : list all phynetwork
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalnetwork',{}):
+            for m in callAPI(self.app_routine,'viperflow','listphysicalnetworks',{}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -152,7 +151,7 @@ class MainModule(Module):
         
         #case 8 : list one phynetwork 
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalnetwork',{"id":ids[999]}):
+            for m in callAPI(self.app_routine,'viperflow','listphysicalnetworks',{"id":ids[999]}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -217,7 +216,7 @@ class MainModule(Module):
         
         #case 12 : list one not existed phynetwork 
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalnetwork',{"id":ids[999]}):
+            for m in callAPI(self.app_routine,'viperflow','listphysicalnetworks',{"id":ids[999]}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -268,7 +267,7 @@ class MainModule(Module):
         
         #case 15 : list all phynetwork where name = 'one'
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalnetwork',{"name":"one"}):
+            for m in callAPI(self.app_routine,'viperflow','listphysicalnetworks',{"name":"one"}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -309,7 +308,7 @@ class MainModule(Module):
 
         physicalnetworkids = []
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalnetwork',{}):
+            for m in callAPI(self.app_routine,'viperflow','listphysicalnetworks',{}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -325,7 +324,7 @@ class MainModule(Module):
 
         try:
             for m in callAPI(self.app_routine,'viperflow','createphysicalport',
-                    {"phynetwork":physicalnetworkids[0][0],"name":"eth0"}):
+                    {"physicalnetwork":physicalnetworkids[0][0],"name":"eth0"}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -345,7 +344,7 @@ class MainModule(Module):
 
         try:
             for m in callAPI(self.app_routine,'viperflow','createphysicalport',
-                    {"phynetwork":physicalnetworkids[0][0],"name":"eth0"}):
+                    {"physicalnetwork":physicalnetworkids[0][0],"name":"eth0"}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -357,7 +356,7 @@ class MainModule(Module):
 
         try:
             for m in callAPI(self.app_routine,'viperflow','createphysicalport',
-                    {"phynetwork":physicalnetworkids[0][0],"name":"eth0","systemid":"1234","bridge":"br0"}):
+                    {"physicalnetwork":physicalnetworkids[0][0],"name":"eth0","systemid":"1234","bridge":"br0"}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -378,7 +377,7 @@ class MainModule(Module):
         
         #case 20 : test list all phynetworkport
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalport',{}):
+            for m in callAPI(self.app_routine,'viperflow','listphysicalports',{}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -399,7 +398,7 @@ class MainModule(Module):
 
         #case 21 : test list one phynetworkport
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalport',{"name":"eth0"}):
+            for m in callAPI(self.app_routine,'viperflow','listphysicalports',{"name":"eth0"}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -420,7 +419,7 @@ class MainModule(Module):
         
         #case 22 : test list one full phynetworkport
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalport',
+            for m in callAPI(self.app_routine,'viperflow','listphysicalports',
                     {"name":"eth0","systemid":"1234","bridge":"br0"}):
                 yield m
         except Exception as e:
@@ -465,7 +464,7 @@ class MainModule(Module):
         
         #case 24 : test list one where phynetworkport
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalport',
+            for m in callAPI(self.app_routine,'viperflow','listphysicalports',
                     {"name":"eth0","mac":"0123456789"}):
                 yield m
         except Exception as e:
@@ -499,12 +498,12 @@ class MainModule(Module):
 
         #case 26: test create 1000 phynetworkport
 
-        p1 = [{"name":"eth"+str(i),"phynetwork":physicalnetworkids[0][0]} for i in range(0,500)]
-        p2 = [{"name":"eth"+str(i),"phynetwork":physicalnetworkids[1][0]} for i in range(500,1000)]
+        p1 = [{"name":"eth"+str(i),"physicalnetwork":physicalnetworkids[0][0]} for i in range(0,500)]
+        p2 = [{"name":"eth"+str(i),"physicalnetwork":physicalnetworkids[1][0]} for i in range(500,1000)]
         begintime = time.time()
         try:
             for m in callAPI(self.app_routine,'viperflow','createphysicalports',
-                    {"ports":p1+p2}):
+                    {"ports":p1 + p2}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -523,9 +522,9 @@ class MainModule(Module):
                 raise SystemExit
             else:
                 logger.info("\033[1;31;40m test 26 createphysicalport 1000 success used %r \033[0m",endtime-begintime)
-    
+        
         # case 27: test update 500 phynetworkport
-        p1 = [{"name":"eth"+str(i),"phynetwork":physicalnetworkids[0][0],"mac":str(i)} for i in range(0,500)]
+        p1 = [{"name":"eth"+str(i),"mac":str(i)} for i in range(0,500)]
         begintime = time.time()
         try:
             for m in callAPI(self.app_routine,'viperflow','updatephysicalports',
@@ -546,11 +545,10 @@ class MainModule(Module):
                 logger.info("\033[1;31;40m test 27 updatephysicalport 500 failed used %r \033[0m",endtime-begintime)
             else:
                 logger.info("\033[1;31;40m test 27 updatephysicalport 500 success used %r \033[0m",endtime-begintime)
-        
         #case 28: test list phynetwork == xxx
         try:
-            for m in callAPI(self.app_routine,'viperflow','listphysicalport',
-                    {"phynetwork":physicalnetworkids[1][0]}):
+            for m in callAPI(self.app_routine,'viperflow','listphysicalports',
+                    {"physicalnetwork":physicalnetworkids[1][0]}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -601,7 +599,7 @@ class MainModule(Module):
         #case 31: test createlogicalnetwork one
         try:
             for m in callAPI(self.app_routine,'viperflow','createlogicalnetwork',
-                    {"phynetwork":physicalnetworkids[0][0]}):
+                    {"physicalnetwork":physicalnetworkids[0][0]}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -611,7 +609,7 @@ class MainModule(Module):
             try:
                 assert len(result) == 1
                 assert result[0].get("id")
-                assert result[0].get("vlanid") == '100'
+                assert result[0].get("vlanid") == 100
                 assert result[0].get("physicalnetwork").get("id") == physicalnetworkids[0][0]
             except:
                 logger.info("\033[1;31;40m test 31 createlogicalnetwork one failed \033[0m")
@@ -621,7 +619,7 @@ class MainModule(Module):
         #case 32：test createlogcialnetwork that vlanid have been used
         try:
             for m in callAPI(self.app_routine,'viperflow','createlogicalnetwork',
-                    {"phynetwork":physicalnetworkids[0][0],"vlanid":"100"}):
+                    {"physicalnetwork":physicalnetworkids[0][0],"vlanid":"100"}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -635,7 +633,7 @@ class MainModule(Module):
             if phynetid[1] == [[100, 200], [201, 4094]]:
                 pyid = phynetid[0]
 
-        n = [{"phynetwork":pyid,"id":str(uuid.uuid1())} for i in range(0,1000)]
+        n = [{"physicalnetwork":pyid,"id":str(uuid.uuid1())} for i in range(0,1000)]
         begintime = time.time()
         try:
             for m in callAPI(self.app_routine,'viperflow','createlogicalnetworks',{"networks":n}):
@@ -683,7 +681,7 @@ class MainModule(Module):
         #case 35: test listlogicalnetwork all
         pnid = [{"id":ne.get("id")} for ne in n]
         try:
-            for m in callAPI(self.app_routine,'viperflow','listlogicalnetwork',{}):
+            for m in callAPI(self.app_routine,'viperflow','listlogicalnetworks',{}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -700,7 +698,7 @@ class MainModule(Module):
 
         #case 36: test listlogicalnetwork name = "two"
         try:
-            for m in callAPI(self.app_routine,'viperflow','listlogicalnetwork',{"name":"two"}):
+            for m in callAPI(self.app_routine,'viperflow','listlogicalnetworks',{"name":"two"}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -719,7 +717,7 @@ class MainModule(Module):
         
         #case 37：test listlogicalnetwork phynetwork == xxx
         try:
-            for m in callAPI(self.app_routine,'viperflow','listlogicalnetwork',{"phynetwork":pyid}):
+            for m in callAPI(self.app_routine,'viperflow','listlogicalnetworks',{"physicalnetwork":pyid}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -738,8 +736,8 @@ class MainModule(Module):
         
         #case 38：test listlogicalnetwork phynetwork == xxx, name = "two"
         try:
-            for m in callAPI(self.app_routine,'viperflow','listlogicalnetwork',
-                    {"phynetwork":pyid,"name":"two"}):
+            for m in callAPI(self.app_routine,'viperflow','listlogicalnetworks',
+                    {"physicalnetwork":pyid,"name":"two"}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -773,9 +771,9 @@ class MainModule(Module):
             try:
                 assert result.get("status") == "OK"
             except:
-                logger.info("\033[1;31;40m test 39 deletelogicalnetworks failed \033[0m")
+                logger.info("\033[1;31;40m test 39 deletelogicalnetworks 1000 failed used %r\033[0m",endtime - begintime)
             else:
-                logger.info("\033[1;31;40m test 39 deletelogicalnetworks success \033[0m")  
+                logger.info("\033[1;31;40m test 39 deletelogicalnetworks 1000 success used %r\033[0m",endtime - begintime)  
         
         #case 40: test create logicalnetwork allocate vlanid
         for phynetid in physicalnetworkids:
@@ -783,7 +781,7 @@ class MainModule(Module):
                 pyid = phynetid[0]
 
         lgid = [str(uuid.uuid1()),str(uuid.uuid1()),str(uuid.uuid1())]
-        n = [{"phynetwork":pyid,"id":lgid[0]},{"phynetwork":pyid,"vlanid":"101","id":lgid[1]},{"phynetwork":pyid,"id":lgid[2]}]
+        n = [{"physicalnetwork":pyid,"id":lgid[0]},{"physicalnetwork":pyid,"vlanid":"101","id":lgid[1]},{"physicalnetwork":pyid,"id":lgid[2]}]
         try:
             for m in callAPI(self.app_routine,'viperflow','createlogicalnetworks',
                     {"networks":n}):
@@ -796,15 +794,15 @@ class MainModule(Module):
             try:
                 assert len(result) == 3
                 assert result[0].get("id") == lgid[0]
-                assert result[0].get("vlanid") == '102'
+                assert result[0].get("vlanid") == 102
                 assert result[0].get("physicalnetwork").get("id") == pyid
 
                 assert result[1].get("id") == lgid[1]
-                assert result[1].get("vlanid") == '101'
+                assert result[1].get("vlanid") == 101
                 assert result[1].get("physicalnetwork").get("id") == pyid
 
                 assert result[2].get("id") == lgid[2]
-                assert result[2].get("vlanid") == '103'
+                assert result[2].get("vlanid") == 103
                 assert result[2].get("physicalnetwork").get("id") == pyid
 
 
@@ -824,16 +822,17 @@ class MainModule(Module):
         else:
             endtime = time.time()
             results = self.app_routine.retvalue
+
             try:
                 assert len(results) == 3
                 assert results[0].get("id") == lgid[0]
-                assert results[0].get("vlanid") == '103'
+                assert results[0].get("vlanid") == 103
 
                 assert results[1].get("id") == lgid[1]
-                assert results[1].get("vlanid") == '102'
+                assert results[1].get("vlanid") == 102
                 
                 assert results[2].get("id") == lgid[2]
-                assert results[2].get("vlanid") == '101'
+                assert results[2].get("vlanid") == 101
 
             except:
                 logger.info("\033[1;31;40m test 41 updatelogicalnetwork exchange vlanid falied \033[0m")
@@ -922,7 +921,7 @@ class MainModule(Module):
         
         #case 46: test list logicalnetworkport all
         try:
-            for m in callAPI(self.app_routine,'viperflow','listlogicalport',{}):
+            for m in callAPI(self.app_routine,'viperflow','listlogicalports',{}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -940,7 +939,7 @@ class MainModule(Module):
         
         #case 47: test list logicalnetworkport logicalnetwork == xxx
         try:
-            for m in callAPI(self.app_routine,'viperflow','listlogicalport',{"logicalnetwork":lgid[0]}):
+            for m in callAPI(self.app_routine,'viperflow','listlogicalports',{"logicalnetwork":lgid[0]}):
                 yield m
         except Exception as e:
             logger.info(e)
@@ -1046,13 +1045,11 @@ class MainModule(Module):
                 logger.info("\033[1;31;40m test 52 deletelogicalports 1000 failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 52 deletelogicalports 1000 success used %r \033[0m",endtime - begintime)  
-
-
 if __name__ == '__main__':
     
     # here will auto search this file Module
     main("/root/software/vlcp/vlcp.conf",("__main__.MainModule",
-                                          "vlcp.service.sdn.networkvlandriver.NetworkVlanDriver",
+                                          "vlcp.service.sdn.plugins.networkvlandriver.NetworkVlanDriver",
                                           'vlcp.service.manage.webapi.WebAPI',
                                           'vlcp.service.manage.modulemanager.Manager',
                                           ))
