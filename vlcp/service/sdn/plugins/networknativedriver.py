@@ -75,26 +75,6 @@ class NetworkVlanDriver(Module):
         return createphynetworks
     
     def _createphysicalnetwork(self,type,id,**args):
-        """
-        if 'vnirange' not in args:
-            raise ValueError('must specify vnirange with network type vxlan')
-
-        
-        #
-        # vnirange [(1,100),(200,500)]
-        #
-        try:
-            lastend = 0
-            for start,end in args.get('vnirange'):
-                if start > end or start <= lastend:
-                    raise ValueError('vni sequences overlapped or disorder')
-                if end > (1 << 24) - 1:
-                    raise ValueError('vni out of range (0 -- 2^24 - 1)')  
-                lastend = end
-        except:
-            raise ValueError('vnirange format error,[(1,100),(200,500)]')
-        """
-
         # create an new physical network
         new_network = PhysicalNetwork.create_instance(id)
         new_network.type = type
@@ -124,28 +104,6 @@ class NetworkVlanDriver(Module):
                 if not phynet or not phymap:
                     raise ValueError("key object not existed "+\
                             PhysicalNetwork.default_key(network['id']))
-                """      
-                if 'vnirange' in network:
-                    findflag = False
-                    for k,_ in phymap.network_allocation.items():
-                        find = False
-                        for start,end in network['vnirange']:
-                            if int(k) >= start and int(k) <= end:
-                                find = True
-                                break
-                        if find == False:
-                            findflag = False
-                            break
-                        else:
-                            findflag = True
-                    
-                    if len(phymap.network_allocation) == 0:
-                        findflag = True
-                    
-                    # new vnirange do not 
-                    if findflag == False:
-                        raise ValueError('new vni range do not match with allocation')
-                """
                 for k,v in network.items():   
                     setattr(phynet,k,v)
             return phykeys,phyvalues
@@ -304,68 +262,6 @@ class NetworkVlanDriver(Module):
 
                 values[0].set.dataset().add(networkmap[i][0].create_weakreference())
        
-            """
-            #
-            # have an problem ,  when [{...},{... vni is least or last+1}]
-            # first one will allocate least one vni,second will conflict  
-            #
-            # so set new lgnet that have user defind 'vni' first
-            for i in range(0,len(networks)):
-                if hasattr(networkmap[i][0],'vni'):
-
-                    vni = int(networkmap[i][0].vni)
-                    networkmap[i][0].vni = vni
-                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-
-                    if not phynet or not phymap:
-                        raise ValueError("physicalnetwork key object not existed "+\
-                                networkmap[i][0].physicalnetwork.getkey()) 
-
-                    if _isavaliablevni(phynet.vnirange,phymap.network_allocation.keys(),vni):
-                        phymap.network_allocation[str(vni)] = networkmap[i][0].create_weakreference()
-                    else:
-                        raise ValueError("user defind vni has been used or out of range!")
-                    
-                    # set lgnetwork
-                    values[1+i] = set_new(values[i + 1],networkmap[i][0])
-                    # set lgnetworkmap
-                    values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
-                    # set phynetmap
-                  
-                    #_,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-                    phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
-
-                    values[0].set.dataset().add(networkmap[i][0].create_weakreference())
-
-
-            for i in range(0,len(networks)):
-                if not getattr(networkmap[i][0],'vni',None):
-                    # there is no 'vni' in lgnetwork
-                    # allocated one from vnirange
-
-                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-                    
-                    if not phynet or not phymap:
-                        raise ValueError("physicalnetwork key object not existed "+\
-                                networkmap[i][0].physicalnetwork.getkey()) 
-
-                    vni = _findavaliablevni(phynet.vnirange,phymap.network_allocation.keys())
-                    if not vni:
-                        raise ValueError("there is no avaliable vni")
-                    setattr(networkmap[i][0],'vni',vni)
-                    phymap.network_allocation[str(vni)] = networkmap[i][0].create_weakreference()
-                    
-                    # set lgnetwork
-                    values[1+i] = set_new(values[i + 1],networkmap[i][0])
-                    # set lgnetworkmap
-                    values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
-                    # set phynetmap
-                  
-                    #_,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-                    phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
-
-                    values[0].set.dataset().add(networkmap[i][0].create_weakreference())
-            """
             return keys[0:1] + keys[1:1+len(networks)+len(networks)]+phynetmapkeys,\
                     values[0:1]+values[1:1+len(networks)+len(networks)] + phynetmapvalues
         return createlgnetworks
@@ -400,23 +296,6 @@ class NetworkVlanDriver(Module):
 
             phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
             lgnetdict = dict(zip(lgnetkeys,lgnetvalues))
-            
-            """
-            for network in networks:
-                # 
-                # to update vni, we should delete it first ,
-                #
-                if "vni" in network:
-                    phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get("phynetid")))
-                    
-                    if not phynet or not phynetmap:
-                        raise ValueError("physicalnetwork key object not existed "+\
-                            PhysicalNetwork.default_key(network["phynetid"])) 
-                    
-                    lgnet = lgnetdict.get(LogicalNetwork.default_key(network["id"]))
-                    
-                    del phynetmap.network_allocation[str(lgnet.vni)]
-            """
 
             for network in networks:
                 phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get("phynetid")))
@@ -425,20 +304,6 @@ class NetworkVlanDriver(Module):
                         PhysicalNetwork.default_key(network["phynetid"])) 
                 
                 lgnet = lgnetdict.get(LogicalNetwork.default_key(network["id"]))
-                """   
-                if "vni" in network:
-                    vni = int(network["vni"])
-                    
-                    if vni == lgnet.vni:
-                        continue
-
-                    if _isavaliablevni(phynet.vnirange,phynetmap.network_allocation.keys(),vni):
-                        phynetmap.network_allocation[str(vni)] = lgnet.create_weakreference()
-                    else:
-                        raise ValueError("new vni is not avaliable")
-                    
-                    setattr(lgnet,'vni',vni)
-                """
                 for k,v in network.items():
                     # this phynetid is fack attr for find phynet phymap
                     if k != 'phynetid':
@@ -488,43 +353,20 @@ class NetworkVlanDriver(Module):
         #     return : input flow match vxlan vni, input flow vlan parts actions
         #              output flow vxlan parts actions, output group bucket
         #
-        return None 
+        
+        input_match_oxm = []
+        input_action = []
+        output_action = [
+                    connection.openflowdef.ofp_action_output(
+                           port = physicalportid 
+                        )
+                ]
 
-"""
-#
-# utils function
-#
+        output_group_bucket_action = [
+                    connection.openflowdef.ofp_action_output(
+                            port = physicalportid
+                        )
+                ]
+        return input_match_oxm,input_action,output_action,output_group_bucket_action 
 
-def _findavaliablevni(vnirange,allocated):
-    
-    vni = None
-    for vr in vnirange:
-        find = False
-        for v in range(vr[0],vr[1]):
-            if str(v) not in allocated:
-                vni = v
-                find = True
-                break
 
-        if find:
-            break
-    return vni
-
-def _isavaliablevni(vnirange,allocated,vni):
-    
-    find = False
-    for start,end in vnirange:
-        if start <= int(vni) <= end:
-            find = True
-            break
-
-    if find:
-        if str(vni) not in allocated:
-            find = True
-        else:
-            find = False
-    else:
-        find = False
-
-    return find
-"""
