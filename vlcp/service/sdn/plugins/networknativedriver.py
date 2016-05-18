@@ -16,9 +16,9 @@ logger = logging.getLogger('NetworkNativeDriver')
     logicalnetwork not have vni or vlanid attr        
 """
 
-class NetworkVlanDriver(Module):
+class NetworkNativeDriver(Module):
     def __init__(self,server):
-        super(NetworkVlanDriver,self).__init__(server)
+        super(NetworkNativeDriver,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)
         self.app_routine.main = self._main
         self.routines.append(self.app_routine)
