@@ -1044,12 +1044,157 @@ class MainModule(Module):
             except:
                 logger.info("\033[1;31;40m test 52 deletelogicalports 1000 failed used %r \033[0m",endtime - begintime)
             else:
-                logger.info("\033[1;31;40m test 52 deletelogicalports 1000 success used %r \033[0m",endtime - begintime)  
+                logger.info("\033[1;31;40m test 52 deletelogicalports 1000 success used %r \033[0m",endtime - begintime) 
+        logger.info(" ---- test vxlan driver ----")
+
+        physicalnetworkid1 = str(uuid.uuid1())
+        physicalnetworkid2 = str(uuid.uuid1())
+        physicalnetworkid3 = str(uuid.uuid1())
+        logger.info(" ---- test physicalnetworkid %r , %r , %r----",physicalnetworkid1,physicalnetworkid2,physicalnetworkid3)
+
+        physicalnetwork = [{"type":"vxlan","id":physicalnetworkid1,"vnirange":[(1000,2000)]},
+                           {"type":"vxlan","id":physicalnetworkid2,"vnirange":[(3000,4000)]},
+                           {"type":"vlan","id":physicalnetworkid3,"vlanrange":[(100,200)]}]
+        
+        # case 52 : test cretephysicalnetwork 
+        try:
+            for m in callAPI(self.app_routine,'viperflow','createphysicalnetworks',{'networks':physicalnetwork},timeout = 1):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 52 vxlan vlan type createphysicalnetworks failed \033[0m")
+        else:
+            results = self.app_routine.retvalue
+            try:
+                assert len(results) == 3
+
+                for result in results:
+                    if result.get('id') == physicalnetworkid1:
+                        assert result.get('vnirange') == [[1000,2000]]
+                    if result.get('id') == physicalnetworkid2:
+                        assert result.get('vnirange') == [[3000,4000]]
+                    if result.get('id') == physicalnetworkid3:
+                        assert result.get('vlanrange') == [[100,200]]
+
+            except:
+                logger.info("\033[1;31;40m test 52 vxlan vlan createphysicalnetwork failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 52 vxlan vlan createphysicalnetwork success \033[0m")
+
+        updatephysicalnetwork = [{"id":physicalnetworkid1,"name":"A"},
+                           {"id":physicalnetworkid2,"name":"B"},
+                           {"id":physicalnetworkid3,"name":"C"}]
+       
+        # case 53: test updatephysicalnetwork
+        try:
+            for m in callAPI(self.app_routine,'viperflow','updatephysicalnetworks',{'networks':updatephysicalnetwork},timeout = 1):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 52 vxlan vlan type updatephysicalnetworks failed \033[0m")
+        else:
+            results = self.app_routine.retvalue
+            try:
+                assert len(results) == 3
+                for result in results:
+
+                    if result.get('id') == physicalnetworkid1:
+                        assert result.get("name") == "A"
+                    if result.get('id') == physicalnetworkid2:
+                        assert result.get("name") == "B"
+                    if result.get('id') == physicalnetworkid3:
+                        assert result.get("name") == "C"
+
+            except:
+                logger.info("\033[1;31;40m test 53 vxlan vlan updatephysicalnetwork failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 53 vxlan vlan updatephysicalnetwork success \033[0m")
+
+        #case 54: test deletephysicalnetwork
+        deletephysicalnetwork = [
+                           {"id":physicalnetworkid2},
+                           {"id":physicalnetworkid3}]
+ 
+        try:
+            for m in callAPI(self.app_routine,'viperflow','deletephysicalnetworks',{'networks':deletephysicalnetwork},timeout = 1):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 54 vxlan vlan type deletephysicalnetworks failed \033[0m")
+        else:
+            result = self.app_routine.retvalue
+            try:
+                assert result.get('status') == "OK"
+            except:
+                logger.info("\033[1;31;40m test 54 vxlan vlan deletephysicalnetwork failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 54 vxlan vlan deletephysicalnetwork success \033[0m")
+        
+        #case 55: test createlogicalnetwork 
+
+        logicalnetworkid1 = uuid.uuid1()
+        logicalnetworkid2 = uuid.uuid1()
+
+        logicalnetworks = [{"physicalnetwork":physicalnetworkid1,"id":logicalnetworkid1},
+                {"physicalnetwork":physicalnetworkid1,"id":logicalnetworkid2,"vni":1000}]
+        try:
+            for m in callAPI(self.app_routine,'viperflow','createlogicalnetworks',
+                    {"networks":logicalnetworks}):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 55 createlogicalnetworks failed \033[0m")
+        else:
+            result = self.app_routine.retvalue
+            try:
+                assert len(result) == 2
+                assert result[0].get("id")
+                assert result[0].get("vni") == 1001
+                assert result[0].get("physicalnetwork").get("id") == physicalnetworkid1
+
+                assert result[1].get("id")
+                assert result[1].get("vni") == 1000
+                assert result[1].get("physicalnetwork").get("id") == physicalnetworkid1
+
+            except:
+                logger.info("\033[1;31;40m test 55 createlogicalnetworks failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 55 createlogicalnetworks success \033[0m")
+
+        # 56: test updatelogicalnetwork
+        updatelogicalnetworks = [{"id":logicalnetworkid1,"vni":1000},
+                {"id":logicalnetworkid2,"vni":1001}]
+        try:
+            for m in callAPI(self.app_routine,'viperflow','updatelogicalnetworks',
+                    {"networks":updatelogicalnetworks}):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 56 updatelogicalnetworks failed \033[0m")
+        else:
+            result = self.app_routine.retvalue
+            try:
+                assert len(result) == 2
+                assert result[0].get("id")
+                assert result[0].get("vni") == 1000
+                assert result[0].get("physicalnetwork").get("id") == physicalnetworkid1
+
+                assert result[1].get("id")
+                assert result[1].get("vni") == 1001
+                assert result[1].get("physicalnetwork").get("id") == physicalnetworkid1
+
+            except:
+                logger.info("\033[1;31;40m test 56 updatelogicalnetworks failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 56 updatelogicalnetworks success \033[0m")
+
+    
 if __name__ == '__main__':
     
     # here will auto search this file Module
     main("/root/software/vlcp/vlcp.conf",("__main__.MainModule",
                                           "vlcp.service.sdn.plugins.networkvlandriver.NetworkVlanDriver",
+                                          "vlcp.service.sdn.plugins.networkvxlandriver.NetworkVlanDriver",
                                           'vlcp.service.manage.webapi.WebAPI',
                                           'vlcp.service.manage.modulemanager.Manager',
                                           ))
