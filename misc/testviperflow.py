@@ -1187,13 +1187,129 @@ class MainModule(Module):
                 logger.info("\033[1;31;40m test 56 updatelogicalnetworks failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 56 updatelogicalnetworks success \033[0m")
+        
+        logger.info("-----  test type native network ----")
+        #57: test native network create   
+        nativePhysicalNetworkid = str(uuid.uuid1())
+        physicalnetwork = [{"type":"native","id":nativePhysicalNetworkid}]
 
-    
+        try:
+            for m in callAPI(self.app_routine,'viperflow','createphysicalnetworks',{'networks':physicalnetwork},timeout = 1):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 57 native type createphysicalnetworks failed \033[0m")
+        else:
+            results = self.app_routine.retvalue
+            try:
+                assert len(results) == 1
+                
+                assert results[0].get("id") == nativePhysicalNetworkid
+                assert results[0].get("type") == 'native'
+            except:
+                logger.info("\033[1;31;40m test 57 native createphysicalnetwork failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 57 native vlan createphysicalnetwork success \033[0m")
+        
+        #58:test create two logicalnetwork on native physicalnetwork
+
+        logicalnetworkid1 = uuid.uuid1()
+        logicalnetworkid2 = uuid.uuid1()
+
+        logicalnetworks = [{"physicalnetwork":nativePhysicalNetworkid,"id":logicalnetworkid1},
+                {"physicalnetwork":nativePhysicalNetworkid,"id":logicalnetworkid2}]
+        try:
+            for m in callAPI(self.app_routine,'viperflow','createlogicalnetworks',
+                    {"networks":logicalnetworks}):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 58 createlogicalnetworks success \033[0m")
+        else:
+            logger.info("\033[1;31;40m test 58 createlogicalnetworks failed \033[0m")
+       
+        #59: test create logicalnetwork
+        logicalnetworkid1 = uuid.uuid1()
+
+        logicalnetworks = [{"physicalnetwork":nativePhysicalNetworkid,"id":logicalnetworkid1}]
+        try:
+            for m in callAPI(self.app_routine,'viperflow','createlogicalnetworks',
+                    {"networks":logicalnetworks}):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 59 createlogicalnetworks failed \033[0m")
+        else:
+            result = self.app_routine.retvalue
+            try:
+                assert len(result) == 1
+                assert result[0].get("id")
+                assert result[0].get("physicalnetwork").get("id") == nativePhysicalNetworkid
+
+
+            except:
+                logger.info("\033[1;31;40m test 59 createlogicalnetworks failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 59 createlogicalnetworks success \033[0m")
+        
+        #case 60: test deletephysicalnetwork there logicalnetwork
+        deletephysicalnetwork = [
+                           {"id":nativePhysicalNetworkid},
+                           ]
+ 
+        try:
+            for m in callAPI(self.app_routine,'viperflow','deletephysicalnetworks',{'networks':deletephysicalnetwork},timeout = 1):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 60 deletephysicalnetworks have logicalnetwork success \033[0m")
+        else:
+            logger.info("\033[1;31;40m test 60 deletephysicalnetworks have logcialnetwork failed \033[0m")
+        
+        # 61: test updatelogicalnetwork
+        updatelogicalnetworks = [{"id":logicalnetworkid1,"name":"AAA"}]
+        try:
+            for m in callAPI(self.app_routine,'viperflow','updatelogicalnetworks',
+                    {"networks":updatelogicalnetworks}):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 61 updatelogicalnetworks failed \033[0m")
+        else:
+            result = self.app_routine.retvalue
+            try:
+                assert len(result) == 1
+                assert result[0].get("id")
+                assert result[0].get("name") == "AAA"
+                assert result[0].get("physicalnetwork").get("id") == nativePhysicalNetworkid
+            except:
+                logger.info("\033[1;31;40m test 61 updatelogicalnetworks failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 61 updatelogicalnetworks success \033[0m")
+        
+        # 62: test deletelogicalnetwork
+        try:
+            for m in callAPI(self.app_routine,'viperflow','deletelogicalnetwork',
+                    {"id":logicalnetworkid1}):
+                yield m
+        except Exception as e:
+            logger.info(e)
+            logger.info("\033[1;31;40m test 62 deletelogicalnetwork failed \033[0m")
+        else:
+            result = self.app_routine.retvalue
+            try:
+                assert result.get('status') == "OK"
+            except:
+                logger.info("\033[1;31;40m test 62 deletelogicalnetwork failed \033[0m")
+            else:
+                logger.info("\033[1;31;40m test 62 deletelogicalnetwork success \033[0m")
+
 if __name__ == '__main__':
     
     # here will auto search this file Module
     main("/root/software/vlcp/vlcp.conf",("__main__.MainModule",
                                           "vlcp.service.sdn.plugins.networkvlandriver.NetworkVlanDriver",
+                                          "vlcp.service.sdn.plugins.networknativedriver.NetworkVlanDriver",
                                           "vlcp.service.sdn.plugins.networkvxlandriver.NetworkVlanDriver",
                                           'vlcp.service.manage.webapi.WebAPI',
                                           'vlcp.service.manage.modulemanager.Manager',
