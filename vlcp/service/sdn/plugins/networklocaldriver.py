@@ -9,94 +9,54 @@ from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
 from vlcp.utils.ethernet import ETHERTYPE_8021Q 
 
-logger = logging.getLogger('NetworkVlanDriver')
+logger = logging.getLogger('NetworkLocalDriver')
 
-class NetworkVlanDriver(Module):
+"""
+    local type physicalnetwork, there no physicalport,  no xxxrange,have logicalnetwork as much as
+"""
+
+class NetworkLocalDriver(Module):
     def __init__(self,server):
-        super(NetworkVlanDriver,self).__init__(server)
+        super(NetworkLocalDriver,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)
         self.app_routine.main = self._main
         self.routines.append(self.app_routine)
         self.createAPI(
-                       #publicapi(self.createphysicalnetwork,
-                                    #criteria=lambda type,id,args:type == 'vlan'),
                        publicapi(self.createphysicalnetworks,
-                                    criteria=lambda networks,type:type == 'vlan'),
-                       publicapi(self.updatephysicalnetwork,
-                                    criteria=lambda type,id,args:type == 'vlan'),
+                                    criteria=lambda networks,type:type == 'local'),
                        publicapi(self.updatephysicalnetworks,
-                                    criteria=lambda type,networks:type == 'vlan'),
-                       publicapi(self.deletephysicalnetwork,
-                                    criteria=lambda type,id:type == 'vlan'),
+                                    criteria=lambda type,networks:type == 'local'),
                        publicapi(self.deletephysicalnetworks,
-                                    criteria=lambda type,networks:type == 'vlan'),
-                       #publicapi(self.createphysicalport,
-                                    #criteria=lambda phynettype,phynetid,name,vhost,
-                                    #systemid,bridge,args:phynettype == 'vlan'),
+                                    criteria=lambda type,networks:type == 'local'),
                        publicapi(self.createphysicalports,
-                                    criteria=lambda type,ports:type == 'vlan'),
-                       publicapi(self.updatephysicalport,
-                                    criteria=lambda phynettype,name,vhost,systemid,
-                                    bridge,args:phynettype == 'vlan'),
+                                    criteria=lambda type,ports:type == 'local'),
                        publicapi(self.updatephysicalports,
                                     criteria=lambda phynettype,
-                                    ports:phynettype == 'vlan'),
-                       publicapi(self.deletephysicalport,
-                                    criteria=lambda phynettype,name,vhost,systemid,
-                                    bridge:phynettype == 'vlan'),
+                                    ports:phynettype == 'local'),
                        publicapi(self.deletephysicalports,
                                     criteria=lambda phynettype,
-                                    ports:phynettype == 'vlan'),
-                       #publicapi(self.createlogicalnetwork,
-                                    #criteria=lambda phynettype,phynetid,id,
-                                    #args:phynettype == 'vlan'),
+                                    ports:phynettype == 'local'),
                        publicapi(self.createlogicalnetworks,
                                     criteria=lambda phynettype,
-                                    networks:phynettype == 'vlan'),
-                       publicapi(self.updatelogicalnetwork,
-                                    criteria=lambda phynettype,id,
-                                    args:phynettype == 'vlan'),
+                                    networks:phynettype == 'local'),
                        publicapi(self.updatelogicalnetworks,
                                     criteria=lambda phynettype,
-                                    networks:phynettype == 'vlan'),
-                       publicapi(self.deletelogicalnetwork,
-                                    criteria=lambda phynettype,id:phynettype == "vlan"),
+                                    networks:phynettype == 'local'),
                        publicapi(self.deletelogicalnetworks,
-                                    criteria=lambda phynettype,networks:phynettype == "vlan"),
+                                    criteria=lambda phynettype,networks:phynettype == "local"),
                        #used in IOprocessing module
                        publicapi(self.createioflowparts,
                                     criteria=lambda connection,logicalnetwork,
                                     physicalport,logicalnetworkid,physicalportid:
-                                    logicalnetwork.physicalnetwork.type == "vlan")
+                                    logicalnetwork.physicalnetwork.type == "local")
 
                        )
 
     def _main(self):
 
-        logger.info("network_vlan_driver running ---")
+        logger.info("network_local_driver running ---")
         if None:
             yield
-
-    """
-    def createphysicalnetwork(self,type,id,args = {}):
-        
-        new_network,new_networkmap = self._createphysicalnetwork(type,id,**args)
-
-        #
-        # this func will be to update DB transaction, args will be the 
-        # old value that effect 
-        #
-        @updater
-        def createphynetwork(physet,phynet,phymap):
-            phynet = set_new(phynet,new_network)
-            phymap = set_new(phymap,new_networkmap)
-            
-            physet.set.dataset().add(phynet.create_weakreference())
-            
-            return [physet,phynet,phymap]
-
-        return createphynetwork
-    """
 
     def createphysicalnetworks(self,networks,type):
         
@@ -114,7 +74,8 @@ class NetworkVlanDriver(Module):
         return createphynetworks
     
     def _createphysicalnetwork(self,type,id,**args):
-
+        
+        """
         if 'vlanrange' not in args:
             raise ValueError('must specify vlanrange with network type vlan')
 
@@ -132,7 +93,7 @@ class NetworkVlanDriver(Module):
                 lastend = end
         except:
             raise ValueError('vlanrange format error,[(1,100),(200,500)]')
-
+        """
 
         # create an new physical network
         new_network = PhysicalNetwork.create_instance(id)
@@ -147,54 +108,6 @@ class NetworkVlanDriver(Module):
         
         return new_network,new_networkmap
 
-
-    def updatephysicalnetwork(self,type,id,args = {}):
-        
-        # we also should check 'vlanrange'
-        # vlanrange must be total [], we can not 
-        # update a segment ()
-
-        if 'vlanrange' in args:
-            try:
-                lastend = 0
-                for start,end in args.get('vlanrange'):
-                    if start > end or start <=lastend:
-                        raise ValueError('vlan sequences overlapped or disorder')
-                    if end > 4095:
-                        raise ValueError('vlan out of range (0 -- 4095)') 
-                    lastend = end
-            except:
-                raise ValueError('vlanrange format error,[(1,100),(200,500)]')
-        
-        @updater
-        def updatephynetwork(phynet,phymap):
-            for k,v in args.items():
-                # update vlanrange, we should check range with allocation
-                if k == 'vlanrange':
-                    findflag = False
-                    for k,_ in phymap.network_allocation.items():
-                        find = False
-                        for start,end in v:
-                            if int(k) >= start and int(k) <= end:
-                                find = True
-                                break
-                        if find == False:
-                            findflag = False
-                            break
-                        else:
-                            findflag = True
-                    
-                    if len(phymap.network_allocation) == 0:
-                        findflag = True
-                    
-                    # new vlanrange do not 
-                    if findflag == False:
-                        raise ValueError('new vlan range do not match with allocation')
-                setattr(phynet,k,v)
-            # only change phynet , so return only phynet
-            return [phynet]
-        
-        return updatephynetwork
     
     def updatephysicalnetworks(self,type,networks):
         def updatephynetworks(keys,values):
@@ -211,7 +124,7 @@ class NetworkVlanDriver(Module):
                 if not phynet or not phymap:
                     raise ValueError("key object not existed "+\
                             PhysicalNetwork.default_key(network['id']))
-                
+                """      
                 if 'vlanrange' in network:
                     findflag = False
                     for k,_ in phymap.network_allocation.items():
@@ -232,28 +145,12 @@ class NetworkVlanDriver(Module):
                     # new vlanrange do not 
                     if findflag == False:
                         raise ValueError('new vlan range do not match with allocation')
+                """
                 for k,v in network.items():   
                     setattr(phynet,k,v)
             return phykeys,phyvalues
 
         return updatephynetworks
-    def deletephysicalnetwork(self,type,id):
-        @updater
-        def deletephynetwork(physet,phynet,phymap):
-            # if there is phynetworkport on the phynet 
-            # delete will fail
-            if phymap.ports.dataset():
-                raise ValueError("delete all phynetworkport on this phynet before delete")
-            
-            # if there is logicnetwork on the phynet
-            # delete will fail
-            if len(phymap.network_allocation) > 0:
-                raise ValueError('delete all logicnetwork on this phynet before delete')
-            
-            physet.set.dataset().discard(phynet.create_weakreference())
-            return [physet,None,None]
-
-        return deletephynetwork
     
     def deletephysicalnetworks(self,type,networks):
 
@@ -276,7 +173,7 @@ class NetworkVlanDriver(Module):
                     raise ValueError("delete all phynetworkport on this phynet before delete")
                 # if there is logicnetwork on the phynet
                 # delete will fail
-                if phynetmap and phynetmap.network_allocation:
+                if phynetmap and phynetmap.logicnetwork.dataset():
                     raise ValueError('delete all logicnetwork on this phynet before delete')
                 
                 phynetset.discard(phynet.create_weakreference())
@@ -284,21 +181,8 @@ class NetworkVlanDriver(Module):
             return keys,[values[0]]+[None]*(len(keys)-1)
         
         return deletephynetwork
-    """
-    def createphysicalport(self,phynettype,phynetid,name,vhost,systemid,bridge,args = {}):
-        pport = self._createphysicalport(phynetid,name,vhost,systemid,bridge,**args)
-        
-        @updater
-        def createphyport(phyport,phynetmap,phyportset):
-            phyport = set_new(phyport,pport)
-            phynetmap.ports.dataset().add(pport.create_weakreference())
-            phyportset.set.dataset().add(pport.create_weakreference())
-
-            return [phyport,phynetmap,phyportset]
-
-        return createphyport
-    """
     def createphysicalports(self,type,ports):
+        """
         portobjs = [self._createphysicalport(**n) for n in ports]
         
         def createpyports(keys,values):
@@ -312,39 +196,30 @@ class NetworkVlanDriver(Module):
             
             phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
 
-            phynetkeys = keys[1+len(portobjs):1+len(portobjs)+phynetlen]
-            
             for i in range(0,len(portobjs)):
                 values[i + 1] = set_new(values[i + 1],portobjs[i])
                 
                 key = portobjs[i].physicalnetwork.getkey()
                 phynet,phymap = phynetdict.get(key)
-                
+                if not phynet or not phymap:
+                    raise ValueError("key object not existed "+ key) 
+
                 phymap.ports.dataset().add(portobjs[i].create_weakreference())
                 values[0].set.dataset().add(portobjs[i].create_weakreference())
 
-            return keys,values
+            return keys[0:1+len(ports)] + phynetmapkeys,values[0:1+len(ports)] + phynetmapvalues
         return createpyports
-    def _createphysicalport(self,phynetwork,name,vhost,systemid,bridge,**args):
+        """
+        raise ValueError("local physicalnetwork no need physical port")
+    def _createphysicalport(self,physicalnetwork,name,vhost,systemid,bridge,**args):
 
         p = PhysicalPort.create_instance(vhost,systemid,bridge,name)
-        p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetwork))
+        p.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(physicalnetwork))
         
         for k,v in args.items():
             setattr(p,k,v)
 
         return p
-
-    def updatephysicalport(self,phynettype,name,vhost,systemid,bridge,args = {}):
-
-        @updater
-        def updatephyport(phyport):
-            for k, v in args.items():
-                setattr(phyport,k,v)
-
-            return [phyport]
-
-        return updatephyport
     
     def updatephysicalports(self,phynettype,ports):
 
@@ -352,28 +227,20 @@ class NetworkVlanDriver(Module):
             
             portdict = dict(zip(keys,values))
             for port in ports:
-
-                phyport = portdict.get(PhysicalPort.default_key(port.get("vhost"),
-                        port.get("systemid"),port.get("bridge"),port.get("name")))
+                
+                key = PhysicalPort.default_key(port['vhost'],port['systemid'],
+                            port['bridge'],port['name'])
+                phyport = portdict[key]
                 if phyport:
                     for k,v in port.items():
                         setattr(phyport,k,v)
+                else:
+                    raise ValueError("key object not existed "+ key) 
+            
             return keys,values
 
         return updatephyports
-    def deletephysicalport(self,phynettype,name,vhost,systemid,bridge):
-
-        @updater
-        def deletephyport(phyport,phynetmap,phyportset):
-            
-            phynetmap.ports.dataset().discard(phyport.create_weakreference())
-           
-            phyportset.set.dataset().discard(phyport.create_weakreference())
-           
-            return [None,phynetmap,phyportset]
-
-        return deletephyport
-    
+   
     def deletephysicalports(self,phynettype,ports):
 
         def deletephyports(keys,values):
@@ -388,51 +255,19 @@ class NetworkVlanDriver(Module):
 
             for port in ports:
                 phymap = phynetmapdict.get(PhysicalNetworkMap.default_key(port.get("phynetid")))
-                portobj = portdict.get(PhysicalPort.default_key(port.get("vhost"),
-                            port.get("systemid"),port.get("bridge"),port.get("name")))
                 
+                key = PhysicalPort.default_key(port['vhost'],port['systemid'],port['bridge'],port['name'])
+                portobj = portdict.get(key)
+                
+                if not portobj or not phymap:
+                    raise ValueError("key object not existed "+ key) 
+
                 phymap.ports.dataset().discard(portobj.create_weakreference())
                
                 values[0].set.dataset().discard(portobj.create_weakreference())
            
             return keys,[values[0]]+[None]*len(ports) + phynetmapvalues
         return deletephyports
-    """
-    def createlogicalnetwork(self,phynettype,phynetid,id,args = {}):
-
-        logicalnetwork,logicalnetworkmap = self._createlogicalnetwork(phynetid,id,**args)
-
-        @updater
-        def createlgnetwork(lgnetworkset,lgnetwork,lgnetworkmap,phynet,phynetmap):
-            
-            if not getattr(logicalnetwork,'vlanid',None):
-                # this is no vlanid in logicalnetwork,
-                # allocated one from vlanrange
-                vlanid = _findavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys())
-                
-                if not vlanid:
-                    raise ValueError(" there is no avaliable vlan id")
-
-                setattr(logicalnetwork,'vlanid',str(vlanid))
-                phynetmap.network_allocation[str(vlanid)] = logicalnetwork.create_weakreference()
-            else:
-                if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),str(getattr(logicalnetwork,'vlanid'))):
-                    phynetmap.network_allocation[str(getattr(logicalnetwork,'vlanid'))]= \
-                    logicalnetwork.create_weakreference()
-                else:
-                    raise ValueError("user defind vlan id has been used or out of range!")
-
-            lgnetwork = set_new(lgnetwork,logicalnetwork)
-            lgnetworkmap = set_new(lgnetworkmap,logicalnetworkmap)
-
-            phynetmap.logicnetworks.dataset().add(logicalnetwork.create_weakreference())
-            lgnetworkset.set.dataset().add(logicalnetwork.create_weakreference())
-            
-            return [lgnetworkset,lgnetwork,lgnetworkmap,phynet,phynetmap]
-
-        return createlgnetwork
-    """
-
     def createlogicalnetworks(self,phynettype,networks):
         
         networkmap = [self._createlogicalnetwork(**n) for n in networks]
@@ -448,21 +283,27 @@ class NetworkVlanDriver(Module):
             
             phynetmapdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
             
+            """
             #
-            # have an problem ,  when [{...},{... vlanid is least or last+1}]
+            # have an problem ,  when [{...},{... sid is least or last+1}]
             # first one will allocate least one vlanid,second will conflict  
             #
             # so set new lgnet that have user defind 'vlanid' first
             for i in range(0,len(networks)):
-                if hasattr(networkmap[i][0],'vlanid'):
+                if hasattr(networkmap[i][0],'sid'):
 
-                    vlanid = int(networkmap[i][0].vlanid)
-                    networkmap[i][0].vlanid = vlanid
+                    sid = int(networkmap[i][0].sid)
+                    networkmap[i][0].sid = sid
                     phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-                    if _isavaliablevlanid(phynet.vlanrange,phymap.network_allocation.keys(),vlanid):
-                        phymap.network_allocation[str(vlanid)] = networkmap[i][0].create_weakreference()
+
+                    if not phynet or not phymap:
+                        raise ValueError("physicalnetwork key object not existed "+\
+                                networkmap[i][0].physicalnetwork.getkey()) 
+
+                    if _isavaliablesid(phymap.network_allocation.keys(),sid):
+                        phymap.network_allocation[str(sid)] = networkmap[i][0].create_weakreference()
                     else:
-                        raise ValueError("user defind vlan id has been used or out of range!")
+                        raise ValueError("user defind sid has been used or out of range!" + sid)
                     
                     # set lgnetwork
                     values[1+i] = set_new(values[i + 1],networkmap[i][0])
@@ -470,23 +311,27 @@ class NetworkVlanDriver(Module):
                     values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
                     # set phynetmap
                   
-                    _,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
+                    #_,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
                     phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
 
                     values[0].set.dataset().add(networkmap[i][0].create_weakreference())
 
 
             for i in range(0,len(networks)):
-                if not getattr(networkmap[i][0],'vlanid',None):
-                    # there is no 'vlanid' in lgnetwork
-                    # allocated one from vlanrange
-
+                if not getattr(networkmap[i][0],'sid',None):
+                    # there is no 'sid' in lgnetwork
+                    # allocate it max in allocate + 1
                     phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-                    vlanid = _findavaliablevlanid(phynet.vlanrange,phymap.network_allocation.keys())
-                    if not vlanid:
-                        raise ValueError("there is no avaliable vlan id")
-                    setattr(networkmap[i][0],'vlanid',vlanid)
-                    phymap.network_allocation[str(vlanid)] = networkmap[i][0].create_weakreference()
+                    
+                    if not phynet or not phymap:
+                        raise ValueError("physicalnetwork key object not existed "+\
+                                networkmap[i][0].physicalnetwork.getkey()) 
+
+                    sid = _findavaliablesid(phymap.network_allocation.keys())
+                    if not sid:
+                        raise ValueError("there is no avaliable sid")
+                    setattr(networkmap[i][0],'sid',sid)
+                    phymap.network_allocation[str(sid)] = networkmap[i][0].create_weakreference()
                     
                     # set lgnetwork
                     values[1+i] = set_new(values[i + 1],networkmap[i][0])
@@ -494,15 +339,35 @@ class NetworkVlanDriver(Module):
                     values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
                     # set phynetmap
                   
-                    _,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
+                    #_,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
                     phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
 
                     values[0].set.dataset().add(networkmap[i][0].create_weakreference())
+            """
 
-            return keys,values
+            for i in range(0,len(networks)):
+                phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
+                
+                if not phynet or not phymap:
+                    raise ValueError("physicalnetwork key object not existed "+\
+                            networkmap[i][0].physicalnetwork.getkey()) 
+                # set lgnetwork
+                values[1+i] = set_new(values[i + 1],networkmap[i][0])
+                # set lgnetworkmap
+                values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
+                # set phynetmap
+              
+                #_,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
+                phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
+
+                values[0].set.dataset().add(networkmap[i][0].create_weakreference())
+
+
+            return keys[0:1] + keys[1:1+len(networks)+len(networks)]+phynetmapkeys,\
+                    values[0:1]+values[1:1+len(networks)+len(networks)] + phynetmapvalues
         return createlgnetworks
         
-    def _createlogicalnetwork(self,phynetwork,id,**args):
+    def _createlogicalnetwork(self,physicalnetwork,id,**args):
 
         logicalnetwork = LogicalNetwork.create_instance(id)
         logicalnetworkmap = LogicalNetworkMap.create_instance(id)
@@ -511,35 +376,11 @@ class NetworkVlanDriver(Module):
             setattr(logicalnetwork,k,v)
 
         logicalnetworkmap.network = logicalnetwork.create_reference()
-        logicalnetwork.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(phynetwork))
+        logicalnetwork.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(physicalnetwork))
 
         return (logicalnetwork,logicalnetworkmap)
     
-    def updatelogicalnetwork(self,phynettype,id,args = {}):
-        
-        @updater
-        def updatelgnetwork(lgnet,phynet,phynetmap):
-            
-            for k,v in args.items():
-                if k == 'vlanid':
-                    vlanid = int(v)
-                    svlanid = str(vlanid)
-                    if vlanid == lgnet.vlanid:
-                        continue
-                    # here want update vlanid
-                    if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),vlanid):
-                        phynetmap.network_allocation[svlanid] = lgnet.create_weakreference()
-                        del phynetmap.network_allocation[str(lgnet.vlanid)]
-                    else:
-                        raise ValueError("new vlanid is not avaliable")
-                    setattr(lgnet, k, vlanid)
-                else:
-                    setattr(lgnet,k, v)
-
-            return [lgnet,phynet,phynetmap]
-
-        return updatelgnetwork
-    
+   
     def updatelogicalnetworks(self,phynettype,networks):
 
         def updatelgnetworks(keys,values):
@@ -557,49 +398,50 @@ class NetworkVlanDriver(Module):
             phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
             lgnetdict = dict(zip(lgnetkeys,lgnetvalues))
             
+            """
             for network in networks:
                 # 
-                # to update vlanid, we should delete it first ,
+                # to update sid, we should delete it first ,
                 #
-                if "vlanid" in network:
+                if "sid" in network:
                     phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get("phynetid")))
+                    
+                    if not phynet or not phynetmap:
+                        raise ValueError("physicalnetwork key object not existed "+\
+                            PhysicalNetwork.default_key(network["phynetid"])) 
+                    
                     lgnet = lgnetdict.get(LogicalNetwork.default_key(network["id"]))
                     
-                    del phynetmap.network_allocation[str(lgnet.vlanid)]
-
+                    del phynetmap.network_allocation[str(lgnet.sid)]
+            """
             for network in networks:
                 phynet,phynetmap = phynetdict.get(PhysicalNetwork.default_key(network.get("phynetid")))
-                lgnet = lgnetdict.get(LogicalNetwork.default_key(network["id"]))
-               
-                if "vlanid" in network:
-                    vlanid = int(network["vlanid"])
-                    if _isavaliablevlanid(phynet.vlanrange,phynetmap.network_allocation.keys(),vlanid):
-                        phynetmap.network_allocation[str(vlanid)] = lgnet.create_weakreference()
-                    else:
-                        raise ValueError("new vlanid is not avaliable")
+                if not phynet or not phynetmap:
+                    raise ValueError("physicalnetwork key object not existed "+\
+                        PhysicalNetwork.default_key(network["phynetid"])) 
                 
+                lgnet = lgnetdict.get(LogicalNetwork.default_key(network["id"]))
+                """ 
+                if "sid" in network:
+                    sid = int(network["sid"])
+                    
+                    if sid == lgnet.sid:
+                        continue
+
+                    if _isavaliablesid(phynetmap.network_allocation.keys(),sid):
+                        phynetmap.network_allocation[str(sid)] = lgnet.create_weakreference()
+                    else:
+                        raise ValueError("new sid is not avaliable")
+                    
+                    setattr(lgnet,'sid',sid)
+                """
                 for k,v in network.items():
                     # this phynetid is fack attr for find phynet phymap
                     if k != 'phynetid':
                         setattr(lgnet,k,str(v))
-            return keys,values
+            return keys[0:len(networks)] + phynetmapkeys ,values[0:len(networks)] + phynetmapvalues
 
         return updatelgnetworks
-    def deletelogicalnetwork(self,phynettype,id):
-
-        @updater
-        def deletelgnetwork(lgnetset,lgnet,lgnetmap,phynetmap):
-            
-            if len(lgnetmap.ports.dataset()) > 0:
-                raise ValueError("there ports on logicnet remove it before")
-            
-            lgnetset.set.dataset().discard(lgnet.create_weakreference())
-            
-            del phynetmap.network_allocation[str(getattr(lgnet,'vlanid'))]
-
-            return [lgnetset,None,None,phynetmap]
-
-        return deletelgnetwork
 
     def deletelogicalnetworks(self,phynettype,networks):
 
@@ -623,11 +465,14 @@ class NetworkVlanDriver(Module):
 
                 phymap = phynetmapdict.get(PhysicalNetworkMap.default_key(network.get("phynetid")))
                 
+                if not phymap:
+                    raise ValueError("physicalnetwork map key object not existed " + network["phynetid"]) 
+
                 if len(lgnetmap.ports.dataset()):
                     raise ValueError("there ports on logicnet remove it before")
                 
                 values[0].set.dataset().discard(lgnet.create_weakreference())
-                del phymap.network_allocation[str(lgnet.vlanid)]
+                #del phymap.network_allocation[str(lgnet.sid)]
             
             return keys,[values[0]]+[None]*len(networks)*2+phynetmapvalues
         return deletelgnetworks
@@ -685,6 +530,17 @@ class NetworkVlanDriver(Module):
 # utils function
 #
 
+def _findavaliablesid(allocated):
+    
+    if not allocated:
+        return 1
+    
+    return max([int(x) for x in allocated]) + 1
+
+def _isavaliablesid(allocated,sid):
+
+    return str(sid) not in allocated
+"""
 def _findavaliablevlanid(vlanrange,allocated):
     
     vlanid = None
@@ -717,3 +573,4 @@ def _isavaliablevlanid(vlanrange,allocated,vlanid):
         find = False
 
     return find
+"""
