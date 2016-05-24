@@ -8,6 +8,7 @@ import unittest
 from vlcp.protocol.openflow import common, openflow10, openflow13
 from namedstruct import nstruct, dump
 from pprint import pprint
+import vlcp.utils.ethernet as ethernet
 
 class Test(unittest.TestCase):
     exclude = [common.ofp_error_experimenter_msg, openflow13.ofp_group_desc_stats, openflow13.ofp_oxm_mask, openflow13.ofp_oxm_nomask, openflow13._ofp_oxm_mask_value,
@@ -15,7 +16,7 @@ class Test(unittest.TestCase):
     def testDefs10(self):
         for k in dir(openflow10):
             attr = getattr(openflow10, k)
-            if isinstance(attr, nstruct) and not attr in self.exclude and not k.startswith('nxm_'):
+            if isinstance(attr, nstruct) and not attr in self.exclude and not k.startswith('nxm_') and not hasattr(ethernet, k):
                 if not attr.subclasses:
                     self.assertEqual(k, repr(attr), k + ' has different name: ' + repr(attr))
                     print(k, repr(attr))
@@ -29,7 +30,7 @@ class Test(unittest.TestCase):
     def testDefs13(self):
         for k in dir(openflow13):
             attr = getattr(openflow13, k)
-            if isinstance(attr, nstruct) and not attr in self.exclude and not k.startswith('ofp_oxm_') and not k.startswith('nxm_'):
+            if isinstance(attr, nstruct) and not attr in self.exclude and not k.startswith('ofp_oxm_') and not k.startswith('nxm_') and not hasattr(ethernet, k):
                 if not attr.subclasses:
                     self.assertEqual(k, repr(attr), k + ' has different name: ' + repr(attr))
                     print(k, repr(attr))

@@ -11,7 +11,7 @@ except:
     pass
 from setuptools import setup, find_packages
 
-VERSION = '0.11.0'
+VERSION = '0.11.1'
 
 setup(name='vlcp',
       version=VERSION,
@@ -23,5 +23,5 @@ setup(name='vlcp',
       keywords=['SDN', 'VLCP', 'Openflow'],
       test_suite = 'tests',
       use_2to3=False,
-      install_requires = ["nstruct"],
+      install_requires = ["nstruct>=1.0.10"],
       packages=find_packages(exclude=("tests","tests.*","misc","misc.*")))
