@@ -20,23 +20,10 @@ from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent,\
 from pprint import pformat
 from namedstruct import dump
 
-@withIndices('datapathid', 'vhost', 'connection')
-class LogicalPortChanged(Event):
+@withIndices('datapathid', 'vhost', 'connection', 'logicalportchanged', 'physicalportchanged',
+                                                    'logicalnetworkchanged', 'physicalnetworkchanged')
+class DataObjectChanged(Event):
     pass
-
-@withIndices('datapathid', 'vhost', 'connection')
-class PhysicalPortChanged(Event):
-    pass
-
-@withIndices('datapathid', 'vhost', 'connection')
-class LogicalNetworkChanged(Event):
-    pass
-
-@withIndices('datapathid', 'vhost', 'connection')
-class PhysicalNetworkChanged(Event):
-    pass
-
-_events = (LogicalPortChanged, PhysicalPortChanged, LogicalNetworkChanged, PhysicalNetworkChanged)
 
 class IDAssigner(object):
     def __init__(self):
@@ -66,6 +53,11 @@ class IDAssigner(object):
     def frozen(self):
         return dict(self._indices)
 
+def _to32bitport(portno):
+    if portno >= 0xff00:
+        portno = 0xffff0000 | portno
+    return portno
+
 class IOFlowUpdater(FlowUpdater):
     def __init__(self, connection, systemid, bridgename, parent):
         FlowUpdater.__init__(self, connection, (LogicalPortSet.default_key(),
@@ -92,9 +84,9 @@ class IOFlowUpdater(FlowUpdater):
         self._parent = parent
     def update_ports(self, ports, ovsdb_ports):
         self._portnames.clear()
-        self._portnames.update((p['name'], p['ofport']) for p in ovsdb_ports)
+        self._portnames.update((p['name'], _to32bitport(p['ofport'])) for p in ovsdb_ports)
         self._portids.clear()
-        self._portids.update((p['id'], p['ofport']) for p in ovsdb_ports if p['id'])
+        self._portids.update((p['id'], _to32bitport(p['ofport'])) for p in ovsdb_ports if p['id'])
         for m in self.restart_walk():
             yield m
     def _logicalport_walker(self, key, value, walk, save):
@@ -158,10 +150,12 @@ class IOFlowUpdater(FlowUpdater):
         vhost = conn.protocol.vhost
         _currentportids = dict(self._portids)
         _currentportnames = dict(self._portnames)
-        for cls, ev, name, idg, assigner in ((LogicalPort, LogicalPortChanged, '_logicalportkeys', lambda x: _currentportids[x.id], None),
-                                 (PhysicalPort, PhysicalPortChanged, '_physicalportkeys', lambda x: _currentportnames[x.name], None),
-                                 (LogicalNetwork, LogicalNetworkChanged, '_logicalnetworkkeys', lambda x: self._networkids.assign(x.getkey()), self._networkids),
-                                 (PhysicalNetwork, PhysicalNetworkChanged, '_physicalnetworkkeys', lambda x: self._phynetworkids.assign(x.getkey()), self._phynetworkids),
+        updated_data = {}
+        current_data = {}
+        for cls, name, idg, assigner in ((LogicalPort, '_logicalportkeys', lambda x: _currentportids[x.id], None),
+                                 (PhysicalPort, '_physicalportkeys', lambda x: _currentportnames[x.name], None),
+                                 (LogicalNetwork, '_logicalnetworkkeys', lambda x: self._networkids.assign(x.getkey()), self._networkids),
+                                 (PhysicalNetwork, '_physicalnetworkkeys', lambda x: self._phynetworkids.assign(x.getkey()), self._phynetworkids),
                                  ):
             objs = [v for v in values if v.isinstance(cls)]
             objkeys = set([v.getkey() for v in objs])
@@ -170,8 +164,18 @@ class IOFlowUpdater(FlowUpdater):
                 if assigner is not None:
                     assigner.unassign(oldkeys.difference(objkeys))
                 setattr(self, name, objkeys)
-                for m in self.waitForSend(ev(dpid, vhost, conn, current = [(o, idg(o)) for o in objs])):
-                    yield m
+                updated_data[cls] = True
+            cv = [(o, idg(o)) for o in objs]
+            current_data[cls] = cv
+        for m in self.waitForSend(DataObjectChanged(dpid, vhost, conn, LogicalPort in updated_data,
+                                                                        PhysicalPort in updated_data,
+                                                                        LogicalNetwork in updated_data,
+                                                                        PhysicalNetwork in updated_data,
+                                                                        current = (current_data.get(LogicalPort),
+                                                                                   current_data.get(PhysicalPort),
+                                                                                   current_data.get(LogicalNetwork),
+                                                                                   current_data.get(PhysicalNetwork)))):
+            yield m
         self._currentportids = _currentportids
         self._currentportnames = _currentportnames
     def updateflow(self, connection, addvalues, removevalues, updatedvalues):
@@ -277,21 +281,15 @@ class IOFlowUpdater(FlowUpdater):
                 def create_input_instructions(lognetid, extra_actions):
                     lognetid = (lognetid & 0xffff)
                     return [ofdef.ofp_instruction_actions(actions = [
-                                    ofdef.nx_action_reg_load(
-                                            ofs_nbits = ofdef.create_ofs_nbits(0, 32),
-                                            dst = ofdef.NXM_NX_REG4,
-                                            value = lognetid
+                                    ofdef.ofp_action_set_field(
+                                            field = ofdef.create_oxm(ofdef.NXM_NX_REG4, lognetid)
                                             ),
-                                    ofdef.nx_action_reg_load(
-                                            ofs_nbits = ofdef.create_ofs_nbits(0, 32),
-                                            dst = ofdef.NXM_NX_REG5,
-                                            value = lognetid
+                                    ofdef.ofp_action_set_field(
+                                            field = ofdef.create_oxm(ofdef.NXM_NX_REG5, lognetid)
                                             ),
-                                    ofdef.nx_action_reg_load(
-                                            ofs_nbits = ofdef.create_ofs_nbits(0, 32),
-                                            dst = ofdef.NXM_NX_REG6,
-                                            value = ofdef.OFPP_ANY
-                                            )
+                                    ofdef.ofp_action_set_field(
+                                            field = ofdef.create_oxm(ofdef.NXM_NX_REG6, ofdef.OFPP_ANY)
+                                            ),
                                 ] + list(extra_actions)),
                             ofdef.ofp_instruction_goto_table(table_id = input_next)
                             ]
@@ -335,7 +333,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                                  )])
                                                        ))
                         cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
-                                                       cookie = 0x0001000000000000 | (ofport << 16),
+                                                       cookie = 0x0001000000000000 | ((ofport & 0xffff) << 16),
                                                        cookie_mask = 0xffffffffffff0000,
                                                        command = ofdef.OFPFC_DELETE,
                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -535,7 +533,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                instructions = create_input_instructions(lognetid, input_actions)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
-                                                               cookie = 0x0001000000000000 | lognetid | (ofport << 16),
+                                                               cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
                                                                cookie_mask = 0xffffffffffffffff,
                                                                command = ofdef.OFPFC_ADD,
                                                                priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -569,7 +567,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                instructions = create_input_instructions(lognetid, input_actions)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
-                                                               cookie = 0x0001000000000000 | lognetid | (ofport << 16),
+                                                               cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
                                                                cookie_mask = 0xffffffffffffffff,
                                                                command = ofdef.OFPFC_ADD,
                                                                priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -603,7 +601,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                instructions = create_input_instructions(lognetid, input_actions)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
-                                                               cookie = 0x0001000000000000 | lognetid | (ofport << 16),
+                                                               cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
                                                                cookie_mask = 0xffffffffffffffff,
                                                                command = ofdef.OFPFC_MODIFY,
                                                                priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -637,7 +635,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                instructions = create_input_instructions(lognetid, input_actions)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
-                                                               cookie = 0x0001000000000000 | lognetid | (ofport << 16),
+                                                               cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
                                                                cookie_mask = 0xffffffffffffffff,
                                                                command = ofdef.OFPFC_MODIFY,
                                                                priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -674,7 +672,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                        instructions = create_input_instructions(lognetid, input_actions)
                                                                        ))
                                         cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
-                                                                       cookie = 0x0001000000000000 | lognetid | (ofport << 16),
+                                                                       cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
                                                                        cookie_mask = 0xffffffffffffffff,
                                                                        command = ofdef.OFPFC_MODIFY,
                                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -727,17 +725,16 @@ class IOProcessing(FlowBase):
         port_change = ModuleNotification.createMatcher("openflowportmanager", "update", _ismatch = lambda x: self.vhostbind is None or x.vhost in self.vhostbind)
         while True:
             yield (flow_init, port_change)
+            e = self.apiroutine.event
+            c = e.connection
             if self.apiroutine.matcher is flow_init:
-                c = self.apiroutine.event.connection
                 self.apiroutine.subroutine(self._init_conn(self.apiroutine.event.connection))
             else:
                 if self.apiroutine.event.reason == 'disconnected':
                     self.apiroutine.subroutine(self._remove_conn(c))
                 else:
-                    e = self.apiroutine.event
-                    c = e.connection
                     self.apiroutine.subroutine(self._portchange(c))
-    def _init_conn(self, conn, lastlist = None):
+    def _init_conn(self, conn):
         # Default drop
         for m in conn.protocol.batch((conn.openflowdef.ofp_flow_mod(table_id = self._gettableindex("ingress", conn.protocol.vhost),
                                                            command = conn.openflowdef.OFPFC_ADD,
@@ -812,8 +809,8 @@ class IOProcessing(FlowBase):
                                 yield m
                         except Exception:
                             self._logger.warning("OVSDB connection may not be ready for datapathid %016x, vhost = %r", datapath_id, ovsdb_vhost, exc_info = True)
+                            trytimes = 0
                             while True:
-                                trytimes = 0
                                 try:
                                     for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitconnection', {'datapathid': datapath_id,
                                                                                                          'vhost': ovsdb_vhost}):

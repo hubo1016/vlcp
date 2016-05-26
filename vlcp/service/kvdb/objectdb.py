@@ -512,9 +512,10 @@ class ObjectDB(Module):
         if hasattr(self.apiroutine.event, 'exception'):
             raise self.apiroutine.event.exception
         self.apiroutine.retvalue = None
-    def transact(self, keys, updater):
+    def transact(self, keys, updater, withtime = False):
         "Try to update keys in a transact, with an updater(keys, values), which returns (updated_keys, updated_values). "\
-        "The updater may be called more than once."
+        "The updater may be called more than once. If withtime = True, the updater should take three parameters: "\
+        "(keys, values, timestamp) with timestamp as the server time"
         keys = tuple(_str2(k) for k in keys)
         updated_ref = [None, None]
         def object_updater(keys, values, timestamp):
@@ -524,7 +525,10 @@ class ObjectDB(Module):
                     v.setkey(k)
                 if v is not None and hasattr(v, 'kvdb_createtime'):
                     old_version[k] = (getattr(v, 'kvdb_createtime'), getattr(v, 'kvdb_updateversion', 1))
-            updated_keys, updated_values = updater(keys, values)
+            if withtime:
+                updated_keys, updated_values = updater(keys, values, timestamp)
+            else:
+                updated_keys, updated_values = updater(keys, values)
             updated_ref[0] = tuple(updated_keys)
             new_version = []
             for k,v in zip(updated_keys, updated_values):

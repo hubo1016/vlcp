@@ -57,6 +57,10 @@ class FlowUpdater(RoutineContainer):
             if not self._updatedset:
                 self.scheduler.emergesend(FlowUpdaterNotification(self, FlowUpdaterNotification.DATAUPDATED))
             self._updatedset.update(updatedvalues)
+    def updateobjects(self, updatedvalues):
+        if not self._updatedset:
+            self.scheduler.emergesend(FlowUpdaterNotification(self, FlowUpdaterNotification.DATAUPDATED))
+        self._updatedset.update(set(updatedvalues).intersection(self._savedresult))
     def _flowupdater(self):
         lastresult = set(self._savedresult)
         flowupdate = FlowUpdaterNotification.createMatcher(self, FlowUpdaterNotification.FLOWUPDATE)
