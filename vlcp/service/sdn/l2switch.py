@@ -447,7 +447,7 @@ class L2Switch(FlowBase):
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # A broadcast packet
-                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
                                                                                     ]
                                                                             ),
                                                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
@@ -525,7 +525,7 @@ class L2Switch(FlowBase):
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # A broadcast packet
-                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
                                                                                     ]
                                                                             ),
                                                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
@@ -695,7 +695,7 @@ class L2Switch(FlowBase):
                                                                match = ofdef.ofp_match_oxm(
                                                                             oxm_fields = [
                                                                                 # A broadcast packet
-                                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
+                                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
                                                                                 ]
                                                                         ),
                                                                instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
