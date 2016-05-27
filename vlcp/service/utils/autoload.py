@@ -28,7 +28,7 @@ class AutoLoad(Module):
                         try:
                             pymod = __import__(name, fromlist = ('dummy',))
                             for m in vars(pymod).values():
-                                if isinstance(m, type) and issubclass(m, Module) and m.__package__ == name:
+                                if isinstance(m, type) and issubclass(m, Module) and getattr(m, '__module__', '') == name:
                                     loadmodules.append(m)
                         except Exception:
                             self._logger.warning('Autoload module %r failed', name, exc_info = True)
