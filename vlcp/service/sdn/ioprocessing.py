@@ -808,6 +808,8 @@ class IOProcessing(FlowBase):
                                                                                                    })
                                                                  for p in ports]):
                                 yield m
+                        except StopIteration:
+                            break
                         except Exception:
                             self._logger.warning("OVSDB connection may not be ready for datapathid %016x, vhost = %r", datapath_id, ovsdb_vhost, exc_info = True)
                             trytimes = 0
