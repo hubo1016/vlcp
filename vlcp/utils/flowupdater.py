@@ -88,6 +88,7 @@ class FlowUpdater(RoutineContainer):
             presave_update = set()
             while True:
                 self._restartwalk = False
+                presave_update.clear()
                 presave_update.update(self._updatedset)
                 self._updatedset.clear()
                 _initialkeys = set(self._initialkeys)
@@ -102,7 +103,7 @@ class FlowUpdater(RoutineContainer):
                 if self._updatedset:
                     if any(v.getkey() in _initialkeys for v in self._updatedset):
                         continue
-                self._updatedset.update(v for v in presave_update if v.getkey() not in _initialkeys)
+                self._updatedset.update(v for v in presave_update)
                 if removekeys:
                     for m in callAPI(self, 'objectdb', 'munwatch', {'keys': removekeys,
                                                                     'requestid': self._requstid}):
