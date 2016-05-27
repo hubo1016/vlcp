@@ -18,7 +18,7 @@ class AutoLoad(Module):
         for m in Module.load(self, container):
             yield m
         loadmodules = []
-        for p in self.autoloadpackets:
+        for p in self.autoloadpackages:
             try:
                 def onerror(name):
                     self._logger.warning("Autoload package %r on package %r failed", name, p)
