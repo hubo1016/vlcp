@@ -57,8 +57,8 @@ class L2FlowUpdater(FlowUpdater):
             self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
             self._initialkeys = [p.getkey() for p,_ in self._lastlogports] + \
                                 [p.getkey() for p,_ in self._lastphyports]
-            self._walkerdict = dict(itertools.chain((p.getkey(), self._walk_logport) for p,_ in self._lastlogports,
-                                                    (p.getkey(), self._walk_phyport) for p,_ in self._lastphyports))
+            self._walkerdict = dict(itertools.chain(((p.getkey(), self._walk_logport) for p,_ in self._lastlogports),
+                                                    ((p.getkey(), self._walk_phyport) for p,_ in self._lastphyports)))
             self.subroutine(self.restart_walk(), False)
     def updateflow(self, conn, addvalues, removevalues, updatedvalues):
         ofdef = conn.openflowdef
