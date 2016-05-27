@@ -167,15 +167,16 @@ class IOFlowUpdater(FlowUpdater):
                 updated_data[cls] = True
             cv = [(o, idg(o)) for o in objs]
             current_data[cls] = cv
-        for m in self.waitForSend(DataObjectChanged(dpid, vhost, conn, LogicalPort in updated_data,
-                                                                        PhysicalPort in updated_data,
-                                                                        LogicalNetwork in updated_data,
-                                                                        PhysicalNetwork in updated_data,
-                                                                        current = (current_data.get(LogicalPort),
-                                                                                   current_data.get(PhysicalPort),
-                                                                                   current_data.get(LogicalNetwork),
-                                                                                   current_data.get(PhysicalNetwork)))):
-            yield m
+        if updated_data:
+            for m in self.waitForSend(DataObjectChanged(dpid, vhost, conn, LogicalPort in updated_data,
+                                                                            PhysicalPort in updated_data,
+                                                                            LogicalNetwork in updated_data,
+                                                                            PhysicalNetwork in updated_data,
+                                                                            current = (current_data.get(LogicalPort),
+                                                                                       current_data.get(PhysicalPort),
+                                                                                       current_data.get(LogicalNetwork),
+                                                                                       current_data.get(PhysicalNetwork)))):
+                yield m
         self._currentportids = _currentportids
         self._currentportnames = _currentportnames
     def updateflow(self, connection, addvalues, removevalues, updatedvalues):
