@@ -231,6 +231,9 @@ class ObjectDB(Module):
                     new_retrieve_keys = set()
                     used_keys = set()
                     def walk(key):
+                        if hasattr(key, 'getkey'):
+                            key = key.getkey()
+                        key = _str(key)
                         if key not in self._watchedkeys:
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
@@ -281,6 +284,9 @@ class ObjectDB(Module):
                                 for w,r in list(ws):
                                     # Custom walker
                                     def save(key):
+                                        if hasattr(key, 'getkey'):
+                                            key = key.getkey()
+                                        key = _str(key)
                                         savelist.setdefault(r[1], set()).add(key)
                                     try:
                                         new_retrieve_keys.clear()

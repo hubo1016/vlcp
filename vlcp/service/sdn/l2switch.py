@@ -42,7 +42,7 @@ class L2FlowUpdater(FlowUpdater):
     def _walk_logport(self, key, value, walk, save):
         save(key)
         try:
-            net = walk(value.network)
+            net = walk(value.network.getkey())
         except KeyError:
             pass
         else:
