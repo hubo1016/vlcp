@@ -227,7 +227,16 @@ class L2FlowUpdater(FlowUpdater):
             currentlognetinfo = dict((n, (nid, n.physicalnetwork)) for n, nid in self._lastlognets
                                      if n in allresult)
             lastlognetinfo = self._lastlognetinfo
-            currentlogportinfo = dict((logport, (getattr(logport, 'mac_address', None), logportid, currentlognetinfo.get(logport.network)))
+            def _try_create_macaddress(port):
+                mac_address = getattr(port, 'mac_address', None)
+                if mac_address is None:
+                    return None
+                else:
+                    try:
+                        return ofdef.mac_addr(mac_address)
+                    except Exception:
+                        return None
+            currentlogportinfo = dict((logport, (_try_create_macaddress(logport), logportid, currentlognetinfo.get(logport.network)))
                                    for logport, logportid in self._lastlogports if logport in allresult)
             lastlogportinfo = self._lastlogportinfo
             # Select one physical port for each physical network, remove others
@@ -245,7 +254,7 @@ class L2FlowUpdater(FlowUpdater):
                 if obj.isinstance(LogicalPort):
                     portinfo = lastlogportinfo.get(obj)
                     if portinfo is not None and portinfo[0] is not None and portinfo[2] is not None:
-                        cmds.extend(_delete_flows(portinfo[2], portinfo[0]))
+                        cmds.extend(_delete_flows(portinfo[2][0], portinfo[0]))
                 elif obj.isinstance(PhysicalPort):
                     if obj in lastphyportinfo:
                         phynet, _ = lastphyportinfo[obj]
@@ -260,8 +269,8 @@ class L2FlowUpdater(FlowUpdater):
                 if obj.isinstance(LogicalPort):
                     portinfo = currentlogportinfo.get(obj)
                     lastportinfo = lastlogportinfo.get(obj)
-                    if lastportinfo is not None and lastportinfo != portinfo:
-                        cmds.extend(_delete_flows(lastportinfo[2], lastportinfo[0]))
+                    if lastportinfo is not None and lastportinfo != portinfo and lastportinfo[2] is not None and lastportinfo[0] is not None:
+                        cmds.extend(_delete_flows(lastportinfo[2][0], lastportinfo[0]))
                 elif obj.isinstance(LogicalNetwork):
                     if obj in lastlognetinfo and lastlognetinfo[obj] != currentlognetinfo.get(obj):
                         netid, _ = lastlognetinfo.get(obj)
@@ -289,7 +298,7 @@ class L2FlowUpdater(FlowUpdater):
                 if obj.isinstance(LogicalPort):
                     portinfo = currentlogportinfo.get(obj)
                     if portinfo is not None and portinfo[0] is not None and portinfo[2] is not None:
-                        cmds.extend(_create_flows(portinfo[2], portinfo[0], portinfo[1]))
+                        cmds.extend(_create_flows(portinfo[2][0], portinfo[0], portinfo[1]))
                 elif obj.isinstance(PhysicalPort):
                     if obj in currentphyportinfo:
                         for lognet, lognetinfo in currentlognetinfo.items():
@@ -307,8 +316,8 @@ class L2FlowUpdater(FlowUpdater):
                 if obj.isinstance(LogicalPort):
                     portinfo = currentlogportinfo.get(obj)
                     lastportinfo = lastlogportinfo.get(obj)
-                    if portinfo is not None and lastportinfo != portinfo:
-                        cmds.extend(_create_flows(portinfo[2], portinfo[0], portinfo[1]))
+                    if portinfo is not None and lastportinfo != portinfo and portinfo[2] is not None and portinfo[0] is not None:
+                        cmds.extend(_create_flows(portinfo[2][0], portinfo[0], portinfo[1]))
                 elif obj.isinstance(LogicalNetwork):
                     if obj in currentlognetinfo and lastlognetinfo.get(obj) != currentlognetinfo[obj]:
                         netid, phynet = currentlognetinfo[obj]
