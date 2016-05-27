@@ -66,7 +66,7 @@ class L2FlowUpdater(FlowUpdater):
         l2_next = self._parent._getnexttable('', 'l2input', vhost = vhost)
         l2out = self._parent._gettableindex('l2output', vhost)
         l2out_next = self._parent._getnexttable('', 'l2output', vhost = vhost)
-        def _create_flows(self, networkid, macaddr, portid):
+        def _create_flows(networkid, macaddr, portid):
             if conn.protocol.disablenxext:
                 # Use METADATA
                 masked_network = ((networkid & 0xffff) << 32)
@@ -111,7 +111,7 @@ class L2FlowUpdater(FlowUpdater):
                                                                                       ),
                                                         ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
                                 ),)
-        def _delete_flows(self, networkid, macaddr):
+        def _delete_flows(networkid, macaddr):
             if conn.protocol.disablenxext:
                 # Use METADATA
                 masked_network = ((networkid & 0xffff) << 32)
@@ -146,7 +146,7 @@ class L2FlowUpdater(FlowUpdater):
                                                             ]
                                                     )
                                     ),)
-        def _create_default_flow(self, networkid, portid):
+        def _create_default_flow(networkid, portid):
             if conn.protocol.disablenxext:
                 # Use METADATA
                 masked_network = ((networkid & 0xffff) << 32)
@@ -189,7 +189,7 @@ class L2FlowUpdater(FlowUpdater):
                                                                                           ),
                                                             ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
                                     ),)
-        def _delete_default_flows(self, networkid):
+        def _delete_default_flows(networkid):
             if conn.protocol.disablenxext:
                 # Use METADATA
                 masked_network = ((networkid & 0xffff) << 32)
