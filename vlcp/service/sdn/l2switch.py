@@ -76,6 +76,8 @@ class L2FlowUpdater(FlowUpdater):
                                             command = ofdef.OFPFC_ADD,
                                             priority = ofdef.OFP_DEFAULT_PRIORITY + 2,
                                             buffer_id = ofdef.OFP_NO_BUFFER,
+                                           out_port = ofdef.OFPP_ANY,
+                                           out_group = ofdef.OFPG_ANY,
                                             match = ofdef.ofp_match_oxm(
                                                         oxm_fields = [
                                                             ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
@@ -97,6 +99,8 @@ class L2FlowUpdater(FlowUpdater):
                                         command = ofdef.OFPFC_ADD,
                                         priority = ofdef.OFP_DEFAULT_PRIORITY + 2,
                                         buffer_id = ofdef.OFP_NO_BUFFER,
+                                       out_port = ofdef.OFPP_ANY,
+                                       out_group = ofdef.OFPG_ANY,
                                         match = ofdef.ofp_match_oxm(
                                                     oxm_fields = [
                                                         ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net),
@@ -121,6 +125,8 @@ class L2FlowUpdater(FlowUpdater):
                                             command = ofdef.OFPFC_DELETE_STRICT,
                                             priority = ofdef.OFP_DEFAULT_PRIORITY + 2,
                                             buffer_id = ofdef.OFP_NO_BUFFER,
+                                            out_port = ofdef.OFPP_ANY,
+                                            out_group = ofdef.OFPG_ANY,
                                             match = ofdef.ofp_match_oxm(
                                                         oxm_fields = [
                                                             ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
@@ -139,6 +145,8 @@ class L2FlowUpdater(FlowUpdater):
                                             command = ofdef.OFPFC_DELETE_STRICT,
                                             priority = ofdef.OFP_DEFAULT_PRIORITY + 2,
                                             buffer_id = ofdef.OFP_NO_BUFFER,
+                                            out_port = ofdef.OFPP_ANY,
+                                            out_group = ofdef.OFPG_ANY,
                                             match = ofdef.ofp_match_oxm(
                                                         oxm_fields = [
                                                             ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net),
@@ -156,6 +164,8 @@ class L2FlowUpdater(FlowUpdater):
                                             command = ofdef.OFPFC_ADD,
                                             priority = ofdef.OFP_DEFAULT_PRIORITY + 1,
                                             buffer_id = ofdef.OFP_NO_BUFFER,
+                                            out_port = ofdef.OFPP_ANY,
+                                            out_group = ofdef.OFPG_ANY,
                                             match = ofdef.ofp_match_oxm(
                                                         oxm_fields = [
                                                             ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
@@ -176,6 +186,8 @@ class L2FlowUpdater(FlowUpdater):
                                             command = ofdef.OFPFC_ADD,
                                             priority = ofdef.OFP_DEFAULT_PRIORITY + 1,
                                             buffer_id = ofdef.OFP_NO_BUFFER,
+                                            out_port = ofdef.OFPP_ANY,
+                                            out_group = ofdef.OFPG_ANY,
                                             match = ofdef.ofp_match_oxm(
                                                         oxm_fields = [
                                                             ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net)
@@ -199,6 +211,8 @@ class L2FlowUpdater(FlowUpdater):
                                             command = ofdef.OFPFC_DELETE_STRICT,
                                             priority = ofdef.OFP_DEFAULT_PRIORITY + 1,
                                             buffer_id = ofdef.OFP_NO_BUFFER,
+                                            out_port = ofdef.OFPP_ANY,
+                                            out_group = ofdef.OFPG_ANY,
                                             match = ofdef.ofp_match_oxm(
                                                         oxm_fields = [
                                                             ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
@@ -216,6 +230,8 @@ class L2FlowUpdater(FlowUpdater):
                                             command = ofdef.OFPFC_DELETE_STRICT,
                                             priority = ofdef.OFP_DEFAULT_PRIORITY + 1,
                                             buffer_id = ofdef.OFP_NO_BUFFER,
+                                            out_port = ofdef.OFPP_ANY,
+                                            out_group = ofdef.OFPG_ANY,
                                             match = ofdef.ofp_match_oxm(
                                                         oxm_fields = [
                                                             ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net)
@@ -259,7 +275,7 @@ class L2FlowUpdater(FlowUpdater):
                     if obj in lastphyportinfo:
                         phynet, _ = lastphyportinfo[obj]
                         for lognet, lognetinfo in lastlognetinfo.items():
-                            if lognetinfo[1] == phynet and not lognet in removevalues:
+                            if lognetinfo[1] == phynet and lognet not in removevalues:
                                 cmds.extend(_delete_default_flows(lognetinfo[0]))
                 elif obj.isinstance(LogicalNetwork):
                     if obj in lastlognetinfo:
@@ -399,6 +415,8 @@ class L2Switch(FlowBase):
                                                                                     ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
                                                                                     ]
                                                                             ),
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    instructions = [ofdef.ofp_instruction_actions(
                                                                                     type = ofdef.OFPIT_CLEAR_ACTIONS
                                                                                     )]
@@ -413,6 +431,8 @@ class L2Switch(FlowBase):
                                                                                     ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x80\xc2\x00\x00\x00', b'\xff\xff\xff\xff\xff\xf0')
                                                                                     ]
                                                                             ),
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    instructions = [ofdef.ofp_instruction_actions(
                                                                                     type = ofdef.OFPIT_CLEAR_ACTIONS
                                                                                     )]
@@ -424,6 +444,8 @@ class L2Switch(FlowBase):
                                                                    priority = 0,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
                                                                    match = ofdef.ofp_match_oxm(),
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    instructions = [ofdef.ofp_instruction_actions(
                                                                                     actions = [
                                                                                         ofdef.nx_action_learn(
@@ -444,6 +466,8 @@ class L2Switch(FlowBase):
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # A broadcast packet
@@ -458,6 +482,8 @@ class L2Switch(FlowBase):
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = 0,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(),
                                                                    instructions = [ofdef.ofp_instruction_actions(
                                                                                     actions = [
@@ -477,6 +503,8 @@ class L2Switch(FlowBase):
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # Drop packets with an broadcast MAC address as dl_src
@@ -491,6 +519,8 @@ class L2Switch(FlowBase):
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # Drop 802.1D STP packets, they should never be forwarded
@@ -507,6 +537,8 @@ class L2Switch(FlowBase):
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = 0,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(),
                                                                    instructions = [ofdef.ofp_instruction_actions(
                                                                                     actions = [
@@ -522,6 +554,8 @@ class L2Switch(FlowBase):
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # A broadcast packet
@@ -531,11 +565,13 @@ class L2Switch(FlowBase):
                                                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
                                                                    ),
                                               ofdef.ofp_flow_mod(table_id = l2out,
-                                                            cookie = 0x1,
-                                                            cookie_mask = 0xffffffffffffffff,
+                                                                cookie = 0x1,
+                                                                cookie_mask = 0xffffffffffffffff,
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = 0,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(),
                                                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
                                                                    ),
@@ -576,6 +612,8 @@ class L2Switch(FlowBase):
                                                                     cookie_mask = 0xffffffffffffffff,
                                                                        command = ofdef.OFPFC_ADD,
                                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                                       out_port = ofdef.OFPP_ANY,
+                                                                       out_group = ofdef.OFPG_ANY,
                                                                        buffer_id = ofdef.OFP_NO_BUFFER,
                                                                        hard_timeout = max((self.learntimeout//4), 1),
                                                                        match = ofdef.ofp_match_oxm(
@@ -596,6 +634,8 @@ class L2Switch(FlowBase):
                                                                         priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                         buffer_id = ofdef.OFP_NO_BUFFER,
                                                                         hard_timeout = self.learntimeout,
+                                                                       out_port = ofdef.OFPP_ANY,
+                                                                       out_group = ofdef.OFPG_ANY,
                                                                         match = ofdef.ofp_match_oxm(
                                                                                     oxm_fields = [
                                                                                         ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
@@ -618,6 +658,8 @@ class L2Switch(FlowBase):
                                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                        buffer_id = ofdef.OFP_NO_BUFFER,
                                                                        hard_timeout = max((self.learntimeout//4), 1),
+                                                                       out_port = ofdef.OFPP_ANY,
+                                                                       out_group = ofdef.OFPG_ANY,
                                                                        match = ofdef.ofp_match_oxm(
                                                                                     oxm_fields = [
                                                                                         ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net),
@@ -634,6 +676,8 @@ class L2Switch(FlowBase):
                                                                         priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                         buffer_id = ofdef.OFP_NO_BUFFER,
                                                                         hard_timeout = self.learntimeout,
+                                                                        out_port = ofdef.OFPP_ANY,
+                                                                        out_group = ofdef.OFPG_ANY,
                                                                         match = ofdef.ofp_match_oxm(
                                                                                     oxm_fields = [
                                                                                         ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net),
@@ -655,6 +699,8 @@ class L2Switch(FlowBase):
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # Drop packets with an broadcast MAC address as dl_src
@@ -669,6 +715,8 @@ class L2Switch(FlowBase):
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # Drop 802.1D STP packets, they should never be forwarded
@@ -682,6 +730,8 @@ class L2Switch(FlowBase):
                                           ofdef.ofp_flow_mod(table_id = l2,
                                                             cookie = 0x1,
                                                             cookie_mask = 0xffffffffffffffff,
+                                                               out_port = ofdef.OFPP_ANY,
+                                                               out_group = ofdef.OFPG_ANY,
                                                                command = ofdef.OFPFC_ADD,
                                                                priority = 0,
                                                                buffer_id = ofdef.OFP_NO_BUFFER,
@@ -692,6 +742,8 @@ class L2Switch(FlowBase):
                                                                command = ofdef.OFPFC_ADD,
                                                                priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
                                                                buffer_id = ofdef.OFP_NO_BUFFER,
+                                                               out_port = ofdef.OFPP_ANY,
+                                                               out_group = ofdef.OFPG_ANY,
                                                                match = ofdef.ofp_match_oxm(
                                                                             oxm_fields = [
                                                                                 # A broadcast packet
@@ -703,6 +755,8 @@ class L2Switch(FlowBase):
                                           ofdef.ofp_flow_mod(table_id = l2out,
                                                             cookie = 0x1,
                                                             cookie_mask = 0xffffffffffffffff,
+                                                               out_port = ofdef.OFPP_ANY,
+                                                               out_group = ofdef.OFPG_ANY,
                                                                command = ofdef.OFPFC_ADD,
                                                                priority = 0,
                                                                buffer_id = ofdef.OFP_NO_BUFFER,
