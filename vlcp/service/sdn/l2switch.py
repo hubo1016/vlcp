@@ -23,13 +23,12 @@ from namedstruct.namedstruct import dump
 from pprint import pformat
 
 class L2FlowUpdater(FlowUpdater):
-    def __init__(self, connection, parent, nxlearn):
+    def __init__(self, connection, parent):
         FlowUpdater.__init__(self, connection, (), ('l2switch', connection))
         self._parent = parent
         self._lastlognets = ()
         self._lastlogports = ()
         self._lastphyports = ()
-        self._nxlearn = nxlearn
         self._lastlogportinfo = {}
         self._lastphyportinfo = {}
         self._lastlognetinfo = {}
