@@ -401,7 +401,7 @@ class L2Switch(FlowBase):
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # Drop 802.1D STP packets, they should never be forwarded
-                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_D_W, b'\x01\x80\xc2\x00\x00\x00', b'\xff\xff\xff\xff\xff\xf0')
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x80\xc2\x00\x00\x00', b'\xff\xff\xff\xff\xff\xf0')
                                                                                     ]
                                                                             ),
                                                                    instructions = [ofdef.ofp_instruction_actions(
@@ -485,7 +485,7 @@ class L2Switch(FlowBase):
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # Drop 802.1D STP packets, they should never be forwarded
-                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_D_W, b'\x01\x80\xc2\x00\x00\x00', b'\xff\xff\xff\xff\xff\xf0')
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x80\xc2\x00\x00\x00', b'\xff\xff\xff\xff\xff\xf0')
                                                                                     ]
                                                                             ),
                                                                    instructions = [ofdef.ofp_instruction_actions(
@@ -663,7 +663,7 @@ class L2Switch(FlowBase):
                                                                    match = ofdef.ofp_match_oxm(
                                                                                 oxm_fields = [
                                                                                     # Drop 802.1D STP packets, they should never be forwarded
-                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_D_W, b'\x01\x80\xc2\x00\x00\x00', b'\xff\xff\xff\xff\xff\xf0')
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x80\xc2\x00\x00\x00', b'\xff\xff\xff\xff\xff\xf0')
                                                                                     ]
                                                                             ),
                                                                    instructions = [ofdef.ofp_instruction_actions(
