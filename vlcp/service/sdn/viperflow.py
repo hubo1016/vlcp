@@ -1578,7 +1578,7 @@ class ViperFlow(Module):
         
         try:
             while True:
-                newports = dict() 
+                newports = [] 
                 for port in ports:
                     port = copy.deepcopy(port)
                     key = LogicalPort.default_key(port["id"])
@@ -1586,6 +1586,8 @@ class ViperFlow(Module):
                     
                     # fake attr for delete
                     port['lgnetid'] = portobj.network.id
+                    
+                    newports.append(port)
 
                 lgnetmapkeys = list(set([LogicalNetworkMap.default_key(p['lgnetid'])
                             for p in newports]))
@@ -1613,6 +1615,7 @@ class ViperFlow(Module):
                         lgnetmap.ports.dataset().discard(lgport.create_weakreference())
                        
                         values[0].set.dataset().discard(lgport.create_weakreference())
+
                     return keys,[values[0]]+[None]*len(ports)+lgnetmapvalues
                 
                 try:
