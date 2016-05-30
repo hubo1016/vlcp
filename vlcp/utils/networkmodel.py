@@ -72,3 +72,12 @@ class LogicalPortSet(DataObject):
         super(LogicalPortSet,self).__init__(prefix = prefix,
                 deleted = deleted)
         self.set = DataObjectSet()
+
+class VXLANEndpointSet(DataObject):
+    _prefix = 'viperflow.vxlanendpointset'
+    _indices = ('id',)    
+    def __init__(self,prefix = None,deleted = None):
+        super(LogicalNetworkMap,self).__init__(
+                prefix = prefix,deleted = deleted)
+        self.endpointlist = []
+

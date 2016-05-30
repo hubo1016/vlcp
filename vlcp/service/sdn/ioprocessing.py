@@ -370,8 +370,9 @@ class IOFlowUpdater(FlowUpdater):
                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                        buffer_id = ofdef.OFP_NO_BUFFER,
                                                        out_port = ofdef.OFPP_ANY,
-                                                       out_group = groupid,
-                                                       match = ofdef.ofp_match_oxm()))
+                                                       out_group = ofdef.OFPG_ANY,
+                                                       match = ofdef.ofp_match_oxm(oxm_fields = create_output_oxm(groupid, ofdef.OFPP_ANY))
+                                                       ))
             # Never use flow mod to update an input flow of physical port, because the input_oxm may change.
             for obj in updatedvalues:
                 if obj.isinstance(PhysicalPort):
@@ -429,16 +430,31 @@ class IOFlowUpdater(FlowUpdater):
                                                         ))
             for m in execute_commands():
                 yield m
-            def create_buckets(obj):
+            disablechaining = connection.protocol.disablechaining
+            created_groups = {}
+            def create_buckets(obj, groupid):
                 # Generate buckets
                 buckets = [ofdef.ofp_bucket(actions=[ofdef.ofp_action_output(port = _portids[p.id])])
                            for p in logportdict[obj]
                            if p.id in _portids]
+                allactions = [ofdef.ofp_action_output(port = _portids[p.id])
+                              for p in logportdict[obj]
+                              if p.id in _portids]
+                disablegroup = False
                 if obj.physicalnetwork in phyportdict:
                     for p in phyportdict[obj.physicalnetwork]:
                         if (obj, p) in flowparts:
                             fp = flowparts[(obj,p)]
-                            buckets.append(ofdef.ofp_bucket(actions=list(fp[3])))
+                            allactions.extend(fp[3])
+                            if disablechaining and not disablegroup and any(a.type == ofdef.OFPAT_GROUP for a in fp[3]):
+                                # We cannot use chaining. We use a long action list instead, and hope there is no conflicts
+                                disablegroup = True
+                            else:
+                                buckets.append(ofdef.ofp_bucket(actions=list(fp[3])))
+                if disablegroup:
+                    created_groups[groupid] = allactions
+                else:
+                    created_groups[groupid] = [ofdef.ofp_action_group(group_id = groupid)]
                 return buckets
             for obj in addvalues:
                 if obj.isinstance(LogicalNetwork):
@@ -447,7 +463,7 @@ class IOFlowUpdater(FlowUpdater):
                         cmds.append(ofdef.ofp_group_mod(command = ofdef.OFPGC_ADD,
                                                         type = ofdef.OFPGT_ALL,
                                                         group_id = groupid,
-                                                        buckets = create_buckets(obj)
+                                                        buckets = create_buckets(obj, groupid)
                                                         ))
             # Updated networks when:
             # 1. Network is updated
@@ -471,7 +487,7 @@ class IOFlowUpdater(FlowUpdater):
                     cmds.append(ofdef.ofp_group_mod(command = ofdef.OFPGC_MODIFY,
                                                     type = ofdef.OFPGT_ALL,
                                                     group_id = groupid,
-                                                    buckets = create_buckets(obj)
+                                                    buckets = create_buckets(obj, groupid)
                                                     ))
             for m in execute_commands():
                 yield m
@@ -688,7 +704,7 @@ class IOFlowUpdater(FlowUpdater):
             for lognet in addvalues:
                 if lognet.isinstance(LogicalNetwork):
                     lognetid = _networkids.get(lognet.getkey())
-                    if lognetid is not None:
+                    if lognetid is not None and lognetid in created_groups:
                         cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                        command = ofdef.OFPFC_ADD,
                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -697,8 +713,18 @@ class IOFlowUpdater(FlowUpdater):
                                                        out_group = ofdef.OFPG_ANY,
                                                        match = ofdef.ofp_match_oxm(oxm_fields = create_output_oxm(lognetid, ofdef.OFPP_ANY)),
                                                        instructions = [ofdef.ofp_instruction_actions(actions =
-                                                                            [ofdef.ofp_action_group(group_id = lognetid)])]
+                                                                            created_groups.pop(lognetid))]
                                                        ))
+            for lognetid, actions in created_groups.items():
+                cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
+                                               command = ofdef.OFPFC_ADD,
+                                               priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                               buffer_id = ofdef.OFP_NO_BUFFER,
+                                               out_port = ofdef.OFPP_ANY,
+                                               out_group = ofdef.OFPG_ANY,
+                                               match = ofdef.ofp_match_oxm(oxm_fields = create_output_oxm(lognetid, ofdef.OFPP_ANY)),
+                                               instructions = [ofdef.ofp_instruction_actions(actions = actions)]
+                                               ))                
             # Ignore logical network update
             for m in execute_commands():
                 yield m

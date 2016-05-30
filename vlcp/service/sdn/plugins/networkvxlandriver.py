@@ -7,7 +7,6 @@ from vlcp.server.module import Module,api,publicapi
 from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
-from vlcp.utils.ethernet import ETHERTYPE_8021Q 
 
 logger = logging.getLogger('NetworkVxlanDriver')
 
@@ -39,13 +38,7 @@ class NetworkVxlanDriver(Module):
                                     criteria=lambda phynettype,
                                     networks:phynettype == 'vxlan'),
                        publicapi(self.deletelogicalnetworks,
-                                    criteria=lambda phynettype,networks:phynettype == "vxlan"),
-                       #used in IOprocessing module
-                       publicapi(self.createioflowparts,
-                                    criteria=lambda connection,logicalnetwork,
-                                    physicalport,logicalnetworkid,physicalportid:
-                                    logicalnetwork.physicalnetwork.type == "vxlan")
-
+                                    criteria=lambda phynettype,networks:phynettype == "vxlan")
                        )
 
     def _main(self):
@@ -446,16 +439,6 @@ class NetworkVxlanDriver(Module):
             
             return keys,[values[0]]+[None]*len(networks)*2+phynetmapvalues
         return deletelgnetworks
-
-    def createioflowparts(self,connection,logicalnetwork,physicalport,logicalnetworkid,physicalportid):
-
-        #
-        #  1. used in IOProcessing , when physicalport add to logicalnetwork 
-        #     return : input flow match vxlan vni, input flow vlan parts actions
-        #              output flow vxlan parts actions, output group bucket
-        #
-        return None        
-#
 # utils function
 #
 
