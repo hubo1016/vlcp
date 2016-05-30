@@ -542,7 +542,7 @@ class L2Switch(FlowBase):
                                                                    match = ofdef.ofp_match_oxm(),
                                                                    instructions = [ofdef.ofp_instruction_actions(
                                                                                     actions = [
-                                                                                        ofdef.ofp_action_output(ofp_port_no = ofdef.OFPP_CONTROLLER,
+                                                                                        ofdef.ofp_action_output(port = ofdef.OFPP_CONTROLLER,
                                                                                                                 max_len = 128
                                                                                                                 )
                                                                                                ],
