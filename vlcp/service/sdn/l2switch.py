@@ -579,7 +579,7 @@ class L2Switch(FlowBase):
                     yield m                    
                 def learning_packet_handler():
                     packetin = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l2, 1, conn, conn.connmark)
-                    conndown = conn.protocol.statematcher()
+                    conndown = conn.protocol.statematcher(conn)
                     def get_oxm(fields, header):
                         v = [o.value for o in fields if o.header == header]
                         if v:
