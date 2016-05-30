@@ -599,10 +599,6 @@ class L2Switch(FlowBase):
                             else:
                                 dl_src = p.dl_src
                             in_port = get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT)
-                            if in_port:
-                                in_port = in_port[0]
-                            else:
-                                in_port = b'\x00\x00\x00\x00'
                             if conn.protocol.disablenxext:
                                 # Use METADATA
                                 metadata = get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_METADATA)
