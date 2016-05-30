@@ -403,7 +403,7 @@ class L2Switch(FlowBase):
             self._flowupdaters[conn] = new_updater
             new_updater.start()
         if self.learning:
-            if self.nxlearning and not conn.protocol.disablenxext:
+            if self.nxlearn and not conn.protocol.disablenxext:
                 # Use nx_action_learn
                 for m in conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
                                                                    command = ofdef.OFPFC_ADD,
