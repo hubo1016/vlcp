@@ -327,8 +327,9 @@ class NetworkVxlanDriver(Module):
                     phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
 
                     values[0].set.dataset().add(networkmap[i][0].create_weakreference())
-            return keys[0:1] + keys[1:1+len(networks)+len(networks)]+phynetmapkeys,\
-                    values[0:1]+values[1:1+len(networks)+len(networks)] + phynetmapvalues
+            endpointsets = [VXLANEndpointSet.create_instance(nm[0].id) for nm in networkmap]
+            return keys[0:1] + keys[1:1+len(networks)+len(networks)]+phynetmapkeys + [e.getkey() for e in endpointsets],\
+                    values[0:1]+values[1:1+len(networks)+len(networks)] + phynetmapvalues + endpointsets
         return createlgnetworks
         
     def _createlogicalnetwork(self,physicalnetwork,id,**args):
