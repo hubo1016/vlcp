@@ -216,7 +216,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                                               system_id,
                                               bridge,
                                               None if self._parent.refreshinterval is None else
-                                                    self._parent.refreshinterval * 2 + timestamp
+                                                    self._parent.refreshinterval * 1000000 * 2 + timestamp
                                               ])
                     return (keys, values)
                 for m in callAPI(self, 'objectdb', 'transact', {'keys': vxlanendpoint_list,
