@@ -209,7 +209,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                                               if (ep[1], ep[2], ep[3]) == (ovsdb_vhost, system_id, bridge)
                                               or ep[4] < timestamp]
                             if n.physicalnetwork in unique_phyports:
-                                phyport = unique_phyports[n.phynetwork]
+                                phyport = unique_phyports[n.physicalnetwork]
                                 if phyport in currentphyportinfo:
                                     v.endpointlist.append([currentphyportinfo[phyport][2],
                                               ovsdb_vhost,
