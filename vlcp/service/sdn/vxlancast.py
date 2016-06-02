@@ -227,7 +227,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
             subroutines.append(do_transact())
         # We must create broadcast groups for VXLAN logical networks, using the information in VXLANEndpointSet
         group_cmds = []
-        created_groups = set()
+        created_groups = {}
         deleted_groups = set()
         for lognet in removevalues:
             if lognet.isinstance(LogicalNetwork):
@@ -253,7 +253,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                             allips = [ip for ip in (_get_ip(ep[0], ofdef) for ep in ve.endpointlist
                                       if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge))
                                       if ip is not None and ip != localip_addr]
-                            created_groups.add(netid)
+                            created_groups[netid] = portid
                             group_cmds.append(
                                 ofdef.ofp_group_mod(
                                       command = ofdef.OFPGC_MODIFY
