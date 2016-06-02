@@ -290,8 +290,8 @@ class VXLANDatabaseUpdater(FlowUpdater):
                 for g in deleted_groups:
                     for m in self.waitForSend(VXLANGroupChanged(conn, g, VXLANGroupChanged.DELETED)):
                         yield m
-                for g in created_groups:
-                    for m in self.waitForSend(VXLANGroupChanged(conn, g, VXLANGroupChanged.UPDATED)):
+                for g,pid in created_groups.items():
+                    for m in self.waitForSend(VXLANGroupChanged(conn, g, VXLANGroupChanged.UPDATED, physicalportid = pid)):
                         yield m
             subroutines.append(group_mod())
         try:
