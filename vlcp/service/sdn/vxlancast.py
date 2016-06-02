@@ -39,7 +39,7 @@ def _is_vxlan(obj):
 
 def _get_ip(ip, ofdef):
     try:
-        return ofdef.ip_addr(ip)
+        return ofdef.ip4_addr(ip)
     except Exception:
         return None
 
@@ -245,36 +245,37 @@ class VXLANDatabaseUpdater(FlowUpdater):
                 lognet = ReferenceObject(LogicalNetwork.default_key(ve.id))
                 if lognet in currentlognetinfo:
                     phynet, netid = currentlognetinfo[lognet]
-                    phyport = unique_phyports[phynet]
-                    if phyport in currentphyportinfo:
-                        _, portid, localip = currentphyportinfo[phyport]
-                        localip_addr = _get_ip(localip, ofdef)
-                        allips = [ip for ip in (_get_ip(ep[0], ofdef) for ep in v.endpointlist
-                                  if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge))
-                                  if ip is not None and ip != localip_addr]
-                        created_groups.add(netid)
-                        group_cmds.append(
-                            ofdef.ofp_group_mod(
-                                  command = ofdef.OFPGC_MODIFY
-                                            if netid in self._current_groups
-                                            else ofdef.OFPGC_ADD,
-                                  type = ofdef.OFPGT_ALL,
-                                  groupid = (netid & 0xffff) | 0x10000,
-                                  buckets =
-                                    [ofdef.ofp_bucket(
-                                            actions = [
-                                                ofdef.ofp_action_set_field(
-                                                    field = ofdef.create_oxm(
-                                                                ofdef.NXM_NX_TUN_IPV4_DST,
-                                                                ipaddress
-                                                            )
-                                                ),
-                                                ofdef.ofp_action_output(port = portid)
-                                                ]
-                                        )
-                                    for ipaddress in allips
-                                    ]
-                            ))
+                    if phynet in unique_phyports:
+                        phyport = unique_phyports[phynet]
+                        if phyport in currentphyportinfo:
+                            _, portid, localip = currentphyportinfo[phyport]
+                            localip_addr = _get_ip(localip, ofdef)
+                            allips = [ip for ip in (_get_ip(ep[0], ofdef) for ep in v.endpointlist
+                                      if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge))
+                                      if ip is not None and ip != localip_addr]
+                            created_groups.add(netid)
+                            group_cmds.append(
+                                ofdef.ofp_group_mod(
+                                      command = ofdef.OFPGC_MODIFY
+                                                if netid in self._current_groups
+                                                else ofdef.OFPGC_ADD,
+                                      type = ofdef.OFPGT_ALL,
+                                      groupid = (netid & 0xffff) | 0x10000,
+                                      buckets =
+                                        [ofdef.ofp_bucket(
+                                                actions = [
+                                                    ofdef.ofp_action_set_field(
+                                                        field = ofdef.create_oxm(
+                                                                    ofdef.NXM_NX_TUN_IPV4_DST,
+                                                                    ipaddress
+                                                                )
+                                                    ),
+                                                    ofdef.ofp_action_output(port = portid)
+                                                    ]
+                                            )
+                                        for ipaddress in allips
+                                        ]
+                                ))
         if group_cmds:
             def group_mod():
                 try:
@@ -419,7 +420,7 @@ class VXLANCast(FlowBase):
                 for m in dbupdater.wait_for_group(self.apiroutine, logicalnetworkid):
                     yield m
             except Exception:
-                pass
+                self._logger.warning("Group is not created, connection = %r, logicalnetwork = %r, logicalnetworkid = %r", connection, logicalnetwork, logicalnetworkid, exc_info = True)
             else:
                 group_created = True
                 group_portid = self.apiroutine.retvalue
