@@ -131,7 +131,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                                   if p in lastphyportinfo and lastphyportinfo[p][1] == pid)
         newports = set(phyportdict.keys())
         newports.difference_update(currentphyportinfo.keys())
-        removed_ports = set(lastphyportinfo.keys).difference(currentphyportinfo.keys())
+        removed_ports = set(lastphyportinfo.keys()).difference(currentphyportinfo.keys())
         # Retrieve VXLAN settings from OVSDB
         newphyports = []
         datapath_id = conn.openflow_datapathid

@@ -77,7 +77,7 @@ class VXLANEndpointSet(DataObject):
     _prefix = 'viperflow.vxlanendpointset'
     _indices = ('id',)    
     def __init__(self,prefix = None,deleted = None):
-        super(LogicalNetworkMap,self).__init__(
+        super(VXLANEndpointSet, self).__init__(
                 prefix = prefix,deleted = deleted)
         self.endpointlist = []
 
