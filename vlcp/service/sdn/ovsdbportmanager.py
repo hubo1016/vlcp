@@ -66,9 +66,9 @@ class OVSDBPortManager(Module):
         try:
             method, params = ovsdb.transact('Open_vSwitch',
                                             ovsdb.wait('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
-                                                       ["ofport"], [{"ofport":ovsdb.oset()}], False, 5),
+                                                       ["ofport"], [{"ofport":ovsdb.oset()}], False, 5000),
                                             ovsdb.wait('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
-                                                       ["ifindex"], [{"ifindex":ovsdb.oset()}], False, 5),
+                                                       ["ifindex"], [{"ifindex":ovsdb.oset()}], False, 5000),
                                             ovsdb.select('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
                                                                          ["_uuid", "name", "ifindex", "ofport", "type", "external_ids"]))
             for m in protocol.querywithreply(method, params, connection, self.apiroutine):
