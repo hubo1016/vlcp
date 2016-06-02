@@ -127,7 +127,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
         # We only accept one physical port for VXLAN network
         unique_phyports = dict((p.physicalnetwork, p) for p,v in sorted(phyportdict.items(), key = lambda x: x[1]))
         phyportdict = dict((p,phyportdict[p]) for p in unique_phyports.values())
-        currentphyportinfo = dict((p,(p.physicalnetwork,pid,lastphyportinfo[p][2])) for p,pid in self.phyportdict.items()
+        currentphyportinfo = dict((p,(p.physicalnetwork,pid,lastphyportinfo[p][2])) for p,pid in phyportdict.items()
                                   if p in lastphyportinfo and lastphyportinfo[p][1] == pid)
         newports = set(phyportdict.keys())
         newports.difference_update(currentphyportinfo.keys())
@@ -304,7 +304,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
 class VXLANCast(FlowBase):
     "VXLAN single-cast and broadcast functions"
     _tablerequest = (("vxlaninput", ('l2input',), ''),
-                     ("vxlanoutput", ('l2output',), ''),
+                     ("vxlanoutput", ('l2output','vxlaninput'), ''),
                      ('egress', ('vxlanoutput', 'vxlanlearning'), ''),
                      ("vxlanlearning", ('vxlanoutput',), 'vxlanlearning'))
     _default_learning = True

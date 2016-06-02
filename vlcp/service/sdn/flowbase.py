@@ -37,7 +37,7 @@ class FlowBase(Module):
             for i in range(0, len(pathtable) - 1):
                 if pathtable[i][0] == name:
                     return pathtable[i+1][1]
-            if default is None:
+            if default is KeyError:
                 raise KeyError(name)
             else:
                 return default
