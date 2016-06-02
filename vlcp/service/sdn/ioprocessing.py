@@ -546,7 +546,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                match = ofdef.ofp_match_oxm(oxm_fields = [
                                                                         ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
                                                                                          ofport
-                                                                                         )] + input_oxm),
+                                                                                         )] + list(input_oxm)),
                                                                instructions = create_input_instructions(lognetid, input_actions)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,

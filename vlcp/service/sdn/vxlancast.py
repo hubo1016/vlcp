@@ -208,7 +208,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                             v.endpointlist = [ep for ep in v.endpointlist
                                               if (ep[1], ep[2], ep[3]) == (ovsdb_vhost, system_id, bridge)
                                               or ep[4] < timestamp]
-                            if n.phynetwork in unique_phyports:
+                            if n.physicalnetwork in unique_phyports:
                                 phyport = unique_phyports[n.phynetwork]
                                 if phyport in currentphyportinfo:
                                     v.endpointlist.append([currentphyportinfo[phyport][2],
@@ -424,19 +424,19 @@ class VXLANCast(FlowBase):
                 group_created = True
                 group_portid = self.apiroutine.retvalue
         if not group_created:
-            self.apiroutine.retvalue = (ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0)),
+            self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
                                         [],
                                         [],
                                         [])
         elif group_portid == physicalportid:
-            self.apiroutine.retvalue = (ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0)),
+            self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
                                         [],
                                         [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
                                          ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
                                         [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
                                          ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)])
         else:
-            self.apiroutine.retvalue = (ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0)),
+            self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
                                         [],
                                         [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
                                          ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
