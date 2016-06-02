@@ -7,6 +7,7 @@ from vlcp.server.module import Module,api,publicapi
 from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
+import itertools
 
 logger = logging.getLogger('NetworkVxlanDriver')
 
@@ -328,8 +329,10 @@ class NetworkVxlanDriver(Module):
 
                     values[0].set.dataset().add(networkmap[i][0].create_weakreference())
             endpointsets = [VXLANEndpointSet.create_instance(nm[0].id) for nm in networkmap]
-            return keys[0:1] + keys[1:1+len(networks)+len(networks)]+phynetmapkeys + [e.getkey() for e in endpointsets],\
-                    values[0:1]+values[1:1+len(networks)+len(networks)] + phynetmapvalues + endpointsets
+            return (tuple(itertools.chain(keys[0:1], keys[1:1+len(networks)+len(networks)], phynetmapkeys,
+                                         (e.getkey() for e in endpointsets))),\
+                    tuple(itertools.chain(values[0:1], values[1:1+len(networks)+len(networks)],
+                                          phynetmapvalues, endpointsets)))
         return createlgnetworks
         
     def _createlogicalnetwork(self,physicalnetwork,id,**args):
