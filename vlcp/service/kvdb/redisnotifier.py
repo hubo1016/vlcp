@@ -167,7 +167,8 @@ class _Notifier(RoutineContainer):
                                 UpdateNotification(self, transactid, tuple(_bytes(k) for k in transact['keys']), UpdateNotification.UPDATED, fromself, extrainfo = transact.get('extrainfo'))
                                                                            ), False)
         finally:
-            self.terminate(self.modifierroutine)
+            if hasattr(self ,'modifierroutine') and self.modifierroutine:
+                self.terminate(self.modifierroutine)
     def _modifier(self, client):
         try:
             modify_matcher = ModifyListen.createMatcher(self, ModifyListen.SUBSCRIBE)
