@@ -178,7 +178,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                     src_ips = [ovsdb.omap_getvalue(r['rows'][0]['options'], "local_ip")
                                if 'error' not in r and r['rows'] and 'options' in r['rows'][0]
                                else None
-                               for r in self.apiroutine.jsonrpc_result]
+                               for r in self.jsonrpc_result]
                     newphyports = [(p, (p.physicalnetwork, pid, src_ip))
                                   for (p, pid),src_ip in zip(port_requests, src_ips)
                                   if _get_ip(src_ip, ofdef) is not None]
