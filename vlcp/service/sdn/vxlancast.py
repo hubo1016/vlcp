@@ -199,7 +199,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
         if transact_networks:
             def do_transact():
                 network_list = list(transact_networks)
-                network_keys_list = [n.getkey() for n in network_list]
+                vxlanendpoint_list = [VXLANEndpointSet.default_key(n.id) for n in network_list]
                 def update_vxlanendpoints(keys, values, timestamp):
                     # values = List[VXLANEndpointSet]
                     # endpointlist is [src_ip, vhost, systemid, bridge, expire]
@@ -219,7 +219,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                                                     self._parent.refreshinterval * 2 + timestamp
                                               ])
                     return (keys, values)
-                for m in callAPI(self, 'objectdb', 'transact', {'keys': network_keys_list,
+                for m in callAPI(self, 'objectdb', 'transact', {'keys': vxlanendpoint_list,
                                                                 'updater': update_vxlanendpoints,
                                                                 'withtime': True
                                                                 }):
@@ -414,7 +414,7 @@ class VXLANCast(FlowBase):
         ofdef = connection.openflowdef
         if connection in self._flowupdaters:
             # Wait for group creation
-            dbupdater, _ = self._flowupdaters
+            dbupdater, _ = self._flowupdaters[connection]
             try:
                 for m in dbupdater.wait_for_group(self.apiroutine, logicalnetworkid):
                     yield m
