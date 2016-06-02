@@ -239,7 +239,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                     # Always delete to ensure
                     group_cmds.append(ofdef.ofp_group_mod(command = ofdef.OFPGC_DELETE,
                                                           type = ofdef.OFPGT_ALL,
-                                                          groupid = (netid & 0xffff) | 0x10000))
+                                                          group_id = (netid & 0xffff) | 0x10000))
         for ve in itertools.chain(addvalues, updatedvalues):
             if ve.isinstance(VXLANEndpointSet):
                 lognet = ReferenceObject(LogicalNetwork.default_key(ve.id))
@@ -260,7 +260,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                                                 if netid in self._current_groups
                                                 else ofdef.OFPGC_ADD,
                                       type = ofdef.OFPGT_ALL,
-                                      groupid = (netid & 0xffff) | 0x10000,
+                                      group_id = (netid & 0xffff) | 0x10000,
                                       buckets =
                                         [ofdef.ofp_bucket(
                                                 actions = [
