@@ -206,8 +206,8 @@ class VXLANDatabaseUpdater(FlowUpdater):
                     for v,n in zip(values, network_list):
                         if v is not None:
                             v.endpointlist = [ep for ep in v.endpointlist
-                                              if (ep[1], ep[2], ep[3]) == (ovsdb_vhost, system_id, bridge)
-                                              or ep[4] < timestamp]
+                                              if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge)
+                                              and ep[4] >= timestamp]
                             if n.physicalnetwork in unique_phyports:
                                 phyport = unique_phyports[n.physicalnetwork]
                                 if phyport in currentphyportinfo:
