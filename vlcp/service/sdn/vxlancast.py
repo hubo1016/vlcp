@@ -250,7 +250,7 @@ class VXLANDatabaseUpdater(FlowUpdater):
                         if phyport in currentphyportinfo:
                             _, portid, localip = currentphyportinfo[phyport]
                             localip_addr = _get_ip(localip, ofdef)
-                            allips = [ip for ip in (_get_ip(ep[0], ofdef) for ep in v.endpointlist
+                            allips = [ip for ip in (_get_ip(ep[0], ofdef) for ep in ve.endpointlist
                                       if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge))
                                       if ip is not None and ip != localip_addr]
                             created_groups.add(netid)
