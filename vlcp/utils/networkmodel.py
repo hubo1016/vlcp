@@ -52,6 +52,7 @@ class LogicalNetworkMap(DataObject):
         super(LogicalNetworkMap,self).__init__(
                 prefix = prefix,deleted = deleted)
         self.ports = DataObjectSet()
+        self.subnets = DataObjectSet()
 
 class LogicalNetworkSet(DataObject):
     _prefix = 'viperflow.logicalnetworkset'
@@ -72,6 +73,29 @@ class LogicalPortSet(DataObject):
         super(LogicalPortSet,self).__init__(prefix = prefix,
                 deleted = deleted)
         self.set = DataObjectSet()
+
+class SubNet(DataObject):
+    _prefix = 'viperflow.subnet'
+    _indices = 'id'
+
+
+class SubNetMap(DataObject):
+    _prefix = 'viperflow.subnetmap'
+    _indices = ("id",)
+
+    def __init__(self, prefix=None, deleted=None):
+        super(SubNetMap, self).__init__(
+                prefix=prefix, deleted=deleted)
+        self.allocated_ips = dict()
+
+
+class SubNetSet(DataObject):
+    _prefix = 'viperflow.subnetset'
+
+    def __init__(self, prefix=None, deleted=None):
+        super(SubNetSet, self).__init__(prefix=prefix, deleted=deleted)
+        self.set = DataObjectSet()
+
 
 class VXLANEndpointSet(DataObject):
     _prefix = 'viperflow.vxlanendpointset'
