@@ -2087,7 +2087,8 @@ class ViperFlow(Module):
             with watch_context(subnetkeys,fsubnetobjs,reqid,self.app_routine):
                 pass
 
-
+    def listsubnets(self):
+        pass
     # the first run as routine going
     def load(self,container):
 
