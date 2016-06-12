@@ -1848,7 +1848,7 @@ class ViperFlow(Module):
             newsubnets.append(subnet)
 
         subnetobjs = [self._createsubnet(**sn) for sn in newsubnets]
-        lgnetmapkeys = list(set([LogicalNetworkMap.default_key(sn.logicalnetwork) for sn in newsubnets]))
+        lgnetmapkeys = list(set([LogicalNetworkMap.default_key(sn['logicalnetwork']) for sn in newsubnets]))
         subnetobjkeys = [subnetobj[0].getkey() for subnetobj in subnetobjs]
         subnetmapobjkeys = [subnetobj[1].getkey() for subnetobj in subnetobjs]
         subnetsetkey = SubNetSet.default_key()
@@ -1956,10 +1956,10 @@ class ViperFlow(Module):
                     setattr(snet,k,v)
 
                 try:
-                    check_ip_pool(gateway=snet.gateway,start=snet.allocated_start,end=snet.allocated_end,
+                    check_ip_pool(gateway=getattr(snet,'gateway',None),start=snet.allocated_start,end=snet.allocated_end,
                                   allocated=smap.allocated_ips.keys(),cidr=snet.cidr)
                 except:
-                    raise ValueError("ip pool conflict gateway " + snet.gateway + " start " +\
+                    raise ValueError("ip pool conflict gateway " + getattr(snet,'gateway','None') + " start " +\
                                      snet.allocated_start + " end " + snet.allocated_end + " cidr " + snet.cidr)
             return snkeys,subnetobj
         try:
@@ -2016,7 +2016,7 @@ class ViperFlow(Module):
 
                     newsubnets.append(subnet)
 
-                subnetmapkeys = [SubNetMap.default_key(sn['id'] for sn in newsubnets)]
+                subnetmapkeys = [SubNetMap.default_key(sn['id']) for sn in newsubnets]
 
                 lognetkeys = list(set([LogicalNetwork.default_key(sn['logicalnetwork']) for sn in newsubnets]))
 
@@ -2024,7 +2024,7 @@ class ViperFlow(Module):
                                  for key in lognetkeys]
 
                 keys = itertools.chain([SubNetSet.default_key()],subnetkeys,subnetmapkeys,lognetkeys,lognetmapkeys)
-
+                
                 def subnetupdate(keys,values):
                     subset = values[0]
                     subnetlen = len(subnetkeys)
@@ -2035,33 +2035,33 @@ class ViperFlow(Module):
 
                     smk = keys[1+subnetlen:1 + subnetlen + subnetlen]
                     subnetmapobjs = values[1+subnetlen:1 + subnetlen + subnetlen]
-
+                    
                     lgnetkeys = keys[1 + subnetlen * 2:1 + subnetlen *2 + lognetlen]
                     lgnetobjs = values[1 + subnetlen * 2:1 + subnetlen *2 + lognetlen]
 
                     lgnetmapkeys = keys[1 + subnetlen *2 + lognetlen:]
                     lgnetmapobjs = values[1 + subnetlen *2 + lognetlen:]
-
+                    
                     if [v.network.getkey() if v is not None else None for v in subnetobjs] !=\
                             [v.network.getkey() for v in fsubnetobjs]:
                         raise UpdateConflictException
 
                     subnetsdict = dict(zip(sk,zip(subnetobjs,subnetmapobjs)))
                     lgnetdict = dict(zip(lgnetkeys,zip(lgnetobjs,lgnetmapobjs)))
-
+                    
                     for subnet in newsubnets:
                         k = SubNet.default_key(subnet['id'])
                         nk = LogicalNetwork.default_key(subnet['logicalnetwork'])
 
                         snobj,snmobj = subnetsdict.get(k)
-                        if snmobj.allocated_ips.dataset():
+                        if snmobj.allocated_ips:
                             raise ValueError("there logicalport in " + k + " delete it before")
                         _,lgnetmap = lgnetdict.get(nk)
                         lgnetmap.subnets.dataset().discard(snobj.create_weakreference())
                         subset.set.dataset().discard(snobj.create_weakreference())
-
-                    return keys[0]+sk+smk+lgnetmapkeys,\
-                            subset + [None]*subnetlen+[None]*subnetlen + lgnetmapobjs
+                    
+                    return itertools.chain([keys[0]],sk,smk,lgnetmapkeys),\
+                            itertools.chain([subset],[None]*subnetlen,[None]*subnetlen,lgnetmapobjs)
 
                 try:
                     for m in callAPI(self.app_routine,'objectdb','transact',
@@ -2124,20 +2124,38 @@ class ViperFlow(Module):
 
 
 def check_ip_pool(gateway,start,end,allocated,cidr):
-    try:
-        ngateway = netaddr.IPAddress(gateway)
-        nstart = netaddr.IPAddress(start)
-        nend = netaddr.IPAddress(end)
-        ncidr = netaddr.IPNetwork(cidr)
+    
+    if gateway:
+        try:
+            ngateway = netaddr.IPAddress(gateway)
+            nstart = netaddr.IPAddress(start)
+            nend = netaddr.IPAddress(end)
+            ncidr = netaddr.IPNetwork(cidr)
 
-        assert ngateway in ncidr
-        assert nstart in cidr
-        assert nend in cidr
-        assert nstart < nend
-        assert ngateway < nstart or ngateway > nend
+            assert ngateway in ncidr
+            assert nstart in ncidr
+            assert nend in ncidr
+            assert nstart < nend
+            assert ngateway < nstart or ngateway > nend
 
-        for ip in allocated:
-            nip = netaddr.IPAddress(ip)
-            assert nstart < nip < nend
-    except:
-        raise
+            for ip in allocated:
+                nip = netaddr.IPAddress(ip)
+                assert nstart < nip < nend
+        except:
+            raise
+    else:
+        try:
+            nstart = netaddr.IPAddress(start)
+            nend = netaddr.IPAddress(end)
+            ncidr = netaddr.IPNetwork(cidr)
+
+            assert nstart in ncidr
+            assert nend in ncidr
+            assert nstart < nend
+
+            for ip in allocated:
+                nip = netaddr.IPAddress(ip)
+                assert nstart < nip < nend
+        except:
+            raise
+

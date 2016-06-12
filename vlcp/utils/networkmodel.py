@@ -76,7 +76,7 @@ class LogicalPortSet(DataObject):
 
 class SubNet(DataObject):
     _prefix = 'viperflow.subnet'
-    _indices = 'id'
+    _indices = ('id',)
 
 
 class SubNetMap(DataObject):
