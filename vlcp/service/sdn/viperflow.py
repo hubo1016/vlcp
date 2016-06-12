@@ -2087,8 +2087,67 @@ class ViperFlow(Module):
             with watch_context(subnetkeys,fsubnetobjs,reqid,self.app_routine):
                 pass
 
-    def listsubnets(self):
-        pass
+    def listsubnets(self,id = None,logicalnetwork=None,**kwargs):
+        "list subnets infos"
+        def set_walker(key,set,walk,save):
+
+            for weakobj in set.dataset():
+                subnetkey = weakobj.getkey()
+
+                try:
+                    subnet = walk(subnetkey)
+                except KeyError:
+                    pass
+                else:
+                    if not logicalnetwork:
+                        if all(getattr(subnet,k,None) == v for k,v in kwargs.items()):
+                            save(subnetkey)
+                    else:
+                        try:
+                            lgnet = walk(subnet.network.getkey())
+                        except:
+                            pass
+                        else:
+                            if lgnet.id == logicalnetwork:
+                                if all(getattr(subnet,k,None) == v for k,v in kwargs.items()):
+                                    save(subnetkey)
+
+        def walker_func(set_func):
+
+            def walker(key,obj,walk,save):
+                set_walker(key,set_func(obj),walk,save)
+
+            return walker
+
+        if not id:
+            # get all subnets
+            subnetsetkey = SubNetSet.default_key()
+            # an unique id used to unwatch
+            self._reqid += 1
+            reqid = ('viperflow',self._reqid)
+
+            for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[subnetsetkey],
+                'walkerdict':{subnetsetkey:walker_func(lambda x:x.set)},
+                'requestid':reqid}):
+                yield m
+            keys,values = self.app_routine.retvalue
+
+            # dump will get reference
+            with watch_context(keys,values,reqid,self.app_routine):
+                self.app_routine.retvalue = [dump(r) for r in values]
+
+        else:
+            subnetkey = SubNet.default_key(id)
+
+            for m in self._getkeys([subnetkey]):
+                yield m
+
+            retobj = self.app_routine.retvalue
+
+            if all(getattr(retobj,k,None) == v for k,v in kwargs.items()):
+                self.app_routine.retvalue = dump(retobj)
+            else:
+                self.app_routine.retvalue = []
     # the first run as routine going
     def load(self,container):
 
