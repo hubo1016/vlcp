@@ -14,8 +14,8 @@ from vlcp.utils.networkmodel import *
 from uuid import uuid1
 import copy
 import logging
-import netaddr
 import itertools
+import socket
 
 logger = logging.getLogger('viperflow')
 
@@ -856,8 +856,8 @@ class ViperFlow(Module):
                             {"keys":keys,"updater":update}):
                         yield m
                 except UpdateConflictException:
-                    maxtry -= 1
-                    if maxtry < 0:
+                    max_try -= 1
+                    if max_try < 0:
                         raise
                     else:
                         logger.info(" cause UpdateConflict Exception try once")
@@ -1742,14 +1742,16 @@ class ViperFlow(Module):
                 raise ValueError('create subnet must special cidr')
             else:
                 try:
-                    cidr = netaddr.IPNetwork(subnet['cidr'])
+                    #cidr = netaddr.IPNetwork(subnet['cidr'])
+                    cidr,prefix = parse_ip4_network(subnet['cidr'])
                 except:
                     raise
                 else:
                     if 'gateway' in subnet:
                         try:
-                            gateway = netaddr.IPAddress(subnet['gateway'])
-                            assert gateway in cidr
+                            #gateway = netaddr.IPAddress(subnet['gateway'])
+                            gateway = parse_ip4_address(subnet['gateway'])
+                            assert ip_in_network(gateway,cidr,prefix)
                         except:
                             raise
 
@@ -1757,55 +1759,70 @@ class ViperFlow(Module):
                         if 'allocated_start' not in subnet:
                             if 'allocated_end' not in subnet:
                                 # we assume gateway is smallest in a allocate pool
-                                start = list(cidr)[gateway_index + 1]
-                                end = list(cidr)[-1]
+                                #start = list(cidr)[gateway_index + 1]
+                                start = gateway + 1
+                                #end = list(cidr)[-1]
+                                end = network_last(cidr,prefix)
                                 if start == end:
                                     raise ValueError('special ' + subnet['gateway'] + ' as small,\
                                      allocated is none in cird')
 
-                                subnet['allocated_start'] = str(start)
-                                subnet['allocated_end'] = str(end)
+                                subnet['allocated_start'] = int_to_str(start)
+                                subnet['allocated_end'] = int_to_str(end)
                             else:
                                 try:
-                                    end = netaddr.IPAddress(subnet['allocated_end'])
-                                    assert end in cidr
+                                    #end = netaddr.IPAddress(subnet['allocated_end'])
+                                    end = parse_ip4_address(subnet['allocated_end'])
+                                    #assert end in cidr
+                                    #assert end != gateway
+                                    #assert end > netaddr.IPAddress(cidr.first)
+                                    assert ip_in_network(end,cidr,prefix)
                                     assert end != gateway
-                                    assert end > netaddr.IPAddress(cidr.first)
+                                    assert end > network_first(cidr,prefix)
                                     if end > gateway:
-                                        start = list(cidr)[gateway_index + 1]
+                                        #start = list(cidr)[gateway_index + 1]
+                                        start = gateway + 1
                                     else:
-                                        start = list(cidr)[0]
+                                        start = network_first(cidr,prefix)
 
                                     if start == end:
                                         raise ValueError("allocated pool is none")
-                                    subnet["allocated_start"] = str(start)
+                                    subnet["allocated_start"] = int_to_str(start)
                                 except:
                                     raise
                         else:
                             if 'allocated_end' not in subnet:
                                 try:
-                                    start = netaddr.IPAddress(subnet['allocated_start'])
-                                    assert start in cidr
+                                    #start = netaddr.IPAddress(subnet['allocated_start'])
+                                    start = parse_ip4_address(subnet['allocated_start'])
+                                    #assert start in cidr
+                                    assert ip_in_network(start,cidr,prefix)
                                     assert start != gateway
-                                    assert start < netaddr.IPAddress(cidr.last)
-
+                                    #assert start < netaddr.IPAddress(cidr.last)
+                                    assert start < network_last(cidr,prefix)
                                     if start > gateway:
-                                        end = list(cidr)[gateway_index + 1]
+                                        #end = list(cidr)[gateway_index + 1]
+                                        end = gateway + 1
                                     else:
-                                        end = list(cidr)[0]
+                                        #end = list(cidr)[0]
+                                        end = network_last(cidr,prefix)
 
                                     if start == end:
                                         raise ValueError("allocated pool is None")
-                                    subnet['allocated_end'] = str(end)
+                                    subnet['allocated_end'] = int_to_str(end)
                                 except:
                                     raise
                             else:
                                 try:
-                                    start = netaddr.IPAddress(subnet['allocated_start'])
-                                    end = netaddr.IPAddress(subnet['allocated_end'])
+                                    #start = netaddr.IPAddress(subnet['allocated_start'])
+                                    start = parse_ip4_address(subnet['allocated_start'])
+                                    #end = netaddr.IPAddress(subnet['allocated_end'])
+                                    end = parse_ip4_address(subnet['allocated_end'])
                                     assert start < end
-                                    assert start in cidr
-                                    assert end in cidr
+                                    #assert start in cidr
+                                    assert ip_in_network(start,cidr,prefix)
+                                    #assert end in cidr
+                                    assert ip_in_network(end,cidr,prefix)
 
                                     if start <= gateway <= end:
                                         raise ValueError('gateway must out of allocated pool')
@@ -1816,32 +1833,46 @@ class ViperFlow(Module):
                     else:
                         if 'allocated_start' not in subnet:
                             if 'allocated_end' not in subnet:
-                                subnet['allocated_start'] = str(netaddr.IPAddress(cidr.first))
-                                subnet['allocated_end'] = str(netaddr.IPAddress(cidr.last))
+                                #subnet['allocated_start'] = str(netaddr.IPAddress(cidr.first))
+                                #subnet['allocated_end'] = str(netaddr.IPAddress(cidr.last))
+                                subnet['allocated_start'] = int_to_str(network_first(cidr,prefix))
+                                subnet['allocated_end'] = int_to_str(network_last(cidr,prefix))
                             else:
                                 try:
-                                    end = netaddr.IPAddress(subnet['allocated_end'])
-                                    assert end in cidr
-                                    assert end > netaddr.IPAddress(cidr.first)
-                                    subnet["allocated_start"] = str(netaddr.IPAddress(cidr.first))
+                                    #end = netaddr.IPAddress(subnet['allocated_end'])
+                                    end = parse_ip4_address(subnet['allocated_end'])
+                                    #assert end in cidr
+                                    assert ip_in_network(end,cidr,prefix)
+                                    #assert end > netaddr.IPAddress(cidr.first)
+                                    assert end > network_first(cidr,prefix)
+                                    #subnet["allocated_start"] = str(netaddr.IPAddress(cidr.first))
+                                    subnet['allocated_start'] = int_to_str(network_first(cidr,prefix))
                                 except:
                                     raise
                         else:
                             if 'allocated_end' not in subnet:
                                 try:
-                                    start = netaddr.IPAddress(subnet['allocated_start'])
-                                    assert start in cidr
-                                    assert start < netaddr.IPAddress(cidr.last)
-                                    subnet['allocated_end'] = str(netaddr.IPAddress(cidr.last))
+                                    #start = netaddr.IPAddress(subnet['allocated_start'])
+                                    start = parse_ip4_address(subnet['allocated_start'])
+                                    #assert start in cidr
+                                    assert ip_in_network(start,cidr,prefix)
+                                    #assert start < netaddr.IPAddress(cidr.last)
+                                    assert start < network_last(cidr,prefix)
+                                    #subnet['allocated_end'] = str(netaddr.IPAddress(cidr.last))
+                                    subnet['allocated_end'] = int_to_str(network_last(cidr,prefix))
                                 except:
                                     raise
                             else:
                                 try:
-                                    start = netaddr.IPAddress(subnet['allocated_start'])
-                                    end = netaddr.IPAddress(subnet['allocated_end'])
+                                    #start = netaddr.IPAddress(subnet['allocated_start'])
+                                    start = parse_ip4_address(subnet['allocated_start'])
+                                    #end = netaddr.IPAddress(subnet['allocated_end'])
+                                    end = parse_ip4_address(subnet['allocated_end'])
                                     assert start < end
-                                    assert start in cidr
-                                    assert end in cidr
+                                    #assert start in cidr
+                                    assert ip_in_network(start,cidr,prefix)
+                                    #assert end in cidr
+                                    assert ip_in_network(end,cidr,prefix)
                                 except:
                                     raise
 
@@ -1936,19 +1967,19 @@ class ViperFlow(Module):
                 # check ipaddress
                 if 'gateway' in sn:
                     try:
-                        netaddr.IPAddress(sn['gateway'])
+                        parse_ip4_address(sn['gateway'])
                     except:
                         raise
 
                 if 'allocated_start' in sn:
                     try:
-                        netaddr.IPAddress(sn['allocated_start'])
+                        parse_ip4_address(sn['allocated_start'])
                     except:
                         raise
 
                 if 'allocated_end' in sn:
                     try:
-                        netaddr.IPAddress(sn('allocated_end'))
+                        parse_ip4_address(sn('allocated_end'))
                     except:
                         raise
 
@@ -2182,39 +2213,95 @@ class ViperFlow(Module):
 
 
 
-def check_ip_pool(gateway,start,end,allocated,cidr):
-    
+def check_ip_pool(gateway, start, end, allocated, cidr):
+
+
+    nstart = parse_ip4_address(start)
+    nend = parse_ip4_address(end)
+    ncidr,prefix = parse_ip4_network(cidr)
     if gateway:
         try:
-            ngateway = netaddr.IPAddress(gateway)
-            nstart = netaddr.IPAddress(start)
-            nend = netaddr.IPAddress(end)
-            ncidr = netaddr.IPNetwork(cidr)
+            ngateway = parse_ip4_address(gateway)
+            #ngateway = netaddr.IPAddress(gateway)
+            #nstart = netaddr.IPAddress(start)
+            #nend = netaddr.IPAddress(end)
+            #ncidr = netaddr.IPNetwork(cidr)
 
-            assert ngateway in ncidr
-            assert nstart in ncidr
-            assert nend in ncidr
+            #assert ngateway in ncidr
+            #assert nstart in ncidr
+            #assert nend in ncidr
+            assert ip_in_network(ngateway,ncidr,prefix)
+            assert ip_in_network(nstart,ncidr,prefix)
+            assert ip_in_network(nend,ncidr,prefix)
             assert nstart < nend
             assert ngateway < nstart or ngateway > nend
 
             for ip in allocated:
-                nip = netaddr.IPAddress(ip)
+                nip = parse_ip4_address(ip)
                 assert nstart < nip < nend
         except:
             raise
     else:
         try:
-            nstart = netaddr.IPAddress(start)
-            nend = netaddr.IPAddress(end)
-            ncidr = netaddr.IPNetwork(cidr)
+            #nstart = netaddr.IPAddress(start)
+            #nend = netaddr.IPAddress(end)
+            #ncidr = netaddr.IPNetwork(cidr)
 
-            assert nstart in ncidr
-            assert nend in ncidr
+            #assert nstart in ncidr
+            #assert nend in ncidr
+            assert ip_in_network(nstart,ncidr,prefix)
+            assert ip_in_network(nend,ncidr,prefix)
             assert nstart < nend
 
             for ip in allocated:
-                nip = netaddr.IPAddress(ip)
+                nip = parse_ip4_address(ip)
                 assert nstart < nip < nend
         except:
             raise
 
+def parse_ip4_network( network ):
+
+    if '/' not in network:
+        raise ValueError("invalid cidr " + network)
+    ip,prefix = network.rsplit('/',1)
+
+    if not 0 < int(prefix) < 2 ** 32 - 1:
+        raise ValueError("invalid prefix " + prefix)
+
+    netmask = (2 ** 32 - 1) >> (32 - prefix) << (32 - prefix)
+
+    try:
+        sip = socket.inet_pton(socket.AF_INET,ip)
+        value = int.from_bytes(sip,byteorder='big')
+    except:
+        raise
+    else:
+        return value & netmask,int(prefix)
+
+def parse_ip4_address(address):
+    try:
+        ip = socket.inet_pton(socket.AF_INET,address)
+    except:
+        return int.from_bytes(ip,byteorder='big')
+
+def ip_in_network(ip,network,prefix):
+    shift = 32 - prefix
+    return (ip >> shift) == (network >> shift)
+
+def network_first(network,prefix):
+    return network + 1
+
+def network_last(network,prefix):
+    hostmask = (1 << (32 - prefix)) - 1
+    return network & hostmask
+
+def int_to_str(int_address):
+    if 0 < int_address < 2**32 - 1:
+        return '%d.%d.%d.%d'%(
+                int_address >> 24,
+                int_address >> 16 & 0xff,
+                int_address >> 8 & 0xff,
+                int_address & 0xff
+        )
+    else:
+        raise ValueError("invaild address" + str(int_address))
