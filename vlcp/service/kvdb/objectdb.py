@@ -694,7 +694,8 @@ class ObjectDB(Module):
                                                          (MultiKeyReference.get_keyset_from_key(k) for k,_ in remove_multikeys if k in updated_keyset or v.getkey() in auto_remove_keys),
                                                          (UniqueKeyReference.get_keyset_from_key(k) for k,_ in update_uniquekeys),
                                                          (MultiKeyReference.get_keyset_from_key(k) for k,_ in update_multikeys))))
-                auto_remove_keys[:] = list(autoremove_keys.difference(keys[:orig_len])
+                auto_remove_keys.clear()
+                auto_remove_keys.update(autoremove_keys.difference(keys[:orig_len])
                                                           .difference(extra_keys)
                                                           .difference(extra_key_set))
                 raise
@@ -739,7 +740,7 @@ class ObjectDB(Module):
             return (updated_keys, updated_values)
         while True:
             try:
-                for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime', {'keys': keys + tuple(extra_keys), 'updater': object_updater}):
+                for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime', {'keys': keys + tuple(auto_remove_keys) + tuple(extra_keys), 'updater': object_updater}):
                     yield m
             except _NeedMoreKeysException:
                 pass
