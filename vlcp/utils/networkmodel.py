@@ -65,7 +65,7 @@ class LogicalNetworkSet(DataObject):
 class LogicalPort(DataObject):
     _prefix = 'viperflow.logicalport'
     _indices = ("id",)
-    _unique_keys = ('_mac_address_index', ('network', 'mac_address'))
+    _unique_keys = (('_mac_address_index', ('network', 'mac_address')),)
 
 class LogicalPortSet(DataObject):
     _prefix = 'viperflow.logcialportset'
