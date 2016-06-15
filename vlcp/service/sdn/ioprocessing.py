@@ -61,7 +61,9 @@ def _to32bitport(portno):
 class IOFlowUpdater(FlowUpdater):
     def __init__(self, connection, systemid, bridgename, parent):
         FlowUpdater.__init__(self, connection, (LogicalPortSet.default_key(),
-                                                PhysicalPortSet.default_key()), ('ioprocessing', connection))
+                                                PhysicalPortSet.default_key()),
+                                            ('ioprocessing', connection),
+                                            parent._logger)
         self._walkerdict = {LogicalPortSet.default_key(): self._logicalport_walker,
                             PhysicalPortSet.default_key(): self._physicalport_walker
                             }
@@ -91,6 +93,8 @@ class IOFlowUpdater(FlowUpdater):
             yield m
     def _logicalport_walker(self, key, value, walk, save):
         save(key)
+        if value is None:
+            return
         logset = value.set
         for id in self._portids:
             logports = logset.find(LogicalPort, id)
@@ -115,6 +119,8 @@ class IOFlowUpdater(FlowUpdater):
                             save(phynet.getkey())
     def _physicalport_walker(self, key, value, walk, save):
         save(key)
+        if value is None:
+            return
         physet = value.set
         for name in self._portnames:
             phyports = physet.find(PhysicalPort, self._connection.protocol.vhost, self._systemid, self._bridgename, name)
@@ -157,7 +163,7 @@ class IOFlowUpdater(FlowUpdater):
                                  (LogicalNetwork, '_logicalnetworkkeys', lambda x: self._networkids.assign(x.getkey()), self._networkids),
                                  (PhysicalNetwork, '_physicalnetworkkeys', lambda x: self._phynetworkids.assign(x.getkey()), self._phynetworkids),
                                  ):
-            objs = [v for v in values if v.isinstance(cls)]
+            objs = [v for v in values if v is not None and v.isinstance(cls)]
             objkeys = set([v.getkey() for v in objs])
             oldkeys = getattr(self, name)
             if objkeys != oldkeys:
@@ -200,10 +206,10 @@ class IOFlowUpdater(FlowUpdater):
             _portnames = dict(self._currentportnames)
             _networkids = self._networkids.frozen()
             # We must generate actions from network driver
-            phyportset = [obj for obj in self._savedresult if obj.isinstance(PhysicalPort)]
-            phynetset = [obj for obj in self._savedresult if obj.isinstance(PhysicalNetwork)]
-            lognetset = [obj for obj in self._savedresult if obj.isinstance(LogicalNetwork)]
-            logportset = [obj for obj in self._savedresult if obj.isinstance(LogicalPort)]
+            phyportset = [obj for obj in self._savedresult if obj is not None and obj.isinstance(PhysicalPort)]
+            phynetset = [obj for obj in self._savedresult if obj is not None and obj.isinstance(PhysicalNetwork)]
+            lognetset = [obj for obj in self._savedresult if obj is not None and obj.isinstance(LogicalNetwork)]
+            logportset = [obj for obj in self._savedresult if obj is not None and obj.isinstance(LogicalPort)]
             # If a port is both a logical port and a physical port, flows may conflict.
             # Remove the port from dictionary if it is duplicated.
             logportofps = set(_portids[lp.id] for lp in logportset if lp.id in _portids)
@@ -248,17 +254,6 @@ class IOFlowUpdater(FlowUpdater):
             for m in self.executeAll(allapis):
                 yield m
             flowparts = dict(r[0] for r in self.retvalue if r[0] is not None)
-            def execute_commands():
-                if cmds:
-                    try:
-                        for m in connection.protocol.batch(cmds, connection, self):
-                            yield m
-                    except OpenflowErrorResultException:
-                        self._parent._logger.warning("Some Openflow commands return error result on connection %r, will ignore and continue.\n"
-                                                     "Details:\n%s", connection,
-                                                     "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (pformat(dump(k)), pformat(dump(v)))
-                                                               for k,v in self.openflow_replydict.items()))
-                    del cmds[:]
             if connection.protocol.disablenxext:
                 # Nicira extension is disabled, use metadata instead
                 # 64-bit metadata is used as:
@@ -418,8 +413,9 @@ class IOFlowUpdater(FlowUpdater):
                                                                                          ofport
                                                                                          )])
                                                                ))
-            for m in execute_commands():
+            for m in self.execute_commands(connection, cmds):
                 yield m
+            del cmds[:]
             for obj in removevalues:
                 if obj.isinstance(LogicalNetwork):
                     groupid = _lastnetworkids.get(obj.getkey())
@@ -428,8 +424,9 @@ class IOFlowUpdater(FlowUpdater):
                                                         type = ofdef.OFPGT_ALL,
                                                         group_id = groupid
                                                         ))
-            for m in execute_commands():
+            for m in self.execute_commands(connection, cmds):
                 yield m
+            del cmds[:]
             disablechaining = connection.protocol.disablechaining
             created_groups = {}
             def create_buckets(obj, groupid):
@@ -489,8 +486,9 @@ class IOFlowUpdater(FlowUpdater):
                                                     group_id = groupid,
                                                     buckets = create_buckets(obj, groupid)
                                                     ))
-            for m in execute_commands():
+            for m in self.execute_commands(connection, cmds):
                 yield m
+            del cmds[:]
             # There are 5 kinds of flows:
             # 1. in_port = (Logical Port)
             # 2. in_port = (Physical_Port), network = (Logical_Network)
@@ -726,7 +724,7 @@ class IOFlowUpdater(FlowUpdater):
                                                instructions = [ofdef.ofp_instruction_actions(actions = actions)]
                                                ))                
             # Ignore logical network update
-            for m in execute_commands():
+            for m in self.execute_commands(connection, cmds):
                 yield m
         except Exception:
             self._parent._logger.warning("Update flow for connection %r failed with exception", connection, exc_info = True)

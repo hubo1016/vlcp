@@ -13,6 +13,10 @@ from vlcp.event.event import Event, withIndices
 from time import time
 from copy import deepcopy
 from vlcp.event.core import QuitException, syscall_removequeue
+import itertools
+from vlcp.utils.dataobject import AlreadyExistsException, UniqueKeyReference,\
+    MultiKeyReference, DataObjectSet, UniqueKeySet, WeakReferenceObject,\
+    MultiKeySet, ReferenceObject
 
 @withIndices()
 class RetrieveRequestSend(Event):
@@ -45,6 +49,9 @@ class StaleResultException(Exception):
     def __init__(self, result, desc = "Result is stale"):
         Exception.__init__(desc)
         self.result = result
+
+class _NeedMoreKeysException(Exception):
+    pass
 
 @defaultconfig
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
@@ -133,9 +140,11 @@ class ObjectDB(Module):
             orig_retrieve_list = set()
             retrieveonce_list = set()
             orig_retrieveonce_list = set()
+            # Retrieved values are stored in update_result before merging into current storage
             update_result = {}
             walkers = {}
             self._loopCount = 0
+            # A request-id -> retrieve set dictionary to store the saved keys
             savelist = {}
             def updateloop():
                 while (retrieve_list or self._updatekeys or self._requests):
@@ -227,14 +236,18 @@ class ObjectDB(Module):
                             if k in self._watchedkeys and k not in self._update_version:
                                 self._update_version[k] = getversion(v)
                         update_result.update(zip(get_list, result))
+                    # All keys which should be retrieved in next loop
                     new_retrieve_list = set()
+                    # Keys which should be retrieved in next loop for a single walk
                     new_retrieve_keys = set()
+                    # Keys that are used in current walk will be retrieved again in next loop
                     used_keys = set()
                     def walk(key):
                         if hasattr(key, 'getkey'):
                             key = key.getkey()
                         key = _str(key)
                         if key not in self._watchedkeys:
+                            # This key is not retrieved, raise a KeyError, and record this key
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
                         elif key in update_result:
@@ -244,6 +257,7 @@ class ObjectDB(Module):
                             used_keys.add(key)
                             return self._managed_objs[key]
                         else:
+                            # This key is not retrieved, raise a KeyError, and record this key
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
                     walker_set = set()
@@ -278,35 +292,38 @@ class ObjectDB(Module):
                             v = update_result.get(k)
                         else:
                             v = self._managed_objs.get(k)
-                        if v is not None:
-                            ws = walkers.get(k)
-                            if ws:
-                                for w,r in list(ws):
-                                    # Custom walker
-                                    def save(key):
-                                        if hasattr(key, 'getkey'):
-                                            key = key.getkey()
-                                        key = _str(key)
-                                        savelist.setdefault(r[1], set()).add(key)
-                                    try:
-                                        new_retrieve_keys.clear()
-                                        used_keys.clear()
-                                        w(k, v, walk, save)
-                                    except Exception as exc:
-                                        for orig_k in r[0]:
-                                            walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
-                                        processing_requests[:] = [r0 for r0 in processing_requests if r0[1] != r[1]]
-                                        for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
-                                            yield m
-                                    else:
-                                        if new_retrieve_keys:
-                                            new_retrieve_list.update(new_retrieve_keys)
-                                            self._updatekeys.update(used_keys)
-                                            self._updatekeys.add(k)
+                        ws = walkers.get(k)
+                        if ws:
+                            for w,r in list(ws):
+                                # Custom walker
+                                def save(key):
+                                    if hasattr(key, 'getkey'):
+                                        key = key.getkey()
+                                    key = _str(key)
+                                    if key != k and key not in used_keys:
+                                        raise ValueError('Cannot save a key without walk')
+                                    savelist.setdefault(r[1], set()).add(key)
+                                try:
+                                    new_retrieve_keys.clear()
+                                    used_keys.clear()
+                                    w(k, v, walk, save)
+                                except Exception as exc:
+                                    for orig_k in r[0]:
+                                        walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
+                                    processing_requests[:] = [r0 for r0 in processing_requests if r0[1] != r[1]]
+                                    for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
+                                        yield m
+                                else:
+                                    if new_retrieve_keys:
+                                        new_retrieve_list.update(new_retrieve_keys)
+                                        self._updatekeys.update(used_keys)
+                                        self._updatekeys.add(k)
                     for save in savelist.values():
                         for k in save:
                             v = update_result.get(k)
                             if v is not None:
+                                # If we retrieved a new value, we should also retrieved the references
+                                # from this value
                                 new_retrieve_keys.clear()
                                 used_keys.clear()
                                 default_walker(k, v, walk)
@@ -524,6 +541,176 @@ class ObjectDB(Module):
         "(keys, values, timestamp) with timestamp as the server time"
         keys = tuple(_str2(k) for k in keys)
         updated_ref = [None, None]
+        extra_keys = []
+        extra_key_set = []
+        auto_remove_keys = set()
+        orig_len = len(keys)
+        def updater_with_key(keys, values, timestamp):
+            # Automatically manage extra keys
+            remove_uniquekeys = []
+            remove_multikeys = []
+            update_uniquekeys = []
+            update_multikeys = []
+            keystart = orig_len + len(auto_remove_keys)
+            for v in values[:keystart]:
+                if v is not None:
+                    if hasattr(v, 'kvdb_uniquekeys'):
+                        remove_uniquekeys.extend((k,v.create_weakreference()) for k in v.kvdb_uniquekeys())
+                    if hasattr(v, 'kvdb_multikeys'):
+                        remove_multikeys.extend((k,v.create_weakreference()) for k in v.kvdb_multikeys())
+            if withtime:
+                updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len], timestamp)
+            else:
+                updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len])
+            for v in updated_values:
+                if v is not None:
+                    if hasattr(v, 'kvdb_uniquekeys'):
+                        update_uniquekeys.extend((k,v.create_weakreference()) for k in v.kvdb_uniquekeys())
+                    if hasattr(v, 'kvdb_multikeys'):
+                        update_multikeys.extend((k,v.create_weakreference()) for k in v.kvdb_multikeys())
+            extrakeysdict = dict(zip(keys[keystart:keystart + len(extra_keys)], values[keystart:keystart + len(extra_keys)]))
+            extrakeysetdict = dict(zip(keys[keystart + len(extra_keys):keystart + len(extra_keys) + len(extra_key_set)],
+                                       values[keystart + len(extra_keys):keystart + len(extra_keys) + len(extra_key_set)]))
+            tempdict = {}
+            old_values = dict(zip(keys, values))
+            updated_keyset = set(updated_keys)
+            try:
+                append_remove = set()
+                autoremove_keys = set()
+                # Use DFS to find auto remove keys
+                def dfs(k):
+                    if k in autoremove_keys:
+                        return
+                    autoremove_keys.add(k)
+                    if k not in old_values:
+                        append_remove.add(k)
+                    else:
+                        oldv = old_values[k]
+                        if oldv is not None and hasattr(oldv, 'kvdb_autoremove'):
+                            for k2 in oldv.kvdb_autoremove():
+                                dfs(k2)
+                for k,v in zip(updated_keys, updated_values):
+                    if v is None:
+                        dfs(k)
+                if append_remove:
+                    raise _NeedMoreKeysException()
+                for k,v in remove_uniquekeys:
+                    if v.getkey() not in updated_keyset and v.getkey() not in auto_remove_keys:
+                        # This key is not updated, keep the indices untouched
+                        continue
+                    if k not in extrakeysdict:
+                        raise _NeedMoreKeysException()
+                    elif extrakeysdict[k] is not None and extrakeysdict[k].ref.getkey() == v.getkey():
+                        # If the unique key does not reference to the correct object
+                        # there may be an error, but we ignore this.
+                        # Save in a temporary dictionary. We may restore it later.
+                        tempdict[k] = extrakeysdict[k]
+                        extrakeysdict[k] = None
+                        setkey = UniqueKeyReference.get_keyset_from_key(k)
+                        if setkey not in extrakeysetdict:
+                            raise _NeedMoreKeysException()
+                        else:
+                            ks = extrakeysetdict[setkey]
+                            if ks is None:
+                                ks = UniqueKeySet.create_from_key(setkey)
+                                extrakeysetdict[setkey] = ks
+                            ks.set.dataset().discard(WeakReferenceObject(k))
+                for k,v in remove_multikeys:
+                    if v.getkey() not in updated_keyset and v.getkey() not in auto_remove_keys:
+                        # This key is not updated, keep the indices untouched
+                        continue
+                    if k not in extrakeysdict:
+                        raise _NeedMoreKeysException()
+                    else:
+                        mk = extrakeysdict[k]
+                        if mk is not None:
+                            mk.set.dataset().discard(v)
+                            if not mk.set.dataset():
+                                tempdict[k] = extrakeysdict[k]
+                                extrakeysdict[k] = None
+                                setkey = MultiKeyReference.get_keyset_from_key(k)
+                                if setkey not in extrakeysetdict:
+                                    raise _NeedMoreKeysException()
+                                else:
+                                    ks = extrakeysetdict[setkey]
+                                    if ks is None:
+                                        ks = MultiKeySet.create_from_key(setkey)
+                                        extrakeysetdict[setkey] = ks
+                                    ks.set.dataset().discard(WeakReferenceObject(k))
+                for k,v in update_uniquekeys:
+                    if k not in extrakeysdict:
+                        raise _NeedMoreKeysException()
+                    elif extrakeysdict[k] is not None and extrakeysdict[k].ref.getkey() != v.getkey():
+                        raise AlreadyExistsException('Unique key conflict for %r and %r, with key %r' % \
+                                                     (extrakeysdict[k].ref.getkey(), v.getkey(), k))
+                    elif extrakeysdict[k] is None:
+                        lv = tempdict.get(k, None)
+                        if lv is not None and lv.ref.getkey() == v.getkey():
+                            # Restore this value
+                            nv = lv
+                        else:
+                            nv = UniqueKeyReference.create_from_key(k)
+                            nv.ref = ReferenceObject(v.getkey())
+                        extrakeysdict[k] = nv
+                        setkey = UniqueKeyReference.get_keyset_from_key(k)
+                        if setkey not in extrakeysetdict:
+                            raise _NeedMoreKeysException()
+                        else:
+                            ks = extrakeysetdict[setkey]
+                            if ks is None:
+                                ks = UniqueKeySet.create_from_key(setkey)
+                                extrakeysetdict[setkey] = ks
+                            ks.set.dataset().add(nv.create_weakreference())
+                for k,v in update_multikeys:
+                    if k not in extrakeysdict:
+                        raise _NeedMoreKeysException()
+                    else:
+                        mk = extrakeysdict[k]
+                        if mk is None:
+                            mk = tempdict.get(k, None)
+                            if mk is None:
+                                mk = MultiKeyReference.create_from_key(k)
+                                mk.set = DataObjectSet()
+                            setkey = MultiKeyReference.get_keyset_from_key(k)
+                            if setkey not in extrakeysetdict:
+                                raise _NeedMoreKeysException()
+                            else:
+                                ks = extrakeysetdict[setkey]
+                                if ks is None:
+                                    ks = MultiKeySet.create_from_key(setkey)
+                                    extrakeysetdict[setkey] = ks
+                                ks.set.dataset().add(mk.create_weakreference())
+                        mk.set.dataset().add(v)
+                        extrakeysdict[k] = mk
+            except _NeedMoreKeysException:
+                # Prepare the keys
+                extra_keys[:] = list(set(itertools.chain((k for k,_ in remove_uniquekeys if k in updated_keyset or v.getkey() in auto_remove_keys),
+                                                         (k for k,_ in remove_multikeys if k in updated_keyset or v.getkey() in auto_remove_keys),
+                                                         (k for k,_ in update_uniquekeys),
+                                                         (k for k,_ in update_multikeys))))
+                extra_key_set[:] = list(set(itertools.chain((UniqueKeyReference.get_keyset_from_key(k) for k,_ in remove_uniquekeys if k in updated_keyset or v.getkey() in auto_remove_keys),
+                                                         (MultiKeyReference.get_keyset_from_key(k) for k,_ in remove_multikeys if k in updated_keyset or v.getkey() in auto_remove_keys),
+                                                         (UniqueKeyReference.get_keyset_from_key(k) for k,_ in update_uniquekeys),
+                                                         (MultiKeyReference.get_keyset_from_key(k) for k,_ in update_multikeys))))
+                auto_remove_keys[:] = list(autoremove_keys.difference(keys[:orig_len])
+                                                          .difference(extra_keys)
+                                                          .difference(extra_key_set))
+                raise
+            else:
+                extrakeys_list = list(extrakeysdict.items())
+                extrakeyset_list = list(extrakeysetdict.items())
+                autoremove_list = list(autoremove_keys.difference(keys[:orig_len])
+                                                      .difference(extrakeysdict.keys())
+                                                      .difference(extrakeysetdict.keys()))
+                return (tuple(itertools.chain(updated_keys,
+                                              (k for k,_ in extrakeys_list),
+                                              (k for k,_ in extrakeyset_list),
+                                              autoremove_list)),
+                        tuple(itertools.chain(updated_values,
+                                               (v for _,v in extrakeys_list),
+                                               (v for _,v in extrakeyset_list),
+                                               [None] * len(autoremove_list))))
+                        
         def object_updater(keys, values, timestamp):
             old_version = {}
             for k, v in zip(keys, values):
@@ -531,10 +718,7 @@ class ObjectDB(Module):
                     v.setkey(k)
                 if v is not None and hasattr(v, 'kvdb_createtime'):
                     old_version[k] = (getattr(v, 'kvdb_createtime'), getattr(v, 'kvdb_updateversion', 1))
-            if withtime:
-                updated_keys, updated_values = updater(keys, values, timestamp)
-            else:
-                updated_keys, updated_values = updater(keys, values)
+            updated_keys, updated_values = updater_with_key(keys, values, timestamp)
             updated_ref[0] = tuple(updated_keys)
             new_version = []
             for k,v in zip(updated_keys, updated_values):
@@ -551,8 +735,14 @@ class ObjectDB(Module):
                     new_version.append((timestamp, 1))
             updated_ref[1] = new_version
             return (updated_keys, updated_values)
-        for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime', {'keys': keys, 'updater': object_updater}):
-            yield m
+        while True:
+            try:
+                for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime', {'keys': keys + tuple(extra_keys), 'updater': object_updater}):
+                    yield m
+            except _NeedMoreKeysException:
+                pass
+            else:
+                break
         # Short cut update notification
         update_keys = self._watchedkeys.intersection(updated_ref[0])
         self._updatekeys.update(update_keys)

@@ -24,7 +24,7 @@ from pprint import pformat
 
 class L2FlowUpdater(FlowUpdater):
     def __init__(self, connection, parent):
-        FlowUpdater.__init__(self, connection, (), ('l2switch', connection))
+        FlowUpdater.__init__(self, connection, (), ('l2switch', connection), parent._logger)
         self._parent = parent
         self._lastlognets = ()
         self._lastlogports = ()
@@ -41,6 +41,8 @@ class L2FlowUpdater(FlowUpdater):
             self._update_handler_routine.close()
     def _walk_logport(self, key, value, walk, save):
         save(key)
+        if value is None:
+            return
         try:
             net = walk(value.network.getkey())
         except KeyError:
@@ -239,7 +241,7 @@ class L2FlowUpdater(FlowUpdater):
                                                     )
                                     ),)
         try:
-            allresult = set(self._savedresult)
+            allresult = set(v for v in self._savedresult if v is not None)
             currentlognetinfo = dict((n, (nid, n.physicalnetwork)) for n, nid in self._lastlognets
                                      if n in allresult)
             lastlognetinfo = self._lastlognetinfo
@@ -297,19 +299,9 @@ class L2FlowUpdater(FlowUpdater):
                         for lognet, lognetinfo in lastlognetinfo.items():
                             if lognetinfo[1] == phynet and not lognet in removevalues:
                                 cmds.extend(_delete_default_flows(lognetinfo[0]))
-            def execute_commands():
-                if cmds:
-                    try:
-                        for m in conn.protocol.batch(cmds, conn, self):
-                            yield m
-                    except OpenflowErrorResultException:
-                        self._parent._logger.warning("Some Openflow commands return error result on connection %r, will ignore and continue.\n"
-                                                     "Details:\n%s", conn,
-                                                     "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (pformat(dump(k)), pformat(dump(v)))
-                                                               for k,v in self.openflow_replydict.items()))
-                    del cmds[:]
-            for m in execute_commands():
+            for m in self.execute_commands(conn, cmds):
                 yield m
+            del cmds[:]
             for obj in addvalues:
                 if obj.isinstance(LogicalPort):
                     portinfo = currentlogportinfo.get(obj)
@@ -346,7 +338,7 @@ class L2FlowUpdater(FlowUpdater):
                             netid, phynet = lognetinfo
                             if phynet == obj.physicalnetwork and not lognet in addvalues:
                                 cmds.extend(_create_default_flow(netid, currentphyportinfo[obj][1]))
-            for m in execute_commands():
+            for m in self.execute_commands(conn, cmds):
                 yield m
         except Exception:
             self._parent._logger.warning("Update l2switch flow for connection %r failed with exception", conn, exc_info = True)
@@ -453,7 +445,7 @@ class L2Switch(FlowBase):
                                                                                                 priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                                                 cookie = 0x2,
                                                                                                 table_id = l2learning,
-                                                                                                specs = [ofdef.create_nxfms_matchfield(ofdef.NXM_NX_REG5, ofdef.NXM_NX_REG5),
+                                                                                                specs = [ofdef.create_nxfms_matchfield(ofdef.NXM_NX_REG4, ofdef.NXM_NX_REG5),
                                                                                                          ofdef.create_nxfms_matchfield(ofdef.NXM_OF_ETH_SRC, ofdef.NXM_OF_ETH_DST),
                                                                                                          ofdef.create_nxfms_loadfield(ofdef.OXM_OF_IN_PORT, ofdef.NXM_NX_REG6)]
                                                                                                 )
@@ -580,12 +572,6 @@ class L2Switch(FlowBase):
                 def learning_packet_handler():
                     packetin = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l2, 1, conn, conn.connmark)
                     conndown = conn.protocol.statematcher(conn)
-                    def get_oxm(fields, header):
-                        v = [o.value for o in fields if o.header == header]
-                        if v:
-                            return v[0]
-                        else:
-                            return ofdef.create_binary(ofdef.OXM_LENGTH(header))
                     while True:
                         yield (packetin, conndown)
                         if conn.matcher is conndown:
@@ -598,11 +584,11 @@ class L2Switch(FlowBase):
                                 self._logger.warning('Invalid packet received: %r', conn.event.message.data, exc_info = True)
                             else:
                                 dl_src = p.dl_src
-                            in_port = get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT)
+                            in_port = ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT)
                             if conn.protocol.disablenxext:
                                 # Use METADATA
-                                metadata = get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_METADATA)
-                                masked_network = b'\x00\x00' + metadata[2:4] + b'\x00\x00\x00\x00'
+                                metadata = ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_METADATA)
+                                masked_network = b'\x00\x00' + metadata[0:2] + b'\x00\x00\x00\x00'
                                 conn.subroutine(conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
                                                                     cookie = 0x2,
                                                                     cookie_mask = 0xffffffffffffffff,
@@ -615,8 +601,8 @@ class L2Switch(FlowBase):
                                                                        match = ofdef.ofp_match_oxm(
                                                                                     oxm_fields = [
                                                                                         ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
-                                                                                                         masked_network,
-                                                                                                         b'\x00\x00\xff\xff\x00\x00\x00\x00'),
+                                                                                                         metadata[0:2] + b'\x00\x00\x00\x00\x00\x00',
+                                                                                                         b'\xff\xff\x00\x00\x00\x00\x00\x00'),
                                                                                         ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, dl_src),
                                                                                         ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, in_port)
                                                                                         ]
@@ -646,7 +632,7 @@ class L2Switch(FlowBase):
                                                                 )), conn, conn))
                             else:
                                 # Use REG5, REG6
-                                out_net = get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5)
+                                out_net = ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG4)
                                 conn.subroutine(conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
                                                                     cookie = 0x2,
                                                                     cookie_mask = 0xffffffffffffffff,
@@ -658,7 +644,7 @@ class L2Switch(FlowBase):
                                                                        out_group = ofdef.OFPG_ANY,
                                                                        match = ofdef.ofp_match_oxm(
                                                                                     oxm_fields = [
-                                                                                        ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net),
+                                                                                        ofdef.create_oxm(ofdef.NXM_NX_REG4, out_net),
                                                                                         ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, dl_src),
                                                                                         ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, in_port)
                                                                                         ]

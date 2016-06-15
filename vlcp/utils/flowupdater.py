@@ -8,6 +8,10 @@ from vlcp.server.module import callAPI
 from uuid import uuid1
 from vlcp.event.event import Event, withIndices
 from vlcp.utils.dataobject import multiwaitif
+from vlcp.protocol.openflow.openflow import OpenflowErrorResultException
+from namedstruct.namedstruct import dump
+from pprint import pformat
+import logging
 
 @withIndices('updater', 'type')
 class FlowUpdaterNotification(Event):
@@ -16,7 +20,7 @@ class FlowUpdaterNotification(Event):
     FLOWUPDATE = 'flowupdate'
 
 class FlowUpdater(RoutineContainer):
-    def __init__(self, connection, initialkeys, requestid = None):
+    def __init__(self, connection, initialkeys, requestid = None, logger = None):
         RoutineContainer.__init__(self, connection.scheduler)
         self._initialkeys = initialkeys
         self._connection = connection
@@ -25,6 +29,10 @@ class FlowUpdater(RoutineContainer):
         self._savedresult = []
         self._updatedset = set()
         self._updatedset2 = set()
+        if not logger:
+            self._logger = logging.getLogger(__name__ + '.FlowUpdater')
+        else:
+            self._logger = logger
         if requestid is None:
             self._requstid = str(uuid1())
         else:
@@ -46,7 +54,7 @@ class FlowUpdater(RoutineContainer):
     def _dataobject_update_detect(self):
         _initialkeys = set(self._initialkeys)
         def expr(newvalues, updatedvalues):
-            if any(v.getkey() in _initialkeys for v in updatedvalues):
+            if any(v.getkey() in _initialkeys for v in updatedvalues if v is not None):
                 return True
             else:
                 return self.shouldupdate(newvalues, updatedvalues)
@@ -62,10 +70,10 @@ class FlowUpdater(RoutineContainer):
             self.scheduler.emergesend(FlowUpdaterNotification(self, FlowUpdaterNotification.DATAUPDATED))
         self._updatedset.update(set(updatedvalues).intersection(self._savedresult))
     def _flowupdater(self):
-        lastresult = set(self._savedresult)
+        lastresult = set(v for v in self._savedresult if v is not None)
         flowupdate = FlowUpdaterNotification.createMatcher(self, FlowUpdaterNotification.FLOWUPDATE)
         while True:
-            currentresult = set(self._savedresult)
+            currentresult = set(v for v in self._savedresult if v is not None)
             additems = currentresult.difference(lastresult)
             removeitems = lastresult.difference(currentresult)
             updateditems = set(self._updatedset2)
@@ -132,4 +140,13 @@ class FlowUpdater(RoutineContainer):
             if self._dataupdateroutine:
                 self.terminate(self._dataupdateroutine)
                 self._dataupdateroutine = None
-            
+    def execute_commands(self, conn, cmds):
+        if cmds:
+            try:
+                for m in conn.protocol.batch(cmds, conn, self):
+                    yield m
+            except OpenflowErrorResultException:
+                self._logger.warning("Some Openflow commands return error result on connection %r, will ignore and continue.\n"
+                                             "Details:\n%s", conn,
+                                             "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (pformat(dump(k)), pformat(dump(v)))
+                                                       for k,v in self.openflow_replydict.items()))

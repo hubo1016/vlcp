@@ -1484,6 +1484,13 @@ with _warnings.catch_warnings():
         init = packvalue(OFPT_PACKET_IN, 'header', 'type'),
         name = 'ofp_packet_in'
     )
+
+    def get_oxm(fields, header):
+        v = [o.value for o in fields if o.header == header]
+        if v:
+            return v[0]
+        else:
+            return create_binary(0, OXM_LENGTH(header))
     
     '''
     /* Flow removed (datapath -> controller). */

@@ -65,6 +65,7 @@ class LogicalNetworkSet(DataObject):
 class LogicalPort(DataObject):
     _prefix = 'viperflow.logicalport'
     _indices = ("id",)
+    _unique_keys = ('_mac_address_index', ('network', 'mac_address'))
 
 class LogicalPortSet(DataObject):
     _prefix = 'viperflow.logcialportset'
@@ -104,4 +105,15 @@ class VXLANEndpointSet(DataObject):
         super(VXLANEndpointSet, self).__init__(
                 prefix = prefix,deleted = deleted)
         self.endpointlist = []
+
+LogicalNetwork._auto_removes['VXLANEndpointSet'] = lambda x: VXLANEndpointSet.default_key(x.id)
+
+class LogicalPortVXLANInfo(DataObject):
+    _prefix = 'viperflow.logicalportvxlaninfo'
+    _indices = ('id',)
+    def __init__(self, prefix=None, deleted=False):
+        super(LogicalPortVXLANInfo, self).__init__(self, prefix=prefix, deleted=deleted)
+        self.endpoints = []
+
+LogicalPort._auto_removes['LogicalPortVXLANInfo'] = lambda x: LogicalPortVXLANInfo.default_key(x.id)
 

@@ -73,6 +73,8 @@ class ReferenceObject(object):
             return not (obj is self or obj._key == self._key)
     def __repr__(self, *args, **kwargs):
         return '<ReferenceObject: %r at %r>' % (self._ref, self._key)
+    def __str__(self, *args, **kwargs):
+        return self._key
     def wait(self, container):
         if self.isdeleted():
             yield (DataObjectUpdateEvent.createMatcher(self.getkey(), None, DataObjectUpdateEvent.UPDATED),)
@@ -118,11 +120,17 @@ class WeakReferenceObject(object):
             return not (obj is self or obj._key == self._key)
     def __repr__(self, *args, **kwargs):
         return '<WeakReferenceObject: %r>' % (self._key,)
+    def __str__(self, *args, **kwargs):
+        return self._key
 
 class DataObject(object):
     "A base class to serialize data into KVDB"
     _prefix = ''
     _indices = ()
+    # Unique key and multiple key should like: (('keyname1', ('keyattr1', 'keyattr2', ...),), ('keyname2', ...), ...)
+    _unique_keys = ()
+    _multi_keys = ()
+    _auto_removes = {}
     def __init__(self, prefix = None, deleted = False):
         if prefix is not None:
             self._prefix = prefix
@@ -253,8 +261,23 @@ class DataObject(object):
             if k[:1] != '_' and v is not None and hasattr(v, 'kvdb_internalref'):
                 r.update(v.kvdb_internalref())
         return r
+    @classmethod
+    def unique_key(cls, keyname, *args):
+        return UniqueKeyReference.default_key(cls._prefix, keyname, '.'.join(escape_key(str(a)) for a in args))
+    @classmethod
+    def multi_key(cls, keyname, *args):
+        return MultiKeyReference.default_key(cls._prefix, keyname, '.'.join(escape_key(str(a)) for a in args))
+    def kvdb_uniquekeys(self):
+        return [self.unique_key(k, *[getattr(self, ind) for ind in indices])
+                for k,indices in self._unique_keys
+                if all(hasattr(self, ind) for ind in indices)]
+    def kvdb_multikeys(self):
+        return [self.multi_key(k, *[getattr(self, ind) for ind in indices])
+                for k,indices in self._unique_keys
+                if all(hasattr(self, ind) for ind in indices)]
+    def kvdb_autoremove(self):
+        return set(itertools.chain.from_iterable(v(self) for v in self._auto_removes.values()))
         
-
 class DataObjectSet(object):
     "A set of data objects, usually of a same type. Allow weak references only."
     def __init__(self):
@@ -323,6 +346,40 @@ class DataObjectSet(object):
         self._lastclass = None
     def dataset(self):
         return self._dataset
+
+class UniqueKeySet(DataObject):
+    _prefix = 'indicesset'
+    _indices = ('prefix', 'keyname')
+    def __init__(self, prefix=None, deleted=False):
+        super(UniqueKeySet, self).__init__(self, prefix=prefix, deleted=deleted)
+        self.set = DataObjectSet()
+
+
+class MultiKeySet(DataObject):
+    _prefix = 'multiindicesset'
+    _indices = ('prefix', 'keyname')
+    def __init__(self, prefix=None, deleted=False):
+        super(MultiKeySet, self).__init__(self, prefix=prefix, deleted=deleted)
+        self.set = DataObjectSet()
+
+
+class UniqueKeyReference(DataObject):
+    _prefix = 'indices'
+    _indices = ('prefix', 'keyname', 'value')
+    @classmethod
+    def get_keyset_from_key(cls, key):
+        _, (prefix, keyname, _) = cls._getIndices(key)
+        return UniqueKeySet.default_key(prefix, keyname)
+
+        
+class MultiKeyReference(DataObject):
+    _prefix = 'multiindices.'
+    _indices = ('prefix', 'keyname', 'value')
+    @classmethod
+    def get_keyset_from_key(cls, key):
+        _, (prefix, keyname, _) = cls._getIndices(key)
+        return MultiKeySet.default_key(prefix, keyname)
+    
 
 @contextmanager
 def watch_context(keys, result, reqid, container, module = 'objectdb'):
