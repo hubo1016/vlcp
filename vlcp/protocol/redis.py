@@ -73,7 +73,7 @@ class RedisParser(object):
         self._buffer = b''
         self._parser = self._parser_gen()
     def feed(self, data):
-        self._buffer += _copy(data)
+        self._buffer += data
     def gets(self):
         try:
             return next(self._parser)
@@ -400,7 +400,7 @@ class Redis(Protocol):
         container.retvalue = retvalue
     def parse(self, connection, data, laststart):
         events = []
-        connection.redis_reader.feed(data)
+        connection.redis_reader.feed(_copy(data))
         while True:
             r = connection.redis_reader.gets()
             if r is False:
