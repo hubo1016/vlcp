@@ -128,7 +128,7 @@ class OpenflowManager(Module):
                 result = None
                 exception = None
                 # Delay the update so we are not updating table acquires for every module
-                for m in self.waitForSend(TableAcquireDelayEvent()):
+                for m in self.apiroutine.waitForSend(TableAcquireDelayEvent()):
                     yield m
                 yield (TableAcquireDelayEvent.createMatcher(),)
                 module_list = list(self.table_modules)
