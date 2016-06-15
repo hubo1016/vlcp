@@ -316,7 +316,7 @@ class VXLANUpdater(FlowUpdater):
                 if logport in currentlogportinfo:
                     lognet, _, _ = currentlogportinfo[logport]
                     _create_port_tun(lognet, logport)
-        for logport, (lognet, _, _) in currentlogportinfo:
+        for logport, (lognet, _, _) in currentlogportinfo.items():
             if lognet in transact_networks:
                 _create_port_tun(lognet, logport)
         all_tun_ports = set(created_ports.keys()).union(set(removed_ports.keys()))
