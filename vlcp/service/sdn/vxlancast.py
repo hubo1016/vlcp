@@ -145,7 +145,7 @@ class VXLANUpdater(FlowUpdater):
             self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
             phyport_keys = [p.getkey() for p,_ in self._lastphyports]
             lognet_keys = [n.getkey() for n,_ in self._lastlognets]
-            logport_keys = [p.getkey() for p,_ in self._last]
+            logport_keys = [p.getkey() for p,_ in self._lastlogports]
             self._orig_initialkeys = phyport_keys + lognet_keys + logport_keys
             self._initialkeys = self._orig_initialkeys + self._watched_maps
             self._walkerdict = dict(itertools.chain(((n, self._walk_lognet) for n in lognet_keys),
@@ -762,43 +762,42 @@ class VXLANCast(FlowBase):
         self._flowupdaters[conn] = vxlanupdater
         vxlanupdater.start()
         #flowupdater.start()
-        cmds = [(ofdef.ofp_flow_mod(table_id = vi,
-                                                cookie = 0x1,
-                                                cookie_mask = 0xffffffffffffffff,
-                                                   out_port = ofdef.OFPP_ANY,
-                                                   out_group = ofdef.OFPG_ANY,
-                                                   command = ofdef.OFPFC_ADD,
-                                                   priority = 0,
-                                                   buffer_id = ofdef.OFP_NO_BUFFER,
-                                                   match = ofdef.ofp_match_oxm(),
-                                                   instructions = [ofdef.ofp_instruction_goto_table(table_id = vi_next)]
-                                                   ),
-                              ofdef.ofp_flow_mod(table_id = vo,
-                                                   command = ofdef.OFPFC_ADD,
-                                                   priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
-                                                   buffer_id = ofdef.OFP_NO_BUFFER,
-                                                   out_port = ofdef.OFPP_ANY,
-                                                   out_group = ofdef.OFPG_ANY,
-                                                   match = ofdef.ofp_match_oxm(
-                                                                oxm_fields = [
-                                                                    # A broadcast packet
-                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
-                                                                    ]
-                                                            ),
-                                                   instructions = [ofdef.ofp_instruction_goto_table(table_id = vo_next)]
-                                                   ),
-                              ofdef.ofp_flow_mod(table_id = vo,
-                                                cookie = 0x1,
-                                                cookie_mask = 0xffffffffffffffff,
-                                                   out_port = ofdef.OFPP_ANY,
-                                                   out_group = ofdef.OFPG_ANY,
-                                                   command = ofdef.OFPFC_ADD,
-                                                   priority = 0,
-                                                   buffer_id = ofdef.OFP_NO_BUFFER,
-                                                   match = ofdef.ofp_match_oxm(),
-                                                   instructions = [ofdef.ofp_instruction_goto_table(table_id = vo_next)]
-                                                   ),
-                              )]
+        cmds = [ofdef.ofp_flow_mod(table_id = vi,
+                                    cookie = 0x1,
+                                    cookie_mask = 0xffffffffffffffff,
+                                    out_port = ofdef.OFPP_ANY,
+                                    out_group = ofdef.OFPG_ANY,
+                                    command = ofdef.OFPFC_ADD,
+                                    priority = 0,
+                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                    match = ofdef.ofp_match_oxm(),
+                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = vi_next)]
+                                    ),
+                ofdef.ofp_flow_mod(table_id = vo,
+                                    command = ofdef.OFPFC_ADD,
+                                    priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
+                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                    out_port = ofdef.OFPP_ANY,
+                                    out_group = ofdef.OFPG_ANY,
+                                    match = ofdef.ofp_match_oxm(
+                                                oxm_fields = [
+                                                    # A broadcast packet
+                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
+                                                    ]
+                                            ),
+                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = vo_next)]
+                                    ),
+                ofdef.ofp_flow_mod(table_id = vo,
+                                    cookie = 0x1,
+                                    cookie_mask = 0xffffffffffffffff,
+                                    out_port = ofdef.OFPP_ANY,
+                                    out_group = ofdef.OFPG_ANY,
+                                    command = ofdef.OFPFC_ADD,
+                                    priority = 0,
+                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                    match = ofdef.ofp_match_oxm(),
+                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = vo_next)]
+                                    )]
         if not conn.protocol.disablenxext and self.learning:
             cmds.append(ofdef.ofp_flow_mod(table_id = learning,
                                            out_port = ofdef.OFPP_ANY,
