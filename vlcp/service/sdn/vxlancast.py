@@ -245,7 +245,7 @@ class VXLANUpdater(FlowUpdater):
         # Do transact on added and removed logical networks else
         transact_networks = set(currentlognetinfo.keys()).symmetric_difference(lastlognetinfo.keys())
         if newphyports:
-            newphynets = set(v[0] for v in newphyports.values())
+            newphynets = set(v[0] for _,v in newphyports)
             transact_networks.update(lognet for lognet, (phynet, _) in currentlognetinfo.items()
                                      if phynet in newphynets)
         if removed_ports:
