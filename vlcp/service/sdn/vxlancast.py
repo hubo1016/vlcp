@@ -176,7 +176,7 @@ class VXLANUpdater(FlowUpdater):
         lastphyportinfo = self._lastphyportinfo
         lastlogportinfo = self._lastlogportinfo
         currentlognetinfo = dict((n,(n.physicalnetwork,nid)) for n,nid in self._lastlognets if n in allresult and _is_vxlan(n))
-        currentlogportinfo = dict((p, (p.network, pid, p.getattr('mac_address', None))) for p,pid in self._lastlogports
+        currentlogportinfo = dict((p, (p.network, pid, getattr(p, 'mac_address', None))) for p,pid in self._lastlogports
                                   if p.network in currentlognetinfo)
         phyportdict = dict((p,pid) for p,pid in self._lastphyports if p in allresult and _is_vxlan(p))
         # We only accept one physical port for VXLAN network
