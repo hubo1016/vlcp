@@ -171,7 +171,7 @@ class VXLANUpdater(FlowUpdater):
         vo_next = self._parent._getnexttable('', 'vxlanoutput', vhost = vhost)
         learning = self._parent._gettableindex('vxlanlearning', vhost)
         egress = self._parent._gettableindex('egress', vhost)
-        allresult = set(v for v in self._savedresult if v is not None)
+        allresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
         lastlognetinfo = self._lastlognetinfo
         lastphyportinfo = self._lastphyportinfo
         lastlogportinfo = self._lastlogportinfo

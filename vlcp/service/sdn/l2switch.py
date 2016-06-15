@@ -241,7 +241,7 @@ class L2FlowUpdater(FlowUpdater):
                                                     )
                                     ),)
         try:
-            allresult = set(v for v in self._savedresult if v is not None)
+            allresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
             currentlognetinfo = dict((n, (nid, n.physicalnetwork)) for n, nid in self._lastlognets
                                      if n in allresult)
             lastlognetinfo = self._lastlognetinfo

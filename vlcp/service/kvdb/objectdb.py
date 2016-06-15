@@ -410,14 +410,16 @@ class ObjectDB(Module):
                 elif r[2] == 'walk':
                     saved_keys = list(savelist.get(r[1], []))
                     if self._stale:
+                        # We carefully choose to not return any keys that are staled
+                        # This might cause problem, but anyway, we are already IN PROBLEM
                         saved_keys = [k for k in saved_keys if k in self._managed_objs]
+                    for k in saved_keys:
+                        self._watches.setdefault(k, set()).add(r[4])
                     objs = [self._managed_objs.get(k) for k in saved_keys]
-                    for k,v in zip(saved_keys, objs):
-                        if v is not None:
-                            self._watches.setdefault(k, set()).add(r[4])
                     result = (saved_keys,
-                              [o.create_reference() if o is not None and hasattr(o, 'create_reference') else o
-                              for o in objs])
+                              [o.create_reference() if hasattr(o, 'create_reference') else o
+                               if o is not None else dataobj.ReferenceObject(k)
+                               for k,o in zip(saved_keys, objs)])
                 else:
                     result = [copywithkey(update_result.get(k, self._managed_objs.get(k)), k) for k in r[0]]
                 send_events.append(RetrieveReply(r[1], result = result, stale = self._stale))

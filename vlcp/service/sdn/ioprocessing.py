@@ -206,10 +206,10 @@ class IOFlowUpdater(FlowUpdater):
             _portnames = dict(self._currentportnames)
             _networkids = self._networkids.frozen()
             # We must generate actions from network driver
-            phyportset = [obj for obj in self._savedresult if obj is not None and obj.isinstance(PhysicalPort)]
-            phynetset = [obj for obj in self._savedresult if obj is not None and obj.isinstance(PhysicalNetwork)]
-            lognetset = [obj for obj in self._savedresult if obj is not None and obj.isinstance(LogicalNetwork)]
-            logportset = [obj for obj in self._savedresult if obj is not None and obj.isinstance(LogicalPort)]
+            phyportset = [obj for obj in self._savedresult if obj is not None and not obj.isdeleted() and obj.isinstance(PhysicalPort)]
+            phynetset = [obj for obj in self._savedresult if obj is not None and not obj.isdeleted() and obj.isinstance(PhysicalNetwork)]
+            lognetset = [obj for obj in self._savedresult if obj is not None and not obj.isdeleted() and obj.isinstance(LogicalNetwork)]
+            logportset = [obj for obj in self._savedresult if obj is not None and not obj.isdeleted() and obj.isinstance(LogicalPort)]
             # If a port is both a logical port and a physical port, flows may conflict.
             # Remove the port from dictionary if it is duplicated.
             logportofps = set(_portids[lp.id] for lp in logportset if lp.id in _portids)

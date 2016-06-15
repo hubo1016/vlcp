@@ -73,10 +73,10 @@ class FlowUpdater(RoutineContainer):
         lastresult = set(v for v in self._savedresult if v is not None)
         flowupdate = FlowUpdaterNotification.createMatcher(self, FlowUpdaterNotification.FLOWUPDATE)
         while True:
-            currentresult = set(v for v in self._savedresult if v is not None)
+            currentresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
             additems = currentresult.difference(lastresult)
             removeitems = lastresult.difference(currentresult)
-            updateditems = set(self._updatedset2)
+            updateditems = set(self._updatedset2).intersection(currentresult)
             updateditems.difference_update(removeitems)
             updateditems.difference_update(additems)
             self._updatedset2.clear()
