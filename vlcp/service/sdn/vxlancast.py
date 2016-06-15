@@ -808,8 +808,9 @@ class VXLANCast(FlowBase):
                                            buffer_id = ofdef.OFP_NO_BUFFER,
                                            match = ofdef.ofp_match_oxm(),
                                            instructions = [ofdef.ofp_instruction_actions(
-                                                                ofdef.ofp_action_set_field(
-                                                                    field = ofdef.create_oxm(ofdef.NXM_NX_REG7, 0))
+                                                                actions = [ofdef.ofp_action_set_field(
+                                                                                field = ofdef.create_oxm(ofdef.NXM_NX_REG7, 0)
+                                                                            )]
                                                             )]))
         for m in conn.protocol.batch(cmds, conn, self.apiroutine):
             yield m
