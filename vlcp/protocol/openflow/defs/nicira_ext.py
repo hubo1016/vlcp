@@ -2162,7 +2162,7 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
                 raise ValueError('Cannot create flow mod spec with 0 bits')
             return nx_flow_mod_spec.parse(_create_header(NX_LEARN_SRC_FIELD, NX_LEARN_DST_MATCH, n_bits) + _create_field(src, src_ofs) + _create_field(dst, dst_ofs))[0]
         namespace['create_nxfms_matchfield'] = create_nxfms_matchfield
-        def create_nxfms_matchvalue(dst, value, dst_ofs, n_bits = None):
+        def create_nxfms_matchvalue(dst, value, dst_ofs = 0, n_bits = None):
             if n_bits is None:
                 n_bits = NXM_LENGTH(dst) * 8 - dst_ofs
             if n_bits <= 0:
@@ -2176,7 +2176,7 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
                 raise ValueError('Cannot create flow mod spec with 0 bits')
             return nx_flow_mod_spec.parse(_create_header(NX_LEARN_SRC_FIELD, NX_LEARN_DST_LOAD, n_bits) + _create_field(src, src_ofs) + _create_field(dst, dst_ofs))[0]
         namespace['create_nxfms_loadfield'] = create_nxfms_loadfield
-        def create_nxfms_loadvalue(dst, value, dst_ofs, n_bits = None):
+        def create_nxfms_loadvalue(dst, value, dst_ofs = 0, n_bits = None):
             if n_bits is None:
                 n_bits = NXM_LENGTH(dst) * 8 - dst_ofs
             if n_bits <= 0:

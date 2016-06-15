@@ -401,6 +401,8 @@ class TestObjectDB(Module):
             yield m
     def getlogicalnetworks(self, id = None, physicalnetwork = None, **kwargs):
         def set_walker(key, set, walk, save):
+            if set is None:
+                return
             for o in set.dataset():
                 key = o.getkey()
                 try:
@@ -415,6 +417,8 @@ class TestObjectDB(Module):
                         save(key)
         def walker_func(set_func):
             def walker(key, obj, walk, save):
+                if obj is None:
+                    return
                 set_walker(key, set_func(obj), walk, save)
             return walker
         if id is not None:

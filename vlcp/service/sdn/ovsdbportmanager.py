@@ -16,7 +16,7 @@ from vlcp.service.sdn.ovsdbmanager import OVSDBBridgeSetup, OVSDBConnectionSetup
 import vlcp.utils.ovsdb as ovsdb
 from vlcp.protocol.jsonrpc import JsonRPCErrorResultException,\
     JsonRPCNotificationEvent, JsonRPCProtocolException
-from timeit import itertools
+import itertools
 
 def _bytes(s):
     return s.encode('ascii')

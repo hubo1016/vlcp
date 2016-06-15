@@ -413,6 +413,8 @@ class ViperFlow(Module):
     def listphysicalnetworks(self,id = None,**kwargs):
         "list physcialnetwork infos"
         def set_walker(key,set,walk,save):
+            if set is None:
+                return
             for refnetwork in set.dataset():
                 networkkey = refnetwork.getkey()
                 try:
@@ -432,6 +434,8 @@ class ViperFlow(Module):
 
         def walker_func(set_func):
             def walker(key,obj,walk,save):
+                if obj is None:
+                    return
                 set_walker(key,set_func(obj),walk,save)
             return walker
         # get all phynet
@@ -879,7 +883,8 @@ class ViperFlow(Module):
             systemid='%',bridge='%',**args):
         "list physicalports info"
         def set_walker(key,set,walk,save):
-
+            if set is None:
+                return
             for weakobj in set.dataset():
                 phyportkey = weakobj.getkey()
 
@@ -905,6 +910,8 @@ class ViperFlow(Module):
         def walker_func(set_func):
 
             def walker(key,obj,walk,save):
+                if obj is None:
+                    return
                 set_walker(key,set_func(obj),walk,save)
 
             return walker
@@ -1366,7 +1373,8 @@ class ViperFlow(Module):
     def listlogicalnetworks(self,id = None,physicalnetwork = None,**args):
         "list logcialnetworks infos"
         def set_walker(key,set,walk,save):
-
+            if set is None:
+                return
             for weakobj in set.dataset():
                 lgnetkey = weakobj.getkey()
 
@@ -1391,6 +1399,8 @@ class ViperFlow(Module):
         def walker_func(set_func):
 
             def walker(key,obj,walk,save):
+                if obj is None:
+                    return
                 set_walker(key,set_func(obj),walk,save)
 
             return walker
@@ -1781,7 +1791,8 @@ class ViperFlow(Module):
     def listlogicalports(self,id = None,logicalnetwork = None,**kwargs):
         "list logicalports infos"
         def set_walker(key,set,walk,save):
-
+            if set is None:
+                return
             for weakobj in set.dataset():
                 lgportkey = weakobj.getkey()
 
@@ -1806,6 +1817,8 @@ class ViperFlow(Module):
         def walker_func(set_func):
 
             def walker(key,obj,walk,save):
+                if obj is None:
+                    return
                 set_walker(key,set_func(obj),walk,save)
 
             return walker
