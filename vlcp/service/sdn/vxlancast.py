@@ -127,7 +127,7 @@ class VXLANUpdater(FlowUpdater):
     def walkcomplete(self, keys, values):
         if self._parent.prepush:
             self._watched_maps = [k for k,v in zip(keys, values)
-                                  if v is not None and v.isinstance(LogicalNetworkMap)]
+                                  if v is not None and not v.isdeleted() and v.isinstance(LogicalNetworkMap)]
             # If the logical network map changed, restart the walk process
             self._initialkeys = tuple(itertools.chain(self._orig_initialkeys, self._watched_maps))
         if False:
