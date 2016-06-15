@@ -293,7 +293,7 @@ class VXLANUpdater(FlowUpdater):
                 if phyport:
                     phyport = phyport[0]
                     created_ports[logport] = phyport[1][2]
-        for logport, (lognet, _, _) in lastlogportinfo:
+        for logport, (lognet, _, _) in lastlogportinfo.items():
             if lognet in transact_networks:
                 _remove_port_tun(lognet, logport)
         for logport in removevalues:
