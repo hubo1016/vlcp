@@ -324,7 +324,7 @@ class VXLANUpdater(FlowUpdater):
             def do_transact():
                 network_list = list(transact_networks)
                 vxlanendpoint_list = [VXLANEndpointSet.default_key(n.id) for n in network_list]
-                all_tun_ports = list(all_tun_ports)
+                all_tun_ports2 = list(all_tun_ports)
                 def update_vxlanendpoints(keys, values, timestamp):
                     # values = List[VXLANEndpointSet]
                     # endpointlist is [src_ip, vhost, systemid, bridge, expire]
@@ -344,11 +344,11 @@ class VXLANUpdater(FlowUpdater):
                                                     self._parent.refreshinterval * 1000000 * 2 + timestamp
                                               ])
                     written_values = {}
-                    if all_tun_ports:
-                        for k,v,vxkey,vxinfo in zip(keys[len(network_list):len(network_list) + len(all_tun_ports)],
-                                       values[len(network_list):len(network_list) + len(all_tun_ports)],
-                                       keys[len(network_list) + len(all_tun_ports):len(network_list) + 2 * len(all_tun_ports)],
-                                       values[len(network_list) + len(all_tun_ports):len(network_list) + 2 * len(all_tun_ports)]):
+                    if all_tun_ports2:
+                        for k,v,vxkey,vxinfo in zip(keys[len(network_list):len(network_list) + len(all_tun_ports2)],
+                                       values[len(network_list):len(network_list) + len(all_tun_ports2)],
+                                       keys[len(network_list) + len(all_tun_ports2):len(network_list) + 2 * len(all_tun_ports2)],
+                                       values[len(network_list) + len(all_tun_ports2):len(network_list) + 2 * len(all_tun_ports2)]):
                             if v is None:
                                 if vxinfo is not None:
                                     # The port is deleted? Then we should also delete the vxinfo
