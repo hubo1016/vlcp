@@ -129,7 +129,7 @@ class VXLANUpdater(FlowUpdater):
             self._watched_maps = [k for k,v in zip(keys, values)
                                   if v is not None and v.isinstance(LogicalNetworkMap)]
             # If the logical network map changed, restart the walk process
-            self._initialkeys = self._orig_initialkeys + self._watched_maps
+            self._initialkeys = tuple(itertools.chain(self._orig_initialkeys, self._watched_maps))
         if False:
             yield
     def _walk_phyport(self, key, value, walk, save):
