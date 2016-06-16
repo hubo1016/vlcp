@@ -619,7 +619,7 @@ class VXLANUpdater(FlowUpdater):
                                                                 ]))
                         cmds.append(ofdef.ofp_flow_mod(table_id = egress,
                                                        command = ofdef.OFPFC_ADD,
-                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                       priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
                                                        buffer_id = ofdef.OFP_NO_BUFFER,
                                                        out_port = ofdef.OFPP_ANY,
                                                        out_group = ofdef.OFPG_ANY,
@@ -646,7 +646,7 @@ class VXLANUpdater(FlowUpdater):
                 def _delete_flow(pid, nid, mac_address):
                     return ofdef.ofp_flow_mod(table_id = vo,
                                                command = ofdef.OFPFC_DELETE_STRICT,
-                                               priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
+                                               priority = ofdef.OFP_DEFAULT_PRIORITY + 9,
                                                buffer_id = ofdef.OFP_NO_BUFFER,
                                                out_port = ofdef.OFPP_ANY,
                                                out_group = ofdef.OFPG_ANY,
@@ -660,7 +660,7 @@ class VXLANUpdater(FlowUpdater):
                 def _create_flow(pid, nid, mac_address, tunnelid, tunnel_dst, modify = False):
                     return ofdef.ofp_flow_mod(table_id = vo,
                                                 command = ofdef.OFPFC_MODIFY_STRICT if modify else ofdef.OFPFC_ADD, 
-                                                priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
+                                                priority = ofdef.OFP_DEFAULT_PRIORITY + 9,
                                                 buffer_id = ofdef.OFP_NO_BUFFER,
                                                 out_port = ofdef.OFPP_ANY,
                                                 out_group = ofdef.OFPG_ANY,
