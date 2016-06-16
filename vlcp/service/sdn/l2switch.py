@@ -555,18 +555,7 @@ class L2Switch(FlowBase):
                                                                                     ]
                                                                             ),
                                                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
-                                                                   ),
-                                              ofdef.ofp_flow_mod(table_id = l2out,
-                                                                cookie = 0x1,
-                                                                cookie_mask = 0xffffffffffffffff,
-                                                                   command = ofdef.OFPFC_ADD,
-                                                                   priority = 0,
-                                                                   buffer_id = ofdef.OFP_NO_BUFFER,
-                                                                   out_port = ofdef.OFPP_ANY,
-                                                                   out_group = ofdef.OFPG_ANY,
-                                                                   match = ofdef.ofp_match_oxm(),
-                                                                   instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
-                                                                   ),
+                                                                   )
                                               ), conn, self.apiroutine):
                     yield m                    
                 def learning_packet_handler():

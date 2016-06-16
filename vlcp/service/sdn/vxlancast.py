@@ -752,6 +752,8 @@ class VXLANCast(FlowBase):
         vi_next = self._getnexttable('', 'vxlaninput', vhost = vhost)
         vo = self._gettableindex('vxlanoutput', vhost)
         vo_next = self._getnexttable('', 'vxlanoutput', vhost = vhost)
+        l3 = self._gettableindex('l3input', vhost)
+        l3_next = self._getnexttable('', 'l3input', vhost = vhost)
         learning = self._gettableindex('vxlanlearning', vhost)
         if hasattr(conn, '_vxlancast_learning_routine') and conn._vxlancast_learning_routine:
             conn._vxlancast_learning_routine.close()
@@ -764,18 +766,7 @@ class VXLANCast(FlowBase):
         self._flowupdaters[conn] = vxlanupdater
         vxlanupdater.start()
         #flowupdater.start()
-        cmds = [ofdef.ofp_flow_mod(table_id = vi,
-                                    cookie = 0x1,
-                                    cookie_mask = 0xffffffffffffffff,
-                                    out_port = ofdef.OFPP_ANY,
-                                    out_group = ofdef.OFPG_ANY,
-                                    command = ofdef.OFPFC_ADD,
-                                    priority = 0,
-                                    buffer_id = ofdef.OFP_NO_BUFFER,
-                                    match = ofdef.ofp_match_oxm(),
-                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = vi_next)]
-                                    ),
-                ofdef.ofp_flow_mod(table_id = vo,
+        cmds = [ofdef.ofp_flow_mod(table_id = vo,
                                     command = ofdef.OFPFC_ADD,
                                     priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
                                     buffer_id = ofdef.OFP_NO_BUFFER,
@@ -787,17 +778,6 @@ class VXLANCast(FlowBase):
                                                     ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')
                                                     ]
                                             ),
-                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = vo_next)]
-                                    ),
-                ofdef.ofp_flow_mod(table_id = vo,
-                                    cookie = 0x1,
-                                    cookie_mask = 0xffffffffffffffff,
-                                    out_port = ofdef.OFPP_ANY,
-                                    out_group = ofdef.OFPG_ANY,
-                                    command = ofdef.OFPFC_ADD,
-                                    priority = 0,
-                                    buffer_id = ofdef.OFP_NO_BUFFER,
-                                    match = ofdef.ofp_match_oxm(),
                                     instructions = [ofdef.ofp_instruction_goto_table(table_id = vo_next)]
                                     )]
         if not conn.protocol.disablenxext and self.learning:
