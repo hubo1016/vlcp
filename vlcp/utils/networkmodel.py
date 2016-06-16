@@ -112,7 +112,7 @@ class LogicalPortVXLANInfo(DataObject):
     _prefix = 'viperflow.logicalportvxlaninfo'
     _indices = ('id',)
     def __init__(self, prefix=None, deleted=False):
-        super(LogicalPortVXLANInfo, self).__init__(self, prefix=prefix, deleted=deleted)
+        super(LogicalPortVXLANInfo, self).__init__(prefix=prefix, deleted=deleted)
         self.endpoints = []
 
 LogicalPort._auto_removes['LogicalPortVXLANInfo'] = lambda x: LogicalPortVXLANInfo.default_key(x.id)
