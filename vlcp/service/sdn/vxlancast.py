@@ -712,6 +712,8 @@ class VXLANUpdater(FlowUpdater):
 class VXLANCast(FlowBase):
     "VXLAN single-cast and broadcast functions"
     _tablerequest = (("vxlaninput", ('l2input',), ''),
+                     ("l3input", ("vxlaninput",), ''),
+                     ("l2output", ("l3input",), ''),
                      ("vxlanoutput", ('l2output','vxlaninput'), ''),
                      ('egress', ('vxlanoutput', 'vxlanlearning'), ''),
                      ("vxlanlearning", ('vxlanoutput',), 'vxlanlearning'))
