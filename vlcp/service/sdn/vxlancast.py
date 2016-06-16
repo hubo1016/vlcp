@@ -366,7 +366,7 @@ class VXLANUpdater(FlowUpdater):
                                                   'tunnel_dst': created_ports[portref],
                                                   'updated_time': timestamp}
                                     vxinfo.endpoints = [ep for ep in vxinfo.endpoints
-                                                        if ep.updated_time + self._parent.allowedmigrationtime * 1000000 >= timestamp
+                                                        if ep['updated_time'] + self._parent.allowedmigrationtime * 1000000 >= timestamp
                                                         and (ep['vhost'], ep['systemid'], ep['bridge']) != (ovsdb_vhost, system_id, bridge)]
                                     vxinfo.endpoints = [myendpoint] + vxinfo.endpoints
                                     written_values[vxkey] = vxinfo
@@ -374,8 +374,7 @@ class VXLANUpdater(FlowUpdater):
                                     if vxinfo is not None:
                                         # Remove endpoint
                                         vxinfo.endpoints = [ep for ep in vxinfo.endpoints
-                                                            if ep.updated_time + self._parent.allowedmigrationtime * 1000000 >= timestamp
-                                                            and (ep['vhost'], ep['systemid'], ep['bridge']) != (ovsdb_vhost, system_id, bridge)]
+                                                            if (ep['vhost'], ep['systemid'], ep['bridge']) != (ovsdb_vhost, system_id, bridge)]
                                         if not vxinfo.endpoints:
                                             written_values[vxkey] = None
                                         else:
