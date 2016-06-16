@@ -134,7 +134,7 @@ class OpenflowManager(Module):
                                              match = ofdef.ofp_match_oxm(),
                                              instructions = [ofdef.ofp_instruction_goto_table(table_id = t[i+1][1])]
                                        )
-                          for _,t in pathtable
+                          for _,t in pathtable.items()
                           for i in range(0, len(t) - 1)]
                 if cmds:
                     for m in conn.protocol.batch(cmds, conn, self.apiroutine):
