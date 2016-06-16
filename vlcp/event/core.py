@@ -371,7 +371,9 @@ class Scheduler(object):
         return self.syscallmatcher
     def _quitsignal(self, signum, frame):
         self.quitsignal = signum
-        raise InterruptedBySignalException()
+        if getattr(self.polling, 'shouldraise', False):
+            self.polling.shouldraise = False
+            raise InterruptedBySignalException()
     def main(self, installsignal = True, sendinit = True):
         '''
         Start main loop
