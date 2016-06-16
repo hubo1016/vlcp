@@ -106,7 +106,7 @@ class VXLANEndpointSet(DataObject):
                 prefix = prefix,deleted = deleted)
         self.endpointlist = []
 
-LogicalNetwork._auto_removes['VXLANEndpointSet'] = lambda x: VXLANEndpointSet.default_key(x.id)
+LogicalNetwork._auto_removes['VXLANEndpointSet'] = lambda x: [VXLANEndpointSet.default_key(x.id)]
 
 class LogicalPortVXLANInfo(DataObject):
     _prefix = 'viperflow.logicalportvxlaninfo'
@@ -115,5 +115,5 @@ class LogicalPortVXLANInfo(DataObject):
         super(LogicalPortVXLANInfo, self).__init__(prefix=prefix, deleted=deleted)
         self.endpoints = []
 
-LogicalPort._auto_removes['LogicalPortVXLANInfo'] = lambda x: LogicalPortVXLANInfo.default_key(x.id)
+LogicalPort._auto_removes['LogicalPortVXLANInfo'] = lambda x: [LogicalPortVXLANInfo.default_key(x.id)]
 
