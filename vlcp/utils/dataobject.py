@@ -273,7 +273,7 @@ class DataObject(object):
                 if all(hasattr(self, ind) for ind in indices)]
     def kvdb_multikeys(self):
         return [self.multi_key(k, *[getattr(self, ind) for ind in indices])
-                for k,indices in self._unique_keys
+                for k,indices in self._multi_keys
                 if all(hasattr(self, ind) for ind in indices)]
     def kvdb_autoremove(self):
         return set(itertools.chain.from_iterable(v(self) for v in self._auto_removes.values()))
