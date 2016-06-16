@@ -134,7 +134,7 @@ class DataObject(object):
     @classmethod
     def _register_auto_remove(cls, key, func):
         if '_auto_removes' not in cls.__dict__:
-            cls.__dict__['_auto_removes'] = {key: func}
+            cls._auto_removes = {key: func}
         else:
             cls.__dict__['_auto_removes'][key] = func
     def __init__(self, prefix = None, deleted = False):
