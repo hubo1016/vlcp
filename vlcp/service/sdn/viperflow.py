@@ -1452,15 +1452,19 @@ class ViperFlow(Module):
 
         idset = set()
         newports = []
+        subnetids = []
         for port in ports:
             port = copy.deepcopy(port)
             if 'id' in ports:
-                if ports['id'] not in idset:
-                    idset.add(ports['id'])
+                if port['id'] not in idset:
+                    idset.add(port['id'])
                 else:
                     raise ValueError("id repeat "+ id)
             else:
                 port.setdefault('id',str(uuid1()))
+
+            if 'subnet' in port:
+                subnetids.append(port['subnet'])
 
             newports.append(port)
 
@@ -1469,17 +1473,62 @@ class ViperFlow(Module):
         lgports = [self._createlogicalports(**p) for p in newports]
         lgnetkeys = list(set([p.network.getkey() for p in lgports]))
         lgnetmapkeys = [LogicalNetworkMap.default_key(LogicalNetwork._getIndices(k)[1][0]) for k in lgnetkeys]
+        subnetkeys = list(set([SubNet.default_key(id) for id in subnetids]))
+        subnetmapkeys = [SubNetMap.default_key(SubNet._getIndices(key)[1][0]) for key in subnetkeys]
 
+        keys = [lgportsetkey] + lgportkeys + lgnetkeys + lgnetmapkeys + subnetkeys + subnetmapkeys
         def updater(keys,values):
             netkeys = keys[1+len(lgportkeys):1+len(lgportkeys)+len(lgnetkeys)]
             netvalues = values[1+len(lgportkeys):1+len(lgportkeys)+len(lgnetkeys)]
 
+            netmapkeys = keys[1+len(lgportkeys)+len(lgnetkeys):1+len(lgportkeys)+len(lgnetkeys)*2]
+            netmapvalues = values[1+len(lgportkeys)+len(lgnetkeys):1+len(lgportkeys)+len(lgnetkeys)*2]
 
-            netmapkeys = keys[1+len(lgportkeys)+len(lgnetkeys):]
-            netmapvalues = values[1+len(lgportkeys)+len(lgnetkeys):]
+            snkeys = keys[1+len(lgportkeys)+len(lgnetkeys)*2:1+len(lgportkeys)+len(lgnetkeys)*2 + len(subnetkeys)]
+            snobj =  values[1+len(lgportkeys)+len(lgnetkeys)*2:1+len(lgportkeys)+len(lgnetkeys)*2 + len(subnetkeys)]
+
+            snmkeys = keys[1+len(lgportkeys)+len(lgnetkeys)*2 + len(subnetkeys):]
+            snmobjs = values[1+len(lgportkeys)+len(lgnetkeys)*2 + len(subnetkeys):]
+            subnetdict = dict(zip(snkeys,zip(snobj,snmobjs)))
             lgnetdict = dict(zip(netkeys,zip(netvalues,netmapvalues)))
 
             for i in range(0,len(newports)):
+                if getattr(lgports[i],'subnet'):
+                    sk = SubNet.default_key(lgports[i].subnet)
+                    sn,smn = subnetdict.get(sk)
+                    if sn or smn:
+                        raise ValueError("special subnet " + lgports[i].subnet + " not existed")
+                    else:
+                        # we should allocated one ip_address for this lgport
+                        if getattr(lgports[i],'ip_address'):
+                            try:
+                                ip_address = parse_ip4_address(lgports[i].ip_address)
+                            except:
+                                raise ValueError("special ip_address" + lgports[i].ip_address + " invailed")
+                            else:
+                                # check ip_address in cidr
+                                start = parse_ip4_address(smn.allocated_start)
+                                end = parse_ip4_address(smn.allocated_end)
+                                try:
+                                    assert start <= ip_address <= end
+                                except:
+                                    raise ValueError("special ipaddress " + lgports[i].ip_address + " invaild")
+
+                                if str(ip_address) not in smn.allocated_ips:
+                                    smn.allocated_ips[str(ip_address)] = lgports[i].create_weakreference()
+                                else:
+                                    raise ValueError("ipaddress " + lgports[i].ip_address + " have been used")
+                        else:
+                            # allocated ip_address from cidr
+                            start = parse_ip4_address(smn.allocated_start)
+                            end = parse_ip4_address(smn.allocated_end)
+                            for ip_address in range(start,end):
+                                if str(ip_address) not in smn.allocated_ips:
+                                    setattr(lgports[i],'ip_address',int_to_str(ip_address))
+                                    break
+                            else:
+                                raise ValueError("can not find avaliable ipaddress from pool")
+
                 values[1+i] = set_new(values[1+i],lgports[i])
 
                 _,netmap = lgnetdict.get(lgports[i].network.getkey())
@@ -1489,10 +1538,11 @@ class ViperFlow(Module):
                     values[0].set.dataset().add(lgports[i].create_weakreference())
                 else:
                     raise ValueError("lgnetworkkey not existed "+lgports[i].network.getkey())
+
             return keys,values
         try:
             for m in callAPI(self.app_routine,'objectdb','transact',
-                    {"keys":[lgportsetkey]+lgportkeys+lgnetkeys+lgnetmapkeys,'updater':updater}):
+                    {"keys":keys,'updater':updater}):
                 yield m
         except:
             raise
@@ -1523,6 +1573,7 @@ class ViperFlow(Module):
         "update logicalports that ids,return updated info"
         # ports [{"id":id,...},{...}]
         lgportkeys = set()
+        updatesubnets = set()
         for port in ports:
             if 'id' in port:
                 if port['id'] not in lgportkeys:
@@ -1532,10 +1583,54 @@ class ViperFlow(Module):
             else:
                 raise ValueError("must special id")
 
+            if 'logicalnetwork' in port:
+                raise ValueError("can not update logicalnetwork id")
+            if 'subnet' in port:
+                raise ValueError("can not update subnet id")
+
+            if 'ip_address' in port:
+                updatesubnets.add(port['id'])
+
+        updatesubnetportkeys = [LogicalPort.default_key(key) for key in updatesubnets]
+        for m in self._getkeys(updatesubnetportkeys):
+            yield m
+        updatesubnetportobjs = self.app_routine.retvalue
+
+        if None in updatesubnetportobjs:
+            raise ValueError(" key logicalport not existed " +updatesubnets[updatesubnetportobjs.index(None)])
+
+        subnetmap = dict(zip(updatesubnets,[lgport.subnet for lgport in updatesubnetportobjs
+                                            if lgport.get('subnet')]))
+        subnetkeys = list(set([lgport.subnet for lgport in updatesubnetportobjs if lgport.get('subnet')]))
+        subnetmapkeys = [SubNetMap.default_key(SubNet._getIndices(key)[1][0]) for key in subnetkeys]
         lgportkeys = [LogicalPort.default_key(key) for key in lgportkeys]
         def update(keys,values):
 
-            lgportdict = dict(zip(keys,values))
+            portkeys = keys[0:len(lgportkeys)]
+            portobj = values[0:len(lgportkeys)]
+            lgportdict = dict(zip(portkeys,portobj))
+
+            sk = keys[len(lgportkeys):len(lgportkeys) + len(subnetkeys)]
+            skobj = values[len(lgportkeys):len(lgportkeys) + len(subnetkeys)]
+            smk = keys[len(lgportkeys) + len(subnetkeys):]
+            smkobj = values[len(lgportkeys) + len(subnetkeys):]
+
+            if [o.subnet for o in updatesubnetportobjs] !=\
+                [o.subnet if o is not None else None for o in skobj]:
+                raise ValueError("conflict error try again!")
+            subnetdict = dict(zip(sk,zip(skobj,smkobj)))
+            for port in ports:
+                lgport = lgportdict.get(LogicalPort.default_key(port["id"]))
+                if not lgport:
+                    raise ValueError("key object not existed "+ port['id'])
+                if 'ip_address' in port:
+                    if getattr(lgport,'ip_address',None):
+                        subnetid = subnetmap.get(port['id'])
+                        subnetobj,subnetmapobj = subnetdict.get(SubNet.default_key(subnetid))
+                        if subnetobj and subnetmapobj:
+                            del subnetmapobj.allocated_ips[lgport.ip_address]
+                    else:
+                        raise ValueError("special subnetid " + subnetid + " not existed")
             for port in ports:
 
                 lgport = lgportdict.get(LogicalPort.default_key(port["id"]))
@@ -1543,6 +1638,24 @@ class ViperFlow(Module):
                 if not lgport:
                     raise ValueError("key object not existed "+ port['id'])
 
+                if 'ip_address' in port:
+                    subnetid = subnetmap.get(port['id'])
+                    subnetobj,subnetmapobj = subnetdict.get(SubNet.default_key(subnetid))
+                    if subnetobj and subnetmapobj:
+                        ip_address = parse_ip4_address(port['ip_address'])
+                        start = parse_ip4_address(subnetmapobj.allocated_start)
+                        end = parse_ip4_address(subnetmapobj.allocated_end)
+                        try:
+                            assert start <= ip_address <= end
+                        except:
+                            raise ValueError("special ipaddress " + port['ip_address'] + " invaild")
+
+                        if str(ip_address) not in subnetmapobj.allocated_ips:
+                            subnetmapobj.allocated_ips[str(ip_address)] = lgport.create_weakreference()
+                        else:
+                            raise ValueError("ipaddress " + port['ip_address'] + " have been used")
+                    else:
+                        raise ValueError("special subnetid " + subnetid + " not existed")
                 for k,v in port.items():
                     setattr(lgport,k,v)
 
@@ -1550,7 +1663,7 @@ class ViperFlow(Module):
 
         try:
             for m in callAPI(self.app_routine,"objectdb","transact",
-                    {"keys":lgportkeys,"updater":update}):
+                    {"keys":lgportkeys + subnetkeys + subnetmapkeys,"updater":update}):
                 yield m
         except:
             raise
@@ -1580,7 +1693,6 @@ class ViperFlow(Module):
             else:
                 raise ValueError("must special id")
 
-
         lgportkeys = [LogicalPort.default_key(key) for key in lgportkeys]
 
         for m in callAPI(self.app_routine,'objectdb','mget',{'keys':lgportkeys,'requestid':reqid}):
@@ -1594,6 +1706,7 @@ class ViperFlow(Module):
 
         lgportdict = dict(zip(lgportkeys,flgportvalues))
 
+
         try:
             while True:
                 newports = []
@@ -1605,12 +1718,18 @@ class ViperFlow(Module):
                     # fake attr for delete
                     port['lgnetid'] = portobj.network.id
 
+                    if getattr(portobj,'subnet'):
+                        #fake attr for delete
+                        port['subnetid'] = portobj.subnet
+
                     newports.append(port)
 
                 lgnetmapkeys = list(set([LogicalNetworkMap.default_key(p['lgnetid'])
                             for p in newports]))
 
-                keys = [LogicalPortSet.default_key()] + lgportkeys + lgnetmapkeys
+                subnetmapkeys = list(set([SubNetMap.default_key(p['subnetid'])
+                                 for p in newports if p.get('subnetid') ]))
+                keys = [LogicalPortSet.default_key()] + lgportkeys + lgnetmapkeys + subnetmapkeys
 
                 def update(keys,values):
                     lgportkeys = keys[1:1+len(ports)]
@@ -1620,21 +1739,31 @@ class ViperFlow(Module):
                             [v.network.getkey() for v in flgportvalues]:
                         raise UpdateConflictException
 
-                    lgnetmapkeys = keys[1+len(ports):]
-                    lgnetmapvalues = values[1+len(ports):]
+                    lgmapkeys = keys[1+len(ports):1+len(ports)+len(lgnetmapkeys)]
+                    lgmapvalues = values[1+len(ports):1 + len(ports) + len(lgnetmapkeys)]
 
+                    snmapkeys = keys[1 + len(ports) + len(lgnetmapkeys):]
+                    snmapvalues = values[1 + len(ports) + len(lgnetmapkeys):]
                     lgportdict = dict(zip(lgportkeys,lgportvalues))
-                    lgnetmapdict = dict(zip(lgnetmapkeys,lgnetmapvalues))
+                    lgnetmapdict = dict(zip(lgmapkeys,lgmapvalues))
+                    subnetdict = dict(zip(snmapkeys,snmapvalues))
 
                     for port in newports:
                         lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
+                        if 'subnetid' in port:
+                            smk = SubNetMap.default_key(port['subnetid'])
+                            smobj = subnetdict.get(smk)
+                            if smobj:
+                                del smobj.allocated_ips[lgport.ip_address]
+                            else:
+                                logging.warning("subnet obj" + smk + "not existed")
                         lgnetmap = lgnetmapdict.get(LogicalNetworkMap.default_key(port.get("lgnetid")))
 
                         lgnetmap.ports.dataset().discard(lgport.create_weakreference())
 
                         values[0].set.dataset().discard(lgport.create_weakreference())
 
-                    return keys,[values[0]]+[None]*len(ports)+lgnetmapvalues
+                    return keys,[values[0]]+[None]*len(ports)+lgmapvalues+snmapvalues
 
                 try:
                     for m in callAPI(self.app_routine,"objectdb","transact",
