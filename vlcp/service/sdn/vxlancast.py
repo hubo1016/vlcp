@@ -383,7 +383,7 @@ class VXLANUpdater(FlowUpdater):
                     written_values_list = tuple(written_values.items())
                     return (tuple(itertools.chain(keys[:len(network_list)], (k for k,_ in written_values_list))),
                             tuple(itertools.chain(values[:len(network_list)], (v for _,v in written_values_list))))
-                for m in callAPI(self, 'objectdb', 'transact', {'keys': vxlanendpoint_list,
+                for m in callAPI(self, 'objectdb', 'transact', {'keys': tuple(vxlanendpoint_list + all_tun_ports2),
                                                                 'updater': update_vxlanendpoints,
                                                                 'withtime': True
                                                                 }):

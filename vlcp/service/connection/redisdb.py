@@ -191,12 +191,17 @@ class RedisDB(TcpServerBase):
         self.apiroutine.retvalue = None
     def mget(self, keys, vhost = ''):
         "Get multiple values from multiple keys"
+        if not keys:
+            self.apiroutine.retvalue = []
+            raise StopIteration
         c = self._redis_clients.get(vhost)
         for m in c.execute_command(self.apiroutine, 'MGET', *keys):
             yield m
         self.apiroutine.retvalue = [self._decode(r) for r in self.apiroutine.retvalue]
     def mset(self, kvpairs, timeout = None, vhost = ''):
         "Set multiple values on multiple keys"
+        if not kvpairs:
+            raise StopIteration
         c = self._redis_clients.get(vhost)
         d = kvpairs
         if hasattr(d, 'items'):
@@ -277,6 +282,9 @@ class RedisDB(TcpServerBase):
                 
     def mupdate(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place with a custom function, see update. Either all success, or all fail."
+        if not keys:
+            self.apiroutine.retvalue = []
+            raise StopIteration
         c = self._redis_clients.get(vhost)
         for m in c.get_connection(self.apiroutine):
             yield m
@@ -340,18 +348,22 @@ class RedisDB(TcpServerBase):
         spin = self.maxspin
         with newconn.context(self.apiroutine):
             for i in range(0, self.maxretry):
-                for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
-                    yield m
-                for m in newconn.execute_command(self.apiroutine, 'MGET', *keys):
-                    yield m
-                values = self.apiroutine.retvalue
+                if keys:
+                    for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
+                        yield m
+                    for m in newconn.execute_command(self.apiroutine, 'MGET', *keys):
+                        yield m
+                    values = self.apiroutine.retvalue
+                else:
+                    values = []
                 try:
                     new_keys, new_values = updater(keys, [self._decode(v) for v in values])
                     keys_deleted = [k for k,v in izip(new_keys, new_values) if v is None]
                     values_encoded = [(k,self._encode(v)) for k,v in izip(new_keys, new_values) if v is not None]
                 except Exception as exc:
-                    for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                        yield m
+                    if keys:
+                        for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                            yield m
                     raise exc
                 if timeout is None:
                     set_commands_list = []
@@ -361,7 +373,10 @@ class RedisDB(TcpServerBase):
                         set_commands_list.append(('DEL',) + tuple(keys_deleted))
                     set_commands = tuple(set_commands_list)
                 elif timeout <= 0:
-                    set_commands = (('DEL',) + tuple(new_keys),)
+                    if new_keys:
+                        set_commands = (('DEL',) + tuple(new_keys),)
+                    else:
+                        set_commands = ()
                 else:
                     ptimeout = int(timeout * 1000)
                     set_commands_list = []
@@ -396,20 +411,27 @@ class RedisDB(TcpServerBase):
         spin = self.maxspin
         with newconn.context(self.apiroutine):
             for i in range(0, self.maxretry):
-                for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
-                    yield m
-                for m in newconn.batch_execute(self.apiroutine, ('MGET',) + tuple(keys),
-                                                                ('TIME',)):
-                    yield m
-                values, time_tuple = self.apiroutine.retvalue
+                if keys:
+                    for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
+                        yield m
+                    for m in newconn.batch_execute(self.apiroutine, ('MGET',) + tuple(keys),
+                                                                    ('TIME',)):
+                        yield m
+                    values, time_tuple = self.apiroutine.retvalue
+                else:
+                    for m in newconn.execute_command(self.apiroutine, 'TIME'):
+                        yield m
+                    values = []
+                    time_tuple = self.apiroutine.retvalue
                 server_time = int(time_tuple[0]) * 1000000 + int(time_tuple[1])
                 try:
                     new_keys, new_values = updater(keys, [self._decode(v) for v in values], server_time)
                     keys_deleted = [k for k,v in izip(new_keys, new_values) if v is None]
                     values_encoded = [(k,self._encode(v)) for k,v in izip(new_keys, new_values) if v is not None]
                 except Exception as exc:
-                    for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                        yield m
+                    if keys:
+                        for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                            yield m
                     raise exc
                 if timeout is None:
                     set_commands_list = []
@@ -419,7 +441,10 @@ class RedisDB(TcpServerBase):
                         set_commands_list.append(('DEL',) + tuple(keys_deleted))
                     set_commands = tuple(set_commands_list)
                 elif timeout <= 0:
-                    set_commands = (('DEL',) + tuple(new_keys),)
+                    if new_keys:
+                        set_commands = (('DEL',) + tuple(new_keys),)
+                    else:
+                        set_commands = ()
                 else:
                     ptimeout = int(timeout * 1000)
                     set_commands_list = []
