@@ -686,12 +686,12 @@ class ObjectDB(Module):
                         extrakeysdict[k] = mk
             except _NeedMoreKeysException:
                 # Prepare the keys
-                extra_keys[:] = list(set(itertools.chain((k for k,_ in remove_uniquekeys if k in updated_keyset or v.getkey() in auto_remove_keys),
-                                                         (k for k,_ in remove_multikeys if k in updated_keyset or v.getkey() in auto_remove_keys),
+                extra_keys[:] = list(set(itertools.chain((k for k,v in remove_uniquekeys if v.getkey() in updated_keyset or v.getkey() in autoremove_keys),
+                                                         (k for k,v in remove_multikeys if v.getkey() in updated_keyset or v.getkey() in autoremove_keys),
                                                          (k for k,_ in update_uniquekeys),
                                                          (k for k,_ in update_multikeys))))
-                extra_key_set[:] = list(set(itertools.chain((UniqueKeyReference.get_keyset_from_key(k) for k,_ in remove_uniquekeys if k in updated_keyset or v.getkey() in auto_remove_keys),
-                                                         (MultiKeyReference.get_keyset_from_key(k) for k,_ in remove_multikeys if k in updated_keyset or v.getkey() in auto_remove_keys),
+                extra_key_set[:] = list(set(itertools.chain((UniqueKeyReference.get_keyset_from_key(k) for k,v in remove_uniquekeys if v.getkey() in updated_keyset or v.getkey() in autoremove_keys),
+                                                         (MultiKeyReference.get_keyset_from_key(k) for k,v in remove_multikeys if v.getkey() in updated_keyset or v.getkey() in autoremove_keys),
                                                          (UniqueKeyReference.get_keyset_from_key(k) for k,_ in update_uniquekeys),
                                                          (MultiKeyReference.get_keyset_from_key(k) for k,_ in update_multikeys))))
                 auto_remove_keys.clear()

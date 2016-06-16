@@ -131,6 +131,12 @@ class DataObject(object):
     _unique_keys = ()
     _multi_keys = ()
     _auto_removes = {}
+    @classmethod
+    def _register_auto_remove(cls, key, func):
+        if '_auto_removes' not in cls.__dict__:
+            cls.__dict__['_auto_removes'] = {key: func}
+        else:
+            cls.__dict__['_auto_removes'][key] = func
     def __init__(self, prefix = None, deleted = False):
         if prefix is not None:
             self._prefix = prefix
@@ -276,7 +282,11 @@ class DataObject(object):
                 for k,indices in self._multi_keys
                 if all(hasattr(self, ind) for ind in indices)]
     def kvdb_autoremove(self):
-        return set(itertools.chain.from_iterable(v(self) for v in self._auto_removes.values()))
+        auto_removes = {}
+        for c in reversed(type(self).__mro__):
+            if '_auto_removes' in c.__dict__:
+                auto_removes.update(c.__dict__['_auto_removes'])
+        return set(itertools.chain.from_iterable(v(self) for v in auto_removes.values()))
         
 class DataObjectSet(object):
     "A set of data objects, usually of a same type. Allow weak references only."
