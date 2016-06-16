@@ -740,7 +740,10 @@ class ObjectDB(Module):
             return (updated_keys, updated_values)
         while True:
             try:
-                for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime', {'keys': keys + tuple(auto_remove_keys) + tuple(extra_keys), 'updater': object_updater}):
+                for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime',
+                                 {'keys': keys + tuple(auto_remove_keys) + \
+                                         tuple(extra_keys) + tuple(extra_key_set),
+                                         'updater': object_updater}):
                     yield m
             except _NeedMoreKeysException:
                 pass

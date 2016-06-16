@@ -351,7 +351,7 @@ class UniqueKeySet(DataObject):
     _prefix = 'indicesset'
     _indices = ('prefix', 'keyname')
     def __init__(self, prefix=None, deleted=False):
-        super(UniqueKeySet, self).__init__(self, prefix=prefix, deleted=deleted)
+        super(UniqueKeySet, self).__init__(prefix=prefix, deleted=deleted)
         self.set = DataObjectSet()
 
 
@@ -359,7 +359,7 @@ class MultiKeySet(DataObject):
     _prefix = 'multiindicesset'
     _indices = ('prefix', 'keyname')
     def __init__(self, prefix=None, deleted=False):
-        super(MultiKeySet, self).__init__(self, prefix=prefix, deleted=deleted)
+        super(MultiKeySet, self).__init__(prefix=prefix, deleted=deleted)
         self.set = DataObjectSet()
 
 
