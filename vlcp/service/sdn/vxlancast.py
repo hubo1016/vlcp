@@ -83,6 +83,8 @@ class VXLANUpdater(FlowUpdater):
                 raise StopIteration
             self.subroutine(self._update_handler(), name = '_update_handler_routine')
             self.subroutine(self._refresh_handler(), name = '_refresh_handler_routine')
+            if not self._parent.prepush and not self._parent.learning:
+                self.subroutine(self._query_packet_handler(), name = '_query_packet_handler_routine')
             for m in FlowUpdater.main(self):
                 yield m
         finally:
@@ -90,6 +92,8 @@ class VXLANUpdater(FlowUpdater):
                 self._update_handler_routine.close()
             if hasattr(self, '_refresh_handler_routine'):
                 self._refresh_handler_routine.close()
+            if hasattr(self, '_query_packet_handler_routine'):
+                self.__query_packet_handler_routine.close()
     def _walk_lognet(self, key, value, walk, save):
         save(key)
         if value is None:
