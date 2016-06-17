@@ -855,20 +855,20 @@ class VXLANUpdater(FlowUpdater):
                                      if p[2] > current_time and p[0] != ofdef.OFP_NO_BUFFER)
                     return flows
                 for vxlaninfo, value in lastvxlaninfo.items():
-                    _, _, nid, _, mac_address, _, _, pid = value
+                    _, lognet, nid, _, mac_address, _, _, pid = value
                     if vxlaninfo not in currentvxlaninfo:
-                        remove_cmds.extend(_delete_flow(pid, nid, mac_address))
+                        remove_cmds.extend(_delete_flow(pid, nid, mac_address, lognet))
                     else:
-                        _, _, nid2, vni2, mac_address2, endpoint2, _, pid2 = currentvxlaninfo[vxlaninfo]
+                        _, lognet2, nid2, vni2, mac_address2, endpoint2, _, pid2 = currentvxlaninfo[vxlaninfo]
                         if (pid2, nid2, mac_address2) != (pid, nid, mac_address):
-                            remove_cmds.extend(_delete_flow(pid, nid, mac_address))
-                            add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst']))
+                            remove_cmds.extend(_delete_flow(pid, nid, mac_address, lognet))
+                            add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst'], lognet2))
                         else:
-                            add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst'], True))
+                            add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst'], lognet2, True))
                 for vxlaninfo, value in currentvxlaninfo.items():
                     if vxlaninfo not in lastvxlaninfo:
-                        _, _, nid, vni, mac_address, endpoint, _, pid = value
-                        add_cmds.extend(_create_flow(pid, nid, mac_address, vni, endpoint['tunnel_dst']))
+                        _, lognet, nid, vni, mac_address, endpoint, _, pid = value
+                        add_cmds.extend(_create_flow(pid, nid, mac_address, vni, endpoint['tunnel_dst'], lognet))
                 for m in self.execute_commands(conn, remove_cmds):
                     yield m
                 for m in self.execute_commands(conn, add_cmds):
