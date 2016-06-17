@@ -17,7 +17,7 @@ import vlcp.service.sdn.ofpportmanager as ofpportmanager
 from vlcp.event.runnable import RoutineContainer
 from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent,\
     OpenflowAsyncMessageEvent, OpenflowErrorResultException
-from vlcp.utils.ethernet import ethernet_l2
+from vlcp.utils.ethernet import ethernet_l2, mac_addr
 import vlcp.service.sdn.ioprocessing as iop
 import itertools
 from namedstruct.namedstruct import dump
@@ -26,6 +26,7 @@ from vlcp.event.event import Event, withIndices
 from vlcp.service.sdn import ovsdbportmanager
 from vlcp.utils import ovsdb
 from vlcp.utils.dataobject import updater, ReferenceObject
+from time import time
 
 @withIndices('connection', 'logicalnetworkid', 'type')
 class VXLANGroupChanged(Event):
@@ -57,7 +58,12 @@ class VXLANUpdater(FlowUpdater):
         self._lastvxlaninfo = {}
         self._orig_initialkeys = ()
         self._watched_maps = ()
-        self._watched_macs = set()
+        # For first-upload mode, save the watching MAC addresses
+        # a dictionary (logicalnetwork, mac_address) -> expire time
+        self._watched_macs = {}
+        # Current buffered packets, a dictionary (logicalnetwork, mac_address) -> [packet, packet, ...]
+        # where packet is (buffer_id, data, expire, in_port, metadata)
+        self._buffered_packets = {}
         # LogicalNetworkID -> PhysicalPortNo map
         self._current_groups = {}
     def wait_for_group(self, container, networkid, timeout = 30):
@@ -134,24 +140,136 @@ class VXLANUpdater(FlowUpdater):
             yield
     def _walk_phyport(self, key, value, walk, save):
         save(key)
-
     def _walk_logport(self, key, value, walk, save):
         save(key)
+    def _walk_mac_key(self, key, value, walk, save):
+        save(key)
+        if value is not None:
+            logport_key = value.ref.getkey()
+            try:
+                _ = walk(logport_key)
+            except KeyError:
+                pass
+            else:
+                save(logport_key)
+            _, (portid,) = LogicalPort._getIndices(logport_key)
+            try:
+                portinfokey = LogicalPortVXLANInfo.default_key(portid)
+                _ = walk(portinfokey)
+            except KeyError:
+                pass
+            else:
+                save(portinfokey)
+    def _get_watched_mac_keys(self):
+        keys = []
+        current_time = time()
+        changed = False
+        for k,t in list(self._watched_macs.items()):
+            if t < current_time:
+                # Expired
+                del self._watched_macs[k]
+                changed = True
+                if k in self._buffered_packets:
+                    # The packets should be expired far ago
+                    del self._buffered_packets[k]
+            elif k[0] not in (n for n,_ in self._lastlognets):
+                # Network is removed
+                del self._watched_macs[k]
+                changed = True
+                if k in self._buffered_packets:
+                    del self._buffered_packets[k]
+            else:
+                keys.append(LogicalPort.unique_key('_mac_address_index', *k))
+        return (keys, changed)
     def _update_handler(self):
         dataobjectchanged = iop.DataObjectChanged.createMatcher(None, None, self._connection, None, True)
         dataobjectchanged2 = iop.DataObjectChanged.createMatcher(None, None, self._connection, None, False, True)
         while True:
             yield (dataobjectchanged, dataobjectchanged2)
             self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
-            phyport_keys = [p.getkey() for p,_ in self._lastphyports]
-            lognet_keys = [n.getkey() for n,_ in self._lastlognets]
-            logport_keys = [p.getkey() for p,_ in self._lastlogports]
-            self._orig_initialkeys = phyport_keys + lognet_keys + logport_keys
-            self._initialkeys = self._orig_initialkeys + self._watched_maps
-            self._walkerdict = dict(itertools.chain(((n, self._walk_lognet) for n in lognet_keys),
-                                                    ((p, self._walk_phyport) for p in phyport_keys),
-                                                    ((p, self._walk_logport) for p in logport_keys)))
-            self.subroutine(self.restart_walk(), False)
+            self._update_walk()
+    def _update_walk(self):
+        phyport_keys = [p.getkey() for p,_ in self._lastphyports]
+        lognet_keys = [n.getkey() for n,_ in self._lastlognets]
+        logport_keys = [p.getkey() for p,_ in self._lastlogports]
+        mac_keys, _ = self._get_watched_mac_keys()
+        self._orig_initialkeys = phyport_keys + lognet_keys + logport_keys + mac_keys
+        self._initialkeys = self._orig_initialkeys + self._watched_maps + mac_keys
+        self._walkerdict = dict(itertools.chain(((n, self._walk_lognet) for n in lognet_keys),
+                                                ((p, self._walk_phyport) for p in phyport_keys),
+                                                ((p, self._walk_logport) for p in logport_keys),
+                                                ((p, self._walk_mac_key) for p in mac_keys)))
+        self.subroutine(self.restart_walk(), False)
+    def _query_packet_handler(self):
+        ofdef = self._connection.openflowdef
+        vhost = self._connection.protocol.vhost
+        vo = self._parent._gettableindex('vxlanoutput', vhost)
+        packet_in = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None,
+                                                            vo, 2, self._connection, self._connection.connmark)
+        flow_remove = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_FLOW_REMOVED, None, None,
+                                                              vo, 2, self._connection, self._connection.connmark,
+                                                              _ismatch = lambda x: x.message.reason == ofdef.OFPRR_IDLE_TIMEOUT)
+        while True:
+            yield (packet_in, flow_remove)
+            if self.matcher is packet_in:
+                msg = self.event.message
+                try:
+                    packet = ethernet_l2.create(msg.data)
+                except Exception:
+                    self._logger.warning('Invalid packet received: %r', msg.data, exc_info = True)
+                else:
+                    in_port = ofdef.ofp_port_no.parse(ofdef.get_oxm(packet.match.oxm_fields, ofdef.OXM_OF_IN_PORT))
+                    metadata = [o for o in packet.match.oxm_fields if o.header in (ofdef.NXM_NX_REG4,
+                                                                                   ofdef.NXM_NX_REG5,
+                                                                                   ofdef.NXM_NX_REG6)]
+                    mac_address = mac_addr.formatter(packet.dl_dst)
+                    nid = ofdef.uint32.parse(ofdef.get_oxm(packet.match.oxm_fields, ofdef.NXM_NX_REG5))
+                    networks = [n for n,nid2 in self._lastlognets if nid2 == nid]
+                    if networks:
+                        network = networks[0]
+                        current_time = time()
+                        if (network, mac_address) not in self._watched_macs:
+                            self._watched_macs[(network, mac_address)] = current_time + self._parent.pushtimeout
+                            self._buffered_packets[(network, mac_address)] = [(msg.buffer_id,
+                                                                               msg.data if msg.buffer_id == ofdef.OFP_NO_BUFFER
+                                                                               else b'',
+                                                                               current_time + self._parent.packetexpre,
+                                                                               in_port,
+                                                                               metadata
+                                                                               )]
+                            # Restart walk since we have already changed the watch list
+                            self._update_walk()
+                        else:
+                            if self._watched_macs[(network, mac_address)] is not None:
+                                # Update expire time
+                                self._watched_macs[(network, mac_address)] = current_time + self._parent.pushtimeout
+                            # If the buffers are already removed, the flow is already sent. Ignore this packet.
+                            # This should rarely happen, so we do not bother drop it with a PACKET_OUT message
+                            if (network, mac_address) in self._buffered_packets:
+                                l = self._buffered_packets[(network, mac_address)]
+                                # Drop expired packets
+                                l = [p for p in l if p[2] > current_time]
+                                l.append((msg.buffer_id,
+                                           msg.data if msg.buffer_id == ofdef.OFP_NO_BUFFER
+                                           else b'',
+                                           current_time + self._parent.packetexpre,
+                                           in_port,
+                                           metadata
+                                           ))
+                                self._buffered_packets[(network, mac_address)] = l
+            else:
+                # A flow is expired, also remove the watch list
+                msg = self.event.message
+                nid = ofdef.uint32.parse(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
+                mac_address = mac_addr.formatter(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_ETH_DST))
+                networks = [n for n,nid2 in self._lastlognets if nid2 == nid]
+                if networks:
+                    network = networks[0]
+                    if (network, mac_address) in self._watched_macs:
+                        del self._watched_macs[(network, mac_address)]
+                        if (network, mac_address) in self._buffered_packets:
+                            del self._buffered_packets[(network, mac_address)]
+                        self._update_walk()
     def _refresh_handler(self):
         while True:
             for m in self.waitWithTimeout(self._parent.refreshinterval):
@@ -487,13 +605,12 @@ class VXLANUpdater(FlowUpdater):
                 return ofdef.create_oxm(ofdef.NXM_NX_REG5, nid)
             def _learned_flag(flag):
                 return ofdef.create_oxm(ofdef.NXM_NX_REG7, int(bool(flag)))
-        if self._parent.learning:
-            # Use nx_action_learn
-            def flow_mod_learning():
-                cmds = []
-                for p in itertools.chain(removevalues, updatedvalues):
-                    if p.isinstance(PhysicalPort) and p in lastphyportinfo and not p in currentphyportinfo:
-                        _, pid, _ = lastphyportinfo[p]
+        def flow_mod():
+            cmds = []
+            for p in itertools.chain(removevalues, updatedvalues):
+                if p.isinstance(PhysicalPort) and p in lastphyportinfo and not p in currentphyportinfo:
+                    _, pid, _ = lastphyportinfo[p]
+                    if self._parent.learning:
                         cmds.append(ofdef.ofp_flow_mod(table_id = vi,
                                                        command = ofdef.OFPFC_DELETE,
                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -505,32 +622,33 @@ class VXLANUpdater(FlowUpdater):
                                                                         ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid)
                                                                         ]
                                                                 )))
-                        cmds.append(ofdef.ofp_flow_mod(table_id = vo,
-                                                       command = ofdef.OFPFC_DELETE,
-                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
-                                                       buffer_id = ofdef.OFP_NO_BUFFER,
-                                                       out_port = ofdef.OFPP_ANY,
-                                                       out_group = ofdef.OFPG_ANY,
-                                                       match = ofdef.ofp_match_oxm(
-                                                                    oxm_fields = _create_oxms(
-                                                                            _outport_oxm(pid)
-                                                                        )
-                                                                )))
-                        cmds.append(ofdef.ofp_flow_mod(table_id = egress,
-                                                       command = ofdef.OFPFC_DELETE_STRICT,
-                                                       priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
-                                                       buffer_id = ofdef.OFP_NO_BUFFER,
-                                                       out_port = ofdef.OFPP_ANY,
-                                                       out_group = ofdef.OFPG_ANY,
-                                                       match = ofdef.ofp_match_oxm(
-                                                                    oxm_fields = _create_oxms(
-                                                                        _outport_oxm(pid),
-                                                                        _learned_flag(True)
-                                                                        )
-                                                                )))
-                for m in self.execute_commands(conn, cmds):
-                    yield m
-                del cmds[:]
+                    cmds.append(ofdef.ofp_flow_mod(table_id = vo,
+                                                   command = ofdef.OFPFC_DELETE_STRICT,
+                                                   priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                   buffer_id = ofdef.OFP_NO_BUFFER,
+                                                   out_port = ofdef.OFPP_ANY,
+                                                   out_group = ofdef.OFPG_ANY,
+                                                   match = ofdef.ofp_match_oxm(
+                                                                oxm_fields = _create_oxms(
+                                                                        _outport_oxm(pid)
+                                                                    )
+                                                            )))
+                    cmds.append(ofdef.ofp_flow_mod(table_id = egress,
+                                                   command = ofdef.OFPFC_DELETE_STRICT,
+                                                   priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
+                                                   buffer_id = ofdef.OFP_NO_BUFFER,
+                                                   out_port = ofdef.OFPP_ANY,
+                                                   out_group = ofdef.OFPG_ANY,
+                                                   match = ofdef.ofp_match_oxm(
+                                                                oxm_fields = _create_oxms(
+                                                                    _outport_oxm(pid),
+                                                                    _learned_flag(True)
+                                                                    )
+                                                            )))
+            for m in self.execute_commands(conn, cmds):
+                yield m
+            del cmds[:]
+            if self._parent.learning:
                 # Also delete all learned flows
                 for p in itertools.chain(removevalues, updatedvalues):
                     if p.isinstance(PhysicalPort) and p in lastphyportinfo:
@@ -561,9 +679,10 @@ class VXLANUpdater(FlowUpdater):
                                                                 )))
                 for m in self.execute_commands(conn, cmds):
                     yield m
-                for p in itertools.chain(addvalues, updatedvalues):
-                    if p.isinstance(PhysicalPort) and p in currentphyportinfo and p not in lastphyportinfo:
-                        _, pid, _ = currentphyportinfo[p]
+            for p in itertools.chain(addvalues, updatedvalues):
+                if p.isinstance(PhysicalPort) and p in currentphyportinfo and p not in lastphyportinfo:
+                    _, pid, _ = currentphyportinfo[p]
+                    if self._parent.learning:
                         cmds.append(ofdef.ofp_flow_mod(table_id = vi,
                                                        command = ofdef.OFPFC_ADD,
                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
@@ -616,34 +735,63 @@ class VXLANUpdater(FlowUpdater):
                                                                 ),
                                                                 ofdef.ofp_instruction_goto_table(table_id = vo_next)
                                                                 ]))
-                        cmds.append(ofdef.ofp_flow_mod(table_id = egress,
+                    elif not self._parent.prepush:
+                        cmds.append(ofdef.ofp_flow_mod(table_id = vo,
+                                                       cookie = 0x2,
+                                                       cookie_mask = 0xffffffffffffffff,
                                                        command = ofdef.OFPFC_ADD,
-                                                       priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
+                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                        buffer_id = ofdef.OFP_NO_BUFFER,
                                                        out_port = ofdef.OFPP_ANY,
                                                        out_group = ofdef.OFPG_ANY,
                                                        match = ofdef.ofp_match_oxm(
                                                                     oxm_fields = _create_oxms(
-                                                                                  _outport_oxm(pid),
-                                                                                  _learned_flag(True)
-                                                                                )
+                                                                        _outport_oxm(pid)
+                                                                        )
                                                                 ),
                                                        instructions = [
                                                                 ofdef.ofp_instruction_actions(
-                                                                    actions = [ofdef.ofp_action_output(port = pid)]
-                                                                )
-                                                            ]
-                                                       ))
-                for m in self.execute_commands(conn, cmds):
-                    yield m
-            subroutines.append(flow_mod_learning())
-        if self._parent.prepush:
+                                                                    actions = [
+                                                                        ofdef.ofp_action_output(port = ofdef.OFPP_CONTROLLER,
+                                                                                                max_len = 32)
+                                                                        ]
+                                                                )]))                        
+                    cmds.append(ofdef.ofp_flow_mod(table_id = egress,
+                                                   command = ofdef.OFPFC_ADD,
+                                                   priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
+                                                   buffer_id = ofdef.OFP_NO_BUFFER,
+                                                   out_port = ofdef.OFPP_ANY,
+                                                   out_group = ofdef.OFPG_ANY,
+                                                   match = ofdef.ofp_match_oxm(
+                                                                oxm_fields = _create_oxms(
+                                                                              _outport_oxm(pid),
+                                                                              _learned_flag(True)
+                                                                            )
+                                                            ),
+                                                   instructions = [
+                                                            ofdef.ofp_instruction_actions(
+                                                                actions = [ofdef.ofp_action_output(port = pid)]
+                                                            )
+                                                        ]
+                                                   ))
+            for m in self.execute_commands(conn, cmds):
+                yield m
+        subroutines.append(flow_mod())
+        if self._parent.prepush or (not self._parent.prepush and not self._parent.learning):
             # prepush can be used together with learning
+            if self._parent.prepush:
+                # Never timeout
+                idle_timeout = 0
+                flags = 0
+            else:
+                idle_timeout = self._parent.pushtimeout
+                flags = ofdef.OFPFF_SEND_FLOW_REM
             def flow_mod_prepush():
                 remove_cmds = []
                 add_cmds = []
-                def _delete_flow(pid, nid, mac_address):
-                    return ofdef.ofp_flow_mod(table_id = vo,
+                current_time = time()
+                def _delete_flow(pid, nid, mac_address, network):
+                    flows = [ofdef.ofp_flow_mod(table_id = vo,
                                                command = ofdef.OFPFC_DELETE_STRICT,
                                                priority = ofdef.OFP_DEFAULT_PRIORITY + 9,
                                                buffer_id = ofdef.OFP_NO_BUFFER,
@@ -655,14 +803,26 @@ class VXLANUpdater(FlowUpdater):
                                                                           ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, ofdef.mac_addr(mac_address)),
                                                                           ]
                                                         )
-                                               )
-                def _create_flow(pid, nid, mac_address, tunnelid, tunnel_dst, modify = False):
-                    return ofdef.ofp_flow_mod(table_id = vo,
+                                               )]
+                    if (network, mac_address) in self._buffered_packets:
+                        # Drop any packets
+                        packets = self._buffered_packets.pop((network, mac_address))
+                        flows.extend(ofdef.ofp_packet_out(buffer_id = p[0],
+                                                          in_port = p[3],
+                                                          actions = []
+                                                          )
+                                     for p in packets
+                                     if p[2] > current_time and p[0] != ofdef.OFP_NO_BUFFER)
+                    return flows
+                def _create_flow(pid, nid, mac_address, tunnelid, tunnel_dst, network, modify = False):
+                    flows = [ofdef.ofp_flow_mod(table_id = vo,
                                                 command = ofdef.OFPFC_MODIFY_STRICT if modify else ofdef.OFPFC_ADD, 
                                                 priority = ofdef.OFP_DEFAULT_PRIORITY + 9,
+                                                idle_timeout = idle_timeout,
                                                 buffer_id = ofdef.OFP_NO_BUFFER,
                                                 out_port = ofdef.OFPP_ANY,
                                                 out_group = ofdef.OFPG_ANY,
+                                                flags = flags,
                                                 match = ofdef.ofp_match_oxm(
                                                              oxm_fields = [ofdef.create_oxm(ofdef.NXM_NX_REG6, pid),
                                                                            ofdef.create_oxm(ofdef.NXM_NX_REG5, nid),
@@ -677,30 +837,43 @@ class VXLANUpdater(FlowUpdater):
                                                         ),
                                                         ofdef.ofp_instruction_goto_table(table_id = vo_next)
                                                     ]
-                                               )   
+                                               )]
+                    if (network, mac_address) in self._buffered_packets:
+                        # Send buffered packets
+                        packets = self._buffered_packets.pop((network, mac_address))
+                        flows.extend(ofdef.ofp_packet_out(buffer_id = p[0],
+                                                          in_port = p[3],
+                                                          actions = [ofdef.ofp_action_set_field(field = meta) for meta in p[4]]
+                                                                    + [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, tunnelid)),
+                                                                       ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.NXM_NX_TUN_IPV4_DST, ofdef.ip4_addr(tunnel_dst))),
+                                                                       ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.NXM_NX_REG7, 1)),
+                                                                       ofdef.nx_action_resubmit(in_port = ofdef.nx_port_no.OFPP_IN_PORT,
+                                                                                              table = vo_next)],
+                                                          data = p[1]
+                                                          )
+                                     for p in packets
+                                     if p[2] > current_time and p[0] != ofdef.OFP_NO_BUFFER)
+                    return flows
                 for vxlaninfo, value in lastvxlaninfo.items():
                     _, _, nid, _, mac_address, _, _, pid = value
                     if vxlaninfo not in currentvxlaninfo:
-                        remove_cmds.append(_delete_flow(pid, nid, mac_address))
+                        remove_cmds.extend(_delete_flow(pid, nid, mac_address))
                     else:
                         _, _, nid2, vni2, mac_address2, endpoint2, _, pid2 = currentvxlaninfo[vxlaninfo]
                         if (pid2, nid2, mac_address2) != (pid, nid, mac_address):
-                            remove_cmds.append(_delete_flow(pid, nid, mac_address))
-                            add_cmds.append(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst']))
+                            remove_cmds.extend(_delete_flow(pid, nid, mac_address))
+                            add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst']))
                         else:
-                            add_cmds.append(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst'], True))
+                            add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst'], True))
                 for vxlaninfo, value in currentvxlaninfo.items():
                     if vxlaninfo not in lastvxlaninfo:
                         _, _, nid, vni, mac_address, endpoint, _, pid = value
-                        add_cmds.append(_create_flow(pid, nid, mac_address, vni, endpoint['tunnel_dst']))
+                        add_cmds.extend(_create_flow(pid, nid, mac_address, vni, endpoint['tunnel_dst']))
                 for m in self.execute_commands(conn, remove_cmds):
                     yield m
                 for m in self.execute_commands(conn, add_cmds):
                     yield m
-            subroutines.append(flow_mod_prepush())
-        if not self._parent.prepush and not self._parent.learning:
-            # TODO: first-upload
-            pass
+            subroutines.append(flow_mod_prepush())            
         try:
             for m in self.executeAll(subroutines, retnames = ()):
                 yield m
@@ -720,6 +893,8 @@ class VXLANCast(FlowBase):
     _default_learning = True
     _default_prepush = True
     _default_learntimeout = 300
+    _default_packetexpire = 3
+    _default_pushtimeout = 60
     _default_vhostmap = {}
     _default_refreshinterval = 3600
     _default_allowedmigrationtime = 120
