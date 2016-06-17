@@ -93,7 +93,7 @@ class VXLANUpdater(FlowUpdater):
             if hasattr(self, '_refresh_handler_routine'):
                 self._refresh_handler_routine.close()
             if hasattr(self, '_query_packet_handler_routine'):
-                self.__query_packet_handler_routine.close()
+                self._query_packet_handler_routine.close()
     def _walk_lognet(self, key, value, walk, save):
         save(key)
         if value is None:
