@@ -57,7 +57,7 @@ class VXLANUpdater(FlowUpdater):
         self._lastlogportinfo = {}
         self._lastvxlaninfo = {}
         self._orig_initialkeys = ()
-        self._watched_maps = ()
+        self._watched_maps = []
         # For first-upload mode, save the watching MAC addresses
         # a dictionary (logicalnetwork, mac_address) -> expire time
         self._watched_macs = {}
