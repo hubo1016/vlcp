@@ -17,7 +17,7 @@ import vlcp.service.sdn.ofpportmanager as ofpportmanager
 from vlcp.event.runnable import RoutineContainer
 from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent,\
     OpenflowAsyncMessageEvent, OpenflowErrorResultException
-from vlcp.utils.ethernet import ethernet_l2, mac_addr
+from vlcp.utils.ethernet import ethernet_l2, mac_addr, mac_addr_bytes
 import vlcp.service.sdn.ioprocessing as iop
 import itertools
 from namedstruct.namedstruct import dump
@@ -222,12 +222,12 @@ class VXLANUpdater(FlowUpdater):
                 except Exception:
                     self._logger.warning('Invalid packet received: %r', msg.data, exc_info = True)
                 else:
-                    in_port = ofdef.ofp_port_no.parse(ofdef.get_oxm(packet.match.oxm_fields, ofdef.OXM_OF_IN_PORT))
-                    metadata = [o for o in packet.match.oxm_fields if o.header in (ofdef.NXM_NX_REG4,
+                    in_port = ofdef.ofp_port_no.parse(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT))
+                    metadata = [o for o in msg.match.oxm_fields if o.header in (ofdef.NXM_NX_REG4,
                                                                                    ofdef.NXM_NX_REG5,
                                                                                    ofdef.NXM_NX_REG6)]
                     mac_address = mac_addr.formatter(packet.dl_dst)
-                    nid = ofdef.uint32.parse(ofdef.get_oxm(packet.match.oxm_fields, ofdef.NXM_NX_REG5))
+                    nid = ofdef.uint32.parse(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
                     networks = [n for n,nid2 in self._lastlognets if nid2 == nid]
                     if networks:
                         network = networks[0]
@@ -265,7 +265,7 @@ class VXLANUpdater(FlowUpdater):
                 # A flow is expired, also remove the watch list
                 msg = self.event.message
                 nid = ofdef.uint32.parse(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
-                mac_address = mac_addr.formatter(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_ETH_DST))
+                mac_address = mac_addr_bytes.formatter(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_ETH_DST))
                 networks = [n for n,nid2 in self._lastlognets if nid2 == nid]
                 if networks:
                     network = networks[0]
