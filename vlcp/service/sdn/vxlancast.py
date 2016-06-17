@@ -139,7 +139,7 @@ class VXLANUpdater(FlowUpdater):
             self._watched_maps = [k for k,v in zip(keys, values)
                                   if v is not None and not v.isdeleted() and v.isinstance(LogicalNetworkMap)]
             # If the logical network map changed, restart the walk process
-            self._initialkeys = tuple(itertools.chain(self._orig_initialkeys, self._watched_maps, self._get_watched_mac_keys()))
+            self._initialkeys = tuple(itertools.chain(self._orig_initialkeys, self._watched_maps))
         if False:
             yield
     def _walk_phyport(self, key, value, walk, save):
@@ -237,7 +237,7 @@ class VXLANUpdater(FlowUpdater):
                             self._buffered_packets[(network, mac_address)] = [(msg.buffer_id,
                                                                                msg.data if msg.buffer_id == ofdef.OFP_NO_BUFFER
                                                                                else b'',
-                                                                               current_time + self._parent.packetexpre,
+                                                                               current_time + self._parent.packetexpire,
                                                                                in_port,
                                                                                metadata
                                                                                )]
@@ -256,7 +256,7 @@ class VXLANUpdater(FlowUpdater):
                                 l.append((msg.buffer_id,
                                            msg.data if msg.buffer_id == ofdef.OFP_NO_BUFFER
                                            else b'',
-                                           current_time + self._parent.packetexpre,
+                                           current_time + self._parent.packetexpire,
                                            in_port,
                                            metadata
                                            ))
