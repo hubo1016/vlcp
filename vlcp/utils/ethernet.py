@@ -94,7 +94,7 @@ ETH_ALEN = 6
 
 mac_addr = uint8[ETH_ALEN]
 
-mac_addr.formatter = lambda x: ':'.join('%02X' % (n,) for n in x)
+mac_addr.formatter = lambda x: ':'.join('%02x' % (n,) for n in x)
 def _create_mac_addr(addr = None):
     if addr is None:
         return [0] * ETH_ALEN
@@ -105,7 +105,7 @@ mac_addr.new = _create_mac_addr
 
 mac_addr_bytes = prim(str(ETH_ALEN) + 's', 'mac_addr_bytes')
 
-mac_addr_bytes.formatter = lambda x: ':'.join('%02X' % (c,) for c in bytearray(x.ljust(6, b'\x00')))
+mac_addr_bytes.formatter = lambda x: ':'.join('%02x' % (c,) for c in bytearray(x.ljust(6, b'\x00')))
 def _create_mac_addr_bytes(addr = None):
     if addr is None:
         return b'\x00' * ETH_ALEN
