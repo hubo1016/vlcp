@@ -169,7 +169,7 @@ class VXLANUpdater(FlowUpdater):
         current_time = time()
         changed = False
         for k,t in list(self._watched_macs.items()):
-            if t < current_time:
+            if t is not None and t < current_time:
                 # Expired
                 del self._watched_macs[k]
                 changed = True
@@ -211,11 +211,16 @@ class VXLANUpdater(FlowUpdater):
         packet_in = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None,
                                                             vo, 2, self._connection, self._connection.connmark)
         flow_remove = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_FLOW_REMOVED, None, None,
-                                                              vo, 2, self._connection, self._connection.connmark,
+                                                              vo, 3, self._connection, self._connection.connmark,
                                                               _ismatch = lambda x: x.message.reason == ofdef.OFPRR_IDLE_TIMEOUT)
         while True:
-            yield (packet_in, flow_remove)
-            if self.matcher is packet_in:
+            for m in self.waitWithTimeout(self._parent.pushtimeout, packet_in, flow_remove):
+                yield m
+            if self.timeout:
+                _, changed = self._get_watched_mac_keys()
+                if changed:
+                    self._update_walk()
+            elif self.matcher is packet_in:
                 msg = self.event.message
                 try:
                     packet = ethernet_l2.create(msg.data)
@@ -796,6 +801,8 @@ class VXLANUpdater(FlowUpdater):
                 current_time = time()
                 def _delete_flow(pid, nid, mac_address, network):
                     flows = [ofdef.ofp_flow_mod(table_id = vo,
+                                               cookie = 0x3,
+                                               cookie_mask = 0xffffffffffffffff,
                                                command = ofdef.OFPFC_DELETE_STRICT,
                                                priority = ofdef.OFP_DEFAULT_PRIORITY + 9,
                                                buffer_id = ofdef.OFP_NO_BUFFER,
@@ -820,6 +827,8 @@ class VXLANUpdater(FlowUpdater):
                     return flows
                 def _create_flow(pid, nid, mac_address, tunnelid, tunnel_dst, network, modify = False):
                     flows = [ofdef.ofp_flow_mod(table_id = vo,
+                                                cookie = 0x3,
+                                                cookie_mask = 0xffffffffffffffff,
                                                 command = ofdef.OFPFC_MODIFY_STRICT if modify else ofdef.OFPFC_ADD, 
                                                 priority = ofdef.OFP_DEFAULT_PRIORITY + 9,
                                                 idle_timeout = idle_timeout,
@@ -842,6 +851,9 @@ class VXLANUpdater(FlowUpdater):
                                                         ofdef.ofp_instruction_goto_table(table_id = vo_next)
                                                     ]
                                                )]
+                    if (network, mac_address) in self._watched_macs:
+                        # Expire with idle time
+                        self._watched_macs[(network, mac_address)] = None
                     if (network, mac_address) in self._buffered_packets:
                         # Send buffered packets
                         packets = self._buffered_packets.pop((network, mac_address))
