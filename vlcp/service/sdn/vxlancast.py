@@ -139,7 +139,7 @@ class VXLANUpdater(FlowUpdater):
             self._watched_maps = [k for k,v in zip(keys, values)
                                   if v is not None and not v.isdeleted() and v.isinstance(LogicalNetworkMap)]
             # If the logical network map changed, restart the walk process
-            self._initialkeys = tuple(itertools.chain(self._orig_initialkeys, self._watched_maps))
+            self._initialkeys = tuple(itertools.chain(self._orig_initialkeys, self._watched_maps, self._get_watched_mac_keys()))
         if False:
             yield
     def _walk_phyport(self, key, value, walk, save):
@@ -198,7 +198,7 @@ class VXLANUpdater(FlowUpdater):
         logport_keys = [p.getkey() for p,_ in self._lastlogports]
         mac_keys, _ = self._get_watched_mac_keys()
         self._orig_initialkeys = phyport_keys + lognet_keys + logport_keys + mac_keys
-        self._initialkeys = self._orig_initialkeys + self._watched_maps + mac_keys
+        self._initialkeys = self._orig_initialkeys + self._watched_maps
         self._walkerdict = dict(itertools.chain(((n, self._walk_lognet) for n in lognet_keys),
                                                 ((p, self._walk_phyport) for p in phyport_keys),
                                                 ((p, self._walk_logport) for p in logport_keys),
@@ -222,12 +222,12 @@ class VXLANUpdater(FlowUpdater):
                 except Exception:
                     self._logger.warning('Invalid packet received: %r', msg.data, exc_info = True)
                 else:
-                    in_port = ofdef.ofp_port_no.parse(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT))
+                    in_port = ofdef.ofp_port_no.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT))
                     metadata = [o for o in msg.match.oxm_fields if o.header in (ofdef.NXM_NX_REG4,
                                                                                    ofdef.NXM_NX_REG5,
                                                                                    ofdef.NXM_NX_REG6)]
                     mac_address = mac_addr.formatter(packet.dl_dst)
-                    nid = ofdef.uint32.parse(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
+                    nid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
                     networks = [n for n,nid2 in self._lastlognets if nid2 == nid]
                     if networks:
                         network = networks[0]
@@ -264,7 +264,7 @@ class VXLANUpdater(FlowUpdater):
             else:
                 # A flow is expired, also remove the watch list
                 msg = self.event.message
-                nid = ofdef.uint32.parse(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
+                nid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
                 mac_address = mac_addr_bytes.formatter(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_ETH_DST))
                 networks = [n for n,nid2 in self._lastlognets if nid2 == nid]
                 if networks:
