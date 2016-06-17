@@ -106,7 +106,7 @@ class FlowUpdater(RoutineContainer):
                 if self._updatedset:
                     if any(v.getkey() in _initialkeys for v in self._updatedset):
                         continue
-                lastkeys = self._savedkeys
+                lastkeys = set(self._savedkeys)
                 self._savedkeys, self._savedresult = self.retvalue
                 removekeys = tuple(lastkeys.difference(self._savedkeys))
                 if self._dataupdateroutine:
