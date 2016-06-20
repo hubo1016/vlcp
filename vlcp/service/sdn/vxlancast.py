@@ -910,7 +910,7 @@ class VXLANCast(FlowBase):
     _default_prepush = True
     _default_learntimeout = 300
     _default_packetexpire = 3
-    _default_pushtimeout = 60
+    _default_pushtimeout = 300
     _default_vhostmap = {}
     _default_refreshinterval = 3600
     _default_allowedmigrationtime = 120
