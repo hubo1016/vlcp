@@ -4,7 +4,7 @@
 from vlcp.config import defaultconfig
 from vlcp.server.module import Module,depend,callAPI,api
 from vlcp.event.runnable import RoutineContainer
-from vlcp.utils.ethernet import ip4_addr
+from vlcp.utils.ethernet import ip4_addr,mac_addr
 from vlcp.utils.dataobject import DataObjectSet,updater,\
             set_new,DataObjectUpdateEvent,watch_context,dump,ReferenceObject
 import vlcp.service.kvdb.objectdb as objectdb
@@ -1454,7 +1454,7 @@ class ViperFlow(Module):
         subnetids = []
         for port in ports:
             port = copy.deepcopy(port)
-            if 'id' in ports:
+            if 'id' in port:
                 if port['id'] not in idset:
                     idset.add(port['id'])
                 else:
@@ -1462,6 +1462,11 @@ class ViperFlow(Module):
             else:
                 port.setdefault('id',str(uuid1()))
 
+            if 'mac_address' in port:
+                try:
+                    port['mac_address'] = mac_addr.formatter(mac_addr(port['mac_address']))
+                except:
+                    raise ValueError(" invalid mac address " + port['mac_address'])
             if 'subnet' in port:
                 subnetids.append(port['subnet'])
 
@@ -1664,6 +1669,17 @@ class ViperFlow(Module):
                             raise ValueError("ipaddress " + port['ip_address'] + " have been used")
                     else:
                         raise ValueError("special subnetid " + subnetid + " not existed")
+
+                if 'mac_address' in port:
+                    # check and format mac address
+                    try:
+                        mac = mac_addr(port['mac_address'])
+                    except:
+                        raise ValueError("mac address invalid %r",port['mac_address'])
+                    else:
+                        # format
+                        port['mac_address'] = mac_addr.formatter(mac)
+
                 for k,v in port.items():
                     setattr(lgport,k,v)
 
@@ -2335,8 +2351,6 @@ class ViperFlow(Module):
         # call so main routine will be run
         for m in Module.load(self,container):
             yield m
-
-
 
 def check_ip_pool(gateway, start, end, allocated, cidr):
 
