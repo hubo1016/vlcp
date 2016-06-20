@@ -4,7 +4,7 @@
 from vlcp.config import defaultconfig
 from vlcp.server.module import Module,depend,callAPI,api
 from vlcp.event.runnable import RoutineContainer
-
+from vlcp.utils.ethernet import ip4_addr
 from vlcp.utils.dataobject import DataObjectSet,updater,\
             set_new,DataObjectUpdateEvent,watch_context,dump,ReferenceObject
 import vlcp.service.kvdb.objectdb as objectdb
@@ -15,7 +15,6 @@ from uuid import uuid1
 import copy
 import logging
 import itertools
-import socket
 
 logger = logging.getLogger('viperflow')
 
@@ -1534,7 +1533,7 @@ class ViperFlow(Module):
                             end = parse_ip4_address(sn.allocated_end)
                             for ip_address in range(start,end):
                                 if str(ip_address) not in smn.allocated_ips:
-                                    setattr(lgports[i],'ip_address',int_to_str(ip_address))
+                                    setattr(lgports[i],'ip_address',ip4_addr.formatter(ip_address))
                                     smn.allocated_ips[str(ip_address)] = lgports[i].create_weakreference()
                                     #overlay subnet attr to subnet weakref
                                     setattr(lgports[i],'subnet',ReferenceObject(sn.getkey()))
@@ -1900,6 +1899,8 @@ class ViperFlow(Module):
                         try:
                             gateway = parse_ip4_address(subnet['gateway'])
                             assert ip_in_network(gateway,cidr,prefix)
+                            # format ipaddr to same in value store
+                            subnet['gateway'] = ip4_addr.formatter(gateway)
                         except:
                             raise
 
@@ -1912,8 +1913,8 @@ class ViperFlow(Module):
                                     raise ValueError('special ' + subnet['gateway'] + " as small,\
                                      allocated is none in cird")
 
-                                subnet['allocated_start'] = int_to_str(start)
-                                subnet['allocated_end'] = int_to_str(end)
+                                subnet['allocated_start'] = ip4_addr.formatter(start)
+                                subnet['allocated_end'] = ip4_addr.formatter(end)
                             else:
                                 try:
                                     end = parse_ip4_address(subnet['allocated_end'])
@@ -1927,7 +1928,8 @@ class ViperFlow(Module):
 
                                     if start == end:
                                         raise ValueError("allocated pool is none")
-                                    subnet["allocated_start"] = int_to_str(start)
+                                    subnet["allocated_start"] = ip4_addr.formatter(start)
+                                    subnet["allocated_end"] = ip4_addr.formatter(end)
                                 except:
                                     raise
                         else:
@@ -1944,7 +1946,8 @@ class ViperFlow(Module):
 
                                     if start == end:
                                         raise ValueError("allocated pool is None")
-                                    subnet['allocated_end'] = int_to_str(end)
+                                    subnet['allocated_end'] = ip4_addr.formatter(end)
+                                    subnet['allocated_start'] = ip4_addr.formatter(start)
                                 except:
                                     raise
                             else:
@@ -1957,21 +1960,23 @@ class ViperFlow(Module):
 
                                     if start <= gateway <= end:
                                         raise ValueError('gateway must out of allocated pool')
-
+                                    subnet['allocated_start'] = ip4_addr.formatter(start)
+                                    subnet['allocated_end'] = ip4_addr.formatter(end)
                                 except:
                                     raise
 
                     else:
                         if 'allocated_start' not in subnet:
                             if 'allocated_end' not in subnet:
-                                subnet['allocated_start'] = int_to_str(network_first(cidr,prefix))
-                                subnet['allocated_end'] = int_to_str(network_last(cidr,prefix))
+                                subnet['allocated_start'] = ip4_addr.formatter(network_first(cidr,prefix))
+                                subnet['allocated_end'] = ip4_addr.formatter(network_last(cidr,prefix))
                             else:
                                 try:
                                     end = parse_ip4_address(subnet['allocated_end'])
                                     assert ip_in_network(end,cidr,prefix)
                                     assert end > network_first(cidr,prefix)
-                                    subnet['allocated_start'] = int_to_str(network_first(cidr,prefix))
+                                    subnet['allocated_start'] = ip4_addr.formatter(network_first(cidr,prefix))
+                                    subnet['allocated_end'] = ip4_addr.formatter(end)
                                 except:
                                     raise
                         else:
@@ -1980,7 +1985,8 @@ class ViperFlow(Module):
                                     start = parse_ip4_address(subnet['allocated_start'])
                                     assert ip_in_network(start,cidr,prefix)
                                     assert start < network_last(cidr,prefix)
-                                    subnet['allocated_end'] = int_to_str(network_last(cidr,prefix))
+                                    subnet['allocated_end'] = ip4_addr.formatter(network_last(cidr,prefix))
+                                    subnet['allocated_start'] = ip4_addr.formatter(start)
                                 except:
                                     raise
                             else:
@@ -1990,6 +1996,8 @@ class ViperFlow(Module):
                                     assert start < end
                                     assert ip_in_network(start,cidr,prefix)
                                     assert ip_in_network(end,cidr,prefix)
+                                    subnet['allocated_start'] = ip4_addr.formatter(start)
+                                    subnet['allocated_end'] = ip4_addr.formatter(end)
                                 except:
                                     raise
 
@@ -2332,7 +2340,6 @@ class ViperFlow(Module):
 
 def check_ip_pool(gateway, start, end, allocated, cidr):
 
-
     nstart = parse_ip4_address(start)
     nend = parse_ip4_address(end)
     ncidr,prefix = parse_ip4_network(cidr)
@@ -2364,18 +2371,16 @@ def check_ip_pool(gateway, start, end, allocated, cidr):
 
 def parse_ip4_network( network ):
 
-    if '/' not in network:
-        raise ValueError("invalid cidr " + network)
-    ip,prefix = network.rsplit('/',1)
-
-    if not 0 < int(prefix) < 2 ** 32 - 1:
+    ip,f,prefix = network.rpartition('/')
+    if not f:
+        raise ValueError('invalid cidr ' + prefix)
+    if not 0 <= int(prefix) < 32:
         raise ValueError("invalid prefix " + prefix)
 
-    netmask = (2 ** 32 - 1) >> (32 - int(prefix)) << (32 - int(prefix))
+    netmask = (0xffffffff) >> (32 - int(prefix)) << (32 - int(prefix))
 
     try:
-        sip = socket.inet_pton(socket.AF_INET,ip)
-        value = int.from_bytes(sip,byteorder='big')
+        value = ip4_addr(ip)
     except:
         raise
     else:
@@ -2383,11 +2388,11 @@ def parse_ip4_network( network ):
 
 def parse_ip4_address(address):
     try:
-        ip = socket.inet_pton(socket.AF_INET,address)
+        ip = ip4_addr(address)
     except:
         raise
     else:
-        return int.from_bytes(ip,byteorder='big')
+        return ip
 
 def ip_in_network(ip,network,prefix):
     shift = 32 - prefix
@@ -2400,14 +2405,3 @@ def network_last(network,prefix):
     hostmask = (1 << (32 - prefix)) - 1
     # calc cidr last avaliable ip , so inc 1
     return (network | hostmask) - 1
-
-def int_to_str(int_address):
-    if 0 < int_address < 2**32 - 1:
-        return '%d.%d.%d.%d'%(
-                int_address >> 24,
-                int_address >> 16 & 0xff,
-                int_address >> 8 & 0xff,
-                int_address & 0xff
-        )
-    else:
-        raise ValueError("invaild address " + str(int_address))
