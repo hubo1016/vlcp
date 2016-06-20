@@ -120,6 +120,25 @@ class OpenflowManager(Module):
             cmds.append(group_mod)
         for m in conn.protocol.batch(cmds, conn, self.apiroutine):
             yield m
+        if hasattr(ofdef, 'ofp_instruction_goto_table'):
+            # Create default flows
+            vhost = conn.protocol.vhost
+            if self._lastacquire and vhost in self._lastacquire:
+                _, pathtable = self._lastacquire[vhost]
+                cmds = [ofdef.ofp_flow_mod(table_id = t[i][1],
+                                             command = ofdef.OFPFC_ADD,
+                                             priority = 0,
+                                             buffer_id = ofdef.OFP_NO_BUFFER,
+                                             out_port = ofdef.OFPP_ANY,
+                                             out_group = ofdef.OFPG_ANY,
+                                             match = ofdef.ofp_match_oxm(),
+                                             instructions = [ofdef.ofp_instruction_goto_table(table_id = t[i+1][1])]
+                                       )
+                          for _,t in pathtable.items()
+                          for i in range(0, len(t) - 1)]
+                if cmds:
+                    for m in conn.protocol.batch(cmds, conn, self.apiroutine):
+                        yield m
         for m in self.apiroutine.waitForSend(FlowInitialize(conn, conn.openflow_datapathid, conn.protocol.vhost)):
             yield m
     def _acquire_tables(self):

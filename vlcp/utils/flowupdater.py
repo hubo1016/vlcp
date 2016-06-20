@@ -103,14 +103,15 @@ class FlowUpdater(RoutineContainer):
                 for m in callAPI(self, 'objectdb', 'walk', {'keys': self._initialkeys, 'walkerdict': self._walkerdict,
                                                             'requestid': self._requstid}):
                     yield m
+                if self._updatedset:
+                    if any(v.getkey() in _initialkeys for v in self._updatedset):
+                        continue
+                lastkeys = set(self._savedkeys)
                 self._savedkeys, self._savedresult = self.retvalue
                 removekeys = tuple(lastkeys.difference(self._savedkeys))
                 if self._dataupdateroutine:
                     self.terminate(self._dataupdateroutine)
                 self.subroutine(self._dataobject_update_detect(), False, "_dataupdateroutine")
-                if self._updatedset:
-                    if any(v.getkey() in _initialkeys for v in self._updatedset):
-                        continue
                 self._updatedset.update(v for v in presave_update)
                 if removekeys:
                     for m in callAPI(self, 'objectdb', 'munwatch', {'keys': removekeys,

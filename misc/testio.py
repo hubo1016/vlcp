@@ -13,12 +13,14 @@ import sys
 from vlcp.server import Server
 import logging
 from vlcp.event.core import TimerEvent
+from vlcp.config.config import defaultconfig
 
 @withIndices('state', 'connection')
 class TestConnectionEvent(Event):
     UP = 'up'
     DOWN = 'down'
 
+@defaultconfig
 class TcpTestProtocol(Protocol):
     _default_buffersize = 1048576
     _default_totalsend = 10
@@ -47,7 +49,7 @@ class TcpTestProtocol(Protocol):
     def _clientroutine(self, connection):
         # Send Data Until Connection closed
         try:
-            data = b'\x00' * self._default_buffersize
+            data = b'\x00' * self.buffersize
             while True:
                 we = ConnectionWriteEvent(connection, connection.connmark, data = data)
                 for m in connection.write(we, False):

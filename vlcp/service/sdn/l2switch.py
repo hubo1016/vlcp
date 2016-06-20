@@ -527,7 +527,7 @@ class L2Switch(FlowBase):
                                                                 cookie = 0x1,
                                                                 cookie_mask = 0xffffffffffffffff,
                                                                    command = ofdef.OFPFC_ADD,
-                                                                   priority = 0,
+                                                                   priority = 1,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
                                                                    out_port = ofdef.OFPP_ANY,
                                                                    out_group = ofdef.OFPG_ANY,
@@ -535,7 +535,7 @@ class L2Switch(FlowBase):
                                                                    instructions = [ofdef.ofp_instruction_actions(
                                                                                     actions = [
                                                                                         ofdef.ofp_action_output(port = ofdef.OFPP_CONTROLLER,
-                                                                                                                max_len = 128
+                                                                                                                max_len = 32
                                                                                                                 )
                                                                                                ],
                                                                                     type = ofdef.OFPIT_APPLY_ACTIONS
@@ -555,18 +555,7 @@ class L2Switch(FlowBase):
                                                                                     ]
                                                                             ),
                                                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
-                                                                   ),
-                                              ofdef.ofp_flow_mod(table_id = l2out,
-                                                                cookie = 0x1,
-                                                                cookie_mask = 0xffffffffffffffff,
-                                                                   command = ofdef.OFPFC_ADD,
-                                                                   priority = 0,
-                                                                   buffer_id = ofdef.OFP_NO_BUFFER,
-                                                                   out_port = ofdef.OFPP_ANY,
-                                                                   out_group = ofdef.OFPG_ANY,
-                                                                   match = ofdef.ofp_match_oxm(),
-                                                                   instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
-                                                                   ),
+                                                                   )
                                               ), conn, self.apiroutine):
                     yield m                    
                 def learning_packet_handler():
@@ -584,96 +573,103 @@ class L2Switch(FlowBase):
                                 self._logger.warning('Invalid packet received: %r', conn.event.message.data, exc_info = True)
                             else:
                                 dl_src = p.dl_src
-                            in_port = ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT)
-                            if conn.protocol.disablenxext:
-                                # Use METADATA
-                                metadata = ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_METADATA)
-                                masked_network = b'\x00\x00' + metadata[0:2] + b'\x00\x00\x00\x00'
-                                conn.subroutine(conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
+                                in_port = ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT)
+                                if conn.protocol.disablenxext:
+                                    # Use METADATA
+                                    metadata = ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_METADATA)
+                                    masked_network = b'\x00\x00' + metadata[0:2] + b'\x00\x00\x00\x00'
+                                    cmds = [ofdef.ofp_flow_mod(table_id = l2,
+                                                                cookie = 0x2,
+                                                                cookie_mask = 0xffffffffffffffff,
+                                                                   command = ofdef.OFPFC_ADD,
+                                                                   priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
+                                                                   buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   hard_timeout = max((self.learntimeout//4), 1),
+                                                                   match = ofdef.ofp_match_oxm(
+                                                                                oxm_fields = [
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
+                                                                                                     metadata[0:2] + b'\x00\x00\x00\x00\x00\x00',
+                                                                                                     b'\xff\xff\x00\x00\x00\x00\x00\x00'),
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, dl_src),
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, in_port)
+                                                                                    ]
+                                                                            ),
+                                                                   instructions = [ofdef.ofp_instruction_goto_table(table_id = l2_next)]
+                                                                   ),
+                                                                ofdef.ofp_flow_mod(table_id = l2out,
                                                                     cookie = 0x2,
                                                                     cookie_mask = 0xffffffffffffffff,
-                                                                       command = ofdef.OFPFC_ADD,
-                                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
-                                                                       out_port = ofdef.OFPP_ANY,
-                                                                       out_group = ofdef.OFPG_ANY,
-                                                                       buffer_id = ofdef.OFP_NO_BUFFER,
-                                                                       hard_timeout = max((self.learntimeout//4), 1),
-                                                                       match = ofdef.ofp_match_oxm(
-                                                                                    oxm_fields = [
-                                                                                        ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
-                                                                                                         metadata[0:2] + b'\x00\x00\x00\x00\x00\x00',
-                                                                                                         b'\xff\xff\x00\x00\x00\x00\x00\x00'),
-                                                                                        ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, dl_src),
-                                                                                        ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, in_port)
-                                                                                        ]
-                                                                                ),
-                                                                       instructions = [ofdef.ofp_instruction_goto_table(table_id = l2_next)]
-                                                                       ),
-                                                                    ofdef.ofp_flow_mod(table_id = l2out,
-                                                                        cookie = 0x2,
-                                                                        cookie_mask = 0xffffffffffffffff,
-                                                                        command = ofdef.OFPFC_ADD,
-                                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
-                                                                        buffer_id = ofdef.OFP_NO_BUFFER,
-                                                                        hard_timeout = self.learntimeout,
-                                                                       out_port = ofdef.OFPP_ANY,
-                                                                       out_group = ofdef.OFPG_ANY,
-                                                                        match = ofdef.ofp_match_oxm(
-                                                                                    oxm_fields = [
-                                                                                        ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
-                                                                                                         masked_network,
-                                                                                                         b'\x00\x00\xff\xff\x00\x00\x00\x00'),
-                                                                                        ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, dl_src)
-                                                                                        ]
-                                                                                ),
-                                                                        instructions = [ofdef.ofp_instruction_write_metadata(metadata = b'\x00\x00\x00\x00\x00\x00' + in_port[2:4],
-                                                                                                                             metadata_mask = b'\x00\x00\x00\x00\x00\x00\xff\xff'),
-                                                                                        ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
-                                                                )), conn, conn))
-                            else:
-                                # Use REG5, REG6
-                                out_net = ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG4)
-                                conn.subroutine(conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
+                                                                    command = ofdef.OFPFC_ADD,
+                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                    hard_timeout = self.learntimeout,
+                                                                    out_port = ofdef.OFPP_ANY,
+                                                                    out_group = ofdef.OFPG_ANY,
+                                                                    match = ofdef.ofp_match_oxm(
+                                                                                oxm_fields = [
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_METADATA_W,
+                                                                                                     masked_network,
+                                                                                                     b'\x00\x00\xff\xff\x00\x00\x00\x00'),
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, dl_src)
+                                                                                    ]
+                                                                            ),
+                                                                    instructions = [ofdef.ofp_instruction_write_metadata(metadata = b'\x00\x00\x00\x00\x00\x00' + in_port[2:4],
+                                                                                                                         metadata_mask = b'\x00\x00\x00\x00\x00\x00\xff\xff'),
+                                                                                    ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
+                                                            )]
+                                else:
+                                    # Use REG5, REG6
+                                    out_net = ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG4)
+                                    cmds = [ofdef.ofp_flow_mod(table_id = l2,
+                                                                cookie = 0x2,
+                                                                cookie_mask = 0xffffffffffffffff,
+                                                                   command = ofdef.OFPFC_ADD,
+                                                                   priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                                   buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   hard_timeout = max((self.learntimeout//4), 1),
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
+                                                                   match = ofdef.ofp_match_oxm(
+                                                                                oxm_fields = [
+                                                                                    ofdef.create_oxm(ofdef.NXM_NX_REG4, out_net),
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, dl_src),
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, in_port)
+                                                                                    ]
+                                                                            ),
+                                                                   instructions = [ofdef.ofp_instruction_goto_table(table_id = l2_next)]
+                                                                   ),
+                                                                ofdef.ofp_flow_mod(table_id = l2out,
                                                                     cookie = 0x2,
                                                                     cookie_mask = 0xffffffffffffffff,
-                                                                       command = ofdef.OFPFC_ADD,
-                                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
-                                                                       buffer_id = ofdef.OFP_NO_BUFFER,
-                                                                       hard_timeout = max((self.learntimeout//4), 1),
-                                                                       out_port = ofdef.OFPP_ANY,
-                                                                       out_group = ofdef.OFPG_ANY,
-                                                                       match = ofdef.ofp_match_oxm(
-                                                                                    oxm_fields = [
-                                                                                        ofdef.create_oxm(ofdef.NXM_NX_REG4, out_net),
-                                                                                        ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, dl_src),
-                                                                                        ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, in_port)
-                                                                                        ]
-                                                                                ),
-                                                                       instructions = [ofdef.ofp_instruction_goto_table(table_id = l2_next)]
-                                                                       ),
-                                                                    ofdef.ofp_flow_mod(table_id = l2out,
-                                                                        cookie = 0x2,
-                                                                        cookie_mask = 0xffffffffffffffff,
-                                                                        command = ofdef.OFPFC_ADD,
-                                                                        priority = ofdef.OFP_DEFAULT_PRIORITY,
-                                                                        buffer_id = ofdef.OFP_NO_BUFFER,
-                                                                        hard_timeout = self.learntimeout,
-                                                                        out_port = ofdef.OFPP_ANY,
-                                                                        out_group = ofdef.OFPG_ANY,
-                                                                        match = ofdef.ofp_match_oxm(
-                                                                                    oxm_fields = [
-                                                                                        ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net),
-                                                                                        ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, dl_src)
-                                                                                        ]
-                                                                                ),
-                                                                        instructions = [ofdef.ofp_instruction_actions(
-                                                                                                actions = [ofdef.ofp_action_set_field(
-                                                                                                                field = ofdef.create_oxm(ofdef.NXM_NX_REG6, in_port)
-                                                                                                            )],
-                                                                                                type = ofdef.OFPIT_APPLY_ACTIONS
-                                                                                                                      ),
-                                                                                        ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
-                                                                )), conn, conn))
+                                                                    command = ofdef.OFPFC_ADD,
+                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                    hard_timeout = self.learntimeout,
+                                                                    out_port = ofdef.OFPP_ANY,
+                                                                    out_group = ofdef.OFPG_ANY,
+                                                                    match = ofdef.ofp_match_oxm(
+                                                                                oxm_fields = [
+                                                                                    ofdef.create_oxm(ofdef.NXM_NX_REG5, out_net),
+                                                                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, dl_src)
+                                                                                    ]
+                                                                            ),
+                                                                    instructions = [ofdef.ofp_instruction_actions(
+                                                                                            actions = [ofdef.ofp_action_set_field(
+                                                                                                            field = ofdef.create_oxm(ofdef.NXM_NX_REG6, in_port)
+                                                                                                        )],
+                                                                                            type = ofdef.OFPIT_APPLY_ACTIONS
+                                                                                                                  ),
+                                                                                    ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
+                                                            )]
+                                if msg.buffer_id != ofdef.OFP_NO_BUFFER:
+                                    # Send a packet out without actions to drop the packet and release the buffer
+                                    cmds.append(ofdef.ofp_packet_out(buffer_id = msg.buffer_id,
+                                                                     in_port = ofdef.OFPP_CONTROLLER,
+                                                                     actions = []
+                                                                     ))
+                                conn.subroutine(conn.protocol.batch(cmds, conn, conn))
                 conn.subroutine(learning_packet_handler(), name = '_l2switch_learning_routine')
         else:
             # Disable learning
