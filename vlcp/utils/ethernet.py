@@ -99,7 +99,8 @@ def _create_mac_addr(addr = None):
     if addr is None:
         return [0] * ETH_ALEN
     else:
-        return [int(v,16) for v in addr.split(':')]
+        mac_array = [int(v,16) for v in addr.split(':')]
+        return (mac_array + [0] * (ETH_ALEN - len(mac_array)))[:ETH_ALEN]
 
 mac_addr.new = _create_mac_addr
 
@@ -110,7 +111,8 @@ def _create_mac_addr_bytes(addr = None):
     if addr is None:
         return b'\x00' * ETH_ALEN
     else:
-        return bytes(bytearray(int(v,16) for v in addr.split(':')))
+        return mac_addr.tobytes(mac_addr(addr))
+
 mac_addr_bytes.new = _create_mac_addr_bytes
 
 ip4_addr = prim('I', 'ip4_addr')
