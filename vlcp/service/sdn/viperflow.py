@@ -2290,6 +2290,8 @@ class ViperFlow(Module):
         def walker_func(set_func):
 
             def walker(key,obj,walk,save):
+                if obj is None:
+                    return
                 set_walker(key,set_func(obj),walk,save)
 
             return walker
