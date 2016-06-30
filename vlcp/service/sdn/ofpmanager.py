@@ -196,7 +196,7 @@ class OpenflowManager(Module):
                                     anc.remove(current)
                                     if not anc:
                                         dfs_sort(d)
-                            nopre_tables = sorted([k for k,v in graph.items() if not v[0]], key = lambda x: (table_path[name],name))
+                            nopre_tables = sorted([k for k,v in graph.items() if not v[0]], key = lambda x: (table_path.get(name, ''),name))
                             for t in nopre_tables:
                                 dfs_sort(t)
                             if len(sequences) < len(graph):
@@ -211,8 +211,8 @@ class OpenflowManager(Module):
                                 break
                             else:
                                 full_indices = list(zip(sequences, itertools.count()))
-                                tables = dict((k,tuple(g)) for k,g in itertools.groupby(sorted(full_indices, key = lambda x: table_path[x[0]]),
-                                                           lambda x: table_path[x[0]]))
+                                tables = dict((k,tuple(g)) for k,g in itertools.groupby(sorted(full_indices, key = lambda x: table_path.get(x[0], '')),
+                                                           lambda x: table_path.get(x[0], '')))
                                 vhost_result[vh] = (full_indices, tables)
         finally:
             self._acquiring = False
