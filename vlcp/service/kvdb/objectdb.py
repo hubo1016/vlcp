@@ -353,7 +353,7 @@ class ObjectDB(Module):
                                 # from this value
                                 new_retrieve_keys.clear()
                                 used_keys.clear()
-                                default_walker(k, v, walk)
+                                default_walker(k, v, walk_new)
                                 if new_retrieve_keys:
                                     new_retrieve_list.update(new_retrieve_keys)
                                     self._updatekeys.update(used_keys)
