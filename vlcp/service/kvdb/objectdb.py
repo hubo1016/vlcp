@@ -242,7 +242,9 @@ class ObjectDB(Module):
                     new_retrieve_keys = set()
                     # Keys that are used in current walk will be retrieved again in next loop
                     used_keys = set()
-                    def walk(key):
+                    # We separate the original data and new retrieved data space, and do not allow
+                    # cross usage, to prevent discontinue results 
+                    def walk_original(key):
                         if hasattr(key, 'getkey'):
                             key = key.getkey()
                         key = _str(key)
@@ -251,11 +253,34 @@ class ObjectDB(Module):
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
                         elif key in update_result:
+                            # We are retrieving from the old result, do not allow to use new data
                             used_keys.add(key)
-                            return update_result[key]
+                            new_retrieve_keys.add(key)
+                            raise KeyError('Not retrieved')
                         elif key in self._managed_objs:
                             used_keys.add(key)
                             return self._managed_objs[key]
+                        else:
+                            # This key is not retrieved, raise a KeyError, and record this key
+                            new_retrieve_keys.add(key)
+                            raise KeyError('Not retrieved')
+                    def walk_new(key):
+                        if hasattr(key, 'getkey'):
+                            key = key.getkey()
+                        key = _str(key)
+                        if key not in self._watchedkeys:
+                            # This key is not retrieved, raise a KeyError, and record this key
+                            new_retrieve_keys.add(key)
+                            raise KeyError('Not retrieved')
+                        elif key in update_result:
+                            # We are retrieving from the new data
+                            used_keys.add(key)
+                            return update_result[key]
+                        elif key in self._managed_objs:
+                            # Do not allow the old data
+                            used_keys.add(key)
+                            new_retrieve_keys.add(key)
+                            raise KeyError('Not retrieved')
                         else:
                             # This key is not retrieved, raise a KeyError, and record this key
                             new_retrieve_keys.add(key)
@@ -281,7 +306,7 @@ class ObjectDB(Module):
                         if v is not None:
                             new_retrieve_keys.clear()
                             used_keys.clear()
-                            default_walker(k, v, walk)
+                            default_walker(k, v, walk_new)
                             if new_retrieve_keys:
                                 new_retrieve_list.update(new_retrieve_keys)
                                 self._updatekeys.update(used_keys)
@@ -290,8 +315,10 @@ class ObjectDB(Module):
                     for k,ws in walkers.items():
                         if k in update_result:
                             v = update_result.get(k)
+                            walk = walk_new
                         else:
                             v = self._managed_objs.get(k)
+                            walk = walk_original
                         ws = walkers.get(k)
                         if ws:
                             for w,r in list(ws):
