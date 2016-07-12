@@ -19,8 +19,6 @@ from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent,\
 from vlcp.utils.ethernet import ethernet_l2
 import vlcp.service.sdn.ioprocessing as iop
 import itertools
-from namedstruct.namedstruct import dump
-from pprint import pformat
 
 class L2FlowUpdater(FlowUpdater):
     def __init__(self, connection, parent):

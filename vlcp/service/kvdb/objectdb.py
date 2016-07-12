@@ -210,7 +210,8 @@ class ObjectDB(Module):
                         for m in self._notifier.add_listen(*tuple(watch_keys.difference(self._watchedkeys))):
                             yield m
                         self._watchedkeys.update(watch_keys)
-                    get_list = list(update_list.union(retrieve_list.union(retrieveonce_list).difference(self._managed_objs.keys()).difference(update_result.keys())))
+                    get_list_set = update_list.union(retrieve_list.union(retrieveonce_list).difference(self._managed_objs.keys()).difference(update_result.keys()))
+                    get_list = list(get_list_set)
                     if get_list:
                         try:
                             for m in callAPI(self.apiroutine, 'kvstorage', 'mget', {'keys': get_list}):
@@ -235,7 +236,10 @@ class ObjectDB(Module):
                                 v.setkey(k)
                             if k in self._watchedkeys and k not in self._update_version:
                                 self._update_version[k] = getversion(v)
+                        changed_set = set(k for k,v in zip(get_list, result) if k not in update_result or getversion(v) != getversion(update_result[k]))
                         update_result.update(zip(get_list, result))
+                    else:
+                        changed_set = set()
                     # All keys which should be retrieved in next loop
                     new_retrieve_list = set()
                     # Keys which should be retrieved in next loop for a single walk
@@ -252,11 +256,14 @@ class ObjectDB(Module):
                             # This key is not retrieved, raise a KeyError, and record this key
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
-                        elif key in update_result:
+                        elif key in changed_set:
                             # We are retrieving from the old result, do not allow to use new data
                             used_keys.add(key)
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
+                        elif key in update_result:
+                            used_keys.add(key)
+                            return update_result[key]
                         elif key in self._managed_objs:
                             used_keys.add(key)
                             return self._managed_objs[key]
@@ -272,11 +279,11 @@ class ObjectDB(Module):
                             # This key is not retrieved, raise a KeyError, and record this key
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
-                        elif key in update_result:
+                        elif key in get_list_set:
                             # We are retrieving from the new data
                             used_keys.add(key)
                             return update_result[key]
-                        elif key in self._managed_objs:
+                        elif key in self._managed_objs or key in update_result:
                             # Do not allow the old data
                             used_keys.add(key)
                             new_retrieve_keys.add(key)
@@ -285,6 +292,29 @@ class ObjectDB(Module):
                             # This key is not retrieved, raise a KeyError, and record this key
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
+                    def create_walker(orig_key):
+                        if orig_key in changed_set:
+                            return walk_new
+                        elif orig_key not in get_list_set:
+                            return walk_original
+                        else:
+                            # Mixed mode...
+                            last_walker = []
+                            def walk(key):
+                                if last_walker:
+                                    return last_walker[0](key)
+                                if hasattr(key, 'getkey'):
+                                    key = key.getkey()
+                                key = _str(key)
+                                if key in changed_set:
+                                    last_walker.append(walk_new)
+                                    return walk_new(key)
+                                elif key not in get_list_set:
+                                    last_walker.append(walk_original)
+                                    return walk_original(key)
+                                else:
+                                    return walk_new(key)
+                            return walk
                     walker_set = set()
                     def default_walker(key, obj, walk):
                         if key in walker_set:
@@ -306,7 +336,7 @@ class ObjectDB(Module):
                         if v is not None:
                             new_retrieve_keys.clear()
                             used_keys.clear()
-                            default_walker(k, v, walk_new)
+                            default_walker(k, v, create_walker(k))
                             if new_retrieve_keys:
                                 new_retrieve_list.update(new_retrieve_keys)
                                 self._updatekeys.update(used_keys)
@@ -315,10 +345,8 @@ class ObjectDB(Module):
                     for k,ws in walkers.items():
                         if k in update_result:
                             v = update_result.get(k)
-                            walk = walk_new
                         else:
                             v = self._managed_objs.get(k)
-                            walk = walk_original
                         ws = walkers.get(k)
                         if ws:
                             for w,r in list(ws):
@@ -333,7 +361,7 @@ class ObjectDB(Module):
                                 try:
                                     new_retrieve_keys.clear()
                                     used_keys.clear()
-                                    w(k, v, walk, save)
+                                    w(k, v, create_walker(k), save)
                                 except Exception as exc:
                                     for orig_k in r[0]:
                                         walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
@@ -353,7 +381,7 @@ class ObjectDB(Module):
                                 # from this value
                                 new_retrieve_keys.clear()
                                 used_keys.clear()
-                                default_walker(k, v, walk_new)
+                                default_walker(k, v, create_walker(k))
                                 if new_retrieve_keys:
                                     new_retrieve_list.update(new_retrieve_keys)
                                     self._updatekeys.update(used_keys)
