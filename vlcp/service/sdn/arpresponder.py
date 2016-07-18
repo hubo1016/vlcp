@@ -197,23 +197,25 @@ class ARPUpdater(FlowUpdater):
                                                                     oxm_fields = [match_network(nid)]
                                                                 )
                                                        ))
-                    else:                    
-                        for ip, _, islocal, _, _ in current_arps[n].difference(last_arps[n]):
-                            cmds.append(ofdef.ofp_flow_mod(table_id = arp,
-                                                           cookie = 0x1 | (0x2 if islocal else 0),
-                                                           cookie_mask = 0x3,
-                                                           command = ofdef.OFPFC_DELETE,
-                                                           buffer_id = ofdef.OFP_NO_BUFFER,
-                                                           out_port = ofdef.OFPP_ANY,
-                                                           out_group = ofdef.OFPG_ANY,
-                                                           match = ofdef.ofp_match_oxm(
-                                                                        oxm_fields = [match_network(nid),
-                                                                                      ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
-                                                                                      ofdef.create_oxm(ofdef.OXM_OF_ARP_TPA, ofdef.ip4_addr(ip)),
-                                                                                      ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REQUEST)
-                                                                                      ]
-                                                                    )
-                                                           ))
+                    else:
+                        if n in currentlognetinfo:
+                            nid, _ = currentlognetinfo[n]
+                            for ip, _, islocal, _, _ in current_arps[n].difference(last_arps[n]):
+                                cmds.append(ofdef.ofp_flow_mod(table_id = arp,
+                                                               cookie = 0x1 | (0x2 if islocal else 0),
+                                                               cookie_mask = 0x3,
+                                                               command = ofdef.OFPFC_DELETE,
+                                                               buffer_id = ofdef.OFP_NO_BUFFER,
+                                                               out_port = ofdef.OFPP_ANY,
+                                                               out_group = ofdef.OFPG_ANY,
+                                                               match = ofdef.ofp_match_oxm(
+                                                                            oxm_fields = [match_network(nid),
+                                                                                          ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
+                                                                                          ofdef.create_oxm(ofdef.OXM_OF_ARP_TPA, ofdef.ip4_addr(ip)),
+                                                                                          ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REQUEST)
+                                                                                          ]
+                                                                        )
+                                                               ))
             for m in self.execute_commands(connection, cmds):
                 yield m
             del cmds[:]
@@ -301,22 +303,23 @@ class ARPUpdater(FlowUpdater):
                 phynetdict.setdefault(phynet, []).append(p)
             for n, arps in current_arps.items():
                 if n in currentlognetinfo:
+                    nid, _ = currentlognetinfo[n]
                     if n not in last_arps or n not in lastlognetinfo or lastlognetinfo[n] != currentlognetinfo[n]:
                         send_arps = arps
                     else:
                         send_arps = arps.difference(last_arps[n])
-                for ip, mac, islocal, port, broadcast in send_arps:
-                    if islocal:
-                        for p in currentlogportinfo:
-                            pid, _ = currentlogportinfo[p]
-                            if p != port and p in lastlogportinfo and lastlogportinfo[p] == currentlogportinfo[p]:
-                                cmds.append(_create_flow(ip, mac, nid, pid, islocal, broadcast))
-                    else:
-                        if n.physicalnetwork in phyportdict:
-                            for p in phyportdict[n.physicalnetwork]:
-                                pid, _ = currentphyportinfo[p]
-                                if p != port and p in lastphyportinfo and lastphyportinfo[p] == currentphyportinfo[p]:
+                    for ip, mac, islocal, port, broadcast in send_arps:
+                        if islocal:
+                            for p in currentlogportinfo:
+                                pid, _ = currentlogportinfo[p]
+                                if p != port and p in lastlogportinfo and lastlogportinfo[p] == currentlogportinfo[p]:
                                     cmds.append(_create_flow(ip, mac, nid, pid, islocal, broadcast))
+                        else:
+                            if n.physicalnetwork in phyportdict:
+                                for p in phyportdict[n.physicalnetwork]:
+                                    pid, _ = currentphyportinfo[p]
+                                    if p != port and p in lastphyportinfo and lastphyportinfo[p] == currentphyportinfo[p]:
+                                        cmds.append(_create_flow(ip, mac, nid, pid, islocal, broadcast))
             for m in self.execute_commands(connection, cmds):
                 yield m
         except Exception:
