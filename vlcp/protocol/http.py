@@ -1018,6 +1018,8 @@ class Http(Protocol):
                         match = self.requestline.match(data[start:ls])
                         if match is None:
                             # Bad request
+                            if connection.http_remoteversion is None:
+                                connection.http_remoteversion = '1.0'
                             stage = 'end'
                             if self.debugging:
                                 if ls - start > 200:
@@ -1046,6 +1048,7 @@ class Http(Protocol):
                                 self._logger.info('Bad headline detected: %r', tobytes(data[start:ls]))
                             # Bad response
                             stage = 'end'
+                            connection.http_remoteversion = '1.0'
                             httpfail()
                         else:
                             connection.http_remoteversion = str(tobytes(match.group(1)).decode('ascii'))
