@@ -509,6 +509,19 @@ class NetworkLocalDriver(Module):
                             port = physicalportid 
                         )
                 ]
+        output_action2 = [
+                    connection.openflowdef.ofp_action_push(ethertype=ETHERTYPE_8021Q),
+                    connection.openflowdef.ofp_action_set_field(
+                            field = connection.openflowdef.create_oxm(
+                                    connection.openflowdef.OXM_OF_VLAN_VID,
+                                    logicalnetwork.vlanid |
+                                    connection.openflowdef.OFPVID_PRESENT
+                                )
+                        ),
+                    connection.openflowdef.ofp_action_output(
+                            port = connection.openflowdef.OFPP_IN_PORT
+                        )
+                ]
         
         # this action is same as ouput_action  on type vlan
         output_group_bucket_action = [
@@ -525,7 +538,7 @@ class NetworkLocalDriver(Module):
                         )
                 ]
 
-        return input_match_oxm,input_action,output_action,output_group_bucket_action
+        return input_match_oxm,input_action,output_action,output_group_bucket_action,output_action2
 #
 # utils function
 #

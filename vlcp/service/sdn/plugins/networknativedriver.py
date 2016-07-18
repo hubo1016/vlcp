@@ -367,6 +367,11 @@ class NetworkNativeDriver(Module):
                             port = physicalportid
                         )
                 ]
-        return input_match_oxm,input_action,output_action,output_group_bucket_action 
+        output_action2 = [
+                    connection.openflowdef.ofp_action_output(
+                           port = connection.openflowdef.OFPP_IN_PORT
+                        )
+                ]
+        return input_match_oxm,input_action,output_action,output_group_bucket_action,output_action2
 
 

@@ -259,21 +259,29 @@ class IOFlowUpdater(FlowUpdater):
                 # 64-bit metadata is used as:
                 # | 16-bit input network | 16-bit output network | 16-bit reserved | 16-bit output port |
                 # When first initialized, input network = output network = Logical Network no.
-                # output port = OFPP_ANY, reserved bits are 0xFFFF
+                # output port = OFPP_ANY, reserved bits are 0x0000
+                # Currently used reserved bits:
+                # left-most (offset = 15, mask = 0x8000): allow output to IN_PORT
+                # right-most (offset = 0, mask = 0x0001): VXLAN learned
                 def create_input_instructions(lognetid, extra_actions):
                     lognetid = (lognetid & 0xffff)
                     instructions = [ofdef.ofp_instruction_write_metadata(
-                                        metadata = (lognetid << 48) | (lognetid << 32) | (0xffff << 16) | (ofdef.OFPP_ANY & 0xffff)
+                                        metadata = (lognetid << 48) | (lognetid << 32) | (0x0000 << 16) | (ofdef.OFPP_ANY & 0xffff),
+                                        metadata_mask = 0xffffffffffffffff
                                     ),
                                     ofdef.ofp_instruction_goto_table(table_id = input_next)
                                     ]
                     if extra_actions:
                         instructions.insert(0, ofdef.ofp_instruction_actions(actions = list(extra_actions)))
                     return instructions
-                def create_output_oxm(lognetid, portid):
-                    return [ofdef.create_oxm(ofdef.OXM_OF_METADATA_W, (portid & 0xFFFF) | ((lognetid & 0xFFFF) << 32), 0x0000FFFF0000FFFF)]
+                def create_output_oxm(lognetid, portid, in_port = False):
+                    r = [ofdef.create_oxm(ofdef.OXM_OF_METADATA_W, (portid & 0xFFFF) | (0x80000000 if in_port else 0) | ((lognetid & 0xFFFF) << 32), 0x0000FFFF8000FFFF)]
+                    if in_port:
+                        r.append(ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, portid))
+                    return r
             else:
                 # With nicira extension, we store input network, output network and output port in REG4, REG5 and REG6
+                # REG7 is used as the reserved bits
                 def create_input_instructions(lognetid, extra_actions):
                     lognetid = (lognetid & 0xffff)
                     return [ofdef.ofp_instruction_actions(actions = [
@@ -286,12 +294,19 @@ class IOFlowUpdater(FlowUpdater):
                                     ofdef.ofp_action_set_field(
                                             field = ofdef.create_oxm(ofdef.NXM_NX_REG6, ofdef.OFPP_ANY)
                                             ),
+                                    ofdef.ofp_action_set_field(
+                                            field = ofdef.create_oxm(ofdef.NXM_NX_REG7, 0)
+                                            )
                                 ] + list(extra_actions)),
                             ofdef.ofp_instruction_goto_table(table_id = input_next)
                             ]
-                def create_output_oxm(lognetid, portid):
-                    return [ofdef.create_oxm(ofdef.NXM_NX_REG5, lognetid),
-                            ofdef.create_oxm(ofdef.NXM_NX_REG6, portid)]
+                def create_output_oxm(lognetid, portid, in_port = False):
+                    r = [ofdef.create_oxm(ofdef.NXM_NX_REG5, lognetid),
+                            ofdef.create_oxm(ofdef.NXM_NX_REG6, portid),
+                            ofdef.create_oxm(ofdef.NXM_NX_REG7_W, 0x8000 if in_port else 0, 0x8000)]
+                    if in_port:
+                        r.append(ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, portid))
+                    return r
             for obj in removevalues:
                 if obj.isinstance(LogicalPort):
                     ofport = _lastportids.get(obj.id)
@@ -523,6 +538,17 @@ class IOFlowUpdater(FlowUpdater):
                                                                     ofdef.ofp_action_output(port = ofport)
                                                                     ])]
                                                        ))
+                        cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
+                                                       command = ofdef.OFPFC_ADD,
+                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                       buffer_id = ofdef.OFP_NO_BUFFER,
+                                                       out_port = ofdef.OFPP_ANY,
+                                                       out_group = ofdef.OFPG_ANY,
+                                                       match = ofdef.ofp_match_oxm(oxm_fields = create_output_oxm(lognetid, ofport, True)),
+                                                       instructions = [ofdef.ofp_instruction_actions(actions = [
+                                                                    ofdef.ofp_action_output(port = ofdef.OFPP_IN_PORT)
+                                                                    ])]
+                                                       ))
             # Ignore update of logical port
             # Physical port:
             for obj in addvalues:
@@ -546,6 +572,18 @@ class IOFlowUpdater(FlowUpdater):
                                                                                          ofport
                                                                                          )] + list(input_oxm)),
                                                                instructions = create_input_instructions(lognetid, input_actions)
+                                                               ))
+                                cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
+                                                               cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
+                                                               cookie_mask = 0xffffffffffffffff,
+                                                               command = ofdef.OFPFC_ADD,
+                                                               priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                               buffer_id = ofdef.OFP_NO_BUFFER,
+                                                               out_port = ofdef.OFPP_ANY,
+                                                               out_group = ofdef.OFPG_ANY,
+                                                               match = ofdef.ofp_match_oxm(oxm_fields = create_output_oxm(lognetid, ofport)),
+                                                               instructions = [ofdef.ofp_instruction_actions(actions = 
+                                                                            list(output_actions))]
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                                cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),

@@ -531,6 +531,9 @@ class VXLANUpdater(FlowUpdater):
                     group_cmds.append(ofdef.ofp_group_mod(command = ofdef.OFPGC_DELETE,
                                                           type = ofdef.OFPGT_ALL,
                                                           group_id = (netid & 0xffff) | 0x10000))
+                    group_cmds.append(ofdef.ofp_group_mod(command = ofdef.OFPGC_DELETE,
+                                                          type = ofdef.OFPGT_ALL,
+                                                          group_id = (netid & 0xffff) | 0x20000))
         for ve in itertools.chain(addvalues, updatedvalues):
             if ve.isinstance(VXLANEndpointSet):
                 lognet = ReferenceObject(LogicalNetwork.default_key(ve.id))
@@ -562,6 +565,28 @@ class VXLANUpdater(FlowUpdater):
                                                                 )
                                                     ),
                                                     ofdef.ofp_action_output(port = portid)
+                                                    ]
+                                            )
+                                        for ipaddress in allips
+                                        ]
+                                ))
+                            group_cmds.append(
+                                ofdef.ofp_group_mod(
+                                      command = ofdef.OFPGC_MODIFY
+                                                if netid in self._current_groups
+                                                else ofdef.OFPGC_ADD,
+                                      type = ofdef.OFPGT_ALL,
+                                      group_id = (netid & 0xffff) | 0x20000,
+                                      buckets =
+                                        [ofdef.ofp_bucket(
+                                                actions = [
+                                                    ofdef.ofp_action_set_field(
+                                                        field = ofdef.create_oxm(
+                                                                    ofdef.NXM_NX_TUN_IPV4_DST,
+                                                                    ipaddress
+                                                                )
+                                                    ),
+                                                    ofdef.ofp_action_output(port = ofdef.OFPP_IN_PORT)
                                                     ]
                                             )
                                         for ipaddress in allips
@@ -601,8 +626,8 @@ class VXLANUpdater(FlowUpdater):
                 return ((nid & 0xffff) << 48, 0xffff000000000000)
             def _outnet_oxm(nid):
                 return ((nid & 0xffff) << 32, 0xffff00000000)
-            def _learned_flag(flag):
-                return (int(bool(flag)) << 16, 0x10000)
+            def _flags(learned, in_port):
+                return ((int(bool(learned)) << 16) | (int(bool(in_port)) << 31), 0x80010000)
         else:
             def _create_oxms(*fields):
                 return list(fields)
@@ -612,8 +637,8 @@ class VXLANUpdater(FlowUpdater):
                 return ofdef.create_oxm(ofdef.NXM_NX_REG4, nid)
             def _outnet_oxm(nid):
                 return ofdef.create_oxm(ofdef.NXM_NX_REG5, nid)
-            def _learned_flag(flag):
-                return ofdef.create_oxm(ofdef.NXM_NX_REG7, int(bool(flag)))
+            def _flags(learned, in_port):
+                return ofdef.create_oxm(ofdef.NXM_NX_REG7_W, int(bool(learned)) | ((int(bool(in_port)) << 15)), 0x8001)
         def flow_mod():
             cmds = []
             for p in itertools.chain(removevalues, updatedvalues):
@@ -651,8 +676,20 @@ class VXLANUpdater(FlowUpdater):
                                                    match = ofdef.ofp_match_oxm(
                                                                 oxm_fields = _create_oxms(
                                                                     _outport_oxm(pid),
-                                                                    _learned_flag(True)
+                                                                    _flags(True, False)
                                                                     )
+                                                            )))
+                    cmds.append(ofdef.ofp_flow_mod(table_id = egress,
+                                                   command = ofdef.OFPFC_DELETE_STRICT,
+                                                   priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
+                                                   buffer_id = ofdef.OFP_NO_BUFFER,
+                                                   out_port = ofdef.OFPP_ANY,
+                                                   out_group = ofdef.OFPG_ANY,
+                                                   match = ofdef.ofp_match_oxm(
+                                                                oxm_fields = _create_oxms(
+                                                                    _outport_oxm(pid),
+                                                                    _flags(True, True)
+                                                                    ) + [ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid)]
                                                             )))
             for m in self.execute_commands(conn, cmds):
                 yield m
@@ -716,7 +753,7 @@ class VXLANUpdater(FlowUpdater):
                                                                                          ofdef.create_nxfms_matchfield(ofdef.NXM_NX_REG4, ofdef.NXM_NX_REG5),       # Match output network = input network
                                                                                          ofdef.create_nxfms_loadfield(ofdef.OXM_OF_TUNNEL_ID, ofdef.OXM_OF_TUNNEL_ID),   # Set tunnel ID
                                                                                          ofdef.create_nxfms_loadfield(ofdef.NXM_NX_TUN_IPV4_SRC, ofdef.NXM_NX_TUN_IPV4_DST),
-                                                                                         ofdef.create_nxfms_loadvalue(ofdef.NXM_NX_REG7, 1)
+                                                                                         ofdef.create_nxfms_loadvalue(ofdef.NXM_NX_REG7, 1, 0, 1)
                                                                                          ]
                                                                             )
                                                                         ]
@@ -774,12 +811,30 @@ class VXLANUpdater(FlowUpdater):
                                                    match = ofdef.ofp_match_oxm(
                                                                 oxm_fields = _create_oxms(
                                                                               _outport_oxm(pid),
-                                                                              _learned_flag(True)
+                                                                              _flags(True, False)
                                                                             )
                                                             ),
                                                    instructions = [
                                                             ofdef.ofp_instruction_actions(
                                                                 actions = [ofdef.ofp_action_output(port = pid)]
+                                                            )
+                                                        ]
+                                                   ))
+                    cmds.append(ofdef.ofp_flow_mod(table_id = egress,
+                                                   command = ofdef.OFPFC_ADD,
+                                                   priority = ofdef.OFP_DEFAULT_PRIORITY + 10,
+                                                   buffer_id = ofdef.OFP_NO_BUFFER,
+                                                   out_port = ofdef.OFPP_ANY,
+                                                   out_group = ofdef.OFPG_ANY,
+                                                   match = ofdef.ofp_match_oxm(
+                                                                oxm_fields = _create_oxms(
+                                                                              _outport_oxm(pid),
+                                                                              _flags(True, True)
+                                                                            ) + [ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid)]
+                                                            ),
+                                                   instructions = [
+                                                            ofdef.ofp_instruction_actions(
+                                                                actions = [ofdef.ofp_action_output(port = ofdef.OFPP_IN_PORT)]
                                                             )
                                                         ]
                                                    ))
@@ -846,7 +901,8 @@ class VXLANUpdater(FlowUpdater):
                                                         ofdef.ofp_instruction_actions(
                                                             actions = [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, tunnelid)),
                                                                        ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.NXM_NX_TUN_IPV4_DST, ofdef.ip4_addr(tunnel_dst))),
-                                                                       ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.NXM_NX_REG7, 1))]
+                                                                       ofdef.nx_action_reg_load(dst = ofdef.NXM_NX_REG7, ofs_nbits = ofdef.create_ofs_nbits(0, 1),
+                                                                                                value = 1)]
                                                         ),
                                                         ofdef.ofp_instruction_goto_table(table_id = vo_next)
                                                     ]
@@ -862,7 +918,8 @@ class VXLANUpdater(FlowUpdater):
                                                           actions = [ofdef.ofp_action_set_field(field = meta) for meta in p[4]]
                                                                     + [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, tunnelid)),
                                                                        ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.NXM_NX_TUN_IPV4_DST, ofdef.ip4_addr(tunnel_dst))),
-                                                                       ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.NXM_NX_REG7, 1)),
+                                                                       ofdef.nx_action_reg_load(dst = ofdef.NXM_NX_REG7, ofs_nbits = ofdef.create_ofs_nbits(0, 1),
+                                                                                                value = 1),
                                                                        ofdef.nx_action_resubmit(in_port = ofdef.nx_port_no.OFPP_IN_PORT,
                                                                                               table = vo_next)],
                                                           data = p[1]
@@ -980,9 +1037,9 @@ class VXLANCast(FlowBase):
                                            buffer_id = ofdef.OFP_NO_BUFFER,
                                            match = ofdef.ofp_match_oxm(),
                                            instructions = [ofdef.ofp_instruction_actions(
-                                                                actions = [ofdef.ofp_action_set_field(
-                                                                                field = ofdef.create_oxm(ofdef.NXM_NX_REG7, 0)
-                                                                            )]
+                                                                actions = [ofdef.nx_action_reg_load(dst = ofdef.NXM_NX_REG7,
+                                                                                                ofs_nbits = ofdef.create_ofs_nbits(0, 1),
+                                                                                                value = 1)]
                                                             )]))
         for m in conn.protocol.batch(cmds, conn, self.apiroutine):
             yield m
@@ -1017,6 +1074,7 @@ class VXLANCast(FlowBase):
             self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
                                         [],
                                         [],
+                                        [],
                                         [])
         elif group_portid == physicalportid:
             self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
@@ -1024,11 +1082,17 @@ class VXLANCast(FlowBase):
                                         [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
                                          ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
                                         [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
-                                         ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)])
+                                         ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
+                                        [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
+                                         ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x20000)],
+                                        )
         else:
             self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
                                         [],
                                         [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
                                          ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
-                                        [])
+                                        [],
+                                        [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
+                                        ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)]
+                                        )
 #
