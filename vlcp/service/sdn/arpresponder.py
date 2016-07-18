@@ -205,7 +205,7 @@ class ARPUpdater(FlowUpdater):
                     else:
                         if n in currentlognetinfo:
                             nid, _ = currentlognetinfo[n]
-                            for ip, _, islocal, _, _ in current_arps[n].difference(last_arps[n]):
+                            for ip, _, islocal, _, _ in last_arps[n].difference(current_arps[n]):
                                 cmds.append(ofdef.ofp_flow_mod(table_id = arp,
                                                                cookie = 0x1 | (0x2 if islocal else 0),
                                                                cookie_mask = 0x3,
