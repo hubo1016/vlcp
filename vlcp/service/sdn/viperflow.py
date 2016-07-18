@@ -2235,8 +2235,8 @@ class ViperFlow(Module):
                         lgnetmap.subnets.dataset().discard(snobj.create_weakreference())
                         subset.set.dataset().discard(snobj.create_weakreference())
                     
-                    return itertools.chain([keys[0]],sk,smk,lgnetmapkeys),\
-                            itertools.chain([subset],[None]*subnetlen,[None]*subnetlen,lgnetmapobjs)
+                    return tuple(itertools.chain([keys[0]],sk,smk,lgnetmapkeys)),\
+                            tuple(itertools.chain([subset],[None]*subnetlen,[None]*subnetlen,lgnetmapobjs))
 
                 try:
                     for m in callAPI(self.app_routine,'objectdb','transact',
