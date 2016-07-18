@@ -205,6 +205,7 @@ class IOFlowUpdater(FlowUpdater):
             _portids = dict(self._currentportids)
             _portnames = dict(self._currentportnames)
             _networkids = self._networkids.frozen()
+            exist_objs = dict((obj.getkey(), obj) for obj in self._savedresult if obj is not None and not obj.isdeleted())
             # We must generate actions from network driver
             phyportset = [obj for obj in self._savedresult if obj is not None and not obj.isdeleted() and obj.isinstance(PhysicalPort)]
             phynetset = [obj for obj in self._savedresult if obj is not None and not obj.isdeleted() and obj.isinstance(PhysicalNetwork)]
@@ -485,10 +486,10 @@ class IOFlowUpdater(FlowUpdater):
             otherupdates = set([obj for obj in updatedvalues if obj.isinstance(LogicalNetwork)])
             otherupdates.update(obj.network for obj in addvalues if obj.isinstance(LogicalPort))
             #otherupdates.update(obj.network for obj in updatedvalues if obj.isinstance(LogicalPort))
-            otherupdates.update(obj.network for obj in removevalues if obj.isinstance(LogicalPort))
+            otherupdates.update(exist_objs[obj.network.getkey()] for obj in removevalues if obj.isinstance(LogicalPort) and obj.network.getkey() in exist_objs)
             updated_physicalnetworks = set(obj for obj in updatedvalues if obj.isinstance(PhysicalNetwork))
             updated_physicalnetworks.update(p.physicalnetwork for p in addvalues if p.isinstance(PhysicalPort))
-            updated_physicalnetworks.update(p.physicalnetwork for p in removevalues if p.isinstance(PhysicalPort))
+            updated_physicalnetworks.update(exist_objs[p.physicalnetwork.getkey()] for p in removevalues if p.isinstance(PhysicalPort) and p.physicalnetwork.getkey() in exist_objs)
             updated_physicalnetworks.update(p.physicalnetwork for p in updatedvalues if p.isinstance(PhysicalPort))
             otherupdates.update(lnet for pnet in updated_physicalnetworks
                                  if pnet in lognetdict
