@@ -98,6 +98,24 @@ class SubNetSet(DataObject):
         self.set = DataObjectSet()
 
 
+class VRouter(DataObject):
+    _prefix = 'viperflow.vrouter'
+
+    def __init__(self,prefix=None,deleted=None):
+        super(VRouter,self).__init__(prefix=prefix,deleted=deleted)
+        self.interfaces = DataObjectSet()
+        self.routes = list()
+
+class VRouterSet(DataObject):
+    _prefix = 'viperflow.vrouterset'
+
+    def __init__(self,prefix=None,deleted=None):
+        super(VRouterSet,self).__init__(prefix=prefix,deleted=deleted)
+        self.set = DataObjectSet()
+
+class RouterPort(DataObject):
+    _prefix = 'viperflow.routerport'
+
 class VXLANEndpointSet(DataObject):
     _prefix = 'viperflow.vxlanendpointset'
     _indices = ('id',)    
