@@ -132,21 +132,26 @@ class ARPUpdater(FlowUpdater):
             if connection.protocol.disablenxext:
                 def match_network(nid):
                     return ofdef.create_oxm(ofdef.OXM_OF_METADATA_W, (nid & 0xFFFF) << 48, 0xFFFF000000000000)
-                def create_instructions(actions):
+                def create_instructions(actions, pid):
                     return [ofdef.ofp_instruction_actions(actions = actions),
-                            ofdef.ofp_instruction_write_metadata(metadata = 0x0000000080000000,
-                                                                 metadata_mask = 0x0000000080000000),
+                            ofdef.ofp_instruction_write_metadata(metadata = 0x0000000080000000 | (pid & 0xffff),
+                                                                 metadata_mask = 0x000000008000ffff),
                             ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
             else:
                 def match_network(nid):
                     return ofdef.create_oxm(ofdef.NXM_NX_REG4, nid)
-                def create_instructions(actions):
+                def create_instructions(actions, pid):
                     return [ofdef.ofp_instruction_actions(actions = actions + \
                                                           [ofdef.nx_action_reg_load(
                                                                 ofs_nbits = ofdef.create_ofs_nbits(15,1),
                                                                 dst = ofdef.NXM_NX_REG7,
                                                                 value = 1
-                                                            )]),
+                                                            ),
+                                                           ofdef.ofp_action_set_field(
+                                                                    field = ofdef.create_oxm(
+                                                                        ofdef.NXM_NX_REG6,
+                                                                        pid)
+                                                                )]),
                             ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
             for p in lastlogportinfo:
                 if p not in currentlogportinfo or currentlogportinfo[p] != lastlogportinfo[p]:
@@ -273,7 +278,7 @@ class ARPUpdater(FlowUpdater):
                                                                         ofdef.ARPOP_REPLY
                                                                     )
                                                                 )
-                                                           ])
+                                                           ], pid)
                                )
             for p in currentlogportinfo:
                 if p not in lastlogportinfo or lastlogportinfo[p] != currentlogportinfo[p]:
