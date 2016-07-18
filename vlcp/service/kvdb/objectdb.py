@@ -58,6 +58,7 @@ class _NeedMoreKeysException(Exception):
 class ObjectDB(Module):
     service = True
     _default_objectupdatepriority = 450
+    _default_debuggingupdater = False
     def __init__(self, server):
         Module.__init__(self, server)
         self._managed_objs = {}
@@ -619,6 +620,13 @@ class ObjectDB(Module):
                 updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len], timestamp)
             else:
                 updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len])
+            if self.debuggingupdater:
+                # Updater may be called more than once, ensure that this updater does not crash
+                # on multiple calls
+                if withtime:
+                    updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len], timestamp)
+                else:
+                    updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len])                
             for v in updated_values:
                 if v is not None:
                     if hasattr(v, 'kvdb_uniquekeys'):
