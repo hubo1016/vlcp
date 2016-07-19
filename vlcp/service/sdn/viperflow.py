@@ -1882,11 +1882,11 @@ class ViperFlow(Module):
             else:
                 self.app_routine.retvalue = []
 
-    def createsubnet(self,logicalnetwork,id=None,**kwargs):
+    def createsubnet(self,logicalnetwork,cidr,id=None,**kwargs):
         "create subnet info"
         if not id:
             id = str(uuid1())
-        subnet = {'id':id,'logicalnetwork':logicalnetwork}
+        subnet = {'id':id,'logicalnetwork':logicalnetwork,'cidr':cidr}
         subnet.update(kwargs)
 
         for m in self.createsubnets([subnet]):

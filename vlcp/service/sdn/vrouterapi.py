@@ -407,7 +407,7 @@ class VRouterApi(Module):
                                     values[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys) + i],
                                     routerportobjects[i]
                                 )
-                        subnetobj.router = newrouterport.create_reference()
+                        subnetobj.router = newrouterport.create_weakreference()
                         routerobj.interfaces.dataset().add(newrouterport.create_weakreference())
                     else:
                         raise ValueError(" subnet " + subnet + " have router port " + subnetobj.router.id)
@@ -427,11 +427,11 @@ class VRouterApi(Module):
 
     def _createrouterport(self,id,router,subnet,**kwargs):
         routerport = RouterPort.create_instance(id)
-        #routerport.router = ReferenceObject(VRouter.default_key(router))
-        #routerport.subnet = ReferenceObject(SubNet.default_key(subnet))
+        routerport.router = ReferenceObject(VRouter.default_key(router))
+        routerport.subnet = ReferenceObject(SubNet.default_key(subnet))
 
-        routerport.router = WeakReferenceObject(VRouter.default_key(router))
-        routerport.subnet = WeakReferenceObject(SubNet.default_key(subnet))
+        #routerport.router = WeakReferenceObject(VRouter.default_key(router))
+        #routerport.subnet = WeakReferenceObject(SubNet.default_key(subnet))
 
         for k,v in kwargs.items():
             setattr(routerport,k,v)
