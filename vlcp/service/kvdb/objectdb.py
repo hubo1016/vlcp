@@ -616,17 +616,19 @@ class ObjectDB(Module):
                         remove_uniquekeys.extend((k,v.create_weakreference()) for k in v.kvdb_uniquekeys())
                     if hasattr(v, 'kvdb_multikeys'):
                         remove_multikeys.extend((k,v.create_weakreference()) for k in v.kvdb_multikeys())
+            if self.debuggingupdater:
+                # Updater may be called more than once, ensure that this updater does not crash
+                # on multiple calls
+                kc = keys[:orig_len]
+                vc = [v.clone_instance() if v is not None and hasattr(v, 'clone_instance') else deepcopy(v) for v in values[:orig_len]]
+                if withtime:
+                    updated_keys, updated_values = updater(kc, vc, timestamp)
+                else:
+                    updated_keys, updated_values = updater(kc, vc)
             if withtime:
                 updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len], timestamp)
             else:
                 updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len])
-            if self.debuggingupdater:
-                # Updater may be called more than once, ensure that this updater does not crash
-                # on multiple calls
-                if withtime:
-                    updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len], timestamp)
-                else:
-                    updated_keys, updated_values = updater(keys[:orig_len], values[:orig_len])                
             for v in updated_values:
                 if v is not None:
                     if hasattr(v, 'kvdb_uniquekeys'):
