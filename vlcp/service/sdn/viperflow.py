@@ -1434,12 +1434,16 @@ class ViperFlow(Module):
             else:
                 self.app_routine.retvalue = []
 
-    def createlogicalport(self,logicalnetwork,id = None,**args):
+    def createlogicalport(self,logicalnetwork,id=None,subnet=None,**args):
         "create logicalport info,return created info"
         if not id:
             id = str(uuid1())
-
-        port = {'logicalnetwork':logicalnetwork,'id':id}
+        
+        if subnet:
+            port = {'logicalnetwork':logicalnetwork,'id':id,'subnet':subnet}
+        else:
+            port = {'logicalnetwork':logicalnetwork,'id':id}
+        
         port.update(args)
 
         for m in self.createlogicalports([port]):
@@ -1497,26 +1501,29 @@ class ViperFlow(Module):
             lgnetdict = dict(zip(netkeys,zip(netvalues,netmapvalues)))
 
             for i in range(0,len(newports)):
-                _,netmap = lgnetdict.get(lgports[i].network.getkey())
+
+                values[1+i] = set_new(values[1+i],lgports[i])
+                
+                _,netmap = lgnetdict.get(values[1+i].network.getkey())
 
                 if not netmap:
-                    raise ValueError("lgnetworkkey not existed "+lgports[i].network.getkey())
+                    raise ValueError("lgnetworkkey not existed "+values[1+i].network.getkey())
                 
-                if hasattr(lgports[i],'subnet'):
-                    sk = SubNet.default_key(lgports[i].subnet)
+                if hasattr(values[1+i],'subnet'):
+                    sk = SubNet.default_key(values[1+i].subnet)
                     sn,smn = subnetdict.get(sk)
                     if not sn or not smn:
-                        raise ValueError("special subnet " + lgports[i].subnet + " not existed")
+                        raise ValueError("special subnet " + values[1+i].subnet + " not existed")
 
                     if sn.create_weakreference() not in netmap.subnets.dataset():
                         raise ValueError("special subnet " + sn.id + " not in logicalnetwork " + smn.id)
                     else:
                         # we should allocated one ip_address for this lgport
-                        if hasattr(lgports[i],'ip_address'):
+                        if hasattr(values[1+i],'ip_address'):
                             try:
-                                ip_address = parse_ip4_address(lgports[i].ip_address)
+                                ip_address = parse_ip4_address(values[1+i].ip_address)
                             except:
-                                raise ValueError("special ip_address" + lgports[i].ip_address + " invailed")
+                                raise ValueError("special ip_address" + values[1+i].ip_address + " invailed")
                             else:
                                 # check ip_address in cidr
                                 start = parse_ip4_address(sn.allocated_start)
@@ -1524,33 +1531,32 @@ class ViperFlow(Module):
                                 try:
                                     assert start <= ip_address <= end
                                 except:
-                                    raise ValueError("special ipaddress " + lgports[i].ip_address + " invaild")
+                                    raise ValueError("special ipaddress " + values[1+i].ip_address + " invaild")
 
                                 if str(ip_address) not in smn.allocated_ips:
-                                    smn.allocated_ips[str(ip_address)] = lgports[i].create_weakreference()
+                                    smn.allocated_ips[str(ip_address)] = values[1+i].create_weakreference()
                                     #overlay subnet attr to subnet weakref
-                                    setattr(lgports[i],'subnet',ReferenceObject(sn.getkey()))
+                                    setattr(values[1+i],'subnet',ReferenceObject(sn.getkey()))
                                 else:
-                                    raise ValueError("ipaddress " + lgports[i].ip_address + " have been used")
+                                    raise ValueError("ipaddress " + values[1+i].ip_address + " have been used")
                         else:
                             # allocated ip_address from cidr
                             start = parse_ip4_address(sn.allocated_start)
                             end = parse_ip4_address(sn.allocated_end)
                             for ip_address in range(start,end):
                                 if str(ip_address) not in smn.allocated_ips:
-                                    setattr(lgports[i],'ip_address',ip4_addr.formatter(ip_address))
-                                    smn.allocated_ips[str(ip_address)] = lgports[i].create_weakreference()
+                                    setattr(values[1+i],'ip_address',ip4_addr.formatter(ip_address))
+                                    smn.allocated_ips[str(ip_address)] = values[1+i].create_weakreference()
                                     #overlay subnet attr to subnet weakref
-                                    setattr(lgports[i],'subnet',ReferenceObject(sn.getkey()))
+                                    setattr(values[1+i],'subnet',ReferenceObject(sn.getkey()))
                                     break
                             else:
                                 raise ValueError("can not find avaliable ipaddress from pool")
 
-                values[1+i] = set_new(values[1+i],lgports[i])
 
                 if netmap:
-                    netmap.ports.dataset().add(lgports[i].create_weakreference())
-                    values[0].set.dataset().add(lgports[i].create_weakreference())
+                    netmap.ports.dataset().add(values[1+i].create_weakreference())
+                    values[0].set.dataset().add(values[1+i].create_weakreference())
                 else:
                     raise ValueError("lgnetworkkey not existed "+lgports[i].network.getkey())
 
