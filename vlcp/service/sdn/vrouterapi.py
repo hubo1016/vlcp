@@ -34,7 +34,8 @@ class VRouterApi(Module):
                        api(self.addrouterinterface,self.app_routine),
                        api(self.addrouterinterfaces,self.app_routine),
                        api(self.removerouterinterface,self.app_routine),
-                       api(self.removerouterinterfaces,self.app_routine))
+                       api(self.removerouterinterfaces,self.app_routine),
+                       api(self.listrouterinterfaces,self.app_routine))
     def main(self):
         logger.info(" viperflow VRouterApi running --")
         
@@ -546,6 +547,50 @@ class VRouterApi(Module):
             yield m
 
         self.app_routine.retvalue = {'status':'OK'}
+
+    def listrouterinterfaces(self,id,**kwargs):
+        "list interfaces info plugin in router"
+
+        if not id:
+            raise ValueError(" must special router id")
+
+        routerkey = VRouter.default_key(id)
+
+        self._reqid = +1
+        reqid = ("virtualrouter",self._reqid)
+        
+        def set_walker(key,interfaces,walk,save):
+
+            for weakobj in interfaces.dataset():
+                vpkey = weakobj.getkey()
+                
+                try:
+                    virtualport = walk(vpkey)
+                except KeyError:
+                    pass
+                else:
+                    if all(getattr(router,k,None) == v for k,v in kwargs.items()):
+                        save(vpkey)
+        
+        def walk_func(filter_func):
+
+            def walker(key,obj,walk,save):
+                if obj is None:
+                    return
+            
+                set_walker(key,filter_func(obj),walk,save)
+
+            return walker
+        for m in callAPI(self.app_routine,"objectdb","walk",
+                {"keys":[routerkey],"walkerdict":{routerkey:walk_func(lambda x:x.interfaces)},
+                    "requestid":reqid}):
+            yield m
+
+        keys,values = self.app_routine.retvalue
+
+        with watch_context(keys,values,reqid,self.app_routine):
+            self.app_routine.retvalue = [dump(r) for r in values]
+
     def load(self,container):
 
         initkeys = [VRouterSet.default_key()]
