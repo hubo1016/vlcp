@@ -229,13 +229,29 @@ class IOFlowUpdater(FlowUpdater):
             for p in logportset:
                 logportdict.setdefault(p.network, []).append(p)
             allapis = []
+            # Updated networks when:
+            # 1. Network is updated
+            # 2. Physical network of this logical network is updated
+            # 3. Logical port is added or removed from the network
+            # 4. Physical port is added or removed from the physical network
+            group_updates = set([obj for obj in updatedvalues if obj.isinstance(LogicalNetwork)])
+            group_updates.update(obj.network for obj in addvalues if obj.isinstance(LogicalPort))
+            #group_updates.update(obj.network for obj in updatedvalues if obj.isinstance(LogicalPort))
+            group_updates.update(exist_objs[obj.network.getkey()] for obj in removevalues if obj.isinstance(LogicalPort) and obj.network.getkey() in exist_objs)
+            updated_physicalnetworks = set(obj for obj in updatedvalues if obj.isinstance(PhysicalNetwork))
+            updated_physicalnetworks.update(p.physicalnetwork for p in addvalues if p.isinstance(PhysicalPort))
+            updated_physicalnetworks.update(exist_objs[p.physicalnetwork.getkey()] for p in removevalues if p.isinstance(PhysicalPort) and p.physicalnetwork.getkey() in exist_objs)
+            updated_physicalnetworks.update(p.physicalnetwork for p in updatedvalues if p.isinstance(PhysicalPort))
+            group_updates.update(lnet for pnet in updated_physicalnetworks
+                                 if pnet in lognetdict
+                                 for lnet in lognetdict[pnet])
             for pnet in phynetset:
                 if pnet in lognetdict and pnet in phyportdict:
                     for lognet in lognetdict[pnet]:
                         netid = _networkids.get(lognet.getkey())
                         if netid is not None:
                             for p in phyportdict[pnet]:
-                                if lognet in addvalues or lognet in updatedvalues or p in addvalues or p in updatedvalues:
+                                if lognet in addvalues or lognet in group_updates or p in addvalues or p in updatedvalues:
                                     pid = _portnames.get(p.name)
                                     if pid is not None:
                                         def subr(lognet, p, netid, pid):
@@ -478,23 +494,7 @@ class IOFlowUpdater(FlowUpdater):
                                                         group_id = groupid,
                                                         buckets = create_buckets(obj, groupid)
                                                         ))
-            # Updated networks when:
-            # 1. Network is updated
-            # 2. Physical network of this logical network is updated
-            # 3. Logical port is added or removed from the network
-            # 4. Physical port is added or removed from the physical network
-            otherupdates = set([obj for obj in updatedvalues if obj.isinstance(LogicalNetwork)])
-            otherupdates.update(obj.network for obj in addvalues if obj.isinstance(LogicalPort))
-            #otherupdates.update(obj.network for obj in updatedvalues if obj.isinstance(LogicalPort))
-            otherupdates.update(exist_objs[obj.network.getkey()] for obj in removevalues if obj.isinstance(LogicalPort) and obj.network.getkey() in exist_objs)
-            updated_physicalnetworks = set(obj for obj in updatedvalues if obj.isinstance(PhysicalNetwork))
-            updated_physicalnetworks.update(p.physicalnetwork for p in addvalues if p.isinstance(PhysicalPort))
-            updated_physicalnetworks.update(exist_objs[p.physicalnetwork.getkey()] for p in removevalues if p.isinstance(PhysicalPort) and p.physicalnetwork.getkey() in exist_objs)
-            updated_physicalnetworks.update(p.physicalnetwork for p in updatedvalues if p.isinstance(PhysicalPort))
-            otherupdates.update(lnet for pnet in updated_physicalnetworks
-                                 if pnet in lognetdict
-                                 for lnet in lognetdict[pnet])
-            for obj in otherupdates:
+            for obj in group_updates:
                 groupid = _networkids.get(obj.getkey())
                 if groupid is not None:
                     cmds.append(ofdef.ofp_group_mod(command = ofdef.OFPGC_MODIFY,
