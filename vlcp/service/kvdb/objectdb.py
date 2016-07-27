@@ -228,17 +228,18 @@ class ObjectDB(Module):
                             update_result.clear()
                             # Retry update later
                             self._updatekeys.update(update_list)
-                            break
+                            #break
+                            changed_set = set()
                         else:
                             result = self.apiroutine.retvalue
                             self._stale = False
-                        for k,v in zip(get_list, result):
-                            if v is not None and hasattr(v, 'setkey'):
-                                v.setkey(k)
-                            if k in self._watchedkeys and k not in self._update_version:
-                                self._update_version[k] = getversion(v)
-                        changed_set = set(k for k,v in zip(get_list, result) if k not in update_result or getversion(v) != getversion(update_result[k]))
-                        update_result.update(zip(get_list, result))
+                            for k,v in zip(get_list, result):
+                                if v is not None and hasattr(v, 'setkey'):
+                                    v.setkey(k)
+                                if k in self._watchedkeys and k not in self._update_version:
+                                    self._update_version[k] = getversion(v)
+                            changed_set = set(k for k,v in zip(get_list, result) if k not in update_result or getversion(v) != getversion(update_result[k]))
+                            update_result.update(zip(get_list, result))
                     else:
                         changed_set = set()
                     # All keys which should be retrieved in next loop
@@ -257,6 +258,12 @@ class ObjectDB(Module):
                             # This key is not retrieved, raise a KeyError, and record this key
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
+                        elif self._stale:
+                            if key not in self._managed_objs:
+                                new_retrieve_keys.add(key)
+                            else:
+                                used_keys.add(key)
+                            return self._managed_objs.get(key)
                         elif key in changed_set:
                             # We are retrieving from the old result, do not allow to use new data
                             used_keys.add(key)
@@ -294,7 +301,9 @@ class ObjectDB(Module):
                             new_retrieve_keys.add(key)
                             raise KeyError('Not retrieved')
                     def create_walker(orig_key):
-                        if orig_key in changed_set:
+                        if self._stale:
+                            return walk_original
+                        elif orig_key in changed_set:
                             return walk_new
                         elif orig_key not in get_list_set:
                             return walk_original
@@ -391,6 +400,14 @@ class ObjectDB(Module):
                     retrieveonce_list.clear()
                     retrieve_list.update(new_retrieve_list)
                     self._loopCount += 1
+                    if self._stale:
+                        watch_keys = set(retrieve_list)
+                        watch_keys.difference_update(self._watchedkeys)
+                        if watch_keys:
+                            for m in self._notifier.add_listen(*tuple(watch_keys)):
+                                yield m
+                            self._watchedkeys.update(watch_keys)
+                        break
             while True:
                 for m in self.apiroutine.withCallback(updateloop(), onupdate, notification_matcher):
                     yield m
