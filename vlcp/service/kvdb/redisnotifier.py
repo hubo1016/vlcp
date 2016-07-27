@@ -69,8 +69,13 @@ class _Notifier(RoutineContainer):
             for m in callAPI(self, 'redisdb', 'getclient', {'vhost':self.vhostbind}):
                 yield m
             client, encoder, decoder = self.retvalue
-            for m in client.subscribe(self, self.prefix):
-                yield m
+            try:
+                for m in client.subscribe(self, self.prefix):
+                    yield m
+            except Exception:
+                _no_connection_start = True
+            else:
+                _no_connection_start = False
             self._matchers[b''] = self.retvalue[0]
             if self._deflate:
                 oldencoder = encoder
@@ -82,7 +87,8 @@ class _Notifier(RoutineContainer):
                         return olddecoder(decompress(x))
                     except zlib_error:
                         return olddecoder(x)
-            self.subroutine(self._modifier(client), True, "modifierroutine")
+            if not _no_connection_start:
+                self.subroutine(self._modifier(client), True, "modifierroutine")
             listen_modify = ModifyListen.createMatcher(self, ModifyListen.LISTEN)
             connection_down = client.subscribe_state_matcher(self, False)
             connection_up = client.subscribe_state_matcher(self, True)
@@ -91,13 +97,17 @@ class _Notifier(RoutineContainer):
             matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
             last_transact = None
             while True:
-                yield matchers
-                if self.matcher is listen_modify:
+                if not _no_connection_start:
+                    yield matchers
+                if not _no_connection_start and self.matcher is listen_modify:
                     matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
-                elif self.matcher is connection_down:
+                elif _no_connection_start or self.matcher is connection_down:
                     # Connection is down, wait for restore
                     # The module may be reloaded
-                    recreate_matchers = False
+                    if _no_connection_start:
+                        recreate_matchers = True
+                    else:
+                        recreate_matchers = False
                     last_transact = None
                     while True:
                         yield (connection_up, module_loaded)
