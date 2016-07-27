@@ -613,7 +613,7 @@ class L2Switch(FlowBase):
                                                                                     ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, dl_src)
                                                                                     ]
                                                                             ),
-                                                                    instructions = [ofdef.ofp_instruction_write_metadata(metadata = ofdef.uint16.parse(in_port[2:4]),
+                                                                    instructions = [ofdef.ofp_instruction_write_metadata(metadata = ofdef.uint16.create(in_port[2:4]),
                                                                                                                          metadata_mask = 0xffff),
                                                                                     ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
                                                             )]
