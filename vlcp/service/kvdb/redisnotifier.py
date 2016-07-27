@@ -150,9 +150,15 @@ class _Notifier(RoutineContainer):
                         self.subroutine(self.publish())
                     transactid = '%s%016x' % (timestamp, transactno)
                     transactno += 1
-                    self.subroutine(self.waitForSend(
-                                UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED, False, extrainfo = None)
-                                                                           ), False)
+                    def send_restore_notify(transactid):
+                        if self._matchadd_wait or self._matchremove_wait:
+                            # Wait for next subscribe success
+                            for m in self.waitWithTimeout(1, ModifyListen.createMatcher(self, ModifyListen.LISTEN)):
+                                yield m
+                        for m in self.waitForSend(
+                                UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED, False, extrainfo = None)):
+                            yield m
+                    self.subroutine(send_restore_notify(transactid), False)
                 else:
                     transact = decoder(self.event.message)
                     if transact['id'] == last_transact:
