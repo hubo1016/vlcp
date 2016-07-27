@@ -482,10 +482,6 @@ class ObjectDB(Module):
                               for k,v in ((k,self._managed_objs.get(k)) for k in r[0])]
                 elif r[2] == 'walk':
                     saved_keys = list(savelist.get(r[1], []))
-                    if self._stale:
-                        # We carefully choose to not return any keys that are staled
-                        # This might cause problem, but anyway, we are already IN PROBLEM
-                        saved_keys = [k for k in saved_keys if k in self._managed_objs]
                     for k in saved_keys:
                         self._watches.setdefault(k, set()).add(r[4])
                     objs = [self._managed_objs.get(k) for k in saved_keys]
