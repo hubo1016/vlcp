@@ -163,7 +163,7 @@ class IOFlowUpdater(FlowUpdater):
                                  (LogicalNetwork, '_logicalnetworkkeys', lambda x: self._networkids.assign(x.getkey()), self._networkids),
                                  (PhysicalNetwork, '_physicalnetworkkeys', lambda x: self._phynetworkids.assign(x.getkey()), self._phynetworkids),
                                  ):
-            objs = [v for v in values if v is not None and v.isinstance(cls)]
+            objs = [v for v in values if v is not None and not v.isdeleted() and v.isinstance(cls)]
             objkeys = set([v.getkey() for v in objs])
             oldkeys = getattr(self, name)
             if objkeys != oldkeys:

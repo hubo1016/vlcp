@@ -70,7 +70,7 @@ class FlowUpdater(RoutineContainer):
             self.scheduler.emergesend(FlowUpdaterNotification(self, FlowUpdaterNotification.DATAUPDATED))
         self._updatedset.update(set(updatedvalues).intersection(self._savedresult))
     def _flowupdater(self):
-        lastresult = set(v for v in self._savedresult if v is not None)
+        lastresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
         flowupdate = FlowUpdaterNotification.createMatcher(self, FlowUpdaterNotification.FLOWUPDATE)
         while True:
             currentresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
