@@ -75,8 +75,8 @@ class ARPUpdater(FlowUpdater):
                     except KeyError:
                         pass
                     else:
-                        if p is not None and hasattr(p, 'mac_address') and hasattr(p, 'ip_address'):
-                            save(logport.getkey())
+                        #if p is not None and hasattr(p, 'mac_address') and hasattr(p, 'ip_address'):
+                        save(logport.getkey())
     def _update_walk(self):
         logport_keys = [p.getkey() for p,_ in self._lastlogports]
         phyport_keys = [p.getkey() for p,_ in self._lastphyports]
@@ -92,7 +92,7 @@ class ARPUpdater(FlowUpdater):
         self.subroutine(self.restart_walk(), False)
     def updateflow(self, connection, addvalues, removevalues, updatedvalues):
         try:
-            allobjs = set(self._savedresult)
+            allobjs = set(o for o in self._savedresult if o is not None and not o.isdeleted())
             lastlogportinfo = self._lastlogportinfo
             lastlognetinfo = self._lastlognetinfo
             lastphyportinfo = self._lastphyportinfo
@@ -116,7 +116,7 @@ class ARPUpdater(FlowUpdater):
             broadcast_only = self._parent.broadcastonly
             if self._parent.prepush:
                 for obj in self._savedresult:
-                    if obj.isinstance(LogicalPort) and hasattr(obj, 'ip_address') and hasattr(obj, 'mac_address'):
+                    if obj is not None and not obj.isdeleted() and obj.isinstance(LogicalPort) and hasattr(obj, 'ip_address') and hasattr(obj, 'mac_address'):
                         if obj.network in currentlognetinfo:
                             arp_set = current_arps.setdefault(obj.network, set())
                             arp_set.add((obj.ip_address, obj.mac_address, True, obj, broadcast_only))
