@@ -423,26 +423,14 @@ class VXLANUpdater(FlowUpdater):
         for logport, (lognet, _, _) in lastlogportinfo.items():
             if lognet in transact_networks:
                 _remove_port_tun(lognet, logport)
-        for logport in removevalues:
-            if logport.isinstance(LogicalPort):
-                if logport in lastlogportinfo:
-                    lognet, _, _ = lastlogportinfo[logport]
-                    _remove_port_tun(lognet, logport)
-        for logport in updatedvalues:
-            if logport.isinstance(LogicalPort):
-                if logport in lastlogportinfo:
-                    lognet, _, _ = lastlogportinfo[logport]
-                    _remove_port_tun(lognet, logport)
-        for logport in addvalues:
-            if logport.isinstance(LogicalPort):
-                if logport in currentlogportinfo:
-                    lognet, _, _ = currentlogportinfo[logport]
-                    _create_port_tun(lognet, logport)
-        for logport in updatedvalues:
-            if logport.isinstance(LogicalPort):
-                if logport in currentlogportinfo:
-                    lognet, _, _ = currentlogportinfo[logport]
-                    _create_port_tun(lognet, logport)
+        for logport in lastlogportinfo:
+            if logport not in currentlogportinfo or currentlogportinfo[logport] != lastlogportinfo[logport]:
+                lognet, _, _ = lastlogportinfo[logport]
+                _remove_port_tun(lognet, logport)
+        for logport in currentlogportinfo:
+            if logport not in lastlogportinfo or lastlogportinfo[logport] != currentlognetinfo[logport]:
+                lognet, _, _ = currentlogportinfo[logport]
+                _create_port_tun(lognet, logport)
         for logport, (lognet, _, _) in currentlogportinfo.items():
             if lognet in transact_networks:
                 _create_port_tun(lognet, logport)
