@@ -354,7 +354,7 @@ def create_option_from_value(tag, value):
         return fake_opt
 
 def create_dhcp_options(input_dict, ignoreError = False, generateNone = False):
-    retdict = []
+    retdict = {}
     for k,v in dict(input_dict).items():
         try:
             if generateNone and v is None:

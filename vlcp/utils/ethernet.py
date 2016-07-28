@@ -134,6 +134,7 @@ def _ip4_addr_bytes_new(ip_addr = None):
         return b'\x00\x00\x00\x00'
     else:
         return _socket.inet_aton(ip_addr)
+ip4_addr_bytes.new = _ip4_addr_bytes_new
 
 ip6_addr = uint8[16]
 if hasattr(_socket, 'inet_ntop'):
@@ -177,7 +178,7 @@ else:
             return b'\x00' * 16
         else:
             return ip6_addr.tobytes(_ip6_addr_new(ip_addr))
-ip6_addr.new = _ip6_addr_bytes_new
+ip6_addr_bytes.new = _ip6_addr_bytes_new
 
 ethernet_l2 = nstruct((mac_addr,'dl_dst'),
                          (mac_addr,'dl_src'),
