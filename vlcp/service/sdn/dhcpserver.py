@@ -78,7 +78,7 @@ class DHCPUpdater(FlowUpdater):
                 send_tags = [t for t in required_tags
                              if t in provide_options or t == d.OPTION_MESSAGE_TYPE] \
                             + [t for t in set(provide_options.keys()).difference(required_tags)]
-            d.build_options(payload, [message_type_opt if t == d.OPTION_REQUESTED_OPTIONS
+            d.build_options(payload, [message_type_opt if t == d.OPTION_MESSAGE_TYPE
                                       else provide_options[t] for t in send_tags
                                       if not remove_lease or (t != d.OPTION_LEASE_TIME and t != d.OPTION_T1 and t != OPTION_T2)],
                             max(min(option_dict[d.OPTION_MAX_MESSAGE_SIZE].value, 1400), 576)
