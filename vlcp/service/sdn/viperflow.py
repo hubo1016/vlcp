@@ -10,7 +10,7 @@ from vlcp.utils.dataobject import DataObjectSet,updater,\
 import vlcp.service.kvdb.objectdb as objectdb
 
 from vlcp.utils.networkmodel import *
-from vlcp.utils.netutils import check_ip_pool, ip_in_network, network_first, network_last,\
+from vlcp.utils.netutils import ip_in_network, network_first, network_last,\
                         parse_ip4_address, parse_ip4_network
 
 from uuid import uuid1
@@ -2365,3 +2365,27 @@ class ViperFlow(Module):
         for m in Module.load(self,container):
             yield m
 
+def check_ip_pool(gateway, start, end, allocated, cidr):
+
+    nstart = parse_ip4_address(start)
+    nend = parse_ip4_address(end)
+    ncidr,prefix = parse_ip4_network(cidr)
+    if gateway:
+        ngateway = parse_ip4_address(gateway)
+        assert ip_in_network(ngateway,ncidr,prefix)
+        assert ip_in_network(nstart,ncidr,prefix)
+        assert ip_in_network(nend,ncidr,prefix)
+        assert nstart <= nend
+        assert ngateway < nstart or ngateway > nend
+
+        for ip in allocated:
+            nip = parse_ip4_address(ip)
+            assert nstart <= nip <= nend
+    else:
+        assert ip_in_network(nstart,ncidr,prefix)
+        assert ip_in_network(nend,ncidr,prefix)
+        assert nstart <= nend
+
+        for ip in allocated:
+            nip = parse_ip4_address(ip)
+            assert nstart <= nip <= nend

@@ -5,31 +5,6 @@ Created on 2016/7/26
 '''
 from vlcp.utils.ethernet import ip4_addr
 
-def check_ip_pool(gateway, start, end, allocated, cidr):
-
-    nstart = parse_ip4_address(start)
-    nend = parse_ip4_address(end)
-    ncidr,prefix = parse_ip4_network(cidr)
-    if gateway:
-        ngateway = parse_ip4_address(gateway)
-        assert ip_in_network(ngateway,ncidr,prefix)
-        assert ip_in_network(nstart,ncidr,prefix)
-        assert ip_in_network(nend,ncidr,prefix)
-        assert nstart < nend
-        assert ngateway < nstart or ngateway > nend
-
-        for ip in allocated:
-            nip = parse_ip4_address(ip)
-            assert nstart < nip < nend
-    else:
-        assert ip_in_network(nstart,ncidr,prefix)
-        assert ip_in_network(nend,ncidr,prefix)
-        assert nstart < nend
-
-        for ip in allocated:
-            nip = parse_ip4_address(ip)
-            assert nstart < nip < nend
-
 def parse_ip4_network( network ):
 
     ip,f,prefix = network.rpartition('/')
