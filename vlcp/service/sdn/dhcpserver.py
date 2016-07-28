@@ -65,7 +65,7 @@ class DHCPUpdater(FlowUpdater):
         server_mac = mac_addr(self._parent.servermac)
         trans_id = uint16.create(os.urandom(2))
         def set_options(payload, option_dict, provide_options, message_type, remove_lease = False):
-            message_type_opt = d.dhcp_option_message_type(message_type)
+            message_type_opt = d.dhcp_option_message_type(value = message_type)
             if d.OPTION_REQUESTED_OPTIONS in option_dict:
                 reqs = set(option_dict[d.OPTION_REQUESTED_OPTIONS].value)
                 send_tags = [t for t in option_dict[d.OPTION_REQUESTED_OPTIONS].value
