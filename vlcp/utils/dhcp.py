@@ -7,6 +7,7 @@ Created on 2016/6/22
 
 from namedstruct import *
 from vlcp.utils.ethernet import ip4_addr, ip4_addr_bytes, mac_addr_bytes
+from vlcp.utils.netutils import parse_ip4_network
 
 boot_op = enum('boot_op', globals(), uint8,
                BOOTREQUEST = 1,
@@ -86,12 +87,20 @@ dhcp_option_address = nstruct((ip4_addr, 'value'),
                                  criteria = lambda x: x.tag in (OPTION_NETMASK, OPTION_REQUESTED_IP, OPTION_SERVER_IDENTIFIER, OPTION_BROADCAST),
                                  init = packvalue(OPTION_NETMASK, 'tag'))
 
-dhcp_option_time = nstruct((uint32, 'value'),
+dhcp_option_address._parse_from_value = lambda x: ip4_addr(x)
+
+dhcp_time_value = enum('dhcp_time_value', globals(), uint32,
+                       DHCPTIME_INFINITE = 0xffffffff
+                  )
+
+dhcp_option_time = nstruct((dhcp_time_value, 'value'),
                              name = 'dhcp_option_time',
                              base = dhcp_option,
                              criteria = lambda x: x.tag in (OPTION_TIME_OFFSET, OPTION_LEASE_TIME, OPTION_T1, OPTION_T2),
                              init = packvalue(OPTION_LEASE_TIME, 'tag')
                              )
+
+dhcp_option_time._parse_from_value = lambda x: int(x) if x is not None and x != 'infinity' else DHCPTIME_INFINITE
 
 dhcp_option_servers = nstruct((ip4_addr[0], 'value'),
                               name = 'dhcp_option_servers',
@@ -100,11 +109,27 @@ dhcp_option_servers = nstruct((ip4_addr[0], 'value'),
                               init = packvalue(OPTION_ROUTER, 'tag')
                               )
 
+dhcp_option_servers = lambda x: [ip4_addr(x)] if isinstance(x, str) else [ip4_addr(v) for v in x]
+
 dhcp_option_data = nstruct((raw, 'value'),
                            name = 'dhcp_option_name',
                            base = dhcp_option,
                            criteria = lambda x: x.tag in (OPTION_HOSTNAME, OPTION_DOMAINNAME, OPTION_MESSAGE, OPTION_CLIENT_IDENTIFIER),
                            init = packvalue(OPTION_HOSTNAME, 'tag'))
+
+
+def _tobytes(s):
+    if isinstance(s, bytes):
+        return s
+    elif isinstance(s, str):
+        return s.decode('ascii')
+    elif hasattr(s, '__iter__'):
+        return create_binary(s, len(s))
+    else:
+        raise ValueError('Unsupported type: ')
+
+
+dhcp_option_data._parse_from_value = _tobytes
 
 dhcp_option_message_type = nstruct((dhcp_message_type, 'value'),
                                    name = 'dhcp_option_message_type',
@@ -117,6 +142,8 @@ dhcp_option_mtu = nstruct((uint16, 'value'),
                           base = dhcp_option,
                           criteria = lambda x: x.tag == OPTION_MTU,
                           init = packvalue(OPTION_MTU, 'tag'))
+
+dhcp_option_mtu._parse_from_value = lambda x: int(x)
 
 dhcp_option_requested_options = nstruct((dhcp_tag[0], 'value'),
                                         name = 'dhcp_option_requested_options',
@@ -158,6 +185,12 @@ dhcp_classless_routes = nstruct((dhcp_route[0], 'value'),
                                 criteria = lambda x: x.tag == OPTION_CLASSLESSROUTE,
                                 init = packvalue(OPTION_CLASSLESSROUTE, 'tag'))
 
+def _create_dhcp_route(cidr, router):
+    network, mask = parse_ip4_network(cidr)
+    return dhcp_route(subnet = ip4_addr.tobytes(network), mask = mask, router = ip4_addr(router))
+
+dhcp_classless_routes._parse_from_value = lambda x: [dhcp_route(cidr, router) for cidr, router in x]
+
 # According to RFC, options may be split into multiple parts
 dhcp_option_partial = nstruct((dhcp_tag, 'tag'),
                       (optional(uint8, 'length', lambda x: x.tag != OPTION_PAD and x.tag != OPTION_END),),
@@ -178,10 +211,10 @@ dhcp_payload = nstruct((boot_op, 'op'),
                        (uint32, 'xid'),
                        (uint16, 'secs'),
                        (dhcp_flags, 'flags'),
-                       (uint32, 'ciaddr'),
-                       (uint32, 'yiaddr'),
-                       (uint32, 'siaddr'),
-                       (uint32, 'giaddr'),
+                       (ip4_addr, 'ciaddr'),
+                       (ip4_addr, 'yiaddr'),
+                       (ip4_addr, 'siaddr'),
+                       (ip4_addr, 'giaddr'),
                        (char[16], 'chaddr'),
                        (char[64], 'sname'),
                        (char[128], 'file'),
@@ -309,3 +342,33 @@ def build_options(payload, options, maxsize = 576, overload = OVERLOAD_FILE | OV
             payload.sname = dhcp_option_partial[0].tobytes(result[2] + [dhcp_option_partial(tag = OPTION_END)])
         payload.options = [dhcp_option_partial(tag = OPTION_OVERLOAD, data = dhcp_overload.tobytes(overload_option))] \
                         + result[0] + [dhcp_option_partial(tag = OPTION_END)]
+
+
+def create_option_from_value(tag, value):
+    dhcp_option.parser()
+    fake_opt = dhcp_option(tag = tag)
+    for c in dhcp_option.subclasses:
+        if c.criteria(fake_opt):
+            if hasattr(c, '_parse_from_value'):
+                return c(value = c._parse_from_value(value))
+            else:
+                raise ValueError('Cannot set this DHCP option')
+    else:
+        fake_opt._setextra(_tobytes(value))
+        return fake_opt
+
+def create_dhcp_options(input_dict, ignoreError = False, generateNone = False):
+    retdict = []
+    for k,v in dict(input_dict).items():
+        try:
+            if generateNone and v is None:
+                retdict[k] = None
+            else:
+                retdict[k] = create_option_from_value(k, v)
+        except Exception:
+            if ignoreError:
+                continue
+            else:
+                raise
+    return retdict
+
