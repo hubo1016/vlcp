@@ -243,8 +243,8 @@ class ARPUpdater(FlowUpdater):
                                                   ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
                                                   ofdef.create_oxm(ofdef.OXM_OF_ARP_TPA, ofdef.ip4_addr(ip)),
                                                   ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REQUEST)]
-                                                + [ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')]
-                                                  if broadcast else []
+                                                + ([ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')]
+                                                  if broadcast else [])
                                         ),
                                instructions = create_instructions([ofdef.nx_action_reg_move(
                                                                 n_bits = 32,
