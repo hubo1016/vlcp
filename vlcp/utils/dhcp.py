@@ -189,7 +189,7 @@ def _create_dhcp_route(cidr, router):
     network, mask = parse_ip4_network(cidr)
     return dhcp_route(subnet = ip4_addr.tobytes(network), mask = mask, router = ip4_addr(router))
 
-dhcp_classless_routes._parse_from_value = lambda x: [dhcp_route(cidr, router) for cidr, router in x]
+dhcp_classless_routes._parse_from_value = lambda x: [_create_dhcp_route(cidr, router) for cidr, router in x]
 
 # According to RFC, options may be split into multiple parts
 dhcp_option_partial = nstruct((dhcp_tag, 'tag'),
