@@ -199,7 +199,7 @@ class DHCPUpdater(FlowUpdater):
                                                 )
                     set_options(dhcp_reply, option_dict, provide_options, d.DHCPACK, True)
                 trans_id = (trans_id + 1) & 0xffff
-                if (dhcp_packet.flags & DHCPFLAG_BROADCAST) or is_nak:
+                if (dhcp_packet.flags & d.DHCPFLAG_BROADCAST) or is_nak:
                     dl_dst = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
                     ip_dst = 0xffffffff
                 else:
