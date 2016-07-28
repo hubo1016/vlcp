@@ -56,7 +56,7 @@ class DHCPUpdater(FlowUpdater):
         conn = self._connection
         ofdef = self._connection.openflowdef
         l3 = self._parent._gettableindex('l3input', self._connection.protocol.vhost)
-        dhcp_packet = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3, 1,
+        dhcp_packet_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3, 1,
                                                               self._connection, self._connection.connmark)
         required_tags = [d.OPTION_MESSAGE_TYPE, d.OPTION_SERVER_IDENTIFIER,
                          d.OPTION_NETMASK, d.OPTION_ROUTER,
@@ -95,7 +95,7 @@ class DHCPUpdater(FlowUpdater):
                                 )]):
                 yield m
         while True:
-            yield (dhcp_packet,)
+            yield (dhcp_packet_matcher,)
             msg = self.event.message
             try:
                 in_port = ofdef.ofp_port_no.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT))
