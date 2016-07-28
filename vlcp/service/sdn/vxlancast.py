@@ -186,10 +186,9 @@ class VXLANUpdater(FlowUpdater):
                 keys.append(LogicalPort.unique_key('_mac_address_index', *k))
         return (keys, changed)
     def _update_handler(self):
-        dataobjectchanged = iop.DataObjectChanged.createMatcher(None, None, self._connection, None, True)
-        dataobjectchanged2 = iop.DataObjectChanged.createMatcher(None, None, self._connection, None, False, True)
+        dataobjectchanged = iop.DataObjectChanged.createMatcher(None, None, self._connection)
         while True:
-            yield (dataobjectchanged, dataobjectchanged2)
+            yield (dataobjectchanged,)
             self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
             self._update_walk()
             self.updateobjects([p for p,_ in self._lastlogports])
