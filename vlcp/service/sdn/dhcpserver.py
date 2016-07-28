@@ -157,7 +157,7 @@ class DHCPUpdater(FlowUpdater):
                                                     )
                         d.build_options(dhcp_reply, [d.dhcp_option_message_type(value = d.DHCPNAK),
                                                      d.dhcp_option_address(tag = d.OPTION_SERVER_IDENTIFIER,
-                                                                           server_ip)], 576, 0)
+                                                                           value = server_ip)], 576, 0)
                         is_nak = True
                     else:
                         dhcp_reply = d.dhcp_payload(op = d.BOOTREPLY,
