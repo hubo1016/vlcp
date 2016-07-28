@@ -428,7 +428,7 @@ class VXLANUpdater(FlowUpdater):
                 lognet, _, _ = lastlogportinfo[logport]
                 _remove_port_tun(lognet, logport)
         for logport in currentlogportinfo:
-            if logport not in lastlogportinfo or lastlogportinfo[logport] != currentlognetinfo[logport]:
+            if logport not in lastlogportinfo or lastlogportinfo[logport] != currentlogportinfo[logport]:
                 lognet, _, _ = currentlogportinfo[logport]
                 _create_port_tun(lognet, logport)
         for logport, (lognet, _, _) in currentlogportinfo.items():
