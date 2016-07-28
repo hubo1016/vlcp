@@ -58,6 +58,14 @@ dhcp_overload = enum('dhcp_overload', globals(), uint8, True,
                      OVERLOAD_FILE = 1,
                      OVERLOAD_SNAME = 2)
 
+class _EmptyOptionException(Exception):
+    pass
+
+def _no_empty(l):
+    if not l:
+        raise _EmptyOptionException()
+    return l
+
 def _prepack_dhcp_option(x):
     if x.tag != OPTION_PAD and x.tag != OPTION_END:
         x.length = 0
@@ -109,7 +117,7 @@ dhcp_option_servers = nstruct((ip4_addr[0], 'value'),
                               init = packvalue(OPTION_ROUTER, 'tag')
                               )
 
-dhcp_option_servers._parse_from_value = lambda x: [ip4_addr(x)] if isinstance(x, str) else [ip4_addr(v) for v in x]
+dhcp_option_servers._parse_from_value = lambda x: _no_empty([ip4_addr(x)] if isinstance(x, str) else [ip4_addr(v) for v in x])
 
 dhcp_option_data = nstruct((raw, 'value'),
                            name = 'dhcp_option_name',
@@ -189,7 +197,7 @@ def _create_dhcp_route(cidr, router):
     network, mask = parse_ip4_network(cidr)
     return dhcp_route(subnet = ip4_addr.tobytes(network), mask = mask, router = ip4_addr(router))
 
-dhcp_classless_routes._parse_from_value = lambda x: [_create_dhcp_route(cidr, router) for cidr, router in x]
+dhcp_classless_routes._parse_from_value = lambda x: _no_empty([_create_dhcp_route(cidr, router) for cidr, router in x])
 
 # According to RFC, options may be split into multiple parts
 dhcp_option_partial = nstruct((dhcp_tag, 'tag'),
@@ -360,7 +368,11 @@ def create_dhcp_options(input_dict, ignoreError = False, generateNone = False):
             if generateNone and v is None:
                 retdict[k] = None
             else:
-                retdict[k] = create_option_from_value(k, v)
+                try:
+                    retdict[k] = create_option_from_value(k, v)
+                except _EmptyOptionException:
+                    if generateNone:
+                        retdict[k] = None
         except Exception:
             if ignoreError:
                 continue
