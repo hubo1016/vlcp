@@ -254,14 +254,10 @@ def reassemble_options(payload):
         if overload_option & OVERLOAD_SNAME:
             process_option_list(dhcp_option_partial[0].create(payload.sname))
     def _create_dhcp_option(tag, data):
-        try:
-            opt = dhcp_option(tag = tag)
-            opt._setextra(data)
-            opt._autosubclass()
-            return opt
-        except Exception:
-            print tag, data
-            raise
+        opt = dhcp_option(tag = tag)
+        opt._setextra(data)
+        opt._autosubclass()
+        return opt
     return [_create_dhcp_option(tag, b''.join(data)) for tag,data in options]
 
 def build_options(payload, options, maxsize = 576, overload = OVERLOAD_FILE | OVERLOAD_SNAME):
