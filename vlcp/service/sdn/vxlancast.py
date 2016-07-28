@@ -192,6 +192,7 @@ class VXLANUpdater(FlowUpdater):
             yield (dataobjectchanged, dataobjectchanged2)
             self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
             self._update_walk()
+            self.updateobjects([p for p,_ in self._lastlogports])
     def _update_walk(self):
         phyport_keys = [p.getkey() for p,_ in self._lastphyports]
         lognet_keys = [n.getkey() for n,_ in self._lastlognets]
