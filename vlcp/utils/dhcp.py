@@ -346,7 +346,7 @@ def create_option_from_value(tag, value):
     for c in dhcp_option.subclasses:
         if c.criteria(fake_opt):
             if hasattr(c, '_parse_from_value'):
-                return c(value = c._parse_from_value(value))
+                return c(tag = tag, value = c._parse_from_value(value))
             else:
                 raise ValueError('Cannot set this DHCP option')
     else:
