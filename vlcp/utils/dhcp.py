@@ -117,7 +117,12 @@ dhcp_option_servers = nstruct((ip4_addr[0], 'value'),
                               init = packvalue(OPTION_ROUTER, 'tag')
                               )
 
-dhcp_option_servers._parse_from_value = lambda x: _no_empty([ip4_addr(x)] if isinstance(x, str) else [ip4_addr(v) for v in x])
+try:
+    unicode
+except:
+    unicode = str
+
+dhcp_option_servers._parse_from_value = lambda x: _no_empty([ip4_addr(x)] if isinstance(x, (str, unicode)) else [ip4_addr(v) for v in x])
 
 dhcp_option_data = nstruct((raw, 'value'),
                            name = 'dhcp_option_name',
