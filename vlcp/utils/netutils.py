@@ -50,7 +50,7 @@ def get_network(ip, prefix):
     return ip & get_netmask(prefix)
 
 def get_broadcast(network, prefix):
-    return network | (~get_netmask(prefix))
+    return network | ((1 << (32 - prefix)) - 1)
 
 def parse_ip4_address(address):
     return ip4_addr(address)
