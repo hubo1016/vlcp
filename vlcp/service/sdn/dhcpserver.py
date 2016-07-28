@@ -278,7 +278,7 @@ class DHCPUpdater(FlowUpdater):
                             cidr = p.subnet.cidr
                             network, mask = parse_ip4_network(cidr)
                             # options from default settings
-                            entries = {d.OPTION_LEASETIME: (lambda x: d.DHCPTIME_INFINITE if x is None else x)(self._parent.leasetime)
+                            entries = {d.OPTION_LEASE_TIME: (lambda x: d.DHCPTIME_INFINITE if x is None else x)(self._parent.leasetime)
                                        }
                             # options from network
                             if hasattr(p.network, 'dns_nameservers'):
@@ -290,7 +290,7 @@ class DHCPUpdater(FlowUpdater):
                             if hasattr(p.network, 'ntp_servers'):
                                 entries[d.OPTION_NTPSERVER] = p.network.ntp_servers
                             if hasattr(p.network, 'lease_time'):
-                                entries[d.OPTION_LEASETIME] = p.network.lease_time
+                                entries[d.OPTION_LEASE_TIME] = p.network.lease_time
                             if hasattr(p.network, 'extra_dhcp_options'):
                                 entries.update(p.network.extra_dhcp_options)
                             options = d.create_dhcp_options(entries, True, True)
@@ -308,7 +308,7 @@ class DHCPUpdater(FlowUpdater):
                             if hasattr(p.subnet, 'ntp_servers'):
                                 entries[d.OPTION_NTPSERVER] = p.subnet.ntp_servers
                             if hasattr(p.subnet, 'lease_time'):
-                                entries[d.OPTION_LEASETIME] = p.subnet.lease_time
+                                entries[d.OPTION_LEASE_TIME] = p.subnet.lease_time
                             # Routes is special
                             if hasattr(p.subnet, 'host_routes'):
                                 entries[d.OPTION_CLASSLESSROUTE] = p.subnet.host_routes
@@ -324,10 +324,10 @@ class DHCPUpdater(FlowUpdater):
                             options.update(d.create_dhcp_options(entries, True, True))
                             entries = {d.OPTION_SERVER_IDENTIFIER: server_address}
                             options = dict((k,v) for k,v in options.items() if v is not None)
-                            if d.OPTION_LEASETIME not in options:
-                                options[d.OPTION_LEASETIME] = d.create_option_from_value(d.OPTION_LEASETIME, d.DHCPTIME_INFINITE)
-                            if options[d.OPTION_LEASETIME].value != d.DHCPTIME_INFINITE:
-                                leasetime = options[d.OPTION_LEASETIME].value
+                            if d.OPTION_LEASE_TIME not in options:
+                                options[d.OPTION_LEASE_TIME] = d.create_option_from_value(d.OPTION_LEASE_TIME, d.DHCPTIME_INFINITE)
+                            if options[d.OPTION_LEASE_TIME].value != d.DHCPTIME_INFINITE:
+                                leasetime = options[d.OPTION_LEASE_TIME].value
                                 if d.OPTION_T1 not in options and t1 is not None and t1 < leasetime:
                                     options[d.OPTION_T1] = d.create_option_from_value(d.OPTION_T1, t1)
                                 if d.OPTION_T2 not in options and t2 is not None and t2 < leasetime:
@@ -365,7 +365,7 @@ class DHCPUpdater(FlowUpdater):
                                                             oxm_fields = [
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid),
                                                                 match_network(nid),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHTYPE_IP),
+                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO, ofdef.IPPROTO_UDP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_UDP_DST, 67)
                                                                 ]
@@ -387,7 +387,7 @@ class DHCPUpdater(FlowUpdater):
                                                                 match_network(nid),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(mac)),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00'),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHTYPE_IP),
+                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO, ofdef.IPPROTO_UDP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_UDP_DST, 67)
                                                                 ]
@@ -415,7 +415,7 @@ class DHCPUpdater(FlowUpdater):
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid),
                                                                 match_network(nid),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(mac)),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHTYPE_IP),
+                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO, ofdef.IPPROTO_UDP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,
                                                                                  ip4_addr_bytes(serveraddr)),

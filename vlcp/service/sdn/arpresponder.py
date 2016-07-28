@@ -97,6 +97,7 @@ class ARPUpdater(FlowUpdater):
             lastlognetinfo = self._lastlognetinfo
             lastphyportinfo = self._lastphyportinfo
             currentlognetinfo = dict((n,(id, n.physicalnetwork)) for n,id in self._lastlognets if n in allobjs)
+            netdict = dict((n.getkey(), n) for n in currentlognetinfo)
             currentlogportinfo = dict((p, (id, p.network)) for p,id in self._lastlogports if p in allobjs)
             currentphyportinfo = dict((p, (id, p.physicalnetwork)) for p,id in self._lastphyports if p in allobjs)
             last_arps = self._last_arps
@@ -104,8 +105,8 @@ class ARPUpdater(FlowUpdater):
             if connection in self._parent._extra_arps:
                 _arps_list = self._parent._extra_arps[connection]
                 for ip, mac, lognetid, islocal in _arps_list:
-                    lognet = ReferenceObject(LogicalNetwork.default_key(lognetid))
-                    if lognet in currentlognetinfo:
+                    lognet = netdict.get(LogicalNetwork.default_key(lognetid))
+                    if lognet is not None:
                         if islocal is None:
                             arp_set = current_arps.setdefault(lognet, set())
                             arp_set.add((ip, mac, True, None, False))
