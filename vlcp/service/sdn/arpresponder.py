@@ -317,8 +317,8 @@ class ARPUpdater(FlowUpdater):
                     for ip, mac, islocal, port, broadcast in send_arps:
                         if islocal:
                             for p in currentlogportinfo:
-                                pid, _ = currentlogportinfo[p]
-                                if p != port and p in lastlogportinfo and lastlogportinfo[p] == currentlogportinfo[p]:
+                                pid, port_net = currentlogportinfo[p]
+                                if port_net == n and p != port and p in lastlogportinfo and lastlogportinfo[p] == currentlogportinfo[p]:
                                     cmds.append(_create_flow(ip, mac, nid, pid, islocal, broadcast))
                         else:
                             if n.physicalnetwork in phyportdict:
