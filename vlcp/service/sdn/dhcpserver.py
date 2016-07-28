@@ -505,6 +505,8 @@ class DHCPServer(FlowBase):
         #flowupdater = VXLANFlowUpdater(conn, self)
         self._flowupdaters[conn] = updater
         updater.start()
+        if False:
+            yield
     def _remove_conn(self, conn):
         # Do not need to modify flows
         if conn in self._flowupdaters:
