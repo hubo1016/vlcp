@@ -116,7 +116,7 @@ class DHCPUpdater(FlowUpdater):
                 message_type = option_dict[d.OPTION_MESSAGE_TYPE].value
                 is_nak = False
                 if message_type == d.DHCPDISCOVER:
-                    if dhcp_packet.chaddr[:6].ljust(6, b'\x00') != port_mac:
+                    if dhcp_packet.chaddr[:6].ljust(6, b'\x00') != mac_addr.tobytes(port_mac):
                         # Ignore this packet
                         continue
                     dhcp_reply = d.dhcp_payload(op = d.BOOTREPLY,
@@ -138,7 +138,7 @@ class DHCPUpdater(FlowUpdater):
                     if d.OPTION_SERVER_IDENTIFIER in option_dict and option_dict[d.OPTION_SERVER_IDENTIFIER].value != server_ip:
                         # Ignore packets to wrong address
                         continue
-                    if dhcp_packet.chaddr[:6].ljust(6, b'\x00') != port_mac \
+                    if dhcp_packet.chaddr[:6].ljust(6, b'\x00') != mac_addr.tobytes(port_mac) \
                             or (d.OPTION_REQUESTED_IP in option_dict and option_dict[d.OPTION_REQUESTED_IP].value != port_ip) \
                             or (dhcp_packet.ciaddr != 0 and dhcp_packet.ciaddr != port_ip):
                         dhcp_reply = d.dhcp_payload(op = d.BOOTREPLY,
