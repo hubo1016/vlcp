@@ -53,6 +53,10 @@ class TimerEvent(Event):
 class SyscallReturnEvent(Event):
     pass
 
+class InterruptedBySignalException(Exception):
+    "In Python 3.x, we must raise an exception to interrupt the polling, or it will be automatically retried"
+    pass
+
 class Scheduler(object):
     '''
     Event-driven scheduler
@@ -217,14 +221,18 @@ class Scheduler(object):
         :param runnable: an iterator that accept send method
         :param daemon: if True, the runnable will be registered as a daemon.
         '''
-        for m in matchers:
-            self.matchtree.insert(m, runnable)
-            events = self.eventtree.findAndRemove(m)
-            for e in events:
-                self.queue.unblock(e)
-            if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
-                self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], True)
-        self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).union(matchers)
+        if getattr(self, 'syscallfunc', None) is not None and getattr(self, 'syscallrunnable', None) is None:
+            # Inject this register
+            self.syscallrunnable = runnable
+        else:
+            for m in matchers:
+                self.matchtree.insert(m, runnable)
+                events = self.eventtree.findAndRemove(m)
+                for e in events:
+                    self.queue.unblock(e)
+                if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
+                    self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], True)
+            self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).union(matchers)
     def unregister(self, matchers, runnable):
         '''
         Unregister an iterator(runnable) and stop waiting for events
@@ -349,16 +357,23 @@ class Scheduler(object):
         
         An event matcher is returned to the caller, and the caller should wait for the event immediately to get the return value from the system call.
         The SyscallReturnEvent will have 'retvalue' as the return value, or 'exception' as the exception thrown: (type, value, traceback)
+        
         :param func: syscall function
-        :returns: an event matcher to wait for the SyscallReturnEvent
+        
+        :returns: an event matcher to wait for the SyscallReturnEvent. If None is returned, a syscall is already scheduled;
+                  return to core context at first.
+        
         '''
         if getattr(self, 'syscallfunc', None) is not None:
-            raise ValueError('Cannot call syscall twice before return to core context')
+            return None
         self.syscallfunc = func
         self.syscallmatcher = SyscallReturnEvent.createMatcher()
         return self.syscallmatcher
     def _quitsignal(self, signum, frame):
-        self.quitsignal = signum        
+        self.quitsignal = signum
+        if getattr(self.polling, 'shouldraise', False):
+            self.polling.shouldraise = False
+            raise InterruptedBySignalException()
     def main(self, installsignal = True, sendinit = True):
         '''
         Start main loop
@@ -376,26 +391,37 @@ class Scheduler(object):
                 for r, m in runnables:
                     try:
                         self.syscallfunc = None
+                        self.syscallrunnable = None
                         if self.debugging:
                             self.logger.debug('Send event to %r, matched with %r', r, m)
                         r.send((event, m))
                     except StopIteration:
                         self.unregisterall(r)
+                    except QuitException:
+                        self.unregisterall(r)
                     except:
                         self.logger.exception('processing event %s failed with exception', repr(event))
                         self.unregisterall(r)
                     while self.syscallfunc is not None:
+                        r = getattr(self, 'syscallrunnable', None)
+                        if r is None:
+                            self.syscallfunc = None
+                            break
                         try:
                             try:
                                 retvalue = self.syscallfunc(self, processEvent)
                             except:
                                 (t, v, tr) = sys.exc_info()
                                 self.syscallfunc  = None
+                                self.syscallrunnable = None
                                 r.send((SyscallReturnEvent(exception = (t, v, tr)), self.syscallmatcher))
                             else:
                                 self.syscallfunc = None
+                                self.syscallrunnable = None
                                 r.send((SyscallReturnEvent(retvalue = retvalue), self.syscallmatcher))
                         except StopIteration:
+                            self.unregisterall(r)
+                        except QuitException:
                             self.unregisterall(r)
                         except:
                             self.logger.exception('processing syscall failed with exception')
@@ -450,6 +476,8 @@ class Scheduler(object):
                                 self.logger.exception('Runnable quit failed with exception')
                                 self.unregisterall(r)
                     processedEvents += 1
+                if len(self.registerIndex) <= len(self.daemons):
+                    break
                 if self.generatecontinue or self.queue.canPop():
                     wait = 0
                 elif not self.timers:

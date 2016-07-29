@@ -32,16 +32,20 @@ class RedisClientBase(Configurable):
     Connect to Redis server
     '''
     _default_url = 'tcp://localhost/'
-    _default_timeout = 30
+    _default_timeout = 10
     _default_db = 0
-    def __init__(self, conn = None, parent = None):
+    def __init__(self, conn = None, parent = None, protocol = None):
         Configurable.__init__(self)
         self._defaultconn = conn
         self._parent = parent
-        if parent:
-            self._protocol = parent._protocol
+        self._lockconnmark = None
+        if protocol:
+            self._protocol = protocol
         else:
-            self._protocol = Redis()
+            if parent:
+                self._protocol = parent._protocol
+            else:
+                self._protocol = Redis()
     def _get_connection(self, container, connection):
         if not connection.connected:
             for m in container.waitWithTimeout(self.timeout, self._protocol.statematcher(connection, RedisConnectionStateEvent.CONNECTION_UP, False)):
@@ -51,8 +55,16 @@ class RedisClientBase(Configurable):
     def _get_default_connection(self, container):
         if not self._defaultconn:
             raise IOError('Not connected to redis server')
+        if self._lockconnmark is not None:
+            if self._lockconnmark >= 0:
+                if not self._defaultconn.connected or self._defaultconn.connmark != self._lockconnmark:
+                    raise IOError('Disconnected from redis server; reconnected is not allowed in with scope')
+                else:
+                    raise StopIteration
         for m in self._get_connection(container, self._defaultconn):
             yield m
+        if self._lockconnmark is not None and self._lockconnmark < 0:
+            self._lockconnmark = self._defaultconn.connmark
     def _shutdown_conn(self, container, connection):
         if connection:
             if connection.connected:
@@ -62,12 +74,12 @@ class RedisClientBase(Configurable):
                         yield m
                     for m in container.waitWithTimeout(1, self._protocol.statematcher(connection)):
                         yield m
-                except:
+                except Exception:
                     for m in connection.shutdown():
                         yield m
                 else:
                     if container.timeout:
-                        for m in connection.shutdown():
+                        for m in connection.shutdown(True):
                             yield m
             else:
                 for m in connection.shutdown():
@@ -91,14 +103,28 @@ class RedisClientBase(Configurable):
             for m in self._parent._release_conn(container, self._defaultconn):
                 yield m
     @contextmanager
-    def context(self, container):
+    def context(self, container, release = True, lockconn = True):
         '''
-        Use with statement to manage the connection, release the connection when leaving with scope
+        Use with statement to manage the connection
+        
+        :params release: if True(default), release the connection when leaving with scope
+        
+        :params lockconn: if True(default), do not allow reconnect during with scope;
+                execute commands on a disconnected connection raises Exceptions.
         '''
         try:
+            if lockconn:
+                if self._lockconnmark is None:
+                    # Lock next connmark
+                    self._lockconnmark = -1
+                    locked = True
             yield self
         finally:
-            container.subroutine(self.release(container))
+            if locked:
+                self._lockconnmark = None
+            self._lockconnmark = None
+            if release:
+                container.subroutine(self.release(container))
     @_conn
     def execute_command(self, container, *args):
         '''
@@ -160,23 +186,31 @@ class RedisClientBase(Configurable):
                     yield m
     
 class RedisClient(RedisClientBase):
-    def __init__(self, url = None, db = None):
+    def __init__(self, url = None, db = None, protocol = None):
         '''
-        Redis client to communicate with Redis server. Several connections are created for different functions. 
+        Redis client to communicate with Redis server. Several connections are created for different functions.
+         
         :param url: connectiom url, e.g. 'tcp://localhost/'.
-        If not specified, redisclient.url in configuration is used
+                    If not specified, redisclient.url in configuration is used
+        
         :param db: default database. If not specified, redisclient.db in configuration is used,
-        which defaults to 0.
+                   which defaults to 0.
+        
+        :param protocol: use a pre-created protocol instance instead of creating a new instance
         '''
-        RedisClientBase.__init__(self, None)
+        RedisClientBase.__init__(self, protocol=protocol)
         if url:
             self.url = url
         if db is not None:
             self.db = db
         self._subscribeconn = None
+        self._subscribecounter = {}
+        self._psubscribecounter = {}
         self._connpool = []
         self._shutdown = False
     def _create_client(self, container):
+        if self._shutdown:
+            raise IOError('RedisClient already shutdown')
         conn = Client(self.url, self._protocol, container.scheduler,
                                        getattr(self, 'key', None),
                                        getattr(self, 'certificate', None),
@@ -200,11 +234,14 @@ class RedisClient(RedisClientBase):
             yield m
     def get_connection(self, container):
         '''
-        Get a exclusive connection, useful for blocked commands and transactions.
+        Get an exclusive connection, useful for blocked commands and transactions.
+        
         You must call release or shutdown (not recommanded) to return the connection after use.
+        
         :param container: routine container
+        
         :returns: RedisClientBase object, with some commands same as RedisClient like execute_command,
-        batch_execute, register_script etc.
+                  batch_execute, register_script etc.
         '''
         if self._connpool:
             conn = self._connpool.pop()
@@ -213,9 +250,7 @@ class RedisClient(RedisClientBase):
             conn = self._create_client(container)
             for m in RedisClientBase._get_connection(self, container, conn):
                 yield m
-            for m in RedisClientBase._get_default_connection(self, container):
-                yield m
-            for m in self._protocol.send_command(self._defaultconn, container, 'SELECT', str(self.db)):
+            for m in self._protocol.send_command(conn, container, 'SELECT', str(self.db)):
                 yield m
             container.retvalue = RedisClientBase(conn, self)
     def _release_conn(self, container, connection):
@@ -262,23 +297,43 @@ class RedisClient(RedisClientBase):
         Subscribe to specified channels
         :param container: routine container
         :param *keys: subscribed channels
-        :returns: list of event matchers for the specified channels 
+        :returns: list of event matchers for the specified channels
         '''
         for m in self._get_subscribe_connection(container):
             yield m
-        for m in self._protocol.send_command(self._subscribeconn, container, 'SUBSCRIBE', *keys):
-            yield m
+        realkeys = []
+        for k in keys:
+            count = self._subscribecounter.get(k, 0)
+            if count == 0:
+                realkeys.append(k)
+            self._subscribecounter[k] = count + 1
+        if realkeys:
+            for m in self._protocol.execute_command(self._subscribeconn, container, 'SUBSCRIBE', *realkeys):
+                yield m
         container.retvalue = [self._protocol.subscribematcher(self._subscribeconn, k, None, RedisSubscribeMessageEvent.MESSAGE) for k in keys]
     def unsubscribe(self, container, *keys):
         '''
-        Unsubscribe specified channels
+        Unsubscribe specified channels. Every subscribed key should be unsubscribed exactly once, even if duplicated subscribed.
         :param container: routine container
         :param *keys: subscribed channels
         '''
         for m in self._get_subscribe_connection(container):
             yield m
-        for m in self._protocol.execute_command(self._subscribeconn, container, 'UNSUBSCRIBE', *keys):
-            yield m
+        realkeys = []
+        for k in keys:
+            count = self._subscribecounter.get(k, 0)
+            if count <= 1:
+                realkeys.append(k)
+                try:
+                    del self._subscribecounter[k]
+                except KeyError:
+                    pass
+            else:
+                self._subscribecounter[k] = count - 1
+        if realkeys:
+            for m in self._protocol.execute_command(self._subscribeconn, container, 'UNSUBSCRIBE', *realkeys):
+                yield m
+        container.retvalue = None
     def psubscribe(self, container, *keys):
         '''
         Subscribe to specified globs
@@ -288,22 +343,36 @@ class RedisClient(RedisClientBase):
         '''
         for m in self._get_subscribe_connection(container):
             yield m
-        for m in self._protocol.send_command(self._subscribeconn, container, 'PSUBSCRIBE', *keys):
+        realkeys = []
+        for k in keys:
+            count = self._psubscribecounter.get(k, 0)
+            if count == 0:
+                realkeys.append(k)
+            self._psubscribecounter[k] = count + 1
+        for m in self._protocol.execute_command(self._subscribeconn, container, 'PSUBSCRIBE', *realkeys):
             yield m
         container.retvalue = [self._protocol.subscribematcher(self._subscribeconn, k, None, RedisSubscribeMessageEvent.PMESSAGE) for k in keys]
     def punsubscribe(self, container, *keys):
         '''
-        Unsubscribe specified globs
+        Unsubscribe specified globs. Every subscribed glob should be unsubscribed exactly once, even if duplicated subscribed.
         :param container: routine container
         :param *keys: subscribed globs
         '''
         for m in self._get_subscribe_connection(container):
             yield m
+        realkeys = []
+        for k in keys:
+            count = self._subscribecounter.get(k, 0)
+            if count == 1:
+                realkeys.append(k)
+                del self._subscribecounter[k]
+            else:
+                self._subscribecounter[k] = count - 1
         for m in self._protocol.execute_command(self._subscribeconn, container, 'PUNSUBSCRIBE', *keys):
             yield m
     def shutdown(self, container):
         '''
-        Shutdown all connections. Exclusive connections created by get_connection will shutdown after relase()
+        Shutdown all connections. Exclusive connections created by get_connection will shutdown after release()
         '''
         p = self._connpool
         self._connpool = []
@@ -315,8 +384,7 @@ class RedisClient(RedisClientBase):
             p.append(self._subscribeconn)
             self._subscribeconn = None
         for o in p:
-            for m in self._shutdown_conn(container, o):
-                yield m
+            container.subroutine(self._shutdown_conn(container, o))
     class _RedisConnection(object):
         def __init__(self, client, container):
             self._client = client
@@ -326,13 +394,33 @@ class RedisClient(RedisClientBase):
         def shutdown(self):
             if self._client:
                 try:
-                    return self._client.shutdown(self._container)
+                    self._client.shutdown(self._container)
                 finally:
                     self._client = None
                     self._container = None
+            if False:
+                yield
     def make_connobj(self, container):
         '''
         Return an object to be used like a connection. Put the connection-like object in module.connections
         to make RedisClient shutdown on module unloading.
         '''
         return self._RedisConnection(self, container)
+    def subscribe_state_matcher(self, container, connected = True):
+        '''
+        Return a matcher to match the subscribe connection status.
+        
+        :param container: a routine container. NOTICE: this method is not a routine.
+        
+        :param connected: if True, the matcher matches connection up. If False, the matcher matches
+               connection down.
+        
+        :returns: an event matcher.
+        '''
+        if not self._subscribeconn:
+            self._subscribeconn = self._create_client(container)
+        return RedisConnectionStateEvent.createMatcher(
+                    RedisConnectionStateEvent.CONNECTION_UP if connected else RedisConnectionStateEvent.CONNECTION_DOWN,
+                    self._subscribeconn
+                    )
+        

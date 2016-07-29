@@ -92,7 +92,7 @@ class Connector(RoutineContainer):
     @staticmethod
     def wrap_signal(func):
         def f(*args, **kwargs):
-            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             return func(*args, **kwargs)
         return f
@@ -297,7 +297,7 @@ class Connector(RoutineContainer):
                         isFull = True
         finally:
             if pipein is not None:
-                self.scheduler.unregisterPolling(pipein, self.jobs > 0)
+                self.scheduler.unregisterPolling(pipein, self.jobs == 0)
                 pipein.close()
             if mp:
                 process.terminate()

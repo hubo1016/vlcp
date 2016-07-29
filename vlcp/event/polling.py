@@ -9,6 +9,7 @@ from vlcp.event import PollEvent, SystemControlLowPriorityEvent
 import errno
 import time
 import sys
+from vlcp.event.core import InterruptedBySignalException
 
 if hasattr(select, 'epoll'):
     class EPollPolling(object):
@@ -27,6 +28,7 @@ if hasattr(select, 'epoll'):
             self.socketCounter = 0
             self.maxwait = maxwait
             self.daemons = set()
+            self.shouldraise = False
         def register(self, fd, options, daemon = False):
             if hasattr(fd, 'fileno'):
                 fd = fd.fileno()
@@ -76,26 +78,36 @@ if hasattr(select, 'epoll'):
             if wait is None or (self.maxwait is not None and wait > self.maxwait):
                 generateFree = True
                 wait = self.maxwait
+            events = []
             try:
+                interrupted = False
+                self.shouldraise = True
                 if wait is None:
                     events = self.epoll.poll()
                 else:
                     events = self.epoll.poll(wait)
-                for fd, e in events:
-                    if e & epwrite:
-                        ret.append(PollEvent(fd, PollEvent.WRITE_READY, e & epwrite))
-                    if e & epread:
-                        ret.append(PollEvent(fd, PollEvent.READ_READY, e & epread))
-                    if e & eperr:
-                        ret.append(PollEvent(fd, PollEvent.ERROR, e & eperr))
-                    if e & ephup:
-                        ret.append(PollEvent(fd, PollEvent.HANGUP, e & ephup))
-                if not ret and generateFree:
-                    ret.append(SystemControlLowPriorityEvent(SystemControlLowPriorityEvent.FREE))
-                return (ret, False)
+                self.shouldraise = False
+            except InterruptedBySignalException:
+                interrupted = True
             except IOError as exc:
                 if exc.args[0] == errno.EINTR:
-                    return ([], False)
+                    interrupted = True
+                else:
+                    raise
+            finally:
+                self.shouldraise = False                
+            for fd, e in events:
+                if e & epwrite:
+                    ret.append(PollEvent(fd, PollEvent.WRITE_READY, e & epwrite))
+                if e & epread:
+                    ret.append(PollEvent(fd, PollEvent.READ_READY, e & epread))
+                if e & eperr:
+                    ret.append(PollEvent(fd, PollEvent.ERROR, e & eperr))
+                if e & ephup:
+                    ret.append(PollEvent(fd, PollEvent.HANGUP, e & ephup))
+            if not ret and generateFree and not interrupted:
+                ret.append(SystemControlLowPriorityEvent(SystemControlLowPriorityEvent.FREE))
+            return (ret, False)
         def onmatch(self, fileno, category, add):
             pass
 
@@ -113,6 +125,7 @@ class SelectPolling(object):
         self.daemons = set()
         self.socketCounter = 0
         self.maxwait = maxwait
+        self.shouldraise = False
     def register(self, fd, options, daemon = False):
         if hasattr(fd, 'fileno'):
             fd = fd.fileno()
@@ -158,27 +171,35 @@ class SelectPolling(object):
         if wait is None or (self.maxwait is not None and wait > self.maxwait):
             generateFree = True
             wait = self.maxwait
+        events = [[], [], []]
         try:
+            interrupted = False
+            self.shouldraise = True
             if wait is None:
                 events = select.select(self.readfiles, self.writefiles, self.errorfiles)
             elif not self.readfiles and not self.writefiles and not self.errorfiles:
                 time.sleep(wait)
             else:
                 events = select.select(self.readfiles, self.writefiles, self.errorfiles, wait)
-            for fd in events[0]:
-                ret.append(PollEvent(fd, PollEvent.READ_READY, PollEvent.READ_READY))
-            for fd in events[1]:
-                ret.append(PollEvent(fd, PollEvent.WRITE_READY, PollEvent.WRITE_READY))
-            for fd in events[2]:
-                ret.append(PollEvent(fd, PollEvent.ERROR, PollEvent.ERROR))
-            if not ret and generateFree:
-                ret.append(SystemControlLowPriorityEvent(SystemControlLowPriorityEvent.FREE))
-            return (ret, False)
+            self.shouldraise = False
+        except InterruptedBySignalException:
+            interrupted = True
         except IOError as exc:
             if exc.args[0] == errno.EINTR:
-                return ([], False)
+                interrupted = True
             else:
-                raise IOError('Some of the fds are invalid, maybe some sockets are not unregistered', exc)
+                raise IOError('Some of the fds are invalid, maybe some sockets are not unregistered', exc)        
+        finally:
+            self.shouldraise = False
+        for fd in events[0]:
+            ret.append(PollEvent(fd, PollEvent.READ_READY, PollEvent.READ_READY))
+        for fd in events[1]:
+            ret.append(PollEvent(fd, PollEvent.WRITE_READY, PollEvent.WRITE_READY))
+        for fd in events[2]:
+            ret.append(PollEvent(fd, PollEvent.ERROR, PollEvent.ERROR))
+        if not ret and generateFree and not interrupted:
+            ret.append(SystemControlLowPriorityEvent(SystemControlLowPriorityEvent.FREE))
+        return (ret, False)
     def onmatch(self, fileno, category, add):
         if add:
             if category is None or category == PollEvent.READ_READY:

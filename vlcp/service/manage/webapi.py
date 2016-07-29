@@ -14,6 +14,9 @@ import os.path
 from vlcp.utils.http import HttpHandler
 from email.message import Message
 import json
+import ast
+from namedstruct import NamedStruct, dump
+from vlcp.utils.jsonencoder import encode_default, decode_object, JsonFormat
 
 def _str(b, encoding = 'ascii'):
     if isinstance(b, str):
@@ -25,6 +28,7 @@ class WebAPIHandler(HttpHandler):
     def __init__(self, parent):
         HttpHandler.__init__(self, scheduler=parent.scheduler, daemon=False, vhost=parent.vhostbind)
         self.parent = parent
+        self.jsonencoder = JsonFormat()
     def apiHandler(self, env, targetname, methodname, **kwargs):
         params = kwargs
         parent = self.parent
@@ -34,9 +38,17 @@ class WebAPIHandler(HttpHandler):
                 m['content-type'] = _str(env.headerdict[b'content-type'])
                 if m.get_content_type() == 'application/json':
                     charset = m.get_content_charset('utf-8')
-                    for m in env.inputstream.read():
+                    for m in env.inputstream.read(self):
                         yield m
-                    params = json.loads(self.data, charset)
+                    params = json.loads(_str(self.data, charset), charset, object_hook=decode_object)
+        elif parent.typeextension:
+            for k in params.keys():
+                v = params[k]
+                if v[:1] == '`' and v[-1:] == '`':
+                    try:
+                        params[k] = ast.literal_eval(v[1:-1])
+                    except:
+                        pass
         if parent.allowtargets is not None:
             if targetname not in parent.allowtargets:
                 for m in env.error(403):
@@ -54,7 +66,7 @@ class WebAPIHandler(HttpHandler):
         for m in callAPI(self, targetname, methodname, params):
             yield m
         env.header('Content-Type', 'application/json')
-        env.outputdata(json.dumps({'result':self.retvalue}, default=repr).encode('ascii'))
+        env.outputdata(json.dumps({'result':self.retvalue}, default=self.jsonencoder.jsonencoder).encode('ascii'))
     def start(self, asyncStart=False):
         HttpHandler.start(self, asyncStart=asyncStart)
         path = self.parent.rootpath.encode('utf-8')
@@ -80,6 +92,7 @@ class WebAPI(Module):
     _default_authmethod = None
     _default_allowtargets = None
     _default_denytargets = None
+    _default_typeextension = True
     service = False
     def __init__(self, server):
         '''

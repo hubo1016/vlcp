@@ -73,7 +73,7 @@ class RedisParser(object):
         self._buffer = b''
         self._parser = self._parser_gen()
     def feed(self, data):
-        self._buffer += _copy(data)
+        self._buffer += data
     def gets(self):
         try:
             return next(self._parser)
@@ -181,6 +181,9 @@ class Redis(Protocol):
     _default_encoding = 'utf-8'
     # Use hiredis if possible
     _default_hiredis = True
+    _default_keepalivetime = 10
+    _default_keepalivetimeout = 3
+    _default_connect_timeout = 5
     _logger = logging.getLogger(__name__ + '.Redis')
     def __init__(self):
         '''
@@ -195,9 +198,9 @@ class Redis(Protocol):
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority - 1, RedisConnectionStateEvent.createMatcher(connection = connection), ('connstate', connection)))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority, RedisResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
+                self.messagepriority + 1, RedisResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority, RedisSubscribeEvent.createMatcher(connection = connection), ('subscribe', connection), self.messagequeuesize))
+                self.messagepriority + 1, RedisSubscribeEvent.createMatcher(connection = connection), ('subscribe', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, RedisSubscribeMessageEvent.createMatcher(connection = connection), ('message', connection), self.messagequeuesize))
         connection.redis_subscribe = False
@@ -213,7 +216,7 @@ class Redis(Protocol):
             else:
                 return str(a).encode(encoding)
         def format_request(*args):
-            return b'*' + str(len(args)).encode('ascii') + '\r\n' + b''.join(itertools.chain.from_iterable((b'$',str(len(sa)).encode('ascii'),b'\r\n',sa,b'\r\n') for sa in (_bytes(a) for a in args)))
+            return b'*' + str(len(args)).encode('ascii') + b'\r\n' + b''.join(itertools.chain.from_iterable((b'$',str(len(sa)).encode('ascii'),b'\r\n',sa,b'\r\n') for sa in (_bytes(a) for a in args)))
         self._bytes = _bytes
         self.format_request = format_request
     def reconnect_init(self, connection):
@@ -234,10 +237,10 @@ class Redis(Protocol):
             write_buffer.append(self.format_request(b'SELECT', connection.redis_select))
             connection.xid += 1
         if connection.redis_subscribe:
-            if connection.redis_subscribe:
-                write_buffer.append(self.format_request(b'SUBSCRIBE', *tuple(connection.redis_subscribe)))
-            if connection.redis_psubscribe:
-                write_buffer.append(self.format_request(b'PSUBSCRIBE', *tuple(connection.redis_psubscribe)))
+            if connection.redis_subscribe_keys:
+                write_buffer.append(self.format_request(b'SUBSCRIBE', *tuple(connection.redis_subscribe_keys)))
+            if connection.redis_subscribe_pkeys:
+                write_buffer.append(self.format_request(b'PSUBSCRIBE', *tuple(connection.redis_subscribe_pkeys)))
         connection.scheduler.emergesend(ConnectionWriteEvent(connection, connection.connmark, data=b''.join(write_buffer)))
         for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_UP, connection, connection.connmark, self)):
             yield m
@@ -387,14 +390,17 @@ class Redis(Protocol):
         for m in self.send_batch(connection, container, *cmds):
             yield m
         matchers = container.retvalue
+        sm = self.statematcher(connection)
         retvalue = []
         for m in matchers:
-            yield (m,)
+            yield (m, sm)
+            if container.matcher is sm:
+                raise RedisProtocolException('Redis connection down before response received')
             retvalue.append(container.event.result)
         container.retvalue = retvalue
     def parse(self, connection, data, laststart):
         events = []
-        connection.redis_reader.feed(data)
+        connection.redis_reader.feed(_copy(data))
         while True:
             r = connection.redis_reader.gets()
             if r is False:
@@ -429,3 +435,25 @@ class Redis(Protocol):
         for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_NOTCONNECTED,
                                                                   connection, connection.connmark, self)):
             yield m
+    def keepalive(self, connection):
+        try:
+            if connection.redis_replyxid == connection.xid:
+                for m in connection.executeWithTimeout(self.keepalivetimeout, self.execute_command(connection, connection, 'PING')):
+                    yield m
+                if connection.timeout:
+                    for m in connection.reset(True):
+                        yield m
+        except Exception:
+            for m in connection.reset(True):
+                yield m
+    @staticmethod
+    def reconnect_timeseq():
+        yield 0
+        nextSeq = 0.5
+        while True:
+            yield nextSeq                
+            if nextSeq < 16:
+                nextSeq = nextSeq * 2
+            else:
+                nextSeq = 20
+        

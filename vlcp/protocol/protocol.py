@@ -21,6 +21,8 @@ class Protocol(Configurable):
     _default_cleanuptimeout = 60
     _default_writequeuesize = 10
     _default_messagequeuesize = 10
+    _default_keepalivetime = None
+    vhost = '<other>'
     _logger = getLogger(__name__ + '.Protocol')
     def __init__(self):
         '''
@@ -122,4 +124,10 @@ class Protocol(Configurable):
         '''
         if False:
             yield
-
+    def keepalive(self, connection):
+        '''
+        routine executed when there has been a long time since last data arrival.
+        Check if the connection is down.
+        '''
+        if False:
+            yield

@@ -12,6 +12,7 @@ from vlcp.event.runnable import RoutineContainer
 import base64
 import uuid
 import json
+from vlcp.event.core import QuitException
 try:
     from Cookie import SimpleCookie, Morsel
     from urlparse import parse_qs, urlunsplit, urljoin, urlsplit
@@ -111,7 +112,7 @@ class Environment(object):
                 self.cookies = {}
             # Parse query string
             if self.querystring:
-                result = parse_qs(self.querystring)
+                result = parse_qs(self.querystring, True)
                 def convert(k,v):
                     try:
                         k = str(k.decode('ascii'))
@@ -420,7 +421,7 @@ class Environment(object):
                         for m in self.inputstream.read(self.container):
                             yield m
                         data = self.container.data
-                    result = parse_qs(data)
+                    result = parse_qs(data, True)
                     def convert(k,v):
                         try:
                             k = str(k.decode('ascii'))
@@ -554,6 +555,8 @@ def _handler(container, event, func):
             # HTTP 400 Bad Request
             for m in env.error(400):
                 yield m
+        except QuitException:
+            raise
         except:
             if container and hasattr(container, 'logger'):
                 container.logger.exception('Unhandled exception in HTTP processing, env=%r:', env)
@@ -561,6 +564,8 @@ def _handler(container, event, func):
                 yield m
         for m in env.close():
             yield m
+    except QuitException:
+        raise
     except:
         # Must ignore all exceptions, or the whole handler is unregistered
         pass

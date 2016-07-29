@@ -10,6 +10,9 @@ from vlcp.event.runnable import RoutineContainer, EventHandler
 import sys
 from vlcp.utils.pycache import removeCache
 import functools
+import copy
+from vlcp.config.config import manager
+from vlcp.event.core import QuitException
 
 try:
     reload
@@ -22,7 +25,9 @@ except:
 
 def depend(*args):
     def decfunc(cls):
-        cls.depends = list(args)
+        if not 'depends' in cls.__dict__:
+            cls.depends = []
+        cls.depends.extend(list(args))
         for a in args:
             if not hasattr(a, 'referencedBy'):
                 a.referencedBy = []
@@ -54,12 +59,46 @@ class ModuleLoadStateChanged(Event):
     UNLOADING = 'unloading'
     UNLOADED = 'unloaded'
 
+def create_discover_info(func):
+    code = func.__code__
+    if code.co_flags & 0x08:
+        haskwargs = True
+    else:
+        haskwargs = False
+    # Remove argument env
+    arguments = code.co_varnames[0:code.co_argcount]
+    if hasattr(func, '__self__') and func.__self__:
+        # First argument is self, remove an extra argument
+        arguments=arguments[1:]
+    # Optional arguments
+    if hasattr(func, '__defaults__') and func.__defaults__:
+        requires = arguments[:-len(func.__defaults__)]
+        optionals = arguments[-len(func.__defaults__):]
+    else:
+        requires = arguments[:]
+        optionals = []
+    return {'description': func.__doc__,
+            'parameters':
+                [{'name':n,'optional':False} for n in requires]
+                + [{'name':optionals[i],'optional':True,'default':func.__defaults__[i]}
+                   for i in range(0,len(optionals))],
+            'extraparameters': haskwargs
+                }
+    
 
-def api(func, container = None):
+def api(func, container = None, criteria = None):
     '''
     Return an API def for a generic function
     '''
-    return (func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container)
+    return (func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container,
+            create_discover_info(func), criteria)
+
+def publicapi(func, container = None, criteria = None):
+    '''
+    Create an API def for public API processing
+    '''
+    return ("public/" + func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container,
+            create_discover_info(func), criteria)
 
 class ModuleAPIHandler(RoutineContainer):
     def __init__(self, moduleinst, apidefs = None, allowdiscover = True, rejectunknown = True):
@@ -68,7 +107,7 @@ class ModuleAPIHandler(RoutineContainer):
         self.servicename = moduleinst.getServiceName()
         self.apidefs = apidefs
         self.registeredAPIs = {}
-        self.docs = {}
+        self.discoverinfo = {}
         self.allowdiscover = allowdiscover
         self.rejectunknown = True
     @staticmethod
@@ -77,13 +116,17 @@ class ModuleAPIHandler(RoutineContainer):
     @staticmethod
     def createExceptionReply(handle, exception):
         return ModuleAPIReply(handle, exception = exception)
-    def _createHandler(self, name, handler, container = None):
+    def _createHandler(self, name, handler, container = None, discoverinfo = None, criteria = None):
+        extra_params = {}
+        if criteria:
+            extra_params['_ismatch'] = lambda e: not e.canignore and criteria(**e.params)
         if name is None:
-            matcher = ModuleAPICall.createMatcher(target = self.servicename)
+            matcher = ModuleAPICall.createMatcher(target = self.servicename, **extra_params)
+            matcher = ModuleAPICall.createMatcher(target = self.servicename, **extra_params)
         elif name.startswith('public/'):
-            matcher = ModuleAPICall.createMatcher(target = 'public', name = name[len('public/'):])
+            matcher = ModuleAPICall.createMatcher(target = 'public', name = name[len('public/'):], **extra_params)
         else:
-            matcher = ModuleAPICall.createMatcher(target = self.servicename, name = name)
+            matcher = ModuleAPICall.createMatcher(target = self.servicename, name = name, **extra_params)
         if container is not None:
             def wrapper(event):
                 try:
@@ -91,8 +134,7 @@ class ModuleAPIHandler(RoutineContainer):
                         yield m
                     for m in container.waitForSend(self.createReply(event.handle, container.retvalue)):
                         yield m
-                except:
-                    typ, val, tb = sys.exc_info()
+                except Exception as val:
                     for m in container.waitForSend(self.createExceptionReply(event.handle, val)):
                         yield m
             def event_handler(event, scheduler):
@@ -104,8 +146,7 @@ class ModuleAPIHandler(RoutineContainer):
                     result = handler(event.name, event.params)
                     for m in self.waitForSend(self.createReply(event.handle, result)):
                         yield m
-                except:
-                    typ, val, tb = sys.exc_info()
+                except Exception as val:
                     for m in self.waitForSend(self.createExceptionReply(event.handle, val)):
                         yield m
             def event_handler(event, scheduler):
@@ -114,7 +155,7 @@ class ModuleAPIHandler(RoutineContainer):
         return (matcher, event_handler)
     def registerAPIs(self, apidefs):
         '''
-        API def is in format: (name, handler, container)
+        API definition is in format: (name, handler, container, discoverinfo)
         if the handler is a generator, container should be specified
         handler should accept two arguments:
         def handler(name, params):
@@ -125,13 +166,18 @@ class ModuleAPIHandler(RoutineContainer):
         e.g.
         ('method1', self.method1),    # method1 directly returns the result
         ('method2', self.method2, self) # method2 is an async-api
+        
+        Use api() to automatically generate API definitions.
         '''
         handlers = [self._createHandler(*apidef) for apidef in apidefs]
         self.handler.registerAllHandlers(handlers)
-        self.docs.update((apidef[0], apidef[1].__doc__) for apidef in apidefs)
-    def registerAPI(self, name, handler, container = None):
-        self.handler.registerHandler(*self._createHandler(name, handler, container))
-        self.docs[name] = handler.__doc__
+        self.discoverinfo.update((apidef[0], apidef[3] if len(apidef) > 3 else {'description':apidef[1].__doc__}) for apidef in apidefs)
+    def registerAPI(self, name, handler, container = None, discoverinfo = None, criteria = None):
+        self.handler.registerHandler(*self._createHandler(name, handler, container, criteria))
+        if discoverinfo is None:
+            self.discoverinfo[name] = {'description': handler.__doc__}
+        else:
+            self.discoverinfo[name] = discoverinfo
     def unregisterAPI(self, name):
         if name.startswith('public/'):
             target = 'public'
@@ -142,9 +188,12 @@ class ModuleAPIHandler(RoutineContainer):
         removes = [m for m in self.handler.handlers.keys() if m.target == target and m.name == name]
         for m in removes:
             self.handler.unregisterHandler(m)
-    def discover(self):
-        'Discover API definitions'
-        return dict(self.docs)
+    def discover(self, details = False):
+        'Discover API definitions. Set details=true to show details'
+        if details and not (isinstance(details, str) and details.lower() == 'false'):
+            return copy.deepcopy(self.discoverinfo)
+        else:
+            return dict((k,v.get('description', '')) for k,v in self.discoverinfo.items())
     def reject(self, name, args):
         raise ValueError('%r is not defined in module %r' % (name, self.servicename))
     def start(self, asyncStart=False):
@@ -183,8 +232,14 @@ class Module(Configurable):
     def getFullPath(cls):
         return cls.__module__ + '.' + cls.__name__
     def createAPI(self, *apidefs):
+        if hasattr(self, 'apiHandler'):
+            self.appendAPI(*apidefs)
         self.apiHandler = ModuleAPIHandler(self, apidefs)
         self.routines.append(self.apiHandler)
+    def appendAPI(self, *apidefs):
+        t = list(self.apiHandler.apidefs)
+        t.extend(apidefs)
+        self.apiHandler.apidefs = t
     def getServiceName(self):
         if hasattr(self, 'servicename'):
             return self.servicename
@@ -252,15 +307,95 @@ class Module(Configurable):
             self.state = state
             for m in container.waitForSend(ModuleLoadStateChanged(self.target, state, self)):
                 yield m
+
+
 class ModuleLoadException(Exception):
     pass
+
+def findModule(path, autoimport = True):
+    dotpos = path.rfind('.')
+    if dotpos == -1:
+        raise ModuleLoadException('Must specify module with full path, including package name')
+    package = path[:dotpos]
+    classname = path[dotpos+1:]
+    p = None
+    module = None
+    try:
+        p = sys.modules[package]
+        module = getattr(p, classname)
+    except KeyError:
+        pass
+    except AttributeError:
+        pass
+    if p is None and autoimport:
+        p = __import__(package, fromlist=(classname,))
+        module = getattr(p, classname)
+    return (p, module)
+
+class _ProxyModule(Module):
+    '''
+    A proxy to create dependencies on configurable module
+    '''
+    service = True
+    def __init__(self, server):
+        '''
+        Constructor
+        '''
+        Module.__init__(self, server)        
+        self.proxyhandler = EventHandler(self.scheduler)
+    def load(self, container):
+        self._targetname = self._proxytarget._instance.getServiceName()
+        self.proxyhandler.registerHandler(ModuleAPICall.createMatcher(None, self.getServiceName()), self._proxyhandler)
+        for m in Module.load(self, container):
+            yield m
+    def unload(self, container, force=False):
+        self.proxyhandler.close()
+        for m in Module.unload(self, container, force=force):
+            yield m
+    def _proxyhandler(self, event, scheduler):
+        event.canignore = True
+        scheduler.emergesend(ModuleAPICall(event.handle, self._targetname, event.name, params = event.params))        
+
+def proxy(name, default = None):
+    path = manager.get('proxy.' + name.lower())
+    if path is not None:
+        try:
+            p, module = findModule(path, True)
+        except KeyError as exc:
+            raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc) + 'is not defined in the package')
+        except Exception as exc:
+            raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc))
+        if module is None:
+            raise ModuleLoadException('Cannot find module: ' + repr(path))
+    else:
+        module = default
+    proxymodule = type(name, (_ProxyModule,), {'_proxytarget': module})
+    proxymodule.__module__ = sys._getframe(1).f_globals.get('__name__')
+    depend(module)(proxymodule)
+    return proxymodule
 
 class ModuleLoader(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.ModuleLoader')
     def __init__(self, server):
         self.server = server
-        RoutineContainer.__init__(self, scheduler=server.scheduler, daemon=False)
+        RoutineContainer.__init__(self, scheduler=server.scheduler, daemon=True)
         self.activeModules = {}
+    def main(self):
+        try:
+            # Reject unmatched public API
+            public_api = ModuleAPICall.createMatcher(target = "public")
+            while True:
+                yield (public_api,)
+                if not self.event.canignore:
+                    self.event.canignore = True
+                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(self.event.handle, ValueError("public API is not processed")))
+        except QuitException:
+            c = ModuleAPICall.createMatcher()
+            while True:
+                yield (c,)
+                if not self.event.canignore:
+                    self.event.canignore = True
+                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(self.event.handle, QuitException()))
     def _removeDepend(self, module, depend):
         depend._instance.dependedBy.remove(module)
         if not depend._instance.dependedBy and depend._instance.service:
@@ -378,28 +513,9 @@ class ModuleLoader(RoutineContainer):
                 for d in module.depends:
                     if hasattr(d, '_instance') and module in d._instance.dependedBy:
                         self._removeDepend(module, d)
-    def _findModule(self, path, autoimport = True):
-        dotpos = path.rfind('.')
-        if dotpos == -1:
-            raise ModuleLoadException('Must specify module with full path, including package name')
-        package = path[:dotpos]
-        classname = path[dotpos+1:]
-        p = None
-        module = None
-        try:
-            p = sys.modules[package]
-            module = getattr(p, classname)
-        except KeyError:
-            pass
-        except AttributeError:
-            pass
-        if p is None and autoimport:
-            p = __import__(package, fromlist=(classname,))
-            module = getattr(p, classname)
-        return (p, module)
     def loadByPath(self, path):
         try:
-            p, module = self._findModule(path, True)
+            p, module = findModule(path, True)
         except KeyError as exc:
             raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc) + 'is not defined in the package')
         except Exception as exc:
@@ -409,7 +525,7 @@ class ModuleLoader(RoutineContainer):
         for m in self.loadmodule(module):
             yield m
     def unloadByPath(self, path):
-        p, module = self._findModule(path, False)
+        p, module = findModule(path, False)
         if module is None:
             raise ModuleLoadException('Cannot find module: ' + repr(path))
         for m in self.unloadmodule(module):
@@ -418,7 +534,7 @@ class ModuleLoader(RoutineContainer):
         loadedModules = []
         failures = []
         for path in pathlist:
-            p, module = self._findModule(path, False)
+            p, module = findModule(path, False)
             if module is not None and hasattr(module, '_instance') and module._instance.state != ModuleLoadStateChanged.UNLOADED:
                 loadedModules.append(module)
         # Unload all modules
@@ -438,7 +554,7 @@ class ModuleLoader(RoutineContainer):
             package = path[:dotpos]
             classname = path[dotpos + 1:]
             mlist = grouped.setdefault(package, [])
-            p, module = self._findModule(path, False)
+            p, module = findModule(path, False)
             mlist.append((classname, module))
         for package, mlist in grouped.items():
             # Reload each package only once
@@ -504,7 +620,7 @@ class ModuleLoader(RoutineContainer):
             target = self.activeModules[targetname]
         return target
 
-def callAPI(container, targetname, name, params, timeout = 60.0):
+def callAPI(container, targetname, name, params = {}, timeout = 60.0):
     handle = object()
     apiEvent = ModuleAPICall(handle, targetname, name, params = params)
     for m in container.waitForSend(apiEvent):
@@ -522,7 +638,7 @@ def callAPI(container, targetname, name, params, timeout = 60.0):
 def batchCallAPI(container, apis, timeout = 60.0):
     apiHandles = [(object(), api) for api in apis]
     apiEvents = [ModuleAPICall(handle, targetname, name, params = params)
-                 for handle, (targetname, name, params) in apis]
+                 for handle, (targetname, name, params) in apiHandles]
     apiMatchers = [ModuleAPIReply.createMatcher(handle) for handle, _ in apiHandles]
     def process():
         for e in apiEvents:

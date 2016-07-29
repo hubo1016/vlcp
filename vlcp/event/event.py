@@ -5,6 +5,10 @@ Created on 2015/06/01
 '''
 from __future__ import print_function, absolute_import, division 
 import copy
+import warnings
+
+class IsMatchExceptionWarning(Warning):
+    pass
 
 class EventMatcher(object):
     '''
@@ -17,7 +21,15 @@ class EventMatcher(object):
                 break
         self.indices = indices[:i+1]
         if judgeFunc is not None:
-            self.judge = judgeFunc
+            def _warning_judge(e):
+                try:
+                    return judgeFunc(e)
+                except Exception as exc:
+                    # Do not crash
+                    warnings.warn(IsMatchExceptionWarning('Exception raised when _ismatch is calculated: %r. event = %r, matcher = %r, _ismatch = %r'
+                                                          % (exc, e, self, judgeFunc)))
+                    return False
+            self.judge = _warning_judge
     def judge(self, event):
         return True
     def isMatch(self, event, indexStart = 0):
