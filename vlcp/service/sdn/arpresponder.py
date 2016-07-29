@@ -412,14 +412,14 @@ class ARPResponder(FlowBase):
                                                                                   ofdef.create_oxm(ofdef.OXM_OF_ARP_OP,
                                                                                                    ofdef.ARPOP_REQUEST)
                                                                                   ] +
-                                                                                  [ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W,
+                                                                                  ([ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W,
                                                                                                     b'\x01\x00\x00\x00\x00\x00',
                                                                                                     b'\x01\x00\x00\x00\x00\x00')
                                                                                    ]
-                                                                                  if self.broadcastonly else [],
+                                                                                  if self.broadcastonly else []),
                                                                 ),
                                                              instructions = [ofdef.ofp_instruction_actions(type = ofdef.OFPIT_CLEAR_ACTIONS)]
-                                                             )
+                                                             ),
                                           ), conn, self.apiroutine):
                 yield m
     def _remove_conn(self, conn):
