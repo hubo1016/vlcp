@@ -8,8 +8,8 @@ from vlcp.utils.ethernet import ip4_addr
 def parse_ip4_network( network ):
 
     ip,f,prefix = network.rpartition('/')
-    if not f:
-        raise ValueError('invalid cidr ' + prefix)
+    if not f or not prefix:
+        raise ValueError('invalid cidr ' + network)
     if not 0 <= int(prefix) <= 32:
         raise ValueError("invalid prefix " + prefix)
 
@@ -41,3 +41,21 @@ def network_last(network,prefix):
     hostmask = (1 << (32 - prefix)) - 1
     # calc cidr last avaliable ip , so inc 1
     return (network | hostmask) - 1
+
+def format_network_cidr(cidr):
+    ip,f,prefix = cidr.rpartition('/')
+
+    check_ip_address(ip)
+
+    if f and prefix:
+        return cidr
+    else:
+        return ip + "/32"
+
+def check_ip_address(ipaddress):
+    try:
+        ip4_addr(ipaddress)
+    except Exception:
+        raise ValueError(" ip address illegal " + ipaddress)
+
+    return ipaddress
