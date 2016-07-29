@@ -1,6 +1,5 @@
 import logging
 import copy
-import itertools
 
 from uuid import uuid1
 from vlcp.server.module import Module,depend,api,callAPI
@@ -8,6 +7,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.networkmodel import *
 from vlcp.utils.dataobject import watch_context,set_new,dump,ReferenceObject,WeakReferenceObject
 from vlcp.utils.ethernet import ip4_addr
+from vlcp.utils.netutils import format_network_cidr,check_ip_address
 
 import vlcp.service.kvdb.objectdb as objectdb
 
@@ -125,8 +125,8 @@ class VRouterApi(Module):
 
                     # ip_prefix must be cidr
                     # nexthop must be ip_address
-                    ip_prefix = parse_network(ip_prefix)
-                    nexthop = parser_ip_address(nexthop)
+                    ip_prefix = format_network_cidr(ip_prefix)
+                    nexthop = check_ip_address(nexthop)
                     # when create virtual route , there no interface in it
                     # add static route
                     router.routes.append((ip_prefix,nexthop))
@@ -168,8 +168,8 @@ class VRouterApi(Module):
                     nexthop = r.get('nexthop')
 
                     if ip_prefix and nexthop:
-                        ip_prefix = parse_network(ip_prefix)
-                        nexthop = parser_ip_address(nexthop)
+                        ip_prefix = format_network_cidr(ip_prefix)
+                        nexthop = check_ip_address(nexthop)
                     else:
                         raise ValueError("routers format error " + r)
 
@@ -569,7 +569,7 @@ class VRouterApi(Module):
                 except KeyError:
                     pass
                 else:
-                    if all(getattr(router,k,None) == v for k,v in kwargs.items()):
+                    if all(getattr(virtualport,k,None) == v for k,v in kwargs.items()):
                         save(vpkey)
         
         def walk_func(filter_func):
@@ -611,20 +611,3 @@ class VRouterApi(Module):
             yield m
 
 
-def parse_network(cidr):
-    ip,f,prefix = cidr.rpartition('/')
-
-    parser_ip_address(ip)
-
-    if f:
-        return cidr
-    else:
-        return ip + "/32"
-
-def parser_ip_address(ipaddress):
-    try:
-        ip4_addr(ipaddress)
-    except Exception:
-        raise ValueError(" ip address illegal " + ipaddress)
-
-    return ipaddress
