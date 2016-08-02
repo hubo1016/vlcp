@@ -63,7 +63,10 @@ class Knowledge(Module):
             except KeyError:
                 pass
         else:
-            self.db[key] = (value, currtime + timeout)
+            if timeout is None:
+                self.db[key] = (value, None)
+            else:
+                self.db[key] = (value, currtime + timeout)
     def get(self, key, timeout = None):
         "Get value from key"
         t = time()
@@ -86,7 +89,7 @@ class Knowledge(Module):
     def mget(self, keys):
         "Get multiple values from multiple keys"
         t = time()
-        return [self._get(k, t)[0] for k in keys]
+        return [None if v is None else v[0] for v in (self._get(k, t) for k in keys)]
     def mset(self, kvpairs, timeout = None):
         "Set multiple values on multiple keys"
         d = kvpairs
@@ -96,9 +99,12 @@ class Knowledge(Module):
             for k,_ in d:
                 self.delete(k)
         else:
-            t = time() + timeout
+            if timeout is None:
+                t = None
+            else:
+                t = time() + timeout
             self.db.update(((k, (v, t)) for k,v in d))
-            return None
+        return None
     def update(self, key, updater, timeout = None):
         '''
         Update in-place with a custom function

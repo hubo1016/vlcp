@@ -659,7 +659,7 @@ class Client(Connection):
                         socket_listen.bind(('0.0.0.0',self.port))
                     else:
                         socket_listen.bind(('::',self.port))
-                self.valid_addresses = set(addr[4][0] for addr in self.addrinfo if addr[0] == family)
+                self.valid_addresses = None
             if self.udp:
                 self.socket = socket_listen
                 self.socket.setblocking(False)

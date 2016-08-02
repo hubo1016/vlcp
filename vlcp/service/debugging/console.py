@@ -202,8 +202,8 @@ console_help()
                         orig_stdout = sys.stdout
                         orig_stderr = sys.stderr
                         try:
-                            pstdin = os.fdopen(pstdin_r, 'r')
-                            pstdout = os.fdopen(pstdout_w, 'w')
+                            pstdin = os.fdopen(pstdin_r, 'rU', 0)
+                            pstdout = os.fdopen(pstdout_w, 'w', 0)
                             sys.stdin = pstdin
                             sys.stdout = pstdout
                             sys.stderr = pstdout
