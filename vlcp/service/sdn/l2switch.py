@@ -21,6 +21,7 @@ import vlcp.service.sdn.ioprocessing as iop
 import itertools
 
 class L2FlowUpdater(FlowUpdater):
+
     def __init__(self, connection, parent):
         FlowUpdater.__init__(self, connection, (), ('l2switch', connection), parent._logger)
         self._parent = parent
