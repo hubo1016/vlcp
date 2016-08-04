@@ -1,4 +1,5 @@
 import itertools
+import os
 
 import vlcp.service.sdn.ofpportmanager as ofpportmanager
 import vlcp.service.kvdb.objectdb as objectdb
@@ -9,14 +10,15 @@ from vlcp.config.config import defaultconfig
 from vlcp.event.runnable import RoutineContainer
 from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes,ip4_icmp_payload, ip4_packet_l4, \
-    ethernet_l7, ip4_packet_l7, ip4_payload,ICMP_ECHOREPLY
+    ethernet_l7, ip4_packet_l7, ip4_payload,ICMP_ECHOREPLY,icmp_bestparse,icmp_echo
 from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent, OpenflowAsyncMessageEvent
 from vlcp.utils.networkmodel import SubNet,RouterPort
+from namedstruct.stdprim import uint16
 
 class ICMPResponderUpdater(FlowUpdater):
     def __init__(self,connection,parent):
-        super(FlowUpdater,self).__init__(connection,(),('icmpresponderupdate',connection),parent._logger)
+        super(ICMPResponderUpdater,self).__init__(connection,(),('icmpresponderupdate',connection),parent._logger)
         self.parent = parent
         self._lastlognets = ()
         self._lastlogports = ()
@@ -42,10 +44,12 @@ class ICMPResponderUpdater(FlowUpdater):
     def _icmp_packetin_handler(self):
         conn = self._connection
         ofdef = self._connection.openflowdef
-        l3input = self.parent._gettableindex("l3input",self._connection.vhost)
+        l3input = self.parent._gettableindex("l3input",self._connection.protocol.vhost)
+        
+        transactid = uint16.create(os.urandom(2)) 
 
         def send_packet_out(portid,packet):
-            for m in self.execute_commands(
+            for m in self.execute_commands(conn,
                         [
                             ofdef.ofp_packet_out(
                                 buffer_id = ofdef.OFP_NO_BUFFER,
@@ -70,22 +74,25 @@ class ICMPResponderUpdater(FlowUpdater):
 
             # it must be icmp packet ...
             icmp_packet = ethernet_l7.create(msg.data)
-
-            replypacket = ip4_packet_l7((ip4_payload,ip4_icmp_payload),
+            
+            transactid = (transactid + 1) & 0xffff
+            reply_packet = ip4_packet_l7((ip4_payload,ip4_icmp_payload),
+                                         (icmp_bestparse, icmp_echo),
                                         dl_src = icmp_packet.dl_dst,
                                         dl_dst = icmp_packet.dl_src,
                                         ip_src = icmp_packet.ip_dst,
                                         ip_dst = icmp_packet.ip_src,
-                                        ttl = icmp_packet.ttl,
-                                        identifier = icmp_packet.identifier,
+                                        frag_off = icmp_packet.frag_off,
+                                        ttl = 128,
+                                        identifier = transactid,
                                         icmp_type = ICMP_ECHOREPLY,
                                         icmp_code = icmp_packet.icmp_code,
                                         icmp_id = icmp_packet.icmp_id,
                                         icmp_seq = icmp_packet.icmp_seq,
                                         data = icmp_packet.data
                                         )
-
-            self.subroutine(send_packet_out(inport,replypacket))
+           
+            self.subroutine(send_packet_out(inport,reply_packet))
     def _update_handler(self):
 
         # when lgport,lgnet,phyport,phynet object change , receive this event from ioprocessing module
@@ -123,8 +130,8 @@ class ICMPResponderUpdater(FlowUpdater):
         # means watch key, when created , we will recv event
 
     def _update_walk(self):
-        lgportkeys = [p.getkey() for p in self._lastlogports]
-        lgnetkeys = [p.getkey() for p in self._lastlognets]
+        lgportkeys = [p.getkey() for p,_ in self._lastlogports]
+        lgnetkeys = [p.getkey() for p,_ in self._lastlognets]
 
         self._initialkeys = lgportkeys + lgnetkeys
         self._walkerdict = dict(itertools.chain(((p,self._walk_lgport) for p in lgportkeys),
@@ -141,24 +148,24 @@ class ICMPResponderUpdater(FlowUpdater):
             currentrouterportsinfo = dict((o.subnet,o) for o in allobjects
                                             if o.isinstance(RouterPort))
             currentsubnetsinfo = dict((o,(getattr(currentrouterportsinfo[o],"ip_address",o.gateway),
-                                          self.parent.inroutermac,currentlognetsinfo[o.network]))
+                                          self.parent.inroutermac,o.network.id,currentlognetsinfo[o.network]))
                                         for o in allobjects if o.isinstance(SubNet)
                                             and hasattr(o,"router") and o in currentrouterportsinfo
                                             and o.network in currentlognetsinfo)
-
+            
             self._lastsubnetsinfo = currentsubnetsinfo
 
             ofdef = connection.openflowdef
-            vhost = connection.vhost
+            vhost = connection.protocol.vhost
             l3input = self.parent._gettableindex("l3input",vhost)
 
             cmds = []
 
             if not self.parent.prepush:
                 def _createicmpflows(subnetinfo):
-                    ipaddress,macaddress,networkid = subnetinfo
+                    ipaddress,macaddress,_,networkid = subnetinfo
                     return [
-                        ofdef.ofp_flow_mode(
+                        ofdef.ofp_flow_mod(
                             cookie = 0x2,
                             cookie_mask = 0xffffffffffffffff,
                             table_id = l3input,
@@ -191,10 +198,10 @@ class ICMPResponderUpdater(FlowUpdater):
                         )
                     ]
                 def _deleteicmpflows(subnetinfo):
-                    ipaddress,macaddress,networkid = subnetinfo
+                    ipaddress,macaddress,_,networkid = subnetinfo
 
                     return [
-                        ofdef.ofp_flow_mode(
+                        ofdef.ofp_flow_mod(
                             cookie = 0x2,
                             cookie_mask = 0xffffffffffffffff,
                             table_id = l3input,
@@ -222,21 +229,21 @@ class ICMPResponderUpdater(FlowUpdater):
             for obj in removevalues:
                 if obj in lastsubnetsinfo:
 
-                    remove_arp = (lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)
+                    remove_arp = set([(lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)])
                     for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
                                                                           'arpentries': remove_arp}):
                         yield m
-                    cmds.append(_deleteicmpflows(lastsubnetsinfo[obj]))
+                    cmds.extend(_deleteicmpflows(lastsubnetsinfo[obj]))
 
             for obj in updatedvalues:
                 if obj in lastsubnetsinfo and (obj not in currentsubnetsinfo or
                                                 lastsubnetsinfo[obj] != currentsubnetsinfo[obj]):
 
-                    remove_arp = (lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)
+                    remove_arp = set([(lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)])
                     for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
                                                                           'arpentries': remove_arp}):
                         yield m
-                    cmds.append(_deleteicmpflows(lastsubnetsinfo[obj]))
+                    cmds.extend(_deleteicmpflows(lastsubnetsinfo[obj]))
 
             for m in self.execute_commands(connection,cmds):
                 yield m
@@ -244,23 +251,23 @@ class ICMPResponderUpdater(FlowUpdater):
             del cmds[:]
             for obj in addvalues:
                 if obj in currentsubnetsinfo and obj not in lastsubnetsinfo:
-
-                    add_arp = (lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)
+                    
+                    add_arp = set([(currentsubnetsinfo[obj][0],currentsubnetsinfo[obj][1],currentsubnetsinfo[obj][2],True)])
                     for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
                                                                           'arpentries': add_arp}):
                         yield m
-                    cmds.append(_createicmpflows(currentsubnetsinfo[obj]))
+                    cmds.extend(_createicmpflows(currentsubnetsinfo[obj]))
 
             for obj in updatedvalues:
                 if obj in currentsubnetsinfo and (obj not in lastsubnetsinfo or
                                                   currentsubnetsinfo[obj] != lastsubnetsinfo[obj]):
 
-                    add_arp = (lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)
+                    add_arp = set([(currentsubnetsinfo[obj][0],currentsubnetsinfo[obj][1],currentsubnetsinfo[obj][2],True)])
                     for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
                                                                           'arpentries': add_arp}):
                         yield m
 
-                    cmds.append(_createicmpflows(currentsubnetsinfo[obj]))
+                    cmds.extend(_createicmpflows(currentsubnetsinfo[obj]))
 
             for m in self.execute_commands(connection,cmds):
                 yield m
@@ -268,7 +275,7 @@ class ICMPResponderUpdater(FlowUpdater):
             self._logger.warning("Unexpected exception in icmp_flow_updater, ignore it! Continue",exc_info=True)
 
 @defaultconfig
-@depend(ofpportmanager.OpenflowManager,objectdb.ObjectDB)
+@depend(ofpportmanager.OpenflowPortManager,objectdb.ObjectDB)
 class ICMPResponder(FlowBase):
     _tablerequest = (
         ("l3input",("l2input",),""),
@@ -282,7 +289,7 @@ class ICMPResponder(FlowBase):
     _default_inroutermac = '1a:23:67:59:63:33'
 
     def __init__(self,server):
-        super(FlowBase,self).__init__(server)
+        super(ICMPResponder,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)
         self.app_routine.main = self._main
         self.routines.append(self.app_routine)
