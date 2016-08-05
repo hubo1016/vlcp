@@ -23,6 +23,7 @@ class ICMPResponderUpdater(FlowUpdater):
         self._lastlognets = ()
         self._lastlogports = ()
         self._lastsubnetsinfo = dict()
+        self._orig_initialkeys = ()
 
     def main(self):
         try:
@@ -134,11 +135,22 @@ class ICMPResponderUpdater(FlowUpdater):
         lgnetkeys = [p.getkey() for p,_ in self._lastlognets]
 
         self._initialkeys = lgportkeys + lgnetkeys
+        self._orig_initialkeys = lgportkeys + lgnetkeys
+        
         self._walkerdict = dict(itertools.chain(((p,self._walk_lgport) for p in lgportkeys),
                                                 ((n,self._walk_lgnet) for n in lgnetkeys)))
-
+        
         self.subroutine(self.restart_walk(),False)
+    
+    def reset_initialkeys(self,keys,values):
+        # walk map  logicalport --> subnet ---> routerport
+        # we get subnet object, add keys to initialkeys, 
+        # when subnet update, it will restart walk ,, after we will get new routerport
+        
+        subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
 
+        self._initialkeys = tuple(itertools.chain(self._orig_initialkeys,subnetkeys))
+    
     def updateflow(self, connection, addvalues, removevalues, updatedvalues):
         try:
             allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
@@ -152,7 +164,6 @@ class ICMPResponderUpdater(FlowUpdater):
                                         for o in allobjects if o.isinstance(SubNet)
                                             and hasattr(o,"router") and o in currentrouterportsinfo
                                             and o.network in currentlognetsinfo)
-            
             self._lastsubnetsinfo = currentsubnetsinfo
 
             ofdef = connection.openflowdef
@@ -318,6 +329,7 @@ class ICMPResponderUpdater(FlowUpdater):
                     ]
 
             for obj in removevalues:
+                
                 if obj in lastsubnetsinfo:
 
                     remove_arp = set([(lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)])
@@ -327,6 +339,7 @@ class ICMPResponderUpdater(FlowUpdater):
                     cmds.extend(_deleteicmpflows(lastsubnetsinfo[obj]))
 
             for obj in updatedvalues:
+               
                 if obj in lastsubnetsinfo and (obj not in currentsubnetsinfo or
                                                 lastsubnetsinfo[obj] != currentsubnetsinfo[obj]):
 
