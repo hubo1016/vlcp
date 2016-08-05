@@ -9,7 +9,7 @@ from vlcp.server.module import depend, callAPI
 from vlcp.config.config import defaultconfig
 from vlcp.event.runnable import RoutineContainer
 from vlcp.service.sdn.ofpmanager import FlowInitialize
-from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes,ip4_icmp_payload, ip4_packet_l4, \
+from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes,ip4_icmp_payload,\
     ethernet_l7, ip4_packet_l7, ip4_payload,ICMP_ECHOREPLY,icmp_bestparse,icmp_echo
 from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent, OpenflowAsyncMessageEvent
@@ -224,7 +224,96 @@ class ICMPResponderUpdater(FlowUpdater):
                         )
                     ]
             else:
-                pass
+                def _createicmpflows(subnetinfo):
+                    ipaddress,macaddress,_,networkid = subnetinfo
+                    return [
+                        ofdef.ofp_flow_mod(
+                            cookie = 0x2,
+                            cookie_mask = 0xffffffffffffffff,
+                            table_id = l3input,
+                            command = ofdef.OFPFC_ADD,
+                            priority = ofdef.OFP_DEFAULT_PRIORITY,
+                            buffer_id = ofdef.OFP_NO_BUFFER,
+                            out_port = ofdef.OFPP_ANY,
+                            out_group = ofdef.OFPG_ANY,
+                            match = ofdef.ofp_match_oxm(
+                                oxm_fields = [
+                                    ofdef.create_oxm(ofdef.NXM_NX_REG5, networkid),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr_bytes(macaddress)),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
+                                    ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,ip4_addr_bytes(ipaddress)),
+                                    ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO,ofdef.IPPROTO_ICMP),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_TYPE,8),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_CODE,0)
+                                ]
+                            ),
+                            instructions = [
+                                ofdef.ofp_instruction_actions(
+                                    actions = [
+                                        ofdef.nx_action_reg_move(
+                                            n_bits = 48,
+                                            src = ofdef.OXM_OF_ETH_SRC,
+                                            dst = ofdef.OXM_OF_ETH_DST
+                                        ),
+                                        ofdef.nx_action_reg_move(
+                                            n_bits = 48,
+                                            src = ofdef.OXM_OF_ETH_DST,
+                                            dst = ofdef.OXM_OF_ETH_SRC
+                                        ),
+                                        ofdef.nx_action_reg_move(
+                                            n_bits = 32,
+                                            src = ofdef.OXM_OF_IPV4_SRC,
+                                            dst = ofdef.OXM_OF_ETH_DST
+                                        ),
+                                        ofdef.nx_action_reg_move(
+                                            n_bits = 32,
+                                            src = ofdef.OXM_OF_IPV4_DST,
+                                            dst = ofdef.OXM_OF_IPV4_SRC
+                                        ),
+                                        ofdef.ofp_action_set_field(
+                                            field = ofdef.create_oxm(
+                                                ofdef.OXM_OF_ICMPV4_TYPE,
+                                                ICMP_ECHOREPLY
+                                            )
+                                        ),
+                                        ofdef.ofp_action_nw_ttl(
+                                            nw_ttl = 128
+                                        ),
+                                        ofdef.ofp_action_output(
+                                            port = ofdef.OFPP_CONTROLLER
+                                        )
+                                    ]
+                                )
+                            ]
+                        )
+                    ]
+
+                def _deleteicmpflows(subnetinfo):
+                    ipaddress,macaddress,_,networkid = subnetinfo
+
+                    return [
+                        ofdef.ofp_flow_mod(
+                            cookie = 0x2,
+                            cookie_mask = 0xffffffffffffffff,
+                            table_id = l3input,
+                            command = ofdef.OFPFC_DELETE,
+                            priority = ofdef.OFP_DEFAULT_PRIORITY,
+                            buffer_id = ofdef.OFP_NO_BUFFER,
+                            out_port = ofdef.OFPP_ANY,
+                            out_group = ofdef.OFPG_ANY,
+                            match = ofdef.ofp_match_oxm(
+                                oxm_fields = [
+                                    ofdef.create_oxm(ofdef.NXM_NX_REG5,networkid),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr_bytes(macaddress)),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
+                                    ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,ip4_addr_bytes(ipaddress)),
+                                    ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO,ofdef.IPPROTO_ICMP),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_TYPE,8),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_CODE,0)
+                                ]
+                            )
+                        )
+                    ]
 
             for obj in removevalues:
                 if obj in lastsubnetsinfo:
