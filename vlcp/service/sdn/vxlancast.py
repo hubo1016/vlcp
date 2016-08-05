@@ -133,15 +133,13 @@ class VXLANUpdater(FlowUpdater):
                             except KeyError:
                                 pass
                             else:
-                                save(portinfokey)
-    def walkcomplete(self, keys, values):
+                                save(portinfokey)                                
+    def reset_initialkeys(self, keys, values):
         if self._parent.prepush:
             self._watched_maps = [k for k,v in zip(keys, values)
                                   if v is not None and not v.isdeleted() and v.isinstance(LogicalNetworkMap)]
             # If the logical network map changed, restart the walk process
             self._initialkeys = tuple(itertools.chain(self._orig_initialkeys, self._watched_maps))
-        if False:
-            yield
     def _walk_phyport(self, key, value, walk, save):
         save(key)
     def _walk_logport(self, key, value, walk, save):
