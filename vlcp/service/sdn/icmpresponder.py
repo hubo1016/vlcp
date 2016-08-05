@@ -255,20 +255,22 @@ class ICMPResponderUpdater(FlowUpdater):
                                             src = ofdef.OXM_OF_ETH_SRC,
                                             dst = ofdef.OXM_OF_ETH_DST
                                         ),
-                                        ofdef.nx_action_reg_move(
-                                            n_bits = 48,
-                                            src = ofdef.OXM_OF_ETH_DST,
-                                            dst = ofdef.OXM_OF_ETH_SRC
+                                        ofdef.ofp_action_set_field(
+                                            field = ofdef.create_oxm(
+                                                ofdef.OXM_OF_ETH_SRC,
+                                                ofdef.mac_addr(macaddress)
+                                            )
                                         ),
                                         ofdef.nx_action_reg_move(
                                             n_bits = 32,
                                             src = ofdef.OXM_OF_IPV4_SRC,
                                             dst = ofdef.OXM_OF_ETH_DST
                                         ),
-                                        ofdef.nx_action_reg_move(
-                                            n_bits = 32,
-                                            src = ofdef.OXM_OF_IPV4_DST,
-                                            dst = ofdef.OXM_OF_IPV4_SRC
+                                        ofdef.ofp_action_set_field(
+                                            field = ofdef.create_oxm(
+                                                ofdef.OXM_OF_IPV4_SRC,
+                                                ofdef.ip4_addr(ipaddress)
+                                            )
                                         ),
                                         ofdef.ofp_action_set_field(
                                             field = ofdef.create_oxm(
@@ -280,7 +282,7 @@ class ICMPResponderUpdater(FlowUpdater):
                                             nw_ttl = 128
                                         ),
                                         ofdef.ofp_action_output(
-                                            port = ofdef.OFPP_CONTROLLER
+                                            port = ofdef.OFPP_IN_PORT
                                         )
                                     ]
                                 )
