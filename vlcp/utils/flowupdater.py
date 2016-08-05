@@ -112,6 +112,7 @@ class FlowUpdater(RoutineContainer):
                 self._savedkeys, self._savedresult = self.retvalue
                 removekeys = tuple(lastkeys.difference(self._savedkeys))
                 self.reset_initialkeys(self._savedkeys, self._savedresult)
+                _initialkeys = set(self._initialkeys)
                 if self._dataupdateroutine:
                     self.terminate(self._dataupdateroutine)
                 self.subroutine(self._dataobject_update_detect(), False, "_dataupdateroutine")
