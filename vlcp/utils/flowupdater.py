@@ -39,6 +39,8 @@ class FlowUpdater(RoutineContainer):
             self._requstid = requestid
         self._dataupdateroutine = None
         self._flowupdateroutine = None
+    def reset_initialkeys(self, keys, values):
+        pass
     def walkcomplete(self, keys, values):
         if False:
             yield
@@ -109,6 +111,7 @@ class FlowUpdater(RoutineContainer):
                 lastkeys = set(self._savedkeys)
                 self._savedkeys, self._savedresult = self.retvalue
                 removekeys = tuple(lastkeys.difference(self._savedkeys))
+                self.reset_initialkeys(self._savedkeys, self._savedresult)
                 if self._dataupdateroutine:
                     self.terminate(self._dataupdateroutine)
                 self.subroutine(self._dataobject_update_detect(), False, "_dataupdateroutine")
