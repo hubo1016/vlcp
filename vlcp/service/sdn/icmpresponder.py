@@ -264,7 +264,7 @@ class ICMPResponderUpdater(FlowUpdater):
                                         ofdef.nx_action_reg_move(
                                             n_bits = 32,
                                             src = ofdef.OXM_OF_IPV4_SRC,
-                                            dst = ofdef.OXM_OF_ETH_DST
+                                            dst = ofdef.OXM_OF_IPV4_DST
                                         ),
                                         ofdef.ofp_action_set_field(
                                             field = ofdef.create_oxm(
@@ -374,6 +374,10 @@ class ICMPResponder(FlowBase):
     )
     # True :  use flow auto reply icmp ping
     # False: use controller reply icmp ping
+
+    #
+    # when ovs 2.5 , icmp_type is not readonly , we can use flow auto reply icmp echo
+    #
     _default_prepush = False
 
     # router use this mac as inner mac
