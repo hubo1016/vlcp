@@ -172,43 +172,16 @@ class ICMPResponderUpdater(FlowUpdater):
 
             cmds = []
 
-            if not self.parent.prepush:
-                def _createicmpflows(subnetinfo):
-                    ipaddress,macaddress,_,networkid = subnetinfo
-                    return [
-                        ofdef.ofp_flow_mod(
-                            cookie = 0x2,
-                            cookie_mask = 0xffffffffffffffff,
-                            table_id = l3input,
-                            command = ofdef.OFPFC_ADD,
-                            priority = ofdef.OFP_DEFAULT_PRIORITY,
-                            buffer_id = ofdef.OFP_NO_BUFFER,
-                            out_port = ofdef.OFPP_ANY,
-                            out_group = ofdef.OFPG_ANY,
-                            match = ofdef.ofp_match_oxm(
-                                oxm_fields = [
-                                    ofdef.create_oxm(ofdef.NXM_NX_REG5, networkid),
-                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr_bytes(macaddress)),
-                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
-                                    ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,ip4_addr_bytes(ipaddress)),
-                                    ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO,ofdef.IPPROTO_ICMP),
-                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_TYPE,8),
-                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_CODE,0)
-                                ]
-                            ),
-                            instructions = [
-                                ofdef.ofp_instruction_actions(
-                                    actions = [
-                                        ofdef.ofp_action_output(
-                                            port = ofdef.OFPP_CONTROLLER,
-                                            max_len = ofdef.OFPCML_NO_BUFFER
-                                        )
-                                    ]
-                                )
-                            ]
-                        )
-                    ]
-                def _deleteicmpflows(subnetinfo):
+            if connection.protocol.disablenxext:
+                def match_network(nid):
+                    return ofdef.create_oxm(ofdef.OXM_OF_METADATA_W, (nid & 0xffff) << 32,
+                                            b'\x00\x00\xff\xff\x00\x00\x00\x00')
+            else:
+                def match_network(nid):
+                    return ofdef.create_oxm(ofdef.NXM_NX_REG5, nid)
+
+            # prepush or not ,, it is same , so ..
+            def _deleteicmpflows(subnetinfo):
                     ipaddress,macaddress,_,networkid = subnetinfo
 
                     return [
@@ -234,6 +207,43 @@ class ICMPResponderUpdater(FlowUpdater):
                             )
                         )
                     ]
+
+            if not self.parent.prepush:
+                def _createicmpflows(subnetinfo):
+                    ipaddress,macaddress,_,networkid = subnetinfo
+                    return [
+                        ofdef.ofp_flow_mod(
+                            cookie = 0x2,
+                            cookie_mask = 0xffffffffffffffff,
+                            table_id = l3input,
+                            command = ofdef.OFPFC_ADD,
+                            priority = ofdef.OFP_DEFAULT_PRIORITY,
+                            buffer_id = ofdef.OFP_NO_BUFFER,
+                            out_port = ofdef.OFPP_ANY,
+                            out_group = ofdef.OFPG_ANY,
+                            match = ofdef.ofp_match_oxm(
+                                oxm_fields = [
+                                    match_network(networkid),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr_bytes(macaddress)),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
+                                    ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,ip4_addr_bytes(ipaddress)),
+                                    ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO,ofdef.IPPROTO_ICMP),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_TYPE,8),
+                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_CODE,0)
+                                ]
+                            ),
+                            instructions = [
+                                ofdef.ofp_instruction_actions(
+                                    actions = [
+                                        ofdef.ofp_action_output(
+                                            port = ofdef.OFPP_CONTROLLER,
+                                            max_len = ofdef.OFPCML_NO_BUFFER
+                                        )
+                                    ]
+                                )
+                            ]
+                        )
+                    ]
             else:
                 def _createicmpflows(subnetinfo):
                     ipaddress,macaddress,_,networkid = subnetinfo
@@ -249,7 +259,7 @@ class ICMPResponderUpdater(FlowUpdater):
                             out_group = ofdef.OFPG_ANY,
                             match = ofdef.ofp_match_oxm(
                                 oxm_fields = [
-                                    ofdef.create_oxm(ofdef.NXM_NX_REG5, networkid),
+                                    match_network(networkid),
                                     ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr_bytes(macaddress)),
                                     ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
                                     ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,ip4_addr_bytes(ipaddress)),
@@ -298,33 +308,6 @@ class ICMPResponderUpdater(FlowUpdater):
                                     ]
                                 )
                             ]
-                        )
-                    ]
-
-                def _deleteicmpflows(subnetinfo):
-                    ipaddress,macaddress,_,networkid = subnetinfo
-
-                    return [
-                        ofdef.ofp_flow_mod(
-                            cookie = 0x2,
-                            cookie_mask = 0xffffffffffffffff,
-                            table_id = l3input,
-                            command = ofdef.OFPFC_DELETE,
-                            priority = ofdef.OFP_DEFAULT_PRIORITY,
-                            buffer_id = ofdef.OFP_NO_BUFFER,
-                            out_port = ofdef.OFPP_ANY,
-                            out_group = ofdef.OFPG_ANY,
-                            match = ofdef.ofp_match_oxm(
-                                oxm_fields = [
-                                    ofdef.create_oxm(ofdef.NXM_NX_REG5,networkid),
-                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr_bytes(macaddress)),
-                                    ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
-                                    ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,ip4_addr_bytes(ipaddress)),
-                                    ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO,ofdef.IPPROTO_ICMP),
-                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_TYPE,8),
-                                    ofdef.create_oxm(ofdef.OXM_OF_ICMPV4_CODE,0)
-                                ]
-                            )
                         )
                     ]
 
