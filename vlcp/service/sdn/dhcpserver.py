@@ -300,7 +300,7 @@ class DHCPUpdater(FlowUpdater):
                             if hasattr(p.subnet, 'gateway'):
                                 entries[d.OPTION_ROUTER] = p.subnet.gateway
                             if hasattr(p.subnet, 'dns_nameservers'):
-                                entries[d.OPTION_DNSSERVER] = p.subnet.dns_servers
+                                entries[d.OPTION_DNSSERVER] = p.subnet.dns_nameservers
                             if hasattr(p.subnet, 'domain_name'):
                                 entries[d.OPTION_DOMAINNAME] = p.subnet.domain_name
                             if hasattr(p.subnet, 'mtu'):
