@@ -150,13 +150,13 @@ dhcp_option_message_type = nstruct((dhcp_message_type, 'value'),
                                    criteria = lambda x: x.tag in (OPTION_MESSAGE_TYPE,),
                                    init = packvalue(OPTION_MESSAGE_TYPE, 'tag'))
 
-dhcp_option_mtu = nstruct((uint16, 'value'),
-                          name = 'dhcp_option_mtu',
+dhcp_option_uint16 = nstruct((uint16, 'value'),
+                          name = 'dhcp_option_uint16',
                           base = dhcp_option,
-                          criteria = lambda x: x.tag == OPTION_MTU,
+                          criteria = lambda x: x.tag in (OPTION_MTU, OPTION_MAX_MESSAGE_SIZE),
                           init = packvalue(OPTION_MTU, 'tag'))
 
-dhcp_option_mtu._parse_from_value = lambda x: int(x)
+dhcp_option_uint16._parse_from_value = lambda x: int(x)
 
 dhcp_option_requested_options = nstruct((dhcp_tag[0], 'value'),
                                         name = 'dhcp_option_requested_options',
