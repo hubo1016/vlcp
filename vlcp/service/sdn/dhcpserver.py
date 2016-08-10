@@ -323,6 +323,7 @@ class DHCPUpdater(FlowUpdater):
                                 entries.update(p.extra_dhcp_options)
                             options.update(d.create_dhcp_options(entries, True, True))
                             entries = {d.OPTION_SERVER_IDENTIFIER: server_address}
+                            options.update(d.create_dhcp_options(entries, True, True))
                             options = dict((k,v) for k,v in options.items() if v is not None)
                             if d.OPTION_LEASE_TIME not in options:
                                 options[d.OPTION_LEASE_TIME] = d.create_option_from_value(d.OPTION_LEASE_TIME, d.DHCPTIME_INFINITE)
