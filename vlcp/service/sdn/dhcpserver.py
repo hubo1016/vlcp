@@ -258,7 +258,7 @@ class DHCPUpdater(FlowUpdater):
             currentlognetinfo = dict((n, id) for n,id in self._lastlognets if n in allobjs)
             currentlogportinfo = dict((p, (id, currentlognetinfo[p.network], p.ip_address, p.mac_address, getattr(p.subnet, 'dhcp_server', self._parent.serveraddress)))
                                       for p,id in self._lastlogports
-                                      if p in allobjs and p.network in currentlognetinfo)
+                                      if p in allobjs and p.network in currentlognetinfo and hasattr(p,'subnet'))
             currentserveraddresses = set((v[4], self._parent.servermac, p.network.id, True)
                                          for p,v in currentlogportinfo.items())
             self._lastlognetinfo = currentlognetinfo
@@ -282,7 +282,7 @@ class DHCPUpdater(FlowUpdater):
                                        }
                             # options from network
                             if hasattr(p.network, 'dns_nameservers'):
-                                entries[d.OPTION_DNSSERVER] = p.network.dns_servers
+                                entries[d.OPTION_DNSSERVER] = p.network.dns_nameservers
                             if hasattr(p.network, 'domain_name'):
                                 entries[d.OPTION_DOMAINNAME] = p.network.domain_name
                             if hasattr(p.network, 'mtu'):
