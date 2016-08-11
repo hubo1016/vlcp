@@ -25,7 +25,7 @@ import itertools
 from vlcp.utils.dataobject import ReferenceObject
 from vlcp.service.sdn import arpresponder
 import vlcp.utils.dhcp as d
-from vlcp.utils.netutils import parse_ip4_network, get_broadcast
+from vlcp.utils.netutils import parse_ip4_network, get_broadcast, get_netmask
 import os
 from namedstruct.stdprim import uint16
 
@@ -295,7 +295,7 @@ class DHCPUpdater(FlowUpdater):
                                 entries.update(p.network.extra_dhcp_options)
                             options = d.create_dhcp_options(entries, True, True)
                             # options from subnet
-                            entries = {d.OPTION_NETMASK : ip4_addr.formatter(network),
+                            entries = {d.OPTION_NETMASK : ip4_addr.formatter(get_netmask(network)),
                                        d.OPTION_BROADCAST : ip4_addr.formatter(get_broadcast(network, mask))}
                             if hasattr(p.subnet, 'gateway'):
                                 entries[d.OPTION_ROUTER] = p.subnet.gateway
