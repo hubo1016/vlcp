@@ -295,7 +295,7 @@ class DHCPUpdater(FlowUpdater):
                                 entries.update(p.network.extra_dhcp_options)
                             options = d.create_dhcp_options(entries, True, True)
                             # options from subnet
-                            entries = {d.OPTION_NETMASK : ip4_addr.formatter(get_netmask(network)),
+                            entries = {d.OPTION_NETMASK : ip4_addr.formatter(get_netmask(mask)),
                                        d.OPTION_BROADCAST : ip4_addr.formatter(get_broadcast(network, mask))}
                             if hasattr(p.subnet, 'gateway'):
                                 entries[d.OPTION_ROUTER] = p.subnet.gateway
