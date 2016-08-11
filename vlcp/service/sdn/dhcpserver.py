@@ -311,7 +311,10 @@ class DHCPUpdater(FlowUpdater):
                                 entries[d.OPTION_LEASE_TIME] = p.subnet.lease_time
                             # Routes is special
                             if hasattr(p.subnet, 'host_routes'):
-                                entries[d.OPTION_CLASSLESSROUTE] = p.subnet.host_routes
+                                routes = list(p.subnet.host_routes)
+                                if routes and not any(parse_ip4_network(r[0]) == (0,0) for r in routes):
+                                    routes.append(['0.0.0.0/0', p.subnet.gateway])
+                                entries[d.OPTION_CLASSLESSROUTE] = routes
                             # TODO: add extra routes from routers
                             if hasattr(p.subnet, 'extra_dhcp_options'):
                                 entries.update(p.subnet.extra_dhcp_options)
