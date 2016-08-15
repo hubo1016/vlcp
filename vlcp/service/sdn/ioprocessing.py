@@ -346,6 +346,14 @@ class IOFlowUpdater(FlowUpdater):
                                                        out_port = ofport,
                                                        out_group = ofdef.OFPG_ANY,
                                                        match = ofdef.ofp_match_oxm()))
+                        cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
+                                                       command = ofdef.OFPFC_DELETE,
+                                                       priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                                       buffer_id = ofdef.OFP_NO_BUFFER,
+                                                       out_port = ofdef.OFPP_IN_PORT,
+                                                       out_group = ofdef.OFPG_ANY,
+                                                       match = ofdef.ofp_match_oxm(oxm_fields = [
+                                                                    ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, ofport)])))
                 elif obj.isinstance(PhysicalPort):
                     ofport = _lastportnames.get(obj.name)
                     if ofport is not None:
