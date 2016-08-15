@@ -383,8 +383,9 @@ class RedisClient(RedisClientBase):
         if self._subscribeconn:
             p.append(self._subscribeconn)
             self._subscribeconn = None
-        for o in p:
-            container.subroutine(self._shutdown_conn(container, o))
+        for m in container.executeAll([self._shutdown_conn(container, o)
+                                       for o in p]):
+            yield  m
     class _RedisConnection(object):
         def __init__(self, client, container):
             self._client = client
@@ -394,12 +395,11 @@ class RedisClient(RedisClientBase):
         def shutdown(self):
             if self._client:
                 try:
-                    self._client.shutdown(self._container)
+                    for m in self._client.shutdown(self._container):
+                        yield m
                 finally:
                     self._client = None
                     self._container = None
-            if False:
-                yield
     def make_connobj(self, container):
         '''
         Return an object to be used like a connection. Put the connection-like object in module.connections
