@@ -450,6 +450,8 @@ class CBQueue(object):
                     self.maxstat = maxlength * 10
             else:
                 self.maxstat = maxstat
+            if self.maxstat >= 10240:
+                self.maxstat = 10240
             self.waited = set()
             self.key = key
             self.preserve = preserveForNew
@@ -463,6 +465,8 @@ class CBQueue(object):
             return initer
         def append(self, value, force = False):
             key = getattr(value, self.key, self.nokey)
+            # We use hash instead of reference or weakref, this may cause problem, but better thank leak.
+            kid = hash(key)
             if not force:
                 w = self._tryAppend(key)
                 if w is not None:
@@ -476,7 +480,7 @@ class CBQueue(object):
             else:
                 node = CBQueue.MultiQueue.CircleListNode((key,deque()))
                 node.value[1].append(value)
-                qs = self.queueStat.setdefault(key, 0)
+                qs = self.queueStat.setdefault(kid, 0)
                 if qs * len(self.queueStat) >= len(self.statseq):
                     self.queues.insertprev(node)
                 else:
@@ -511,7 +515,7 @@ class CBQueue(object):
                     else:
                         self.waited.add((False, False))
                         return AutoClassQueueCanWriteEvent.createMatcher(self, False, False)
-            elif key in self.queueStat:
+            elif hash(key) in self.queueStat:
                 if self.totalSize < self.maxlength - self.preserve:
                     return None
                 else:
@@ -539,15 +543,16 @@ class CBQueue(object):
                 raise IndexError('pop from a blocked or empty queue')
             c = self.queues.next()
             key = c.value[0]
+            kid = hash(key)
             ret = c.value[1].popleft()
             self.totalSize -= 1
-            self.queueStat[key] = self.queueStat.get(key, 0) + 1
+            self.queueStat[kid] = self.queueStat.get(kid, 0) + 1
             while len(self.statseq) >= min(self.maxstat, 10 * len(self.queueStat) + 10):
                 k1 = self.statseq.popleft()
                 self.queueStat[k1] = self.queueStat[k1] - 1
-                if self.queueStat[k1] <= 0 and not k1 in self.queueDict:
+                if self.queueStat[k1] <= 0:
                     del self.queueStat[k1]
-            self.statseq.append(key)
+            self.statseq.append(kid)
             if not c.value[1]:
                 del self.queueDict[c.value[0]]
                 self.queues.remove(c)
@@ -647,7 +652,7 @@ class CBQueue(object):
         def _unblock(self, key):
             self.blockKeys.remove(key)
             node = self.queueDict[key]
-            qs = self.queueStat.setdefault(key, 0)
+            qs = self.queueStat.setdefault(hash(key), 0)
             if qs * len(self.queueStat) >= len(self.statseq):
                 self.queues.insertprev(node)
             else:
