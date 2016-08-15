@@ -163,7 +163,9 @@ class ICMPResponderUpdater(FlowUpdater):
                                           self.parent.inroutermac,o.network.id,currentlognetsinfo[o.network]))
                                         for o in allobjects if o.isinstance(SubNet)
                                             and hasattr(o,"router") and o in currentrouterportsinfo
-                                            and o.network in currentlognetsinfo)
+                                            and o.network in currentlognetsinfo
+                                            and (hasattr(currentrouterportsinfo[o],"ip_address")
+                                                or hasattr(o,"gateway")))
             self._lastsubnetsinfo = currentsubnetsinfo
 
             ofdef = connection.openflowdef
