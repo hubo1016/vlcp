@@ -392,7 +392,7 @@ class VRouterApi(Module):
                                 subnetmapobj.allocated_ips[str(ipaddress)] = newrouterport.create_weakreference()
                             else:
                                 raise ValueError(" ip address have used in subnet "+ newrouterport.ip_address)
-                        #else:
+                        else:
                             # not have special ip address, special gateway to this only router port
                             # gateway in subnet existed be sure
 
@@ -402,6 +402,10 @@ class VRouterApi(Module):
                             # we do not need to change router port attr
 
                             #setattr(newrouterport,"ip_address",subnetobj.gateway)
+
+                            # it may be subnet not have gateway, checkout it
+                            if not hasattr(subnetobj,"gateway"):
+                                raise ValueError(" interface not special ip_address and subnet has no gateway")
 
                         #routerport = set_new(routerport,newrouterport)
                         values[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys)+i] = set_new(
