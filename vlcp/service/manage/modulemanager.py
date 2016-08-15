@@ -4,7 +4,7 @@ Created on 2015/12/2
 :author: hubo
 '''
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module, api
+from vlcp.server.module import Module, api, findModule
 from vlcp.event.core import TimerEvent
 from vlcp.event.runnable import RoutineContainer
 from time import time
@@ -47,7 +47,7 @@ class Manager(Module):
                 loaded = self.activeModules().values()
                 self._logger.debug('Checking loaded modules: %r', loaded)
                 for k in loaded:
-                    p, _ = self.server.moduleloader._findModule(k, False)
+                    p, _ = findModule(k, False)
                     if not p or not hasattr(p, '__file__') or not p.__file__:
                         continue
                     if p.__file__.endswith('.pyc'):
