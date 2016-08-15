@@ -3,29 +3,22 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to VLCP's documentation!
+.. _index:
+
+   
+VLCP - New generation SDN framework
 ================================
 
 Contents:
 
-.. automodule:: vlcp
-   :members:
-.. automodule:: vlcp.config.config
-   :members:
-.. automodule:: vlcp.server.server
-   :members:
-.. automodule:: vlcp.service
-   :members:
-.. automodule:: vlcp.start
-   :members:
-.. automodule:: vlcp.event.core
-   :members:
-.. automodule:: vlcp.protocol
-   :members:
-.. automodule:: vlcp.utils
-   :members:
 .. toctree::
    :maxdepth: 2
+   :numbered:
+   
+   quickguide
+   usermanual
+   developer
+   reference
 
 Indices and tables
 ==================
