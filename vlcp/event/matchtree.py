@@ -335,7 +335,10 @@ class MatchTree(object):
         current = self.subtree(matcher, False)
         if current is None:
             return
-        del current.matchers[obj]
+        try:
+            del current.matchers[obj]
+        except Exception:
+            pass
         while not current.matchers and not hasattr(current,'any') \
                 and not current.index and current.parent is not None:
             # remove self from parents
