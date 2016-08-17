@@ -214,6 +214,7 @@ class Scheduler(object):
         self.processevents = processevents
         #self.logger.setLevel(WARNING)
         self.debugging = False
+        self._queue_event = None
     def register(self, matchers, runnable):
         '''
         Register an iterator(runnable) to scheduler and wait for events
@@ -275,7 +276,11 @@ class Scheduler(object):
         Send a new event to the main queue. If the queue or sub-queue is full, return a wait event
         :returns: None if succeeded. Matcher for QueueCanWriteEvent if sub-queue is full.
         '''
-        return self.queue.append(event, False)
+        matcher = self.queue.append(event, False)
+        if matcher is not None and self._queue_event is not None:
+            if matcher.isMatch(self._queue_event):
+                self._queue_event.discard = True
+        return matcher
     def emergesend(self, event):
         '''
         Force send a new event to the main queue.
@@ -389,6 +394,9 @@ class Scheduler(object):
                     self.logger.debug('Processing event %s', repr(event))
                 runnables = self.matchtree.matchesWithMatchers(event)
                 for r, m in runnables:
+                    if getattr(event, '_discard', False):
+                        event.canignore = True
+                        break
                     try:
                         self.syscallfunc = None
                         self.syscallrunnable = None
@@ -455,10 +463,14 @@ class Scheduler(object):
                         # The event might block, must process it first
                         processEvent(e, emptys)
                         for qe in qes:
+                            self._queue_event = qe
                             processEvent(qe)
+                        self._queue_event = None
                     else:
                         for qe in qes:
+                            self._queue_event = qe
                             processEvent(qe)
+                        self._queue_event = None
                         processEvent(e, emptys)
                     if quitMatcher.isMatch(e):
                         if e.daemononly:
