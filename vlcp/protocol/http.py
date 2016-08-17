@@ -58,6 +58,131 @@ class HttpProtocolException(Exception):
 class HttpConnectionClosedException(HttpProtocolException):
     pass
 
+linedelimiter = re.compile(br'\r\n')
+statuscheck = re.compile(br'HTTP/\d\.\d[ \t]')
+statuscheckshort = re.compile(br'H(?:T(?:T(?:P(?:/(?:\d(?:\.(?:\d[ \t]?)?)?)?)?)?)?)?$')
+token = br"[\!#$%&\'*+\-\.^_`|~0-9a-zA-Z]+"
+token_r = re.compile(br"^[\!#$%&\'*+\-\.^_`|~0-9a-zA-Z]+$")
+requestline = re.compile(br'^(' + token + br')[ \t]+([^ \t]+)[ \t]+HTTP/(\d\.\d)$')
+statusline = re.compile(br'^HTTP/(\d\.\d)[ \t]+(\d{3})[ \t]+(.*)$')
+headerline = re.compile(br'^(' + token + br')\:[ \t]*(.*?)[ \t]*$')
+chunkedheaderline = re.compile(br'^([0-9a-zA-Z]+)(?:;.*)?$')
+standard_status = {
+    100: 'Continue',
+    101: 'Switching Protocols',
+    102: 'Processing',
+    200: 'OK',
+    201: 'Created',
+    202: 'Accepted',
+    203: 'Non-Authoritative Information',
+    204: 'No Content',
+    205: 'Reset Content',
+    206: 'Partial Content',
+    207: 'Multi-Status',
+    208: 'Already Reported',
+    226: 'IM Used',
+    300: 'Multiple Choices',
+    301: 'Moved Permanently',
+    302: 'Found',
+    303: 'See Other',
+    304: 'Not Modified',
+    305: 'Use Proxy',
+    306: '(Unused)',
+    307: 'Temporary Redirect',
+    308: 'Permanent Redirect',
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    402: 'Payment Required',
+    403: 'Forbidden',
+    404: 'Not Found',
+    405: 'Method Not Allowed',
+    406: 'Not Acceptable',
+    407: 'Proxy Authentication Required',
+    408: 'Request Timeout',
+    409: 'Conflict',
+    410: 'Gone',
+    411: 'Length Required',
+    412: 'Precondition Failed',
+    413: 'Payload Too Large',
+    414: 'URI Too Long',
+    415: 'Unsupported Media Type',
+    416: 'Range Not Satisfiable',
+    417: 'Expectation Failed',
+    421: 'Misdirected Request',
+    422: 'Unprocessable Entity',
+    423: 'Locked',
+    424: 'Failed Dependency',
+    426: 'Upgrade Required',
+    428: 'Precondition Required',
+    429: 'Too Many Requests',
+    431: 'Request Header Fields Too Large',
+    500: 'Internal Server Error',
+    501: 'Not Implemented',
+    502: 'Bad Gateway',
+    503: 'Service Unavailable',
+    504: 'Gateway Timeout',
+    505: 'HTTP Version Not Supported',
+    506: 'Variant Also Negotiates',
+    507: 'Insufficient Storage',
+    508: 'Loop Detected',
+    510: 'Not Extended',
+    511: 'Network Authentication Required'
+}
+weekdayname = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+monthname = [None,
+             'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+# From BaseHTTPServer library
+def date_time_string(timestamp=None):
+    """Return the current date and time formatted for a message header."""
+    if timestamp is None:
+        timestamp = time.time()
+    year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
+    s = "%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
+            weekdayname[wd],
+            day, monthname[month], year,
+            hh, mm, ss)
+    return s
+
+# From cgi library
+def escape_b(s, quote=True):
+    '''Replace special characters "&", "<" and ">" to HTML-safe sequences.
+    If the optional flag quote is true, the quotation mark character (")
+    is also translated.'''
+    s = s.replace(b"&", b"&amp;") # Must be done first!
+    s = s.replace(b"<", b"&lt;")
+    s = s.replace(b">", b"&gt;")
+    if quote:
+        s = s.replace(b'"', b"&quot;")
+    return s
+
+def escape(s, quote=True):
+    '''Replace special characters "&", "<" and ">" to HTML-safe sequences.
+    If the optional flag quote is true, the quotation mark character (")
+    is also translated.'''
+    s = s.replace("&", "&amp;") # Must be done first!
+    s = s.replace("<", "&lt;")
+    s = s.replace(">", "&gt;")
+    if quote:
+        s = s.replace('"', "&quot;")
+    return s
+
+def normalizeHeader(headername):
+    return headername.lower()
+
+specialdisplayheaders = {b'etag':b'ETag', }
+
+def displayHeader(headername):
+    return b'-'.join(p.capitalize() for p in headername.split(b'-'))
+
+def _createstatus(status):
+    if isinstance(status, int) or isinstance(status, _long):
+        status = str(status) + ' ' + standard_status.get(status, 'User-defined')
+    if not isinstance(status, bytes):
+        status = status.encode('ascii')
+    return status
+
+
 @defaultconfig
 class Http(Protocol):
     '''
@@ -69,7 +194,7 @@ class Http(Protocol):
     _default_persourceconnlimit = 50
     _default_pipelinelimit = 10
     _default_headlinelimit = 8192
-    _default_singleheaderlimit = 8192
+    _default_headerlimit = 1048576
     _default_headercountlimit = 1024
     _default_chunkedheaderlimit = 8192
     _default_chunkednumberlimit = 16
@@ -95,6 +220,9 @@ class Http(Protocol):
     _default_errorrewrite = {}
     _default_errorredirect = {}
     _default_responseendpriority = 690
+    _default_defaultresponseheaders = [(b'Content-Type', b'text/html'), (b'Server', b'VLCP HTTP Server'),
+                                    (b'Vary', b'Accept-Encoding')]
+    _default_defaultrequestheaders = [(b'Accept', b'*/*'), (b'User-Agent', b'VLCP HTTP Client')]
     def __init__(self, server = True, defaultversion = None):
         '''
         Constructor
@@ -151,7 +279,7 @@ class Http(Protocol):
                         elif output is None:
                             content_length = 0
                         else:
-                            cl = [(k,v) for k,v in headers if self.normalizeHeader(k) == b'content-length']
+                            cl = [(k,v) for k,v in headers if normalizeHeader(k) == b'content-length']
                             if len(cl) > 1:
                                 requesterror('multiple content-length headers', method, path)
                             elif cl:
@@ -167,59 +295,25 @@ class Http(Protocol):
                                     transfer = b'chunked'
                         # Output headline and headers
                         buffer = []
-                        outputsize = [0]
-                        def write(data):
-                            buffer.append(data)
-                            outputsize[0] += len(data)
-                            if outputsize[0] >= 4096:
-                                for m in connection.write(ConnectionWriteEvent(connection,
-                                                                               connmark,
-                                                                               data = b''.join(buffer))):
-                                    yield m
-                                del buffer[:]
-                                outputsize[0] = 0
-                        for m in write(method):
-                            yield m
-                        for m in write(b' '):
-                            yield m
-                        for m in write(path):
-                            yield m
-                        for m in write(b' HTTP/'):
-                            yield m
-                        for m in write(connection.http_localversion.encode('ascii')):
-                            yield m
-                        for m in write(b'\r\n'):
-                            yield m
-                        if transfer is not None:
-                            for m in write(b'Transfer-Encoding: '):
-                                yield m
-                            for m in write(transfer):
-                                yield m
-                            for m in write(b'\r\n'):
-                                yield m
-                        for k,v in headers:
-                            for m in write(k):
-                                yield m
-                            for m in write(b': '):
-                                yield m
-                            for m in write(v):
-                                yield m
-                            for m in write(b'\r\n'):
-                                yield m
-                        expect = self.useexpect and output is not None and \
-                            (transfer is not None or content_length is not None and content_length > self.useexpectsize)
-                        if expect:
-                            for m in write(b'Expect: 100-continue\r\n'):
-                                yield m
-                        for m in write(b'\r\n'):
-                            yield m
-                        if buffer:
+                        def write():
                             for m in connection.write(ConnectionWriteEvent(connection,
                                                                            connmark,
                                                                            data = b''.join(buffer))):
                                 yield m
                             del buffer[:]
-                            outputsize = [0]
+                        buffer.append(method + b' ' + path + b' HTTP/' +
+                                      connection.http_localversion.encode('ascii') + b'\r\n')
+                        if transfer is not None:
+                            buffer.append(b'Transfer-Encoding: ' + transfer + b'\r\n')
+                        for k,v in headers:
+                            buffer.append(k + b': ' + v + b'\r\n')
+                        expect = self.useexpect and output is not None and \
+                            (transfer is not None or content_length is not None and content_length > self.useexpectsize)
+                        if expect:
+                            buffer.append(b'Expect: 100-continue\r\n')
+                        buffer.append(b'\r\n')
+                        for m in write():
+                            yield m
                         if expect:
                             def waitForContinue():
                                 expect100 = self.responsematcher(connection, xid)
@@ -252,28 +346,15 @@ class Http(Protocol):
                                 except EOFError:
                                     if transfer_chunked:
                                         # Send chunked end
-                                        for m in write(b'0\r\n'):
-                                            yield m
+                                        buffer.append(b'0\r\n')
                                         # Trailers
                                         if hasattr(output, 'trailers'):
                                             for k,v in output.trailers:
-                                                for m in write(k):
-                                                    yield m
-                                                for m in write(b': '):
-                                                    yield m
-                                                for m in write(v):
-                                                    yield m
-                                                for m in write(b'\r\n'):
-                                                    yield m
-                                        for m in write(b'\r\n'):
-                                            yield m
+                                                buffer.append(k + b': ' + v + b'\r\n')
+                                        buffer.append(b'\r\n')
                                         if buffer:
-                                            for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                           connmark,
-                                                                                           data = b''.join(buffer))):
+                                            for m in write():
                                                 yield m
-                                            del buffer[:]
-                                            outputsize = [0]
                                         if not keepalive:
                                             for m in connection.write(ConnectionWriteEvent(connection,
                                                                                            connmark,
@@ -296,21 +377,11 @@ class Http(Protocol):
                                 else:
                                     if transfer_chunked:
                                         if data:
-                                            for m in write(hex(len(data))[2:].encode('ascii')):
+                                            buffer.append(hex(len(data))[2:].encode('ascii') + b'\r\n')
+                                            buffer.append(data)
+                                            buffer.append(b'\r\n')
+                                            for m in write():
                                                 yield m
-                                            for m in write(b'\r\n'):
-                                                yield m
-                                            for m in write(data):
-                                                yield m
-                                            for m in write(b'\r\n'):
-                                                yield m
-                                            if buffer:
-                                                for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                               connmark,
-                                                                                               data = b''.join(buffer))):
-                                                    yield m
-                                                del buffer[:]
-                                                outputsize = [0]
                                     else:
                                         if content_length is not None:
                                             if len(data) > content_length:
@@ -401,17 +472,17 @@ class Http(Protocol):
                                     resp.outputstream.close(connection.scheduler, True)
                             else:
                                 output = resp.outputstream
-                                cl = [(k,v) for k,v in resp.headers if self.normalizeHeader(k) == b'content-length']
+                                cl = [(k,v) for k,v in resp.headers if normalizeHeader(k) == b'content-length']
                                 if len(cl) > 1:
                                     resp = self.createErrorResponse(connection, connection.http_responsexid, 500)
-                                    cl = [(k,v) for k,v in resp.headers if self.normalizeHeader(k) == b'content-length']
+                                    cl = [(k,v) for k,v in resp.headers if normalizeHeader(k) == b'content-length']
                                     content_length = int(cl[0][1])
                                 elif cl:
                                     try:
                                         content_length = int(cl[0][1])
-                                    except:
+                                    except Exception:
                                         resp = self.createErrorResponse(connection, connection.http_responsexid, 500)
-                                        cl = [(k,v) for k,v in resp.headers if self.normalizeHeader(k) == b'content-length']
+                                        cl = [(k,v) for k,v in resp.headers if normalizeHeader(k) == b'content-length']
                                         content_length = int(cl[0][1])
                                 elif output is None:
                                     content_length = 0
@@ -440,52 +511,21 @@ class Http(Protocol):
                                 
                         # Output headline and headers
                         buffer = []
-                        outputsize = [0]
-                        def write(data):
-                            buffer.append(data)
-                            outputsize[0] += len(data)
-                            if outputsize[0] >= 4096:
-                                for m in connection.write(ConnectionWriteEvent(connection,
-                                                                               connmark,
-                                                                               data = b''.join(buffer))):
-                                    yield m
-                                del buffer[:]
-                                outputsize[0] = 0
-                        for m in write(b'HTTP/'):
-                            yield m
-                        for m in write(connection.http_localversion.encode('ascii')):
-                            yield m
-                        for m in write(b' '):
-                            yield m
-                        for m in write(resp.status):
-                            yield m
-                        for m in write(b'\r\n'):
-                            yield m
-                        if transfer is not None:
-                            for m in write(b'Transfer-Encoding: '):
-                                yield m
-                            for m in write(transfer):
-                                yield m
-                            for m in write(b'\r\n'):
-                                yield m
-                        for k,v in resp.headers:
-                            for m in write(k):
-                                yield m
-                            for m in write(b': '):
-                                yield m
-                            for m in write(v):
-                                yield m
-                            for m in write(b'\r\n'):
-                                yield m
-                        for m in write(b'\r\n'):
-                            yield m
-                        if buffer:
+                        def write():
                             for m in connection.write(ConnectionWriteEvent(connection,
                                                                            connmark,
                                                                            data = b''.join(buffer))):
                                 yield m
                             del buffer[:]
-                            outputsize = [0]
+                        buffer.append(b'HTTP/' + connection.http_localversion.encode('ascii') + b' '
+                                      + resp.status + b'\r\n')
+                        if transfer is not None:
+                            buffer.append(b'Transfer-Encoding: ' + transfer + b'\r\n')
+                        for k,v in resp.headers:
+                            buffer.append(k + b': ' + v + b'\r\n')
+                        buffer.append(b'\r\n')
+                        for m in write():
+                            yield m
                         # Send data
                         if output is not None:
                             while True:
@@ -498,37 +538,19 @@ class Http(Protocol):
                                         if transfer_deflate:
                                             data = deflateobj.flush()
                                             if data:
-                                                for m in write(hex(len(data))[2:].encode('ascii')):
-                                                    yield m
-                                                for m in write(b'\r\n'):
-                                                    yield m
-                                                for m in write(data):
-                                                    yield m
-                                                for m in write(b'\r\n'):
-                                                    yield m
+                                                buffer.append(hex(len(data))[2:].encode('ascii'))
+                                                buffer.append(b'\r\n')
+                                                buffer.append(data)
+                                                buffer.append(b'\r\n')
                                         # Send chunked end
-                                        for m in write(b'0\r\n'):
-                                            yield m
+                                        buffer.append(b'0\r\n')
                                         # Send trailers if any
                                         if resp.trailers is not None:
                                             for k,v in resp.trailers:
-                                                for m in write(k):
-                                                    yield m
-                                                for m in write(b': '):
-                                                    yield m
-                                                for m in write(v):
-                                                    yield m
-                                                for m in write(b'\r\n'):
-                                                    yield m
-                                        for m in write(b'\r\n'):
+                                                buffer.append(k + b': ' + v + b'\r\n')
+                                        buffer.append(b'\r\n')
+                                        for m in write():
                                             yield m
-                                        if buffer:
-                                            for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                           connmark,
-                                                                                           data = b''.join(buffer))):
-                                                yield m
-                                            del buffer[:]
-                                            outputsize = [0]
                                     elif content_length is None or content_length > 0:
                                         for m in connection.write(ConnectionWriteEvent(connection,
                                                                                            connmark,
@@ -544,26 +566,15 @@ class Http(Protocol):
                                         if transfer_deflate:
                                             data = deflateobj.compress(data)
                                         if data:
-                                            for m in write(hex(len(data))[2:].encode('ascii')):
+                                            buffer.append(hex(len(data))[2:].encode('ascii') + b'\r\n')
+                                            buffer.append(data)
+                                            buffer.append(b'\r\n')
+                                            for m in write():
                                                 yield m
-                                            for m in write(b'\r\n'):
-                                                yield m
-                                            for m in write(data):
-                                                yield m
-                                            for m in write(b'\r\n'):
-                                                yield m
-                                            if buffer:
-                                                for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                               connmark,
-                                                                                               data = b''.join(buffer))):
-                                                    yield m
-                                                del buffer[:]
-                                                outputsize = [0]
                                     else:
                                         if content_length is not None:
                                             if len(data) > content_length:
                                                 data = data[0:content_length]
-                                                
                                         for m in connection.write(ConnectionWriteEvent(connection,
                                                                                        connmark,
                                                                                        data = data)):
@@ -642,143 +653,22 @@ class Http(Protocol):
             yield m
         connection.http_reqteinfo = None
         connection.http_requestbuffer = None
-    linedelimiter = re.compile(br'\r\n')
-    statuscheck = re.compile(br'HTTP/\d\.\d[ \t]')
-    statuscheckshort = re.compile(br'H(?:T(?:T(?:P(?:/(?:\d(?:\.(?:\d[ \t]?)?)?)?)?)?)?)?$')
-    token = br"[\!#$%&\'*+\-\.^_`|~0-9a-zA-Z]+"
-    requestline = re.compile(br'^(' + token + br')[ \t]+([^ \t]+)[ \t]+HTTP/(\d\.\d)$')
-    statusline = re.compile(br'^HTTP/(\d\.\d)[ \t]+(\d{3})[ \t]+(.*)$')
-    headerline = re.compile(br'^(' + token + br')\:[ \t]*(.*?)[ \t]*$')
-    chunkedheaderline = re.compile(br'^([0-9a-zA-Z]+)(?:;.*)?$')
-    standard_status = {
-        100: 'Continue',
-        101: 'Switching Protocols',
-        102: 'Processing',
-        200: 'OK',
-        201: 'Created',
-        202: 'Accepted',
-        203: 'Non-Authoritative Information',
-        204: 'No Content',
-        205: 'Reset Content',
-        206: 'Partial Content',
-        207: 'Multi-Status',
-        208: 'Already Reported',
-        226: 'IM Used',
-        300: 'Multiple Choices',
-        301: 'Moved Permanently',
-        302: 'Found',
-        303: 'See Other',
-        304: 'Not Modified',
-        305: 'Use Proxy',
-        306: '(Unused)',
-        307: 'Temporary Redirect',
-        308: 'Permanent Redirect',
-        400: 'Bad Request',
-        401: 'Unauthorized',
-        402: 'Payment Required',
-        403: 'Forbidden',
-        404: 'Not Found',
-        405: 'Method Not Allowed',
-        406: 'Not Acceptable',
-        407: 'Proxy Authentication Required',
-        408: 'Request Timeout',
-        409: 'Conflict',
-        410: 'Gone',
-        411: 'Length Required',
-        412: 'Precondition Failed',
-        413: 'Payload Too Large',
-        414: 'URI Too Long',
-        415: 'Unsupported Media Type',
-        416: 'Range Not Satisfiable',
-        417: 'Expectation Failed',
-        421: 'Misdirected Request',
-        422: 'Unprocessable Entity',
-        423: 'Locked',
-        424: 'Failed Dependency',
-        426: 'Upgrade Required',
-        428: 'Precondition Required',
-        429: 'Too Many Requests',
-        431: 'Request Header Fields Too Large',
-        500: 'Internal Server Error',
-        501: 'Not Implemented',
-        502: 'Bad Gateway',
-        503: 'Service Unavailable',
-        504: 'Gateway Timeout',
-        505: 'HTTP Version Not Supported',
-        506: 'Variant Also Negotiates',
-        507: 'Insufficient Storage',
-        508: 'Loop Detected',
-        510: 'Not Extended',
-        511: 'Network Authentication Required'
-    }
-    _default_defaultresponseheaders = [(b'Content-Type', b'text/html'), (b'Server', b'VLCP HTTP Server'),
-                                    (b'Vary', b'Accept-Encoding')]
-    _default_defaultrequestheaders = [(b'Accept', b'*/*'), (b'User-Agent', b'VLCP HTTP Client')]
-    weekdayname = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-    monthname = [None,
-                 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    # From BaseHTTPServer library
-    def date_time_string(self, timestamp=None):
-        """Return the current date and time formatted for a message header."""
-        if timestamp is None:
-            timestamp = time.time()
-        year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
-        s = "%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
-                self.weekdayname[wd],
-                day, self.monthname[month], year,
-                hh, mm, ss)
-        return s
-    # From cgi library
-    @staticmethod
-    def escape_b(s, quote=True):
-        '''Replace special characters "&", "<" and ">" to HTML-safe sequences.
-        If the optional flag quote is true, the quotation mark character (")
-        is also translated.'''
-        s = s.replace(b"&", b"&amp;") # Must be done first!
-        s = s.replace(b"<", b"&lt;")
-        s = s.replace(b">", b"&gt;")
-        if quote:
-            s = s.replace(b'"', b"&quot;")
-        return s
-    @staticmethod
-    def escape(s, quote=True):
-        '''Replace special characters "&", "<" and ">" to HTML-safe sequences.
-        If the optional flag quote is true, the quotation mark character (")
-        is also translated.'''
-        s = s.replace("&", "&amp;") # Must be done first!
-        s = s.replace("<", "&lt;")
-        s = s.replace(">", "&gt;")
-        if quote:
-            s = s.replace('"', "&quot;")
-        return s
-    def normalizeHeader(self, headername):
-        return headername.lower()
-    specialdisplayheaders = {b'etag':b'ETag', }
-    def displayHeader(self, headername):
-        return b'-'.join(p.capitalize() for p in headername.split(b'-'))
     def _createResponseheaders(self, connection, xid, headers, status):
         defaultheaders = self.defaultresponseheaders
         if not connection.http_keepalive and xid == connection.xid - 1 and status[0] != b'1'[0]:
             newheaders = [(b'Connection', b'Close')]
         else:
             newheaders = [(b'Connection', b'Keep-Alive')]
-        newheaders.append((b'Date', self.date_time_string().encode('ascii')))
-        existingHeaders = set(self.normalizeHeader(k) for k,_ in headers)
+        newheaders.append((b'Date', date_time_string().encode('ascii')))
+        existingHeaders = set(normalizeHeader(k) for k,_ in headers)
         existingHeaders.add(b'date')
         existingHeaders.add(b'connection')
         for k,v in defaultheaders:
-            if self.normalizeHeader(k) not in existingHeaders:
+            if normalizeHeader(k) not in existingHeaders:
                 newheaders.append((k, v))
-        newheaders.extend((k,v) for k,v in headers if self.normalizeHeader(k) not in (b'connection', \
+        newheaders.extend((k,v) for k,v in headers if normalizeHeader(k) not in (b'connection', \
                           b'date', b'transfer-encoding'))
         return newheaders
-    def _createstatus(self, status):
-        if isinstance(status, int) or isinstance(status, _long):
-            status = str(status) + ' ' + self.standard_status.get(status, 'User-defined')
-        if not isinstance(status, bytes):
-            status = status.encode('ascii')
-        return status
     class _HttpResponse(object):
         def __init__(self, status, headers, outputstream, trailers = None):
             self.status = status
@@ -786,12 +676,12 @@ class Http(Protocol):
             self.outputstream = outputstream
             self.trailers = trailers
     def createResponse(self, connection, xid, status, headers, outputstream):
-        status = self._createstatus(status)
+        status = _createstatus(status)
         headers = self._createResponseheaders(connection, xid, headers, status)
         return self._HttpResponse(status, headers, outputstream)
     def createErrorResponse(self, connection, xid, status):
         status = self._createstatus(status)
-        content = b'<h1>' + self.escape_b(status) + b'</h1>'
+        content = b'<h1>' + escape_b(status) + b'</h1>'
         content_length = len(content)
         return self.createResponse(connection, xid, status, [(b'Content-Length', str(content_length).encode('ascii'))], MemoryStream(content))
     def createContinueResponse(self, connection, xid):
@@ -851,7 +741,7 @@ class Http(Protocol):
         return resp
     def _createrequestheaders(self, connection, host, method, headers, stream = None, keepalive = True):
         defaultheaders = self.defaultrequestheaders
-        existingHeaders = set(self.normalizeHeader(k) for k,_ in headers)
+        existingHeaders = set(normalizeHeader(k) for k,_ in headers)
         if connection.http_localversion < '1.1' or not keepalive:
             newheaders = [(b'Connection', b'Close')]
         else:
@@ -884,9 +774,9 @@ class Http(Protocol):
                 newheaders.append((b'Content-Length', str(size).encode('ascii')))
             existingHeaders.add(b'content-length')
         for k,v in defaultheaders:
-            if self.normalizeHeader(k) not in existingHeaders:
+            if normalizeHeader(k) not in existingHeaders:
                 newheaders.append((k, v))
-        newheaders.extend((k,v) for k,v in headers if self.normalizeHeader(k) not in (b'connection', b'transfer-encoding', b'host', b'expect'))
+        newheaders.extend((k,v) for k,v in headers if normalizeHeader(k) not in (b'connection', b'transfer-encoding', b'host', b'expect'))
         return newheaders
     def sendRequest(self, connection, host, path = b'/', method = b'GET', headers = [], stream = None, keepalive = True):
         '''
@@ -925,6 +815,11 @@ class Http(Protocol):
         container.http_responses = resps
     def parse(self, connection, data, laststart):
         events = []
+        if hasattr(data, 'tobytes'):
+            data = data.tobytes()
+        else:
+            data = data[:]
+
         if connection.http_parsestage == 'end':
             # Ignore more data
             return (events, 0)
@@ -933,9 +828,9 @@ class Http(Protocol):
             # Try to find out if there is a status line as early as possible
             # len('HTTP/1.1 ') == 9 
             if len(data) <= 9:
-                hasstatus = self.statuscheckshort.match(data)
+                hasstatus = statuscheckshort.match(data)
             else:
-                hasstatus = self.statuscheck.match(data)
+                hasstatus = statuscheck.match(data)
             if not hasstatus:
                 connection.http_parsestage = 'body'
                 connection.http_remoteversion = '0.9'
@@ -996,26 +891,294 @@ class Http(Protocol):
                 events.append(HttpResponseEndEvent(connection, connection.connmark,
                                                    connection.http_responsexid - 1,
                                                    False))
-        def tobytes(d):
-            if hasattr(d, 'tobytes'):
-                return d.tobytes()
-            else:
-                return d[:]
         while start < end:
             if stage == 'end':
                 start = end
-            elif stage == 'headline' or stage == 'headers' or stage == 'chunkedheader' or stage == 'trailers':
-                line_end = self.linedelimiter.search(data, start)
-                if line_end is None:
+            elif stage == 'headers':
+                ls = data.find(b'\r\n\r\n', start)
+                if ls < 0:
                     break
-                ls, le = line_end.span()
+                header_lines = data[start:ls].split(b'\r\n')
+                start = ls + 4
+                if self.headercountlimit is not None and len(header_lines) > self.headercountlimit:
+                    self._logger.info('Bad header detected: header count limit exceeded')
+                    stage = 'end'
+                    httpfail(431)
+                    continue
+                http_headers = []
+                for line in header_lines:
+                    key, sep, value = line.partition(b':')
+                    if not sep or not token_r.match(key):
+                        # Bad header
+                        self._logger.info('Bad header detected: %r', line)
+                        stage = 'end'
+                        httpfail(400)
+                        break
+                    else:
+                        http_headers.append((key, value.strip()))
+                if stage == 'end':
+                    continue
+                connection.http_headers = http_headers
+                # An empty line indicates end of headers
+                # Processing headers
+                headerdict = {}
+                setcookies = []
+                for k,v in http_headers:
+                    kn = normalizeHeader(k)
+                    if kn == b'set-cookie':
+                        # RFC said set-cookie is a special case
+                        # it may appear multiple times and cannot be joined
+                        setcookies.append(v)
+                    elif kn in headerdict:
+                        # RFC said we can join multiple headers with ,
+                        # without changing the meaning
+                        headerdict[kn] = headerdict[kn] + b', ' + v
+                    else:
+                        headerdict[kn] = v
+                if connection.http_localversion >= '1.1':
+                    connection_options = [normalizeHeader(k.strip()) for k in headerdict.get(b'connection', b'').split(b',') if k.strip() != b'']
+                    if connection.http_remoteversion < '1.1':
+                        connection.http_keepalive = b'keep-alive' in connection_options
+                        #connection.http_keepalive = False
+                    else:
+                        connection.http_keepalive = b'close' not in connection_options
+                else:
+                    connection.http_keepalive = False
+                # reqteinfo is in format: (method, acceptTrailers, acceptDeflate, acceptChunk) 
+                if self.server:
+                    if connection.http_method == b'HEAD':
+                        connection.http_reqteinfo.append((connection.http_method, False, False, False))
+                    elif connection.http_remoteversion >= '1.1':
+                        transfer_options = tuple(normalizeHeader(k.strip()) for k in headerdict.get(b'te', b'').split(b',') if k.strip() != b'')
+                        transfer_trailers = b'trailers' in transfer_options
+                        transfer_te = tuple(k.split(b';',2)[0].strip() for k in transfer_options if k != b'trailers')
+                        transfer_deflate = b'deflate' in transfer_te
+                        connection.http_reqteinfo.append((connection.http_method, transfer_trailers, transfer_deflate, True))
+                    else:
+                        connection.http_reqteinfo.append((connection.http_method, False, False, False))
+                # Determine message body
+                if self.server:
+                    stage = 'body'
+                    if connection.http_method == b'CONNECT':
+                        # A tunnel
+                        connection.http_contentlength = None
+                        connection.http_chunked = False
+                        connection.http_deflate = False
+                        connection.http_keepalive = False
+                    elif connection.http_remoteversion >= '1.1' and b'transfer-encoding' in headerdict:
+                        connection.http_contentlength = None
+                        transferencoding = tuple(k.strip().lower() for k in headerdict[b'transfer-encoding'].split(b',') if k.strip() != b'')
+                        if transferencoding and transferencoding[-1] == b'chunked':
+                            connection.http_chunked = True
+                            transferencoding = transferencoding[:-1]
+                        # For security reason, we do not accept data compressed more than once
+                        # Do not allow a chunked in chunked
+                        if not transferencoding:
+                            connection.http_deflate = False
+                            if not connection.http_chunked:
+                                connection.http_keepalive = False
+                        elif len(transferencoding) > 1 or transferencoding[0] == b'chunked':
+                            if self.debugging:
+                                self._logger.debug('Unacceptable transfer encoding: %r', headerdict[b'transfer-encoding'])
+                            stage = 'end'
+                            httpfail(400)
+                        elif transferencoding[0] != b'deflate':
+                            if self.debugging:
+                                self._logger.debug('Unacceptable transfer encoding: %r', headerdict[b'transfer-encoding'])
+                            # We only accept deflate as the compress format
+                            stage = 'end'
+                            httpfail(501)
+                        else:
+                            connection.http_deflate = True
+                            if not connection.http_chunked:
+                                connection.http_keepalive = False
+                    elif b'content-length' in headerdict:
+                        try:
+                            connection.http_contentlength = int(headerdict[b'content-length'])
+                        except:
+                            # Illegal content-length
+                            if self.debugging:
+                                self._logger.debug('Illegal content length: %r', headerdict[b'content-length'])
+                            stage = 'end'
+                            httpfail(400)
+                        else:
+                            if connection.http_contentlength < 0:
+                                # Illegal content-length
+                                if self.debugging:
+                                    self._logger.debug('Illegal content length: %r', headerdict[b'content-length'])
+                                stage = 'end'
+                                httpfail(400)
+                            elif connection.http_contentlength == 0:
+                                # Empty body
+                                connection.http_contentlength = 0
+                            else:
+                                connection.http_deflate = False
+                                connection.http_chunked = False
+                    else:
+                        # Empty body
+                        connection.http_contentlength = 0
+                else:
+                    if connection.http_statuscode >= 100 and connection.http_statuscode < 200:
+                        # 1xx response has no body, and is not a final response
+                        connection.http_contentlength = 0
+                    else:
+                        teinfo = connection.http_reqteinfo.popleft()
+                        if teinfo[0] == b'HEAD':
+                            # HEAD response has no body
+                            connection.http_chunked = False
+                            connection.http_deflate = False
+                            connection.http_contentlength = 0
+                        elif teinfo[0] == b'CONNECT':
+                            connection.http_contentlength = None
+                            connection.http_chunked = False
+                            connection.http_deflate = False
+                        elif connection.http_statuscode == 304 or connection.http_statuscode == 204:
+                            # 204 and 304 response has no body
+                            connection.http_chunked = False
+                            connection.http_deflate = False
+                            connection.http_contentlength = 0
+                        elif connection.http_remoteversion >= '1.1' and b'transfer-encoding' in headerdict:
+                            connection.http_contentlength = None
+                            transferencoding = tuple(k.strip().lower() for k in headerdict[b'transfer-encoding'].split(b',') if k.strip() != b'')
+                            if transferencoding and transferencoding[-1] == b'chunked':
+                                connection.http_chunked = True
+                                transferencoding = transferencoding[:-1]
+                            # For security reason, we do not accept data compressed more than once
+                            # Do not allow a chunked in chunked
+                            if not transferencoding:
+                                connection.http_deflate = False
+                                if not connection.http_chunked:
+                                    connection.http_keepalive = False
+                            elif len(transferencoding) > 1 or transferencoding[0] == b'chunked':
+                                if self.debugging:
+                                    self._logger.debug('Unacceptable transfer encoding: %r', headerdict[b'transfer-encoding'])
+                                stage = 'end'
+                                httpfail()
+                            elif transferencoding[0] != b'deflate':
+                                # We only accept deflate as the compress format
+                                if self.debugging:
+                                    self._logger.debug('Unacceptable transfer encoding: %r', headerdict[b'transfer-encoding'])
+                                stage = 'end'
+                                httpfail()
+                            else:
+                                connection.http_deflate = True
+                                if not connection.http_chunked:
+                                    connection.http_keepalive = False
+                        elif b'content-length' in headerdict:
+                            try:
+                                connection.http_contentlength = int(headerdict[b'content-length'])
+                            except:
+                                # Illegal content-length
+                                stage = 'end'
+                                httpfail()
+                            else:
+                                if connection.http_contentlength < 0:
+                                    # Illegal content-length
+                                    httpfail()
+                                elif connection.http_contentlength == 0:
+                                    # Empty body
+                                    connection.http_contentlength = 0
+                                else:
+                                    connection.http_deflate = False
+                                    connection.http_chunked = False
+                        else:
+                            # A undetermined-length body
+                            connection.http_contentlength = None
+                            connection.http_deflate = False
+                            connection.http_chunked = False
+                            connection.http_keepalive = False
+                expect_100 = False
+                if stage != 'end' and self.server:
+                    if b'expect' in headerdict:
+                        if headerdict[b'expect'].lower() != b'100-continue':
+                            if self.debugging:
+                                self._logger.debug('Unacceptable expect: %r', headerdict[b'expect'])
+                            httpfail(417)
+                        else:
+                            expect_100 = True
+                    else:
+                        expect_100 = False
+                if stage != 'end':
+                    if connection.http_contentlength == 0:
+                        inputstream = MemoryStream(b'')
+                        if connection.http_keepalive:
+                            stage = 'headline'
+                        else:
+                            stage = 'end'
+                        connection.http_idle = True
+                        inputstream.trailers = []
+                    else:
+                        if expect_100:
+                            inputstream = self._HttpContinueStream(self, connection, connection.xid)
+                        else:
+                            inputstream = Stream()
+                        if connection.http_deflate:
+                            connection.http_deflateobj = zlib.decompressobj()
+                        if connection.http_chunked:
+                            stage = 'chunkedheader'
+                        else:
+                            stage = 'body'
+                            inputstream.trailers = []
+                            connection.http_dataread = 0
+                        connection.http_currentstream = inputstream
+                    if self.server:
+                        self._logger.info('Request received from connection %r, xid = %d: %r', connection, connection.xid,
+                                          connection.http_method + b' ' + connection.http_path + b' HTTP/' + connection.http_remoteversion.encode('ascii'))
+                        r = HttpRequestEvent(headerdict.get(b'host', b''),
+                                                       connection.http_path,
+                                                       connection.http_method,
+                                                       connection,
+                                                       connection.connmark,
+                                                       connection.xid,
+                                                       self,
+                                                       headers = connection.http_headers,
+                                                       headerdict = headerdict,
+                                                       setcookies = setcookies,
+                                                       stream = inputstream
+                                                       )
+                        if connection.xid >= connection.http_responsexid + self.pipelinelimit:
+                            connection.http_requestbuffer.append(r)
+                        else:
+                            events.append(r)
+                        connection.xid += 1
+                    else:
+                        self._logger.info('Response received from connection %r, xid = %d: %r', connection, connection.http_responsexid,
+                                          b'HTTP/' + connection.http_remoteversion.encode('utf-8') + b' ' + connection.http_status)
+                        events.append(HttpResponseEvent(connection,
+                                                     connection.connmark,
+                                                     connection.http_responsexid,
+                                                     connection.http_statuscode < 100 or connection.http_statuscode >= 200,
+                                                     connection.http_statuscode >= 400,
+                                                     statuscode = connection.http_statuscode,
+                                                     status = connection.http_status,
+                                                     statustext = connection.http_statustext,
+                                                     headers = connection.http_headers,
+                                                     headerdict = headerdict,
+                                                     setcookies = setcookies,
+                                                     stream = inputstream
+                                                     ))
+                        if connection.http_statuscode < 100 or connection.http_statuscode >= 200:
+                            connection.http_responsexid += 1
+                            if stage == 'headline':
+                                events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                                   connection.http_responsexid - 1,
+                                                                   True))
+                            elif stage == 'end':
+                                events.append(HttpResponseEndEvent(connection, connection.connmark,
+                                                                   connection.http_responsexid - 1,
+                                                                   False))
+            elif stage == 'headline' or stage == 'chunkedheader' or stage == 'trailers':
+                ls = data.find(b'\r\n', start)
+                if ls < 0:
+                    break
+                le = ls + 2
                 if stage == 'headline':
                     if start == ls:
                         # RFC said that we should ignore at least one empty line
                         # to achieve robustness
                         pass
                     elif self.server:
-                        match = self.requestline.match(data[start:ls])
+                        match = requestline.match(data[start:ls])
                         if match is None:
                             # Bad request
                             if connection.http_remoteversion is None:
@@ -1023,321 +1186,61 @@ class Http(Protocol):
                             stage = 'end'
                             if self.debugging:
                                 if ls - start > 200:
-                                    self._logger.info('Invalid request from connection %r: %r...', connection, tobytes(data[start:start + 200]))
+                                    self._logger.info('Invalid request from connection %r: %r...', connection, data[start:start + 200])
                                 else:
-                                    self._logger.info('Invalid request from connection %r: %r', connection, tobytes(data[start:ls]))
+                                    self._logger.info('Invalid request from connection %r: %r', connection, data[start:ls])
                             httpfail(400)
                         else:
-                            connection.http_remoteversion = str(tobytes(match.group(3)).decode('ascii'))
-                            connection.http_path = tobytes(match.group(2))
-                            connection.http_method = tobytes(match.group(1)).upper()
+                            connection.http_remoteversion = str(match.group(3).decode('ascii'))
+                            connection.http_path = match.group(2)
+                            connection.http_method = match.group(1).upper()
                             connection.http_headers = []
                             stage = 'headers'
                             if self.debugging:
                                 if ls - start > 200:
-                                    self._logger.debug('First line of request received from connection %r: %r...', connection, tobytes(data[start:start + 200]))
+                                    self._logger.debug('First line of request received from connection %r: %r...', connection, data[start:start + 200])
                                 else:
-                                    self._logger.debug('First line of request received from connection %r: %r', connection, tobytes(data[start:ls]))
+                                    self._logger.debug('First line of request received from connection %r: %r', connection, data[start:ls])
                             connection.http_idle = False
                             if connection.xid == connection.http_responsexid:
                                 events.append(HttpStateChange(connection, connection.connmark, HttpStateChange.NEXTINPUT))
                     else:
-                        match = self.statusline.match(data[start:ls])
+                        match = statusline.match(data[start:ls])
                         if match is None:
                             if self.debugging:
-                                self._logger.info('Bad headline detected: %r', tobytes(data[start:ls]))
+                                self._logger.info('Bad headline detected: %r', data[start:ls])
                             # Bad response
                             stage = 'end'
                             connection.http_remoteversion = '1.0'
                             httpfail()
                         else:
-                            connection.http_remoteversion = str(tobytes(match.group(1)).decode('ascii'))
-                            connection.http_status = tobytes(match.group(2)) + b' ' + tobytes(match.group(3))
-                            connection.http_statuscode = int(tobytes(match.group(2)))
-                            connection.http_statustext = tobytes(match.group(3))
+                            connection.http_remoteversion = str(match.group(1).decode('ascii'))
+                            connection.http_status = match.group(2) + b' ' + match.group(3)
+                            connection.http_statuscode = int(match.group(2))
+                            connection.http_statustext = match.group(3)
                             connection.http_headers = []
                             stage = 'headers'
                             if self.debugging:
                                 if ls - start > 200:
-                                    self._logger.debug('First line of response received from connection %r: %r...', connection, tobytes(data[start:start + 200]))
+                                    self._logger.debug('First line of response received from connection %r: %r...', connection, data[start:start + 200])
                                 else:
-                                    self._logger.debug('First line of response received from connection %r: %r', connection, tobytes(data[start:ls]))
+                                    self._logger.debug('First line of response received from connection %r: %r', connection, data[start:ls])
                             connection.http_idle = False
-                elif stage == 'headers':
-                    if ls == start:
-                        # An empty line indicates end of headers
-                        # Processing headers
-                        headerdict = {}
-                        setcookies = []
-                        for k,v in connection.http_headers:
-                            kn = self.normalizeHeader(k)
-                            if kn == b'set-cookie':
-                                # RFC said set-cookie is a special case
-                                # it may appear multiple times and cannot be joined
-                                setcookies.append(v)
-                            elif kn in headerdict:
-                                # RFC said we can join multiple headers with ,
-                                # without changing the meaning
-                                headerdict[kn] = headerdict[kn] + b', ' + v
-                            else:
-                                headerdict[kn] = v
-                        if connection.http_localversion >= '1.1':
-                            connection_options = [self.normalizeHeader(k.strip()) for k in headerdict.get(b'connection', b'').split(b',') if k.strip() != b'']
-                            if connection.http_remoteversion < '1.1':
-                                connection.http_keepalive = b'keep-alive' in connection_options
-                                #connection.http_keepalive = False
-                            else:
-                                connection.http_keepalive = b'close' not in connection_options
-                        else:
-                            connection.http_keepalive = False
-                        # reqteinfo is in format: (method, acceptTrailers, acceptDeflate, acceptChunk) 
-                        if self.server:
-                            if connection.http_method == b'HEAD':
-                                connection.http_reqteinfo.append((connection.http_method, False, False, False))
-                            elif connection.http_remoteversion >= '1.1':
-                                transfer_options = tuple(self.normalizeHeader(k.strip()) for k in headerdict.get(b'te', b'').split(b',') if k.strip() != b'')
-                                transfer_trailers = b'trailers' in transfer_options
-                                transfer_te = tuple(k.split(b';',2)[0].strip() for k in transfer_options if k != b'trailers')
-                                transfer_deflate = b'deflate' in transfer_te
-                                connection.http_reqteinfo.append((connection.http_method, transfer_trailers, transfer_deflate, True))
-                            else:
-                                connection.http_reqteinfo.append((connection.http_method, False, False, False))
-                        # Determine message body
-                        if self.server:
-                            stage = 'body'
-                            if connection.http_method == b'CONNECT':
-                                # A tunnel
-                                connection.http_contentlength = None
-                                connection.http_chunked = False
-                                connection.http_deflate = False
-                                connection.http_keepalive = False
-                            elif connection.http_remoteversion >= '1.1' and b'transfer-encoding' in headerdict:
-                                connection.http_contentlength = None
-                                transferencoding = tuple(k.strip().lower() for k in headerdict[b'transfer-encoding'].split(b',') if k.strip() != b'')
-                                if transferencoding and transferencoding[-1] == b'chunked':
-                                    connection.http_chunked = True
-                                    transferencoding = transferencoding[:-1]
-                                # For security reason, we do not accept data compressed more than once
-                                # Do not allow a chunked in chunked
-                                if not transferencoding:
-                                    connection.http_deflate = False
-                                    if not connection.http_chunked:
-                                        connection.http_keepalive = False
-                                elif len(transferencoding) > 1 or transferencoding[0] == b'chunked':
-                                    if self.debugging:
-                                        self._logger.debug('Unacceptable transfer encoding: %r', headerdict[b'transfer-encoding'])
-                                    stage = 'end'
-                                    httpfail(400)
-                                elif transferencoding[0] != b'deflate':
-                                    if self.debugging:
-                                        self._logger.debug('Unacceptable transfer encoding: %r', headerdict[b'transfer-encoding'])
-                                    # We only accept deflate as the compress format
-                                    stage = 'end'
-                                    httpfail(501)
-                                else:
-                                    connection.http_deflate = True
-                                    if not connection.http_chunked:
-                                        connection.http_keepalive = False
-                            elif b'content-length' in headerdict:
-                                try:
-                                    connection.http_contentlength = int(headerdict[b'content-length'])
-                                except:
-                                    # Illegal content-length
-                                    if self.debugging:
-                                        self._logger.debug('Illegal content length: %r', headerdict[b'content-length'])
-                                    stage = 'end'
-                                    httpfail(400)
-                                else:
-                                    if connection.http_contentlength < 0:
-                                        # Illegal content-length
-                                        if self.debugging:
-                                            self._logger.debug('Illegal content length: %r', headerdict[b'content-length'])
-                                        stage = 'end'
-                                        httpfail(400)
-                                    elif connection.http_contentlength == 0:
-                                        # Empty body
-                                        connection.http_contentlength = 0
-                                    else:
-                                        connection.http_deflate = False
-                                        connection.http_chunked = False
-                            else:
-                                # Empty body
-                                connection.http_contentlength = 0
-                        else:
-                            if connection.http_statuscode >= 100 and connection.http_statuscode < 200:
-                                # 1xx response has no body, and is not a final response
-                                connection.http_contentlength = 0
-                            else:
-                                teinfo = connection.http_reqteinfo.popleft()
-                                if teinfo[0] == b'HEAD':
-                                    # HEAD response has no body
-                                    connection.http_chunked = False
-                                    connection.http_deflate = False
-                                    connection.http_contentlength = 0
-                                elif teinfo[0] == b'CONNECT':
-                                    connection.http_contentlength = None
-                                    connection.http_chunked = False
-                                    connection.http_deflate = False
-                                elif connection.http_statuscode == 304 or connection.http_statuscode == 204:
-                                    # 204 and 304 response has no body
-                                    connection.http_chunked = False
-                                    connection.http_deflate = False
-                                    connection.http_contentlength = 0
-                                elif connection.http_remoteversion >= '1.1' and b'transfer-encoding' in headerdict:
-                                    connection.http_contentlength = None
-                                    transferencoding = tuple(k.strip().lower() for k in headerdict[b'transfer-encoding'].split(b',') if k.strip() != b'')
-                                    if transferencoding and transferencoding[-1] == b'chunked':
-                                        connection.http_chunked = True
-                                        transferencoding = transferencoding[:-1]
-                                    # For security reason, we do not accept data compressed more than once
-                                    # Do not allow a chunked in chunked
-                                    if not transferencoding:
-                                        connection.http_deflate = False
-                                        if not connection.http_chunked:
-                                            connection.http_keepalive = False
-                                    elif len(transferencoding) > 1 or transferencoding[0] == b'chunked':
-                                        if self.debugging:
-                                            self._logger.debug('Unacceptable transfer encoding: %r', headerdict[b'transfer-encoding'])
-                                        stage = 'end'
-                                        httpfail()
-                                    elif transferencoding[0] != b'deflate':
-                                        # We only accept deflate as the compress format
-                                        if self.debugging:
-                                            self._logger.debug('Unacceptable transfer encoding: %r', headerdict[b'transfer-encoding'])
-                                        stage = 'end'
-                                        httpfail()
-                                    else:
-                                        connection.http_deflate = True
-                                        if not connection.http_chunked:
-                                            connection.http_keepalive = False
-                                elif b'content-length' in headerdict:
-                                    try:
-                                        connection.http_contentlength = int(headerdict[b'content-length'])
-                                    except:
-                                        # Illegal content-length
-                                        stage = 'end'
-                                        httpfail()
-                                    else:
-                                        if connection.http_contentlength < 0:
-                                            # Illegal content-length
-                                            httpfail()
-                                        elif connection.http_contentlength == 0:
-                                            # Empty body
-                                            connection.http_contentlength = 0
-                                        else:
-                                            connection.http_deflate = False
-                                            connection.http_chunked = False
-                                else:
-                                    # A undetermined-length body
-                                    connection.http_contentlength = None
-                                    connection.http_deflate = False
-                                    connection.http_chunked = False
-                                    connection.http_keepalive = False
-                        expect_100 = False
-                        if stage != 'end' and self.server:
-                            if b'expect' in headerdict:
-                                if headerdict[b'expect'].lower() != b'100-continue':
-                                    if self.debugging:
-                                        self._logger.debug('Unacceptable expect: %r', headerdict[b'expect'])
-                                    httpfail(417)
-                                else:
-                                    expect_100 = True
-                            else:
-                                expect_100 = False
-                        if stage != 'end':
-                            if connection.http_contentlength == 0:
-                                inputstream = MemoryStream(b'')
-                                if connection.http_keepalive:
-                                    stage = 'headline'
-                                else:
-                                    stage = 'end'
-                                connection.http_idle = True
-                                inputstream.trailers = []
-                            else:
-                                if expect_100:
-                                    inputstream = self._HttpContinueStream(self, connection, connection.xid)
-                                else:
-                                    inputstream = Stream()
-                                if connection.http_deflate:
-                                    connection.http_deflateobj = zlib.decompressobj()
-                                if connection.http_chunked:
-                                    stage = 'chunkedheader'
-                                else:
-                                    stage = 'body'
-                                    inputstream.trailers = []
-                                    connection.http_dataread = 0
-                                connection.http_currentstream = inputstream
-                            if self.server:
-                                self._logger.info('Request received from connection %r, xid = %d: %r', connection, connection.xid,
-                                                  connection.http_method + b' ' + connection.http_path + b' HTTP/' + connection.http_remoteversion.encode('ascii'))
-                                r = HttpRequestEvent(headerdict.get(b'host', b''),
-                                                               connection.http_path,
-                                                               connection.http_method,
-                                                               connection,
-                                                               connection.connmark,
-                                                               connection.xid,
-                                                               self,
-                                                               headers = connection.http_headers,
-                                                               headerdict = headerdict,
-                                                               setcookies = setcookies,
-                                                               stream = inputstream
-                                                               )
-                                if connection.xid >= connection.http_responsexid + self.pipelinelimit:
-                                    connection.http_requestbuffer.append(r)
-                                else:
-                                    events.append(r)
-                                connection.xid += 1
-                            else:
-                                self._logger.info('Response received from connection %r, xid = %d: %r', connection, connection.http_responsexid,
-                                                  b'HTTP/' + connection.http_remoteversion.encode('utf-8') + b' ' + connection.http_status)
-                                events.append(HttpResponseEvent(connection,
-                                                             connection.connmark,
-                                                             connection.http_responsexid,
-                                                             connection.http_statuscode < 100 or connection.http_statuscode >= 200,
-                                                             connection.http_statuscode >= 400,
-                                                             statuscode = connection.http_statuscode,
-                                                             status = connection.http_status,
-                                                             statustext = connection.http_statustext,
-                                                             headers = connection.http_headers,
-                                                             headerdict = headerdict,
-                                                             setcookies = setcookies,
-                                                             stream = inputstream
-                                                             ))
-                                if connection.http_statuscode < 100 or connection.http_statuscode >= 200:
-                                    connection.http_responsexid += 1
-                                    if stage == 'headline':
-                                        events.append(HttpResponseEndEvent(connection, connection.connmark,
-                                                                           connection.http_responsexid - 1,
-                                                                           True))
-                                    elif stage == 'end':
-                                        events.append(HttpResponseEndEvent(connection, connection.connmark,
-                                                                           connection.http_responsexid - 1,
-                                                                           False))
-                    else:
-                        match = self.headerline.match(data[start:ls])
-                        if match is None:
-                            # Bad header
-                            self._logger.info('Bad header detected: %r', tobytes(data[start:ls]))
-                            stage = 'end'
-                            httpfail(400)
-                        else:
-                            connection.http_headers.append((tobytes(match.group(1)), tobytes(match.group(2))))
-                            if self.headercountlimit is not None and len(connection.http_headers) > self.headercountlimit:
-                                self._logger.info('Bad header detected: header count limit exceeded')
-                                stage = 'end'
-                                httpfail(431)
                 elif stage == 'chunkedheader':
-                    match = self.chunkedheaderline.match(data[start:ls])
-                    if match is None:
+                    chunked_header = data[start:ls]
+                    chunked_header, _, _ = chunked_header.partition(b';')
+                    if self.chunkednumberlimit is not None and len(chunked_header) > self.chunkednumberlimit:
                         stage = 'end'
-                        stopstream(StreamDataEvent.STREAM_ERROR)
+                        stopstream()
                     else:
-                        if self.chunkednumberlimit is not None and len(match.group(1)) > self.chunkednumberlimit:
+                        try:
+                            chunked_size = int(chunked_header, 16)
+                        except Exception:
                             stage = 'end'
-                            stopstream()
+                            stopstream(StreamDataEvent.STREAM_ERROR)
                         else:
-                            connection.http_chunkedsize = int(tobytes(match.group(1)), 16)
-                            if connection.http_chunkedsize == 0:
+                            connection.http_chunkedsize = chunked_size
+                            if chunked_size == 0:
                                 # Last chunked
                                 events.append(StreamDataEvent(connection.http_currentstream,
                                                               StreamDataEvent.STREAM_EOF,
@@ -1373,7 +1276,7 @@ class Http(Protocol):
                                                                        connection.http_responsexid - 1,
                                                                        True))
                     else:
-                        match = self.headerline.match(data[start:ls])
+                        match = headerline.match(data[start:ls])
                         if match is None:
                             # Bad header
                             stage = 'end'
@@ -1383,7 +1286,7 @@ class Http(Protocol):
                             events.append(HttpTrailersReceived(connection.http_currentstream))
                             connection.http_currentstream = None
                         else:
-                            connection.http_trailers.append((tobytes(match.group(1)), tobytes(match.group(2))))
+                            connection.http_trailers.append((match.group(1), match.group(2)))
                             if self.headercountlimit is not None and len(connection.http_trailers) > self.headercountlimit:
                                 stage = 'end'
                                 connection.http_keepalive = False
@@ -1397,7 +1300,7 @@ class Http(Protocol):
                 # Always \r\n
                 if start + 2 > end:
                     break
-                if not self.linedelimiter.match(data, start):
+                if not data[start:start+2] == b'\r\n':
                     stage = 'end'
                     stopstream()
                 else:
@@ -1416,7 +1319,7 @@ class Http(Protocol):
                 if totalsize is not None:
                     resumesize = totalsize - connection.http_dataread
                 if totalsize is not None and resumesize <= end - start:
-                    readdata = tobytes(data[start: start + resumesize])
+                    readdata = data[start: start + resumesize]
                     start += resumesize
                     connection.http_dataread += resumesize
                     if connection.http_chunked:
@@ -1458,7 +1361,7 @@ class Http(Protocol):
                         if not self.server and stage == 'end':
                             events.append(ConnectionControlEvent(connection, ConnectionControlEvent.SHUTDOWN, False, connection.connmark))                            
                 else:
-                    readdata = tobytes(data[start:])
+                    readdata = data[start:]
                     if connection.http_deflate:
                         try:
                             readdata = connection.http_deflateobj.decompress(readdata)
@@ -1476,19 +1379,19 @@ class Http(Protocol):
             stage = 'end'
             start = end
             if self.debugging:
-                self._logger.debug('Headline exceeds limit on connection %r: %r...', connection, tobytes(data[start:start + 100]))
+                self._logger.debug('Headline exceeds limit on connection %r: %r...', connection, data[start:start + 100])
             httpfail(400)
-        if stage == 'headers' and self.singleheaderlimit is not None and end - start > self.singleheaderlimit:
+        if stage == 'headers' and self.headerlimit is not None and end - start > self.headerlimit:
             stage = 'end'
             start = end
             if self.debugging:
-                self._logger.debug('A single header exceeds limit on connection %r: %r...', connection, tobytes(data[start:start + 100]))
+                self._logger.debug('A single header exceeds limit on connection %r: %r...', connection, data[start:start + 100])
             httpfail(431)
         if stage == 'chunkedheader' and self.chunkedheaderlimit is not None and end - start > self.chunkedheaderlimit:
             stage = 'end'
             start = end
             if self.debugging:
-                self._logger.debug('A chunked header exceeds limit on connection %r: %r...', connection, tobytes(data[start:start + 100]))
+                self._logger.debug('A chunked header exceeds limit on connection %r: %r...', connection, data[start:start + 100])
             stopstream()
         if stage == 'body' and laststart == end:
             stage = 'end'
@@ -1500,7 +1403,7 @@ class Http(Protocol):
             # Remote write-close.
             if not self.server:
                 # server closed the connection, we should also close the connection
-                 httpfail()
+                httpfail()
         connection.http_parsestage = stage
         return (events, end - start)
     def beforelisten(self, tcpserver, newsock):

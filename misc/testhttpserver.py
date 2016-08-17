@@ -6,7 +6,7 @@ Created on 2015/8/27
 from pprint import pprint
 from vlcp.server import Server
 from vlcp.event import RoutineContainer, Stream, TcpServer, MemoryStream
-from vlcp.protocol.http import Http, HttpRequestEvent
+from vlcp.protocol.http import Http, HttpRequestEvent, escape_b, escape
 from codecs import getincrementalencoder
 import logging
 
@@ -47,7 +47,7 @@ Headers = %s<br/>
             event.stream.close(self.scheduler)
         if event.connmark == event.connection.connmark and event.connection.connected:
             #outputstream = Stream()
-            document = self.formatstr(self.document, (http.escape_b(event.host), http.escape_b(event.path), http.escape(repr(event.headers)).encode('utf-8')))
+            document = self.formatstr(self.document, (escape_b(event.host), escape_b(event.path), escape(repr(event.headers)).encode('utf-8')))
             outputstream = MemoryStream(document)
             http.startResponse(event.connection, event.xid, b'200 OK', [], outputstream)
             #for m in outputstream.write(self.document, self, True):
