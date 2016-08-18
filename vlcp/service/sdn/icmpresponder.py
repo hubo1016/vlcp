@@ -192,7 +192,7 @@ class ICMPResponderUpdater(FlowUpdater):
                             cookie_mask = 0xffffffffffffffff,
                             table_id = l3input,
                             command = ofdef.OFPFC_DELETE,
-                            priority = ofdef.OFP_DEFAULT_PRIORITY,
+                            priority = ofdef.OFP_DEFAULT_PRIORITY + 1,
                             buffer_id = ofdef.OFP_NO_BUFFER,
                             out_port = ofdef.OFPP_ANY,
                             out_group = ofdef.OFPG_ANY,
@@ -219,7 +219,9 @@ class ICMPResponderUpdater(FlowUpdater):
                             cookie_mask = 0xffffffffffffffff,
                             table_id = l3input,
                             command = ofdef.OFPFC_ADD,
-                            priority = ofdef.OFP_DEFAULT_PRIORITY,
+                            # icmp to router matcher same as ip forward to router
+                            # so priority + 1
+                            priority = ofdef.OFP_DEFAULT_PRIORITY + 1,
                             buffer_id = ofdef.OFP_NO_BUFFER,
                             out_port = ofdef.OFPP_ANY,
                             out_group = ofdef.OFPG_ANY,
@@ -255,7 +257,9 @@ class ICMPResponderUpdater(FlowUpdater):
                             cookie_mask = 0xffffffffffffffff,
                             table_id = l3input,
                             command = ofdef.OFPFC_ADD,
-                            priority = ofdef.OFP_DEFAULT_PRIORITY,
+                            # icmp to router matcher same as ip forward to router
+                            # so priority + 1
+                            priority = ofdef.OFP_DEFAULT_PRIORITY + 1,
                             buffer_id = ofdef.OFP_NO_BUFFER,
                             out_port = ofdef.OFPP_ANY,
                             out_group = ofdef.OFPG_ANY,

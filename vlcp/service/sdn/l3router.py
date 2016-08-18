@@ -27,7 +27,7 @@ class RouterUpdater(FlowUpdater):
     def main(self):
         try:
             self.subroutine(self._update_handler(), True, "updater_handler")
-            self.subroutine(self._router_packetin_handler, True, "router_packetin_handler")
+            self.subroutine(self._router_packetin_handler(), True, "router_packetin_handler")
 
             for m in FlowUpdater.main(self):
                 yield m
@@ -47,10 +47,10 @@ class RouterUpdater(FlowUpdater):
         l3input = self._parent._gettableindex("l3input", self._connection.protocol.vhost)
         l2output = self._parent._gettableindex("l2output", self._connection.protocol.vhost)
 
-        packetin_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3output, None,
+        packetin_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3output, 0x3,
                                                                    self._connection, self._connection.connmark)
 
-        arpreply_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3input, 4,
+        arpreply_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3input, 0x4,
                                                                    self._connection, self._connection.connmark)
 
         def send_broadcast_packet_out(netid,packet):
@@ -173,17 +173,18 @@ class RouterUpdater(FlowUpdater):
                     self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress))
 
             except Exception:
-                self._logger(" handler router packetin message error , ignore !")
+                self._logger.warning(" handler router packetin message error , ignore !")
 
     def _update_handler(self):
 
         dataobjectchange = iop.DataObjectChanged.createMatcher(None, None, self._connection)
 
-        yield (dataobjectchange,)
+        while True:
+            yield (dataobjectchange,)
 
-        self._lastlogicalport, _, self._lastlogicalnet, _ = self.event.current
+            self._lastlogicalport, _, self._lastlogicalnet, _ = self.event.current
 
-        self._update_walk()
+            self._update_walk()
 
     def _update_walk(self):
 
@@ -426,7 +427,7 @@ class RouterUpdater(FlowUpdater):
                             oxm_fields=[
                                 match_network(netid),
                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
-                                ofdef.create_oxm(ofdef.OXM_OF_ARP_THA, mac_addr_bytes(macaddress)),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, mac_addr_bytes(macaddress)),
                                 ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REPLY),
                                 ofdef.create_oxm(ofdef.OXM_OF_ARP_TPA, ip4_addr(ipaddress))
                             ]
@@ -633,7 +634,9 @@ class L3Router(FlowBase):
 
         l3router_default_flow = ofdef.ofp_flow_mod(
             table_id=l3router,
+            command = ofdef.OFPFC_ADD,
             priority=0,
+            buffer_id = ofdef.OFP_NO_BUFFER,
             instructions=[
                 ofdef.ofp_instruction_actions(
                     type=ofdef.OFPIT_CLEAR_ACTIONS
@@ -643,7 +646,9 @@ class L3Router(FlowBase):
 
         l3output_default_flow = ofdef.ofp_flow_mod(
             table_id=l3output,
+            command = ofdef.OFPFC_ADD,
             priority=0,
+            buffer_id = ofdef.OFP_NO_BUFFER,
             instructions=[
                 ofdef.ofp_instruction_actions(
                     actions=[
@@ -656,7 +661,7 @@ class L3Router(FlowBase):
             ]
         )
 
-        for m in conn.protocol.batch([l3router_default_flow, l3output_default_flow]):
+        for m in conn.protocol.batch([l3router_default_flow, l3output_default_flow],conn,self.app_routine):
             yield m
 
     def _uninit_conn(self, conn):
