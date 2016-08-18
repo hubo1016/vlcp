@@ -776,7 +776,7 @@ class Client(Connection):
                 except:
                     self.logger.debug('Failed to create socket for family: ' + repr(family), exc_info = True)
                     continue
-                if not self.udp and self.nodelay:
+                if not self.unix and not self.udp and self.nodelay:
                     self.socket.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
                 try:
                     if self.bindaddress is not None:
