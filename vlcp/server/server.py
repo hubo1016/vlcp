@@ -141,6 +141,13 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None, fork
             for i in range(0, fork):
                 sub_procs[i].start()
             try:
+                import signal
+                def except_return(sig, frame):
+                    raise SystemExit
+                signal.signal(signal.SIGTERM, except_return)
+                signal.signal(signal.SIGINT, except_return)
+                if hasattr(signal, 'SIGHUP'):
+                    signal.signal(signal.SIGHUP, except_return)
                 while True:
                     sleep(2)
                     for i in range(0, fork):
