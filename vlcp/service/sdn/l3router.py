@@ -47,7 +47,7 @@ class RouterUpdater(FlowUpdater):
         l3input = self._parent._gettableindex("l3input", self._connection.protocol.vhost)
         l2output = self._parent._gettableindex("l2output", self._connection.protocol.vhost)
 
-        packetin_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3output, 0x3,
+        packetin_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3output, None,
                                                                    self._connection, self._connection.connmark)
 
         arpreply_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3input, 0x4,
@@ -313,7 +313,7 @@ class RouterUpdater(FlowUpdater):
                                             b'\x00\x00\xff\xff\x00\x00\x00\x00')
             else:
                 def match_network(nid):
-                    return ofdef.create_oxm(ofdef.NXM_NX_REG5, nid)
+                    return ofdef.create_oxm(ofdef.NXM_NX_REG4, nid)
 
             def _createinputflow(macaddress, ipaddress, netid):
                 return [
@@ -330,8 +330,8 @@ class RouterUpdater(FlowUpdater):
                             oxm_fields=[
                                 match_network(netid),
                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, mac_addr_bytes(macaddress)),
-                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
-                                ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ip4_addr_bytes(ipaddress))
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP)
+                                #ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ip4_addr_bytes(ipaddress))
                             ]
                         ),
                         instructions=[
@@ -353,8 +353,8 @@ class RouterUpdater(FlowUpdater):
                             oxm_fields=[
                                 match_network(netid),
                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, mac_addr_bytes(macaddress)),
-                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
-                                ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ip4_addr_bytes(ipaddress))
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP)
+                                #ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ip4_addr_bytes(ipaddress))
                             ]
                         )
                     )
@@ -637,6 +637,7 @@ class L3Router(FlowBase):
             command = ofdef.OFPFC_ADD,
             priority=0,
             buffer_id = ofdef.OFP_NO_BUFFER,
+            match = ofdef.ofp_match_oxm(),
             instructions=[
                 ofdef.ofp_instruction_actions(
                     type=ofdef.OFPIT_CLEAR_ACTIONS
@@ -649,6 +650,7 @@ class L3Router(FlowBase):
             command = ofdef.OFPFC_ADD,
             priority=0,
             buffer_id = ofdef.OFP_NO_BUFFER,
+            match = ofdef.ofp_match_oxm(),
             instructions=[
                 ofdef.ofp_instruction_actions(
                     actions=[
