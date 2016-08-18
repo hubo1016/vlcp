@@ -137,18 +137,23 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None, fork
             sub_procs = []
             for i in range(0, fork):
                 p = multiprocessing.Process(target = start_process)
-                p.daemon = True
                 sub_procs.append(p)
             for i in range(0, fork):
                 sub_procs[i].start()
-            while True:
-                sleep(2)
+            try:
+                while True:
+                    sleep(2)
+                    for i in range(0, fork):
+                        if sub_procs[i].is_alive():
+                            break
+                    else:
+                        break
+            finally:
                 for i in range(0, fork):
-                    if not sub_procs[i].is_alive():
-                        p = multiprocessing.Process(target = start_process)
-                        p.daemon = True
-                        sub_procs[i] = p
-                        p.start()
+                    if sub_procs[i].is_alive():
+                        sub_procs[i].terminate()
+                for i in range(0, fork):
+                    sub_procs[i].join()
         else:
             start_process()
     if daemon:
