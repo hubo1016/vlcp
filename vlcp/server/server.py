@@ -216,8 +216,6 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None, fork
         if not hasattr(os, 'initgroups'):
             configs['initgroups'] = False
         with daemon.DaemonContext(**configs):
-            s = Server()
-            s.serve()
+            main_process()
     else:
-        s = Server()
-        s.serve()
+        main_process()
