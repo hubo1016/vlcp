@@ -25,6 +25,7 @@ class Protocol(Configurable):
     _default_reuseport = False
     vhost = '<other>'
     _logger = getLogger(__name__ + '.Protocol')
+    _default_tcp_nodelay = False
     def __init__(self):
         '''
         Constructor

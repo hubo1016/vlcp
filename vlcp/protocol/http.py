@@ -223,6 +223,7 @@ class Http(Protocol):
     _default_defaultresponseheaders = [(b'Content-Type', b'text/html'), (b'Server', b'VLCP HTTP Server'),
                                     (b'Vary', b'Accept-Encoding')]
     _default_defaultrequestheaders = [(b'Accept', b'*/*'), (b'User-Agent', b'VLCP HTTP Client')]
+    _default_tcp_nodelay = True
     def __init__(self, server = True, defaultversion = None):
         '''
         Constructor
