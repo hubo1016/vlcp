@@ -83,7 +83,7 @@ class RouterUpdater(FlowUpdater):
                         ):
                 yield m
 
-        def _add_host_flow(netid,ipaddress,macaddress,srcmaddress):
+        def _add_host_flow(netid,macaddress,ipaddress,srcmaddress):
             for m in self.execute_commands(conn,
                         [
                             ofdef.ofp_flow_mod(
@@ -95,21 +95,22 @@ class RouterUpdater(FlowUpdater):
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
                                     oxm_fields=[
-                                        ofdef.create_oxm(ofdef.NXM_NX_REG4, netid),
+                                        ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
                                         ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
-                                        ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,ip4_addr_bytes(ipaddress))
+                                        ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,ipaddress)
                                         ]
                                 ),
                                 instructions=[
-                                        ofdef.ofp_action_set_field(
-                                            field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(srcmaddress))
-                                        ),
-                                        ofdef.ofp_action_set_field(
-                                            field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr_bytes(macaddress))
-                                        ),
-                                        ofdef.ofp_action_set_field(
-                                            field = ofdef.create_oxm(ofdef.NXM_NX_REG5,netid)
-                                        ),
+                                        ofdef.ofp_instruction_actions(
+                                                actions = [
+                                                    ofdef.ofp_action_set_field(
+                                                        field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, srcmaddress)
+                                                    ),
+                                                    ofdef.ofp_action_set_field(
+                                                        field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,macaddress)
+                                                    )
+                                                ]
+                                            ),
                                         ofdef.ofp_instruction_goto_table(table_id=l2output)
                                         ]
                             )
@@ -123,19 +124,20 @@ class RouterUpdater(FlowUpdater):
 
             msg = self.event.message
             try:
-                if self.event is packetin_matcher:
+                if self.matcher is packetin_matcher:
                     outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
 
                     findFlag = False
                     outsrcmacaddress = None
                     interface_ipaddress = None
+                    
+                    for routerinfo in self._lastrouterinfo.values():
+                        for _, macaddress, ipaddress, _, _, netid in routerinfo:
 
-                    for _, macaddress, ipaddress, _, netid in self._lastrouterinfo.values():
-
-                        if outnetworkid == netid:
-                            outsrcmacaddress = macaddress
-                            interface_ipaddress = ipaddress
-                            findFlag = True
+                            if outnetworkid == netid:
+                                outsrcmacaddress = macaddress
+                                interface_ipaddress = ipaddress
+                                findFlag = True
 
                     if findFlag:
                         # store msg in buffer
@@ -144,14 +146,14 @@ class RouterUpdater(FlowUpdater):
                         # send ARP request to get dst_ip mac
                         arp_request_packet = arp_packet_l4(
                             dl_src = mac_addr(outsrcmacaddress),
-                            dl_dst = mac_addr([255,255,255,255]),
+                            dl_dst = mac_addr("FF:FF:FF:FF:FF:FF"),
                             arp_op=ofdef.ARPOP_REQUEST,
                             arp_sha=mac_addr(outsrcmacaddress),
                             arp_spa=ip4_addr(interface_ipaddress),
                             arp_tpa=ippacket.ip_dst
                         )
 
-                        self.subroutine(send_broadcast_packet_out(outnetworkid,ippacket))
+                        self.subroutine(send_broadcast_packet_out(outnetworkid,arp_request_packet))
                     else:
                         # drop packet
                         # when packetin don't send all to controller ,, buffer is used for many times
@@ -161,7 +163,7 @@ class RouterUpdater(FlowUpdater):
                     netid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields,ofdef.NXM_NX_REG5))
 
                     arp_reply_packet = ethernet_l7.create(msg.data)
-
+                    
                     reply_ipaddress = arp_reply_packet.arp_spa
                     reply_macaddress = arp_reply_packet.arp_sha
 
