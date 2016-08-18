@@ -13,6 +13,7 @@ from .module import Module, ModuleLoader, ModuleAPICall, ModuleAPIReply, ModuleN
 import logging
 import logging.config
 from vlcp.event.lock import LockEvent
+import os
 
 @config('server')
 class Server(Configurable):
@@ -109,7 +110,7 @@ class Server(Configurable):
             self.moduleloader.subroutine(self.moduleloader.loadByPath(path))
         self.scheduler.main()
 
-def main(configpath = None, startup = None, daemon = False, pidfile = None):
+def main(configpath = None, startup = None, daemon = False, pidfile = None, fork = None):
     if configpath is not None:
         manager.loadfrom(configpath)
     if startup is not None:
@@ -123,6 +124,33 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
             if isinstance(m, type) and issubclass(m, Module) and m is not Module:
                 startup.append('__main__.' + k)
         manager['server.startup'] = startup
+    if fork is not None and fork > 1:
+        if not hasattr(os, 'fork'):
+            raise ValueError('Fork is not supported in this operating system.')
+    def start_process():
+        s = Server()
+        s.serve()
+    def main_process():
+        if fork is not None and fork > 1:
+            import multiprocessing
+            from time import sleep
+            sub_procs = []
+            for i in range(0, fork):
+                p = multiprocessing.Process(target = start_process)
+                p.daemon = True
+                sub_procs.append(p)
+            for i in range(0, fork):
+                sub_procs[i].start()
+            while True:
+                sleep(2)
+                for i in range(0, fork):
+                    if not sub_procs[i].is_alive():
+                        p = multiprocessing.Process(target = start_process)
+                        p.daemon = True
+                        sub_procs[i] = p
+                        p.start()
+        else:
+            start_process()
     if daemon:
         import daemon
         if not pidfile:
@@ -168,7 +196,6 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None):
             locker = PidLocker(pidfile)
         else:
             locker = None
-        import os
         import sys
         # Module loading is related to current path, add it to sys.path
         cwd = os.getcwd()

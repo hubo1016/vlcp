@@ -22,6 +22,7 @@ class Protocol(Configurable):
     _default_writequeuesize = 10
     _default_messagequeuesize = 10
     _default_keepalivetime = None
+    _default_reuseport = False
     vhost = '<other>'
     _logger = getLogger(__name__ + '.Protocol')
     def __init__(self):
