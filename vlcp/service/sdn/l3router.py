@@ -49,20 +49,18 @@ class RouterUpdater(FlowUpdater):
 
     def _time_cycle_handler(self):
 
-        def _flush_packet_buffer():
-
+        while True:
+            
+            for m in self.waitWithTimeout(self._parent.flush_cycle_time):
+                yield m
             ct = time.time()
 
             for _, v in self._packet_buffer.items():
-                for i, _, t in enumerate(v):
+                for i, (_, t) in enumerate(v):
                     if ct - t >= self._parent.flush_cycle_time:
                         del v[i]
-            if False:
-                yield
-
-        while True:
-            for m in self.executeWithTimeout(self._parent.flush_cycle_time,_flush_packet_buffer()):
-                yield m
+            
+            
 
     def _router_packetin_handler(self):
         conn = self._connection
@@ -129,10 +127,10 @@ class RouterUpdater(FlowUpdater):
                                         in_port = ofdef.OFPP_IN_PORT & 0xffff,
                                         table = l2output
                                     )
-                                ]
+                                ],
+                                data = packet._tobytes()
                             )
-                        ],
-                        data = packet._tobytes()
+                        ]
                         ):
                 yield m
 
@@ -229,8 +227,8 @@ class RouterUpdater(FlowUpdater):
 
                     # search msg buffer ,, packet out msg there wait this arp reply
                     if (netid,reply_ipaddress) in self._packet_buffer:
-                        for packet,_ in self._packet_buffer:
-                            self.subroutine(_send_buffer_packet_out(reply_macaddress,reply_ipaddress,dst_macaddress))
+                        for packet, t in self._packet_buffer[(netid,reply_ipaddress)]:
+                            self.subroutine(_send_buffer_packet_out(netid,reply_macaddress,reply_ipaddress,dst_macaddress,packet))
 
                     # add flow about this host in l3output
                     self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress))
@@ -654,8 +652,8 @@ class L3Router(FlowBase):
     )
 
     _default_inroutermac = '1a:23:67:59:63:33'
-    _default_flush_cycle_time = 5
-    _default_host_learn_timeout = 10
+    _default_flush_cycle_time = 10
+    _default_host_learn_timeout = 30
 
     def __init__(self, server):
         super(L3Router, self).__init__(server)
