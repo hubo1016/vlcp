@@ -1,5 +1,7 @@
 import itertools
 
+import time
+
 import vlcp.service.sdn.ioprocessing as iop
 
 from vlcp.event import RoutineContainer
@@ -24,10 +26,13 @@ class RouterUpdater(FlowUpdater):
         self._lastrouterinfo = dict()
         self._original_keys = ()
 
+        self._packet_buffer = dict()
+
     def main(self):
         try:
             self.subroutine(self._update_handler(), True, "updater_handler")
             self.subroutine(self._router_packetin_handler(), True, "router_packetin_handler")
+            self.subroutine(self._time_cycle_handler(),True,"time_cycle_handler")
 
             for m in FlowUpdater.main(self):
                 yield m
@@ -38,6 +43,26 @@ class RouterUpdater(FlowUpdater):
 
             if hasattr(self, "router_packetin_handler"):
                 self.router_packetin_handler.close()
+
+            if hasattr(self,"time_cycle_handler"):
+                self.time_cycle_handler.close()
+
+    def _time_cycle_handler(self):
+
+        def _flush_packet_buffer():
+
+            ct = time.time()
+
+            for _, v in self._packet_buffer.items():
+                for i, _, t in enumerate(v):
+                    if ct - t >= self._parent.flush_cycle_time:
+                        del v[i]
+            if False:
+                yield
+
+        while True:
+            for m in self.executeWithTimeout(self._parent.flush_cycle_time,_flush_packet_buffer()):
+                yield m
 
     def _router_packetin_handler(self):
         conn = self._connection
@@ -53,7 +78,7 @@ class RouterUpdater(FlowUpdater):
         arpreply_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3input, 0x4,
                                                                    self._connection, self._connection.connmark)
 
-        def send_broadcast_packet_out(netid,packet):
+        def _send_broadcast_packet_out(netid,packet):
             # in_port == controller
             # input network( reg4 ) == outnetwork (reg5)
             # output port (reg6) = 0xffffffff
@@ -83,6 +108,34 @@ class RouterUpdater(FlowUpdater):
                         ):
                 yield m
 
+        def _send_buffer_packet_out(netid,macaddress,ipaddress,srcmacaddress,packet):
+
+            for m in self.execute_commands(conn,
+                        [
+                            ofdef.ofp_packet_out(
+                                buffer_id = ofdef.OFP_NO_BUFFER,
+                                in_port = ofdef.OFPP_CONTROLLER,
+                                actions = [
+                                    ofdef.ofp_action_set_field(
+                                        field = ofdef.create_oxm(ofdef.NXM_NX_REG5,netid)
+                                    ),
+                                    ofdef.ofp_action_set_field(
+                                        field = ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC,srcmacaddress)
+                                    ),
+                                    ofdef.ofp_action_set_field(
+                                        field = ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,macaddress)
+                                    ),
+                                    ofdef.nx_action_resubmit(
+                                        in_port = ofdef.OFPP_IN_PORT & 0xffff,
+                                        table = l2output
+                                    )
+                                ]
+                            )
+                        ],
+                        data = packet._tobytes()
+                        ):
+                yield m
+
         def _add_host_flow(netid,macaddress,ipaddress,srcmaddress):
             for m in self.execute_commands(conn,
                         [
@@ -91,6 +144,7 @@ class RouterUpdater(FlowUpdater):
                                 command=ofdef.OFPFC_ADD,
                                 priority=ofdef.OFP_DEFAULT_PRIORITY,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
+                                idle_timeout = self._parent.host_learn_timeout,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
@@ -143,6 +197,10 @@ class RouterUpdater(FlowUpdater):
                         # store msg in buffer
                         ippacket = ethernet_l4.create(msg.data)
 
+                        self._packet_buffer.setdefault((outnetworkid,ippacket.ip_dst),[]).append(
+                            (ippacket,int(time.time()))
+                        )
+
                         # send ARP request to get dst_ip mac
                         arp_request_packet = arp_packet_l4(
                             dl_src = mac_addr(outsrcmacaddress),
@@ -153,7 +211,7 @@ class RouterUpdater(FlowUpdater):
                             arp_tpa=ippacket.ip_dst
                         )
 
-                        self.subroutine(send_broadcast_packet_out(outnetworkid,arp_request_packet))
+                        self.subroutine(_send_broadcast_packet_out(outnetworkid,arp_request_packet))
                     else:
                         # drop packet
                         # when packetin don't send all to controller ,, buffer is used for many times
@@ -170,6 +228,9 @@ class RouterUpdater(FlowUpdater):
                     dst_macaddress = arp_reply_packet.dl_dst
 
                     # search msg buffer ,, packet out msg there wait this arp reply
+                    if (netid,reply_ipaddress) in self._packet_buffer:
+                        for packet,_ in self._packet_buffer:
+                            self.subroutine(_send_buffer_packet_out(reply_macaddress,reply_ipaddress,dst_macaddress))
 
                     # add flow about this host in l3output
                     self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress))
@@ -593,6 +654,8 @@ class L3Router(FlowBase):
     )
 
     _default_inroutermac = '1a:23:67:59:63:33'
+    _default_flush_cycle_time = 5
+    _default_host_learn_timeout = 10
 
     def __init__(self, server):
         super(L3Router, self).__init__(server)
