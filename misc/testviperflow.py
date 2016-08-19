@@ -616,7 +616,7 @@ class MainModule(Module):
             else:
                 logger.info("\033[1;31;40m test 31 createlogicalnetwork one success \033[0m")
 
-        #case 32：test createlogcialnetwork that vlanid have been used
+        #case 32: test createlogcialnetwork that vlanid have been used
         try:
             for m in callAPI(self.app_routine,'viperflow','createlogicalnetwork',
                     {"physicalnetwork":physicalnetworkids[0][0],"vlanid":"100"}):
@@ -715,7 +715,7 @@ class MainModule(Module):
             else:
                 logger.info("\033[1;31;40m test 36 listlogicalnetwork name = 'two' success \033[0m")   
         
-        #case 37：test listlogicalnetwork phynetwork == xxx
+        #case 37: test listlogicalnetwork phynetwork == xxx
         try:
             for m in callAPI(self.app_routine,'viperflow','listlogicalnetworks',{"physicalnetwork":pyid}):
                 yield m
@@ -734,7 +734,7 @@ class MainModule(Module):
             else:
                 logger.info("\033[1;31;40m test 37 listlogicalnetwork phynetwork == xxx success \033[0m")  
         
-        #case 38：test listlogicalnetwork phynetwork == xxx, name = "two"
+        #case 38: test listlogicalnetwork phynetwork == xxx, name = "two"
         try:
             for m in callAPI(self.app_routine,'viperflow','listlogicalnetworks',
                     {"physicalnetwork":pyid,"name":"two"}):
@@ -755,7 +755,7 @@ class MainModule(Module):
             else:
                 logger.info("\033[1;31;40m test 38 listlogicalnetwork phynetwork == xxx name = two success \033[0m")  
         
-        #case 39：test deletelogicalnetwork 1000 
+        #case 39: test deletelogicalnetwork 1000 
         pnid = [{"id":ne.get("id")} for ne in n]
         begintime = time.time()
         try:

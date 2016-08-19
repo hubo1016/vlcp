@@ -567,6 +567,8 @@ class Client(Connection):
         self.bindaddress = bindaddress
         self.connect_timeout = getattr(self.protocol, 'connect_timeout', 30)
         self.reconnect_timeseq = getattr(self.protocol, 'reconnect_timeseq', self.defaultTimeSeq)
+        self.reuseport = getattr(self.protocol, 'reuseport', False)
+        self.nodelay = getattr(self.protocol, 'tcp_nodelay', False)
         self.logContext['url'] = self.rawurl
         if self.ssl:
             self.sslversion = getattr(self.protocol, 'sslversion', ssl.PROTOCOL_SSLv23)
@@ -607,6 +609,8 @@ class Client(Connection):
             if self.unix:
                 socket_listen = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM)
                 socket_listen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if self.reuseport:
+                    socket_listen.setsockopt(socket.SOL_SOCKET, 15, 1)                    
                 self.logger.debug('Bind unix socket to %s', self.path)
                 socket_listen.bind(self.path)
                 self.valid_addresses = None
@@ -625,6 +629,10 @@ class Client(Connection):
                     raise ValueError('Target address has different address family with local bind address')
                 socket_listen = socket.socket(family, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM)
                 socket_listen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if not self.udp and self.nodelay:
+                    socket_listen.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
+                if self.reuseport:
+                    socket_listen.setsockopt(socket.SOL_SOCKET, 15, 1)                    
                 if self.bindaddress is not None:
                     for b in self.bindaddress:
                         if b[0] == family:
@@ -649,6 +657,10 @@ class Client(Connection):
                     raise ValueError('Local bind address is invalid')
                 socket_listen = socket.socket(family, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM)
                 socket_listen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if not self.udp and self.nodelay:
+                    socket_listen.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
+                if self.reuseport:
+                    socket_listen.setsockopt(socket.SOL_SOCKET, 15, 1)                    
                 if self.bindaddress is not None:
                     for b in self.bindaddress:
                         if b[0] == family:
@@ -764,6 +776,8 @@ class Client(Connection):
                 except:
                     self.logger.debug('Failed to create socket for family: ' + repr(family), exc_info = True)
                     continue
+                if not self.unix and not self.udp and self.nodelay:
+                    self.socket.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
                 try:
                     if self.bindaddress is not None:
                         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -928,6 +942,8 @@ class TcpServer(RoutineContainer):
         if self.ssl:
             self.sslversion = getattr(self.protocol, 'sslversion', ssl.PROTOCOL_SSLv23)
         self.backlogsize = getattr(self.protocol, 'backlogsize', 2048)
+        self.reuseport = getattr(self.protocol, 'reuseport', False)
+        self.nodelay = getattr(self.protocol, 'nodelay', False)
         self.logger = ContextAdapter(self.logger, {'context':{'server':self, 'url':self.rawurl, 'protocol':protocol}})
         # Counters
         self.totalaccepts = 0
@@ -936,6 +952,8 @@ class TcpServer(RoutineContainer):
     def _connection(self, newsock, newproto):
         try:
             newsock.setblocking(False)
+            if self.nodelay:
+                newsock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
             self.scheduler.registerPolling(newsock, POLLING_IN|POLLING_OUT)
             if self.ssl:
                 handshake = False
@@ -985,6 +1003,8 @@ class TcpServer(RoutineContainer):
         if self.unix:
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if self.reuseport:
+                self.socket.setsockopt(socket.SOL_SOCKET, 15, 1)
             self.socket.bind(self.path)
             family = socket.AF_UNIX
         else:
@@ -996,7 +1016,11 @@ class TcpServer(RoutineContainer):
             else:
                 raise ValueError('Local bind address is invalid')
             self.socket = socket.socket(family, socket.SOCK_STREAM)
+            if self.nodelay:
+                self.socket.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if self.reuseport:
+                self.socket.setsockopt(socket.SOL_SOCKET, 15, 1)
             for b in self.addrinfo:
                 if b[0] == family:
                     self.socket.bind(b[4])

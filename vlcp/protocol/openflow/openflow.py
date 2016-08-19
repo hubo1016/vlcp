@@ -60,6 +60,7 @@ class Openflow(Protocol):
     _default_disablenxext = False
     _default_disablechaining = True
     _logger = logging.getLogger(__name__ + '.Openflow')
+    _default_tcp_nodelay = True
     def __init__(self, allowedVersions = None):
         '''
         Constructor

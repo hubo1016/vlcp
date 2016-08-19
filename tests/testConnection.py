@@ -110,7 +110,8 @@ class TestConnection(unittest.TestCase):
         import tests
         import os.path
         rootpath, _ = os.path.split(tests.__path__[0])
-        os.chdir(rootpath)
+        if rootpath:
+            os.chdir(rootpath)
         self.scheduler.queue.addSubQueue(3, PollEvent.createMatcher(category=PollEvent.WRITE_READY), 'write', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(1, PollEvent.createMatcher(category=PollEvent.READ_READY), 'read', None, None, CBQueue.AutoClassQueue.initHelper('fileno'))
         self.scheduler.queue.addSubQueue(5, PollEvent.createMatcher(category=PollEvent.ERROR), 'error')

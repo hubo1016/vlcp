@@ -14,6 +14,7 @@ class OVSDB(JsonRPC):
     _default_allowedrequests = ('echo',)
     _default_keepalivetime = 10
     _default_keepalivetimeout = 3
+    _default_tcp_nodelay = True
     def _respond_echo(self, connection):
         try:
             request_matcher = JsonRPCRequestEvent.createMatcher('echo', connection)

@@ -184,6 +184,7 @@ class Redis(Protocol):
     _default_keepalivetime = 10
     _default_keepalivetimeout = 3
     _default_connect_timeout = 5
+    _default_tcp_nodelay = True
     _logger = logging.getLogger(__name__ + '.Redis')
     def __init__(self):
         '''

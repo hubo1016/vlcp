@@ -4,7 +4,7 @@ Created on 2015/11/10
 :author: hubo
 '''
 
-from vlcp.protocol.http import HttpProtocolException, HttpRequestEvent
+from vlcp.protocol.http import HttpProtocolException, HttpRequestEvent, escape, escape_b
 import traceback
 from vlcp.event.stream import Stream, MemoryStream
 from vlcp.event import EventHandler
@@ -245,9 +245,9 @@ class Environment(object):
             return text.replace('\n', '<br/>\n')
     def escape(self, text, quote = True):
         if isinstance(text, bytes):
-            return self.protocol.escape_b(text, quote)
+            return escape_b(text, quote)
         else:
-            return self.protocol.escape(text, quote)
+            return escape(text, quote)
     def error(self, status=500, allowredirect = True, close = True, showerror = None, headers = []):
         if showerror is None:
             showerror = self.showerrorinfo

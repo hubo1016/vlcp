@@ -38,7 +38,6 @@ OriginalPath = %s<br/>
 Cookies = %s<br/>
 Args = %s<br/>
 Form = %s<br/>
-Session = %s<br/>
 </body>
 </html>
 '''
@@ -59,13 +58,8 @@ Session = %s<br/>
     def default(self, env):
         for m in env.parseform():
             yield m
-        for m in env.sessionstart():
-            yield m
-        for m in env.session.lock():
-            yield m
         #for m in self.waitWithTimeout(10):
         #    yield m
-        env.session.vars['counter'] = env.session.vars.get('counter', 0) + 1
         if 'auth' in env.args:
             username, password = env.basicauth()
             if username != b'test' or password != b'testpassword':
@@ -94,8 +88,7 @@ Session = %s<br/>
                                            env.escape(env.originalpath),
                                            env.escape(repr(env.cookies)),
                                            env.escape(repr(env.args)),
-                                           env.escape(repr(env.form)),
-                                           env.escape(repr(env.session.vars))
+                                           env.escape(repr(env.form))
                                            ))):
             yield m
 
@@ -106,8 +99,8 @@ if __name__ == '__main__':
     #Http._logger.setLevel(logging.DEBUG)
     #manager['server.debugging'] = True
     manager['module.httpserver.url'] = None
-    manager['module.httpserver.urls'] = ['ltcp://localhost:8080']
+    manager['module.httpserver.urls'] = ['ltcp://0.0.0.0:8080']
     manager['protocol.http.showerrorinfo'] = True
     manager['module.console.startinconsole'] = False
-    main(None, ('__main__.TestHttpServer', 'vlcp.service.debugging.console.Console'))
+    main(None, ('__main__.TestHttpServer',))
     
