@@ -24,6 +24,7 @@ class RouterUpdater(FlowUpdater):
         self._lastlogicalnet = dict()
 
         self._lastrouterinfo = dict()
+        self._lastsubnetinfo = dict()
         self._original_keys = ()
 
         self._packet_buffer = dict()
@@ -341,24 +342,28 @@ class RouterUpdater(FlowUpdater):
 
         try:
             lastrouterinfo = self._lastrouterinfo
+            lastsubnetinfo = self._lastsubnetinfo
 
             allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
 
             currentlognetinfo = dict((n, id) for n, id in self._lastlogicalnet if n in allobjects)
 
-            currentsubnetinfo = dict((s, currentlognetinfo[s.network]) for s in allobjects
-                                     if s.isinstance(SubNet) and s.network in currentlognetinfo)
+            currentrouterportinfo = dict((r,(r.subnet,r.router)) for r in allobjects
+                                            if r.isinstance(RouterPort))
 
-            currentrouterportinfo = dict((r, r.subnet) for r in allobjects
-                                         if r.isinstance(RouterPort)
-                                         )
+            currentsubnetinfo = dict((s, (currentrouterportinfo[s.router][1],self._parent.inroutermac,
+                                          getattr(s,"gateway",None),s.cidr,
+                                          getattr(s,"external",False),currentlognetinfo[s.network]))
+                                     for s in allobjects if s.isinstance(SubNet) and s.network in currentlognetinfo
+                                     and hasattr(s,'router') and s.router in currentrouterportinfo)
+
             # currentrouter = set(n for n in allobjects if n.isinstance(VRouter))
 
-            currentrouterinfo = dict((r, ([(r.routes, self._parent.inroutermac,
-                                            getattr(interface, "ip_address", interface.subnet.gateway),
-                                            interface.subnet.cidr,
-                                            getattr(interface.subnet, "external", False),
-                                            currentsubnetinfo[interface.subnet])
+            currentrouterinfo = dict((r, (r.routes,[(currentsubnetinfo[interface.subnet][1],
+                                            getattr(interface, "ip_address", currentsubnetinfo[interface.subnet][2]),
+                                            currentsubnetinfo[interface.subnet][3],
+                                            currentsubnetinfo[interface.subnet][4],
+                                            currentsubnetinfo[interface.subnet][5])
                                            for interface in currentrouterportinfo
                                            if interface.router.getkey() == r.getkey() and
                                            hasattr(interface, "subnet") and (hasattr(interface, "ip_address")
@@ -369,6 +374,7 @@ class RouterUpdater(FlowUpdater):
                                      )
 
             self._lastrouterinfo = currentrouterinfo
+            self._lastsubnetinfo = currentsubnetinfo
 
             ofdef = connection.openflowdef
             vhost = connection.protocol.vhost
@@ -547,8 +553,20 @@ class RouterUpdater(FlowUpdater):
                 # when remove router ,, it must be update and remove flow
                 #
                 # for xx in routerinfo[obj] will never run ....
+                # if obj in lastrouterinfo:
+                #     for routes, mac, ipaddress, cidr, isexternal, netid in lastrouterinfo[obj]:
+                        #delete router mac + ipaddress ---->>> l3input
+                        # cmds.extend(_deleteinputflow(mac, ipaddress, netid))
+                        #
+                        #delete arp reply flow from l3input
+                        # cmds.extend(_deletearpreplyflow(mac, ipaddress, netid))
+                        #
+                        #delete router flow from l3router table
+                        # cmds.extend(_deleterouterflow(netid))
+
                 if obj in lastrouterinfo:
-                    for routes, mac, ipaddress, cidr, isexternal, netid in lastrouterinfo[obj]:
+                    static_routes,interfaces = lastrouterinfo[obj]
+                    for mac,ipaddress,cidr,isexternal,netid in interfaces:
                         # delete router mac + ipaddress ---->>> l3input
                         cmds.extend(_deleteinputflow(mac, ipaddress, netid))
 
@@ -563,11 +581,21 @@ class RouterUpdater(FlowUpdater):
                                                       lastrouterinfo[obj] != currentrouterinfo[obj]):
                     #  update obj in lastinfo ,,  when recreate current info it maybe filter
                     #  so maybe in last not in current
-                    for routes, mac, ipaddress, cidr, isexternal, netid in lastrouterinfo[obj]:
+                    static_routes,interfaces = lastrouterinfo[obj]
+                    for routes, mac, ipaddress, cidr, isexternal, netid in interfaces:
                         cmds.extend(_deleteinputflow(mac, ipaddress, netid))
                         cmds.extend(_deletearpreplyflow(mac,ipaddress,netid))
                         cmds.extend(_deleterouterflow(netid))
-                    
+
+                if obj in lastsubnetinfo and (obj not in currentsubnetinfo or
+                                              lastsubnetinfo[obj] != currentsubnetinfo[obj]):
+
+                    static_routes,interfaces = lastrouterinfo[lastrouterinfo[obj][0]]
+                    for routes, mac, ipaddress, cidr, isexternal, netid in interfaces:
+                        cmds.extend(_deleteinputflow(mac, ipaddress, netid))
+                        cmds.extend(_deletearpreplyflow(mac,ipaddress,netid))
+                        cmds.extend(_deleterouterflow(netid))
+
             for m in self.execute_commands(connection, cmds):
                 yield m
 
@@ -575,13 +603,14 @@ class RouterUpdater(FlowUpdater):
             for obj in addvalues:
                 if obj in currentrouterinfo and obj not in lastrouterinfo:
                     link_routes = []
-                    static_routes = []
+                    #static_routes = []
                     add_routes = []
 
-                    for routes, mac, ipaddress, cidr, isexternal, netid in currentrouterinfo[obj]:
+                    static_routes,interfaces = currentrouterinfo[obj]
+                    for routes, mac, ipaddress, cidr, isexternal, netid in interfaces:
 
                         # every interface have same routes in routerinfo
-                        static_routes = routes
+                        # static_routes = routes
 
                         network, prefix = parse_ip4_network(cidr)
                         link_routes.append((network, prefix, netid))
@@ -605,20 +634,21 @@ class RouterUpdater(FlowUpdater):
                                 add_routes.append((c, f, netid))
 
                     # add router flow into l3router table
-                    for _, _, _, _, _, netid in currentrouterinfo[obj]:
+                    for _, _, _, _, _, netid in interfaces:
                         cmds.extend(_createrouterflow(add_routes, netid))
 
             for obj in updatedvalues:
                 if obj in currentrouterinfo and (obj not in lastrouterinfo or
                                                          currentrouterinfo[obj] != lastrouterinfo):
                     link_routes = []
-                    static_routes = []
+                    #static_routes = []
                     add_routes = []
 
-                    for routes, mac, ipaddress, cidr, isexternal, netid in currentrouterinfo[obj]:
+                    static_routes,interfaces = currentrouterinfo[obj]
+                    for routes, mac, ipaddress, cidr, isexternal, netid in interfaces:
 
                         # every interface have same routes in routerinfo
-                        static_routes = routes
+                        #static_routes = routes
 
                         network, prefix = parse_ip4_network(cidr)
                         link_routes.append((network, prefix, netid))
@@ -642,8 +672,44 @@ class RouterUpdater(FlowUpdater):
                                 add_routes.append((c, f, netid))
 
                     # add router flow into l3router table
-                    for _, _, _, _, _, netid in currentrouterinfo[obj]:
+                    for _, _, _, _, _, netid in interfaces:
                         cmds.extend(_createrouterflow(add_routes, netid))
+
+                if obj in currentsubnetinfo and (obj not in lastsubnetinfo or
+                                                 currentsubnetinfo[obj] != lastsubnetinfo[obj]):
+                    link_routes = []
+                    add_routes = []
+                    static_routes, interfaces = currentrouterinfo[obj]
+                    for routes, mac, ipaddress, cidr, isexternal, netid in interfaces:
+
+                        # every interface have same routes in routerinfo
+                        # static_routes = routes
+
+                        network, prefix = parse_ip4_network(cidr)
+                        link_routes.append((network, prefix, netid))
+
+                        if isexternal:
+                            network, prefix = parse_ip4_network("0.0.0.0/0")
+                            link_routes.append((network, prefix, netid))
+
+                        # add router mac + ipaddress ---->>> l3input
+                        cmds.extend(_createinputflow(mac, ipaddress, netid))
+
+                        # add arp reply flow ---->>>  l3input
+                        cmds.extend(_createarpreplyflow(mac, ipaddress, netid))
+
+                    for network, prefix, netid in link_routes:
+                        add_routes.append((network, prefix, netid))
+                        for cidr, nethop in static_routes:
+
+                            if ip_in_network(nethop, network, prefix):
+                                c, f = parse_ip4_network(cidr)
+                                add_routes.append((c, f, netid))
+
+                    # add router flow into l3router table
+                    for _, _, _, _, _, netid in interfaces:
+                        cmds.extend(_createrouterflow(add_routes, netid))
+
 
             for m in self.execute_commands(connection, cmds):
                 yield m
