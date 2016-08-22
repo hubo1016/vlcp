@@ -327,6 +327,15 @@ class RouterUpdater(FlowUpdater):
             return
 
         save(key)
+    
+    def reset_initialkeys(self,keys,values):
+        
+        subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
+        routerportkeys = [k for k,v in zip(keys,values) if v.isinstance(RouterPort)]
+        routerkeys = [k for k,v in zip(keys,values) if v.isinstance(VRouter)]
+
+        self._initialkeys = tuple(itertools.chain(self._original_keys,subnetkeys,
+                                    routerportkeys,routerkeys))
 
     def updateflow(self, connection, addvalues, removevalues, updatedvalues):
 
@@ -464,7 +473,7 @@ class RouterUpdater(FlowUpdater):
                         table_id=l3router,
                         command=ofdef.OFPFC_DELETE,
                         out_port=ofdef.OFPP_ANY,
-                        outgroup=ofdef.OFPG_ANY,
+                        out_group=ofdef.OFPG_ANY,
                         match=ofdef.ofp_match_oxm(
                             oxm_fields=[
                                 match_network(netid)
@@ -521,7 +530,7 @@ class RouterUpdater(FlowUpdater):
                             oxm_fields=[
                                 match_network(netid),
                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
-                                ofdef.create_oxm(ofdef.OXM_OF_ARP_THA, mac_addr_bytes(macaddress)),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, mac_addr_bytes(macaddress)),
                                 ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REPLY),
                                 ofdef.create_oxm(ofdef.OXM_OF_ARP_TPA, ip4_addr(ipaddress))
                             ]
@@ -556,8 +565,9 @@ class RouterUpdater(FlowUpdater):
                     #  so maybe in last not in current
                     for routes, mac, ipaddress, cidr, isexternal, netid in lastrouterinfo[obj]:
                         cmds.extend(_deleteinputflow(mac, ipaddress, netid))
+                        cmds.extend(_deletearpreplyflow(mac,ipaddress,netid))
                         cmds.extend(_deleterouterflow(netid))
-
+                    
             for m in self.execute_commands(connection, cmds):
                 yield m
 
@@ -632,7 +642,7 @@ class RouterUpdater(FlowUpdater):
                                 add_routes.append((c, f, netid))
 
                     # add router flow into l3router table
-                    for _, _, _, _, netid in currentrouterinfo[obj]:
+                    for _, _, _, _, _, netid in currentrouterinfo[obj]:
                         cmds.extend(_createrouterflow(add_routes, netid))
 
             for m in self.execute_commands(connection, cmds):
