@@ -1880,7 +1880,7 @@ class ViperFlow(Module):
             retobj = self.app_routine.retvalue
 
             if all(getattr(retobj,k,None) == v for k,v in kwargs.items()):
-                self.app_routine.retvalue = dump(retobj)
+                self.app_routine.retvalue = [dump(retobj)]
             else:
                 self.app_routine.retvalue = []
 
