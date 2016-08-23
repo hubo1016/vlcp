@@ -185,7 +185,10 @@ console_help()
             # Detach self
             scheduler.unregisterall(cr)
             def threaded_main():
-                scheduler.main(False, False)
+                try:
+                    scheduler.main(False, False)
+                finally:
+                    thread.interrupt_main()
             t = threading.Thread(target=threaded_main)
             t.daemon = True
             t.start()
@@ -194,7 +197,10 @@ console_help()
                     self._interactive()
                 else:
                     while not scheduler.quitting:
-                        _console_connect_event.wait()
+                        try:
+                            _console_connect_event.wait()
+                        except KeyboardInterrupt:
+                            break
                         _console_connect_event.clear()
                         pstdin_r, pstdin_w = os.pipe()
                         pstdout_r, pstdout_w = os.pipe()
@@ -217,6 +223,8 @@ console_help()
                                 self._interactive()
                             except SystemExit:
                                 pass
+                            if not t.is_alive():
+                                break
                             self.sendEventQueue.put((SocketInjectDone(sock),))
                         finally:
                             try:
