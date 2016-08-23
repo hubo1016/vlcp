@@ -398,7 +398,7 @@ class ICMPResponder(FlowBase):
                                                 x.vhost in self.vhostbind)
         conndown = OpenflowConnectionStateEvent.createMatcher(state = OpenflowConnectionStateEvent.CONNECTION_DOWN,
                                                 _ismatch=lambda x:self.vhostbind is None or
-                                                x.vhost in self.vhostbind)
+                                                x.createby.vhost in self.vhostbind)
         while True:
             yield (flowinit,conndown)
             if self.app_routine.matcher is flowinit:

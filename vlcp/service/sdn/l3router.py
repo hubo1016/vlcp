@@ -357,16 +357,19 @@ class RouterUpdater(FlowUpdater):
                                      for s in allobjects if s.isinstance(SubNet) and s.network in currentlognetinfo
                                      and hasattr(s,'router') and s.router.getkey() in currentrouterportinfo)
 
-            currentrouterinfo = dict((r, (r.routes,[(currentsubnetinfo[currentrouterportinfo[interface_key][0].subnet][1],
-                                            getattr(currentrouterportinfo[interface_key][0], "ip_address", currentsubnetinfo[currentrouterportinfo[interface_key][0].subnet][2]),
+            currentrouterinfo = dict((r, (r.routes,
+                                            [(currentsubnetinfo[currentrouterportinfo[interface_key][0].subnet][1],
+                                            getattr(currentrouterportinfo[interface_key][0], "ip_address",
+                                                currentsubnetinfo[currentrouterportinfo[interface_key][0].subnet][2]),
                                             currentsubnetinfo[currentrouterportinfo[interface_key][0].subnet][3],
                                             currentsubnetinfo[currentrouterportinfo[interface_key][0].subnet][4],
                                             currentsubnetinfo[currentrouterportinfo[interface_key][0].subnet][5])
-                                           for interface_key in currentrouterportinfo
-                                           if currentrouterportinfo[interface_key][0].router.getkey() == r.getkey() and
-                                           hasattr(currentrouterportinfo[interface_key][0], "subnet") and (hasattr(currentrouterportinfo[interface_key][0], "ip_address")
-                                                                             or hasattr(currentrouterportinfo[interface_key][0].subnet, "gateway"))
-                                           and currentrouterportinfo[interface_key][0].subnet in currentsubnetinfo
+                                            for interface_key in currentrouterportinfo
+                                            if currentrouterportinfo[interface_key][0].router.getkey() == r.getkey()
+                                            and hasattr(currentrouterportinfo[interface_key][0], "subnet") and
+                                            (hasattr(currentrouterportinfo[interface_key][0], "ip_address")
+                                                or hasattr(currentrouterportinfo[interface_key][0].subnet, "gateway"))
+                                            and currentrouterportinfo[interface_key][0].subnet in currentsubnetinfo
                                            ])
                                       ) for r in allobjects if r.isinstance(VRouter)
                                      )
@@ -428,7 +431,6 @@ class RouterUpdater(FlowUpdater):
                                 match_network(netid),
                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, mac_addr_bytes(macaddress)),
                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP)
-                                #ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ip4_addr_bytes(ipaddress))
                             ]
                         )
                     )
@@ -551,17 +553,6 @@ class RouterUpdater(FlowUpdater):
                 # when remove router ,, it must be update and remove flow
                 #
                 # for xx in routerinfo[obj] will never run ....
-                # if obj in lastrouterinfo:
-                #     for routes, mac, ipaddress, cidr, isexternal, netid in lastrouterinfo[obj]:
-                        #delete router mac + ipaddress ---->>> l3input
-                        # cmds.extend(_deleteinputflow(mac, ipaddress, netid))
-                        #
-                        #delete arp reply flow from l3input
-                        # cmds.extend(_deletearpreplyflow(mac, ipaddress, netid))
-                        #
-                        #delete router flow from l3router table
-                        # cmds.extend(_deleterouterflow(netid))
-
                 if obj in lastrouterinfo:
                     static_routes,interfaces = lastrouterinfo[obj]
                     for mac,ipaddress,cidr,isexternal,netid in interfaces:
@@ -601,14 +592,10 @@ class RouterUpdater(FlowUpdater):
             for obj in addvalues:
                 if obj in currentrouterinfo and obj not in lastrouterinfo:
                     link_routes = []
-                    #static_routes = []
                     add_routes = []
 
                     static_routes,interfaces = currentrouterinfo[obj]
                     for mac, ipaddress, cidr, isexternal, netid in interfaces:
-
-                        # every interface have same routes in routerinfo
-                        # static_routes = routes
 
                         network, prefix = parse_ip4_network(cidr)
                         link_routes.append((network, prefix, netid))
@@ -639,16 +626,10 @@ class RouterUpdater(FlowUpdater):
                 if obj in currentrouterinfo and (obj not in lastrouterinfo or
                                                          currentrouterinfo[obj] != lastrouterinfo):
                     link_routes = []
-                    #static_routes = []
                     add_routes = []
 
                     static_routes,interfaces = currentrouterinfo[obj]
-                    #static_routes,interfaces = lastrouterinfo[lastsubnetinfo[obj][0]]
                     for mac, ipaddress, cidr, isexternal, netid in interfaces:
-
-                        # every interface have same routes in routerinfo
-                        #static_routes = routes
-
                         network, prefix = parse_ip4_network(cidr)
                         link_routes.append((network, prefix, netid))
 
@@ -678,12 +659,8 @@ class RouterUpdater(FlowUpdater):
                                                  currentsubnetinfo[obj] != lastsubnetinfo[obj]):
                     link_routes = []
                     add_routes = []
-                    #static_routes, interfaces = currentsubnetinfo[obj]
                     static_routes,interfaces = currentrouterinfo[currentsubnetinfo[obj][0]]
                     for mac, ipaddress, cidr, isexternal, netid in interfaces:
-
-                        # every interface have same routes in routerinfo
-                        # static_routes = routes
 
                         network, prefix = parse_ip4_network(cidr)
                         link_routes.append((network, prefix, netid))
@@ -714,8 +691,6 @@ class RouterUpdater(FlowUpdater):
             for m in self.execute_commands(connection, cmds):
                 yield m
 
-
-
         except Exception:
             self._logger.warning("router update flow exception, ignore it! continue", exc_info=True)
 
@@ -744,7 +719,7 @@ class L3Router(FlowBase):
 
         conndown = OpenflowConnectionStateEvent.createMatcher(state=OpenflowConnectionStateEvent.CONNECTION_DOWN,
                                                               _ismatch=lambda x: self.vhostbind is None
-                                                                                 or x.vhost in self.vhostbind)
+                                                                                 or x.createby.vhost in self.vhostbind)
 
         while True:
             yield (flowinit, conndown)
