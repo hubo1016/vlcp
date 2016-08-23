@@ -117,6 +117,42 @@ class IOFlowUpdater(FlowUpdater):
                             pass
                         else:
                             save(phynet.getkey())
+                    if hasattr(logp,"subnet"):
+                        try:
+                            subnet = walk(logp.subnet.getkey())
+                        except KeyError:
+                            pass
+                        else:
+                            if hasattr(subnet,"router"):
+                                try:
+                                    routerport = walk(subnet.router.getkey())
+                                except KeyError:
+                                    pass
+                                else:
+                                    if hasattr(routerport,"router"):
+                                        try:
+                                            router = walk(routerport.router.getkey())
+                                        except KeyError:
+                                            pass
+                                        else:
+                                            if router.interfaces.dataset():
+                                                for weakobj in router.interfaces.dataset():
+                                                    try:
+                                                        weakrouterport = walk(weakobj.getkey())
+                                                    except KeyError:
+                                                        pass
+                                                    else:
+                                                        try:
+                                                            s = walk(weakrouterport.subnet.getkey())
+                                                        except KeyError:
+                                                            pass
+                                                        else:
+                                                            try:
+                                                                lgnet = walk(s.network.getkey())
+                                                            except KeyError:
+                                                                pass
+                                                            else:
+                                                                save(lgnet.getkey())
     def _physicalport_walker(self, key, value, walk, save):
         save(key)
         if value is None:
@@ -473,10 +509,10 @@ class IOFlowUpdater(FlowUpdater):
                 # Generate buckets
                 buckets = [ofdef.ofp_bucket(actions=[ofdef.ofp_action_output(port = _portids[p.id])])
                            for p in logportdict[obj]
-                           if p.id in _portids]
+                           if p.id in _portids] if obj in logportdict else []
                 allactions = [ofdef.ofp_action_output(port = _portids[p.id])
                               for p in logportdict[obj]
-                              if p.id in _portids]
+                              if p.id in _portids] if obj in logportdict else []
                 disablegroup = False
                 if obj.physicalnetwork in phyportdict:
                     for p in phyportdict[obj.physicalnetwork]:
