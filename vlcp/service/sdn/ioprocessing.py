@@ -12,13 +12,15 @@ from vlcp.event.event import Event, withIndices
 from vlcp.event.runnable import RoutineContainer, RoutineException
 from vlcp.config.config import defaultconfig
 from vlcp.service.sdn.ofpmanager import FlowInitialize
-from vlcp.utils.networkmodel import PhysicalPort, LogicalPort, PhysicalPortSet, LogicalPortSet, LogicalNetwork, PhysicalNetwork
+from vlcp.utils.networkmodel import PhysicalPort, LogicalPort, PhysicalPortSet, LogicalPortSet, LogicalNetwork, PhysicalNetwork,SubNet,RouterPort,VRouter
 from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.event.connection import ConnectionResetException
 from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent,\
     OpenflowErrorResultException
 from pprint import pformat
 from namedstruct import dump
+
+import itertools
 
 @withIndices('datapathid', 'vhost', 'connection', 'logicalportchanged', 'physicalportchanged',
                                                     'logicalnetworkchanged', 'physicalnetworkchanged')
@@ -123,18 +125,21 @@ class IOFlowUpdater(FlowUpdater):
                         except KeyError:
                             pass
                         else:
+                            save(subnet.getkey())
                             if hasattr(subnet,"router"):
                                 try:
                                     routerport = walk(subnet.router.getkey())
                                 except KeyError:
                                     pass
                                 else:
+                                    save(routerport.getkey())
                                     if hasattr(routerport,"router"):
                                         try:
                                             router = walk(routerport.router.getkey())
                                         except KeyError:
                                             pass
                                         else:
+                                            save(router.getkey())
                                             if router.interfaces.dataset():
                                                 for weakobj in router.interfaces.dataset():
                                                     try:
@@ -142,11 +147,13 @@ class IOFlowUpdater(FlowUpdater):
                                                     except KeyError:
                                                         pass
                                                     else:
+                                                        save(weakrouterport.getkey())
                                                         try:
                                                             s = walk(weakrouterport.subnet.getkey())
                                                         except KeyError:
                                                             pass
                                                         else:
+                                                            save(s.getkey())
                                                             try:
                                                                 lgnet = walk(s.network.getkey())
                                                             except KeyError:
@@ -186,6 +193,16 @@ class IOFlowUpdater(FlowUpdater):
                         pass
                     else:
                         save(phynet.getkey())
+
+    def reset_initialkeys(self,keys,values):
+
+        subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
+        routerportkeys = [k for k,v in zip(keys,values) if v.isinstance(RouterPort)]
+        portkeys = [k for k,v in zip(keys,values) if v.isinstance(VRouter)]
+        
+        self._initialkeys = tuple(itertools.chain(subnetkeys,routerportkeys,
+                                    portkeys,[LogicalPortSet.default_key(),PhysicalPortSet.default_key()]))
+
     def walkcomplete(self, keys, values):
         conn = self._connection
         dpid = conn.openflow_datapathid
