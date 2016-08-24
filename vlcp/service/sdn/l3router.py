@@ -662,6 +662,9 @@ class RouterUpdater(FlowUpdater):
                     static_routes,interfaces = currentrouterinfo[currentsubnetinfo[obj][0]]
                     for mac, ipaddress, cidr, isexternal, netid in interfaces:
 
+                        # every interface have same routes in routerinfo
+                        # static_routes = routes
+
                         network, prefix = parse_ip4_network(cidr)
                         link_routes.append((network, prefix, netid))
 
