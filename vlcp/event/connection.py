@@ -20,6 +20,7 @@ import itertools
 import signal
 from vlcp.event.core import POLLING_OUT
 import traceback
+import os
 
 if sys.version_info[0] >= 3:
     from urllib.parse import urlsplit
@@ -673,54 +674,61 @@ class Client(Connection):
                         socket_listen.bind(('::',self.port))
                 self.valid_addresses = None
             if self.udp:
-                self.socket = socket_listen
-                self.socket.setblocking(False)
-                self.scheduler.registerPolling(self.socket)
-                read_udp = PollEvent.createMatcher(self.socket.fileno(), PollEvent.READ_READY)
-                err_udp = PollEvent.createMatcher(self.socket.fileno(), PollEvent.ERROR)
-                connected = False
-                while not connected:
-                    yield (read_udp, err_udp)
-                    if self.event.category == PollEvent.READ_READY:
-                        while not connected:
-                            try:
-                                data, remote_addr = self.socket.recvfrom(65536, socket.MSG_PEEK)
-                                self.logger.debug('Udp socket receive data from %s', remote_addr)
-                            except socket.error as exc:
-                                if exc.args[0] == errno.EWOULDBLOCK or exc.args[0] == errno.EAGAIN:
-                                    break
-                                else:
-                                    raise
-                            if self.valid_addresses is not None:
-                                if remote_addr[0] not in self.valid_addresses:
-                                    self.socket.recvfrom(1)
+                try:
+                    self.socket = socket_listen
+                    self.socket.setblocking(False)
+                    self.scheduler.registerPolling(self.socket)
+                    read_udp = PollEvent.createMatcher(self.socket.fileno(), PollEvent.READ_READY)
+                    err_udp = PollEvent.createMatcher(self.socket.fileno(), PollEvent.ERROR)
+                    connected = False
+                    while not connected:
+                        yield (read_udp, err_udp)
+                        if self.event.category == PollEvent.READ_READY:
+                            while not connected:
+                                try:
+                                    data, remote_addr = self.socket.recvfrom(65536, socket.MSG_PEEK)
+                                    self.logger.debug('Udp socket receive data from %s', remote_addr)
+                                except socket.error as exc:
+                                    if exc.args[0] == errno.EWOULDBLOCK or exc.args[0] == errno.EAGAIN:
+                                        break
+                                    else:
+                                        raise
+                                if self.valid_addresses is not None:
+                                    if remote_addr[0] not in self.valid_addresses:
+                                        self.socket.recvfrom(1)
+                                    else:
+                                        connected = True
                                 else:
                                     connected = True
+                        elif self.event.category == PollEvent.ERROR or self.event.category == PollEvent.HANGUP:
+                            raise IOError('Listen socket is closed')
+                    try:
+                        err = self.socket.connect_ex(remote_addr)
+                        if err == errno.EINPROGRESS:
+                            connect_match = PollEvent.createMatcher(self.socket.fileno())
+                            for m in self.waitWithTimeout(self.connect_timeout, connect_match):
+                                yield m
+                            if self.timeout:
+                                raise IOError('timeout')
                             else:
-                                connected = True
-                    elif self.event.category == PollEvent.ERROR or self.event.category == PollEvent.HANGUP:
-                        raise IOError('Listen socket is closed')
-                try:
-                    err = self.socket.connect_ex(remote_addr)
-                    if err == errno.EINPROGRESS:
-                        connect_match = PollEvent.createMatcher(self.socket.fileno())
-                        for m in self.waitWithTimeout(self.connect_timeout, connect_match):
-                            yield m
-                        if self.timeout:
-                            raise IOError('timeout')
-                        else:
-                            err = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
-                            if err != 0:
-                                raise IOError('socket error: ' + str(err))
-                    elif err != 0:
-                        raise IOError('socket error: ' + str(err))
-                except:
-                    self.logger.debug('Failed to connect to remote address: ' + repr(addr), exc_info = True)
-                    self.scheduler.unregisterPolling(self.socket)
-                    self.socket.close()
-                    self.socket = None
-                    raise
-            else:                
+                                err = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                                if err != 0:
+                                    raise IOError('socket error: ' + str(err))
+                        elif err != 0:
+                            raise IOError('socket error: ' + str(err))
+                    except:
+                        self.logger.debug('Failed to connect to remote address: ' + repr(addr), exc_info = True)
+                        self.scheduler.unregisterPolling(self.socket)
+                        self.socket.close()
+                        self.socket = None
+                        raise
+                finally:
+                    if self.unix:
+                        try:
+                            os.remove(self.path)
+                        except Exception:
+                            pass
+            else:
                 try:
                     socket_listen.setblocking(False)
                     self.scheduler.registerPolling(socket_listen, POLLING_IN)
@@ -750,6 +758,11 @@ class Client(Connection):
                 finally:
                     self.scheduler.unregisterPolling(socket_listen)
                     socket_listen.close()
+                    if self.unix:
+                        try:
+                            os.remove(self.path)
+                        except Exception:
+                            pass
                 self.socket.setblocking(False)
                 self.scheduler.registerPolling(self.socket)
         else:
@@ -1069,6 +1082,11 @@ class TcpServer(RoutineContainer):
         finally:
             self.scheduler.unregisterPolling(self.socket)
             self.socket.close()
+            if self.unix:
+                try:
+                    os.remove(self.path)
+                except Exception:
+                    pass
             self.listening = False
     def main(self):
         self.connmark = 0
