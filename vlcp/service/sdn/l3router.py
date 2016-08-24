@@ -255,12 +255,14 @@ class RouterUpdater(FlowUpdater):
 
         logicalportkeys = [p.getkey() for p, _ in self._lastlogicalport]
         logicalnetkeys = [n.getkey() for n, _ in self._lastlogicalnet]
+        phyportkeys = [p.getkey() for p,_ in self._lastphyport]    
 
-        self._initialkeys = logicalportkeys + logicalnetkeys
-        self._original_keys = logicalportkeys + logicalnetkeys
+        self._initialkeys = logicalportkeys + logicalnetkeys + phyportkeys
+        self._original_keys = logicalportkeys + logicalnetkeys + phyportkeys
 
         self._walkerdict = dict(itertools.chain(((p, self._walk_lgport) for p in logicalportkeys),
-                                                ((n, self._walk_lgnet) for n in logicalnetkeys)))
+                                                ((n, self._walk_lgnet) for n in logicalnetkeys),
+                                                ((p, self._walk_phyport) for p in phyportkeys)))
 
         self.subroutine(self.restart_walk(), False)
 
@@ -332,6 +334,13 @@ class RouterUpdater(FlowUpdater):
 
         save(key)
     
+    def _walk_phyport(self, key, value, walk, save):
+
+        if value is None:
+            return
+
+        save(key)
+    
     def reset_initialkeys(self,keys,values):
         
         subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
@@ -355,14 +364,14 @@ class RouterUpdater(FlowUpdater):
             allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
 
             # phyport : phynet = 1:1, so we use phynet as key
-            currentphyportinfo = dict((p.network, (p,id)) for p, id in self._lastphyport if p in allobjects)
+            currentphyportinfo = dict((p.physicalnetwork, (p,id)) for p, id in self._lastphyport if p in allobjects)
             #currentlognetinfo = dict((n, (id,n.physicalnetwork)) for n, id in self._lastlogicalnet if n in allobjects)
 
             currentlognetinfo = {}
 
             lognetinfo = dict((n,id) for n,id in self._lastlogicalnet if n in allobjects)
-
-            for n,id in lognetinfo.values():
+            
+            for n,id in lognetinfo.items():
                 # this lognetwork has phyport, we should get phyport mac
                 # as the base mac to produce mac that when router send packet used!
                 # else , use innmac
@@ -393,7 +402,7 @@ class RouterUpdater(FlowUpdater):
                                      and hasattr(s,'router') and s.router.getkey() in currentrouterportinfo)
 
             currentlgportinfo = dict((p,(p.ip_address,p.mac_address,currentlognetinfo[p.network][0],
-                                         currentlognetinfo[p.network][1])) for p in self._lastlogicalport
+                                         currentlognetinfo[p.network][1],p.network.id)) for p,_ in self._lastlogicalport
                                      if p in allobjects and hasattr(p,"ip_address")
                                      and hasattr(p,"mac_address") and hasattr(p,"subnet")
                                      and p.subnet in currentsubnetinfo
@@ -419,7 +428,7 @@ class RouterUpdater(FlowUpdater):
             self._lastrouterinfo = currentrouterinfo
             self._lastsubnetinfo = currentsubnetinfo
             self._lastlgportinfo = currentlgportinfo
-            
+           
             #ofdef = connection.openflowdef
             #vhost = connection.protocol.vhost
             l3input = self._parent._gettableindex("l3input", vhost)
@@ -603,17 +612,17 @@ class RouterUpdater(FlowUpdater):
                                     oxm_fields=[
                                             ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
                                             ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
-                                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ipaddress)
+                                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ip4_addr(ipaddress))
                                                 ]
                                     ),
                                 instructions=[
                                     ofdef.ofp_instruction_actions(
                                         actions=[
                                             ofdef.ofp_action_set_field(
-                                                field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC,srcmaddress)
+                                                field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC,mac_addr(srcmaddress))
                                                 ),
                                             ofdef.ofp_action_set_field(
-                                                field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,macaddress)
+                                                field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr(macaddress))
                                                 )
                                             ]
                                         ),
@@ -636,7 +645,7 @@ class RouterUpdater(FlowUpdater):
                                     oxm_fields=[
                                             ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
                                             ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
-                                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ipaddress)
+                                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ip4_addr(ipaddress))
                                                 ]
                                     )
                             )
@@ -656,14 +665,14 @@ class RouterUpdater(FlowUpdater):
             for obj in lastlgportinfo:
                 if obj not in currentlgportinfo or currentlgportinfo[obj] != lastlgportinfo[obj]:
 
-                    ipaddress,macaddrss,netid,smacaddress = lastlgportinfo[obj]
+                    ipaddress,macaddrss,netid,smacaddress, keyid = lastlgportinfo[obj]
 
                     # remove host learn
                     cmds.extend(_remove_host_flow(netid,macaddrss,ipaddress,smacaddress))
 
                     # remove arp proxy
                     for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
-                                            'arpentries': (ipaddress,macaddrss,netid,False)}):
+                                            'arpentries': [(ipaddress,macaddrss,keyid,False)]}):
                         yield m
 
 
@@ -713,14 +722,14 @@ class RouterUpdater(FlowUpdater):
 
             for obj in currentlgportinfo:
                 if obj not in lastlgportinfo or currentlgportinfo[obj] != lastlgportinfo[obj]:
-                    ipaddress,macaddrss,netid,smacaddress = currentlgportinfo[obj]
+                    ipaddress,macaddrss,netid,smacaddress,keyid = currentlgportinfo[obj]
 
                     #add host learn
                     cmds.extend(_add_host_flow(netid,macaddrss,ipaddress,smacaddress))
-
+                    
                     #add arp proxy in physicalport
                     for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
-                                            'arpentries': (ipaddress,macaddrss,netid,False)}):
+                                            'arpentries': [(ipaddress,macaddrss,keyid,False)]}):
                         yield m
 
             for m in self.execute_commands(connection, cmds):
