@@ -5,6 +5,7 @@ from vlcp.protocol.openflow import OpenflowConnectionStateEvent
 from vlcp.server.module import callAPI
 from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
+from vlcp.utils.ethernet import mac_addr, mac_addr_bytes
 from vlcp.utils.flowupdater import FlowUpdater
 import vlcp.service.sdn.ioprocessing as iop
 
@@ -14,6 +15,7 @@ class RouterMACConvertUpdater(FlowUpdater):
                                                       ("RouterMACConvertUpdater", connection), parent._logger)
         self._parent = parent
         self._lastphysicalport = {}
+        self._lastphyportinfo = {}
 
     def main(self):
         try:
@@ -53,23 +55,145 @@ class RouterMACConvertUpdater(FlowUpdater):
 
     def updateflow(self, connection, addvalues, removevalues, updatedvalues):
 
-        allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
-        datapath_id = connection.openflow_datapathid
-        vhost = connection.protocol.vhost
+        try:
+            #allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
+            datapath_id = connection.openflow_datapathid
+            ofdef = connection.openflowdef
+            vhost = connection.protocol.vhost
 
-        for m in self.executeAll([callAPI(self,"ovsdbportmanager","waitportbyname",
-                                    {"datapathid":datapath_id,"vhost":vhost,"name":name})]
-                                    for _,name in self._lastphysicalport):
-            yield
+            # for m in self.executeAll([callAPI(self,"openflowportmanager","waitportbyname",
+            #                             {"datapathid":datapath_id,"vhost":vhost,"portno":portno})
+            #                             for _,portno in self._lastphysicalport]):
+            #     yield m
 
-        physicalportdesc = self.retvalue
+            currentphyportinfo = {}
+            lastphyportinfo = self._lastphyportinfo
+            for p,portno in self._lastphysicalport:
 
+                for m in callAPI(self,"openflowportmanager","waitportbyname",
+                                 {"datapathid":datapath_id,"vhost":vhost,"portno":portno}):
+                    yield m
 
+                portmac = self.retvalue.hw_addr
+
+                # convert physicalport mac as router out mac
+                outmac = [s ^ m for s,m in zip(portmac,mac_addr(self._parent.outroutermacmask))]
+
+                currentphyportinfo[p] = (mac_addr.formatter(outmac),portno)
+
+            self._lastphyportinfo = currentphyportinfo
+
+            inmacconverttable = self._parent._gettableindex("inmacconvert", vhost)
+            outmacconverttable = self._parent._gettableindex("outmacconvert", vhost)
+
+            cmds = []
+
+            def _add_mac_convert_flow(mac,portno):
+                return [
+                    ofdef.ofp_flow_mod(
+                        table_id=inmacconverttable,
+                        command=ofdef.OFPFC_ADD,
+                        priority=ofdef.OFP_DEFAULT_PRIORITY,
+                        buffer_id=ofdef.OFP_NO_BUFFER,
+                        out_port=ofdef.OFPP_ANY,
+                        out_group=ofdef.OFPG_ANY,
+                        match=ofdef.ofp_match_oxm(
+                            oxm_fields=[
+                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,portno),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, mac_addr_bytes(mac))
+                            ]
+                        ),
+                        instructions=[
+                            ofdef.ofp_instruction_actions(
+                                actions = [
+                                    ofdef.ofp_action_set_field(
+                                        field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,
+                                                               mac_addr_bytes(self._parent.inroutermac))
+                                    )
+                                ]
+                            )
+                        ]
+                    ),
+                    ofdef.ofp_flow_mod(
+                        table_id=outmacconverttable,
+                        command=ofdef.OFPFC_ADD,
+                        priority=ofdef.OFP_DEFAULT_PRIORITY,
+                        buffer_id=ofdef.OFP_NO_BUFFER,
+                        out_port=ofdef.OFPP_ANY,
+                        out_group=ofdef.OFPG_ANY,
+                        match=ofdef.ofp_match_oxm(
+                            oxm_fields=[
+                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,portno),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(self._parent.inroutermac))
+                            ]
+                        ),
+                        instructions=[
+                            ofdef.ofp_instruction_actions(
+                                actions = [
+                                    ofdef.ofp_action_set_field(
+                                        field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(mac))
+                                    )
+                                ]
+                            )
+                        ]
+                    )
+                ]
+
+            def _remove_mac_convert_flow(mac,portno):
+                return [
+                    ofdef.ofp_flow_mod(
+                        table_id=inmacconverttable,
+                        command=ofdef.OFPFC_DELETE,
+                        priority=ofdef.OFP_DEFAULT_PRIORITY,
+                        buffer_id=ofdef.OFP_NO_BUFFER,
+                        out_port=ofdef.OFPP_ANY,
+                        out_group=ofdef.OFPG_ANY,
+                        match=ofdef.ofp_match_oxm(
+                            oxm_fields=[
+                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, portno),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, mac_addr_bytes(mac))
+                            ]
+                        )
+                    ),
+                    ofdef.ofp_flow_mod(
+                        table_id=outmacconverttable,
+                        command=ofdef.OFPFC_DELETE,
+                        priority=ofdef.OFP_DEFAULT_PRIORITY,
+                        buffer_id=ofdef.OFP_NO_BUFFER,
+                        out_port=ofdef.OFPP_ANY,
+                        out_group=ofdef.OFPG_ANY,
+                        match=ofdef.ofp_match_oxm(
+                            oxm_fields=[
+                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, portno),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(self._parent.inroutermac))
+                            ]
+                        )
+                    )
+
+                ]
+            for obj in removevalues:
+                if obj in lastphyportinfo:
+                    mac,portno = lastphyportinfo[obj]
+                    cmds.extend(_remove_mac_convert_flow(mac,portno))
+
+            for m in self.execute_commands(connection,cmds):
+                yield m
+
+            del cmds[:]
+            for obj in addvalues:
+                if obj in currentphyportinfo:
+                    mac,portno = currentphyportinfo[obj]
+                    cmds.extend(_add_mac_convert_flow(mac,portno))
+
+            for m in self.execute_commands(connection, cmds):
+                yield m
+        except Exception:
+            self._logger.warning("router convert mac flow exception, ignore it! continue", exc_info=True)
 
 class RouterMACConvert(FlowBase):
     _tablerequest = (
         ("inmacconvert", ("ingress",), ""),
-        ("l2input","inmacconvert",""),
+        ("l2input",("inmacconvert",),""),
         ("outmacconvert", ("l2output",), ""),
         ("egress", ("outmacconvert",), "")
     )
@@ -111,6 +235,9 @@ class RouterMACConvert(FlowBase):
 
         self._flowupdater[conn] = updater
         updater.start()
+
+        if False:
+            yield
 
     def _uninit_conn(self, conn):
         if conn in self._flowupdater:
