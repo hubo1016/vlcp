@@ -4,7 +4,7 @@ Created on 2015/11/10
 :author: hubo
 '''
 
-from vlcp.protocol.http import HttpProtocolException, HttpRequestEvent, escape, escape_b
+from vlcp.protocol.http import HttpProtocolException, HttpRequestEvent, escape, escape_b, _createstatus
 import traceback
 from vlcp.event.stream import Stream, MemoryStream
 from vlcp.event import EventHandler
@@ -278,7 +278,7 @@ class Environment(object):
                 for m in self.write('</span>\n', close, False):
                     yield m
             else:
-                for m in self.write(b'<h1>' + self.protocol._createstatus(status) + b'</h1>', close, False):
+                for m in self.write(b'<h1>' + _createstatus(status) + b'</h1>', close, False):
                     yield m
     def write(self, data, eof = False, buffering = True):
         if not self.outputstream:
@@ -484,7 +484,7 @@ class Environment(object):
         if not isinstance(realm, bytes):
             realm = realm.encode('ascii')
         self.startResponse(401, [(b'WWW-Authenticate', b'Basic realm="' + realm + b'"')])
-        self.exit(b'<h1>' + self.protocol._createstatus(401) + b'</h1>')
+        self.exit(b'<h1>' + _createstatus(401) + b'</h1>')
     def getrealpath(self, root, path):
         '''
         Return the real path on disk from the query path, from a root path.
