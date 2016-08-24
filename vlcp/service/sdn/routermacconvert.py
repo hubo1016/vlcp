@@ -37,6 +37,7 @@ class RouterMACConvertUpdater(FlowUpdater):
 
             _, self._lastphysicalport, _, _ = self.event.current
 
+            self._update_walk()
 
     def _update_walk(self):
         physicalportkeys = [p.getkey() for p, _ in self._lastphysicalport]
@@ -70,7 +71,7 @@ class RouterMACConvertUpdater(FlowUpdater):
             lastphyportinfo = self._lastphyportinfo
             for p,portno in self._lastphysicalport:
 
-                for m in callAPI(self,"openflowportmanager","waitportbyname",
+                for m in callAPI(self,"openflowportmanager","waitportbyno",
                                  {"datapathid":datapath_id,"vhost":vhost,"portno":portno}):
                     yield m
 
@@ -123,7 +124,7 @@ class RouterMACConvertUpdater(FlowUpdater):
                         out_group=ofdef.OFPG_ANY,
                         match=ofdef.ofp_match_oxm(
                             oxm_fields=[
-                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,portno),
+                                ofdef.create_oxm(ofdef.NXM_NX_REG6,portno),
                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(self._parent.inroutermac))
                             ]
                         ),
