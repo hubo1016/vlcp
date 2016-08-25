@@ -1025,7 +1025,7 @@ class VXLANCast(FlowBase):
                                            instructions = [ofdef.ofp_instruction_actions(
                                                                 actions = [ofdef.nx_action_reg_load(dst = ofdef.NXM_NX_REG7,
                                                                                                 ofs_nbits = ofdef.create_ofs_nbits(0, 1),
-                                                                                                value = 1)]
+                                                                                                value = 0)]
                                                             )]))
         for m in conn.protocol.batch(cmds, conn, self.apiroutine):
             yield m
