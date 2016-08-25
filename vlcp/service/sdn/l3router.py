@@ -7,6 +7,7 @@ import vlcp.service.sdn.ioprocessing as iop
 from vlcp.event import RoutineContainer
 from vlcp.protocol.openflow import OpenflowAsyncMessageEvent
 from vlcp.protocol.openflow import OpenflowConnectionStateEvent
+from vlcp.server.module import callAPI
 from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes, ip4_addr, arp_packet_l4, mac_addr, ethernet_l4, \
@@ -22,9 +23,11 @@ class RouterUpdater(FlowUpdater):
         self._parent = parent
         self._lastlogicalport = dict()
         self._lastlogicalnet = dict()
+        self._lastphyport = dict()
 
         self._lastrouterinfo = dict()
         self._lastsubnetinfo = dict()
+        self._lastlgportinfo = dict()
         self._original_keys = ()
 
         self._packet_buffer = dict()
@@ -244,7 +247,7 @@ class RouterUpdater(FlowUpdater):
         while True:
             yield (dataobjectchange,)
 
-            self._lastlogicalport, _, self._lastlogicalnet, _ = self.event.current
+            self._lastlogicalport, self._lastphyport, self._lastlogicalnet, _ = self.event.current
 
             self._update_walk()
 
@@ -341,21 +344,60 @@ class RouterUpdater(FlowUpdater):
     def updateflow(self, connection, addvalues, removevalues, updatedvalues):
 
         try:
+            datapath_id = connection.openflow_datapathid
+            ofdef = connection.openflowdef
+            vhost = connection.protocol.vhost
+
             lastrouterinfo = self._lastrouterinfo
             lastsubnetinfo = self._lastsubnetinfo
+            lastlgportinfo = self._lastlgportinfo
 
             allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
 
-            currentlognetinfo = dict((n, id) for n, id in self._lastlogicalnet if n in allobjects)
+            # phyport : phynet = 1:1, so we use phynet as key
+            currentphyportinfo = dict((p.network, (p,id)) for p, id in self._lastphyport if p in allobjects)
+            #currentlognetinfo = dict((n, (id,n.physicalnetwork)) for n, id in self._lastlogicalnet if n in allobjects)
+
+            currentlognetinfo = {}
+
+            lognetinfo = dict((n,id) for n,id in self._lastlogicalnet if n in allobjects)
+
+            for n,id in lognetinfo.values():
+                # this lognetwork has phyport, we should get phyport mac
+                # as the base mac to produce mac that when router send packet used!
+                # else , use innmac
+                if n.physicalnetwork in currentphyportinfo:
+                    _,phyportid = currentphyportinfo[n.physicalnetwork]
+
+                    for m in callAPI(self, "openflowportmanager", "waitportbyno",
+                                     {"datapathid": datapath_id, "vhost": vhost, "portno": phyportid}):
+                        yield m
+
+                    portmac = self.retvalue.hw_addr
+
+                    # convert physicalport mac as router out mac
+                    outmac = [s ^ m for s, m in zip(portmac, mac_addr(self._parent.outroutermacmask))]
+
+                    currentlognetinfo[n] = (id,mac_addr.formatter(outmac))
+                    #currentphyportinfo[p] = (mac_addr.formatter(outmac), portno)
+                else:
+                    currentlognetinfo[n] = (id,self._parent.inroutermac)
 
             currentrouterportinfo = dict((r.getkey(),(r,r.subnet,r.router)) for r in allobjects
                                             if r.isinstance(RouterPort))
 
-            currentsubnetinfo = dict((s, (currentrouterportinfo[s.router.getkey()][2],self._parent.inroutermac,
+            currentsubnetinfo = dict((s, (currentrouterportinfo[s.router.getkey()][2],currentlognetinfo[s.network][1],
                                           getattr(s,"gateway",None),s.cidr,
-                                          getattr(s,"external",False),currentlognetinfo[s.network]))
+                                          getattr(s,"external",False),currentlognetinfo[s.network][0]))
                                      for s in allobjects if s.isinstance(SubNet) and s.network in currentlognetinfo
                                      and hasattr(s,'router') and s.router.getkey() in currentrouterportinfo)
+
+            currentlgportinfo = dict((p,(p.ip_address,p.mac_address,currentlognetinfo[p.network][0],
+                                         currentlognetinfo[p.network][1])) for p in self._lastlogicalport
+                                     if p in allobjects and hasattr(p,"ip_address")
+                                     and hasattr(p,"mac_address") and hasattr(p,"subnet")
+                                     and p.subnet in currentsubnetinfo
+                                     and p.network in currentlognetinfo)
 
             currentrouterinfo = dict((r, (r.routes,
                                             [(currentsubnetinfo[currentrouterportinfo[interface_key][0].subnet][1],
@@ -376,12 +418,15 @@ class RouterUpdater(FlowUpdater):
 
             self._lastrouterinfo = currentrouterinfo
             self._lastsubnetinfo = currentsubnetinfo
+            self._lastlgportinfo = currentlgportinfo
             
-            ofdef = connection.openflowdef
-            vhost = connection.protocol.vhost
+            #ofdef = connection.openflowdef
+            #vhost = connection.protocol.vhost
             l3input = self._parent._gettableindex("l3input", vhost)
             l3router = self._parent._gettableindex("l3router", vhost)
             l3output = self._parent._gettableindex("l3output", vhost)
+            l2output = self._parent._gettableindex("l2output", vhost)
+
             cmds = []
 
             if connection.protocol.disablenxext:
@@ -544,58 +589,97 @@ class RouterUpdater(FlowUpdater):
                     )
                 ]
 
-            for obj in removevalues:
-                #
-                # remove an router ,,  delete flows ,,
-                #
-                # remove router must be remove interface first,
-                # remove interface will update router info , add / remove flow
-                # when remove router ,, it must be update and remove flow
-                #
-                # for xx in routerinfo[obj] will never run ....
-                if obj in lastrouterinfo:
-                    static_routes,interfaces = lastrouterinfo[obj]
-                    for mac,ipaddress,cidr,isexternal,netid in interfaces:
-                        # delete router mac + ipaddress ---->>> l3input
-                        cmds.extend(_deleteinputflow(mac, ipaddress, netid))
+            def _add_host_flow(netid, macaddress, ipaddress, srcmaddress):
+                return  [
+                            ofdef.ofp_flow_mod(
+                                table_id=l3output,
+                                command=ofdef.OFPFC_ADD,
+                                priority=ofdef.OFP_DEFAULT_PRIORITY,
+                                buffer_id=ofdef.OFP_NO_BUFFER,
+                                #idle_timeout=self._parent.host_learn_timeout,
+                                out_port=ofdef.OFPP_ANY,
+                                out_group=ofdef.OFPG_ANY,
+                                match=ofdef.ofp_match_oxm(
+                                    oxm_fields=[
+                                            ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
+                                            ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
+                                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ipaddress)
+                                                ]
+                                    ),
+                                instructions=[
+                                    ofdef.ofp_instruction_actions(
+                                        actions=[
+                                            ofdef.ofp_action_set_field(
+                                                field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC,srcmaddress)
+                                                ),
+                                            ofdef.ofp_action_set_field(
+                                                field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,macaddress)
+                                                )
+                                            ]
+                                        ),
+                                    ofdef.ofp_instruction_goto_table(table_id=l2output)
+                                    ]
+                                        )
+                        ]
 
-                        # delete arp reply flow from l3input
-                        cmds.extend(_deletearpreplyflow(mac, ipaddress, netid))
+            def _remove_host_flow(netid, macaddress, ipaddress, srcmaddress):
+                return  [
+                            ofdef.ofp_flow_mod(
+                                table_id=l3output,
+                                command=ofdef.OFPFC_DELETE,
+                                priority=ofdef.OFP_DEFAULT_PRIORITY,
+                                buffer_id=ofdef.OFP_NO_BUFFER,
+                                #idle_timeout=self._parent.host_learn_timeout,
+                                out_port=ofdef.OFPP_ANY,
+                                out_group=ofdef.OFPG_ANY,
+                                match=ofdef.ofp_match_oxm(
+                                    oxm_fields=[
+                                            ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
+                                            ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
+                                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ipaddress)
+                                                ]
+                                    )
+                            )
+                        ]
+            for obj in lastrouterinfo:
+                if obj not in currentrouterinfo or currentrouterinfo[obj] != lastrouterinfo[obj]:
+                    # this means should remove flows
+                     static_routes,interfaces = lastrouterinfo[obj]
+                     for mac, ipaddress, cidr, isexternal, netid in interfaces:
+                         cmds.extend(_deleteinputflow(mac, ipaddress, netid))
+                         cmds.extend(_deletearpreplyflow(mac,ipaddress,netid))
+                         cmds.extend(_deleterouterflow(netid))
+                         if mac != self._parent.inroutermac:
+                             cmds.extend(_deleteinputflow(self._parent.inroutermac, ipaddress, netid))
+                             cmds.extend(_deletearpreplyflow(self._parent.inroutermac, ipaddress, netid))
 
-                        # delete router flow from l3router table
-                        cmds.extend(_deleterouterflow(netid))
+            for obj in lastlgportinfo:
+                if obj not in currentlgportinfo or currentlgportinfo[obj] != lastlgportinfo[obj]:
 
-            for obj in updatedvalues:
-                if obj in lastrouterinfo and (obj not in currentrouterinfo or
-                                                      lastrouterinfo[obj] != currentrouterinfo[obj]):
-                    #  update obj in lastinfo ,,  when recreate current info it maybe filter
-                    #  so maybe in last not in current
-                    static_routes,interfaces = lastrouterinfo[obj]
-                    for mac, ipaddress, cidr, isexternal, netid in interfaces:
-                        cmds.extend(_deleteinputflow(mac, ipaddress, netid))
-                        cmds.extend(_deletearpreplyflow(mac,ipaddress,netid))
-                        cmds.extend(_deleterouterflow(netid))
+                    ipaddress,macaddrss,netid,smacaddress = lastlgportinfo[obj]
 
-                if obj in lastsubnetinfo and (obj not in currentsubnetinfo or
-                                              lastsubnetinfo[obj] != currentsubnetinfo[obj]):
+                    # remove host learn
+                    cmds.extend(_remove_host_flow(netid,macaddrss,ipaddress,smacaddress))
 
-                    static_routes,interfaces = lastrouterinfo[lastsubnetinfo[obj][0]]
-                    for mac, ipaddress, cidr, isexternal, netid in interfaces:
-                        cmds.extend(_deleteinputflow(mac, ipaddress, netid))
-                        cmds.extend(_deletearpreplyflow(mac,ipaddress,netid))
-                        cmds.extend(_deleterouterflow(netid))
+                    # remove arp proxy
+                    for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
+                                            'arpentries': (ipaddress,macaddrss,netid,False)}):
+                        yield m
+
 
             for m in self.execute_commands(connection, cmds):
                 yield m
 
-            del cmds[:]
-            for obj in addvalues:
-                if obj in currentrouterinfo and obj not in lastrouterinfo:
+            del  cmds[:]
+            for obj in currentrouterinfo:
+                if obj not in lastrouterinfo or currentrouterinfo[obj] != lastrouterinfo[obj]:
+                    # this means should add flows
                     link_routes = []
                     add_routes = []
 
                     static_routes,interfaces = currentrouterinfo[obj]
-                    for mac, ipaddress, cidr, isexternal, netid in interfaces:
+
+                    for mac,ipaddress,cidr,isexternal,netid in interfaces:
 
                         network, prefix = parse_ip4_network(cidr)
                         link_routes.append((network, prefix, netid))
@@ -610,38 +694,9 @@ class RouterUpdater(FlowUpdater):
                         # add arp reply flow ---->>>  l3input
                         cmds.extend(_createarpreplyflow(mac, ipaddress, netid))
 
-                    for network, prefix, netid in link_routes:
-                        add_routes.append((network, prefix, netid))
-                        for cidr, nethop in static_routes:
-
-                            if ip_in_network(nethop, network, prefix):
-                                c, f = parse_ip4_network(cidr)
-                                add_routes.append((c, f, netid))
-
-                    # add router flow into l3router table
-                    for _, _, _, _, netid in interfaces:
-                        cmds.extend(_createrouterflow(add_routes, netid))
-
-            for obj in updatedvalues:
-                if obj in currentrouterinfo and (obj not in lastrouterinfo or
-                                                         currentrouterinfo[obj] != lastrouterinfo):
-                    link_routes = []
-                    add_routes = []
-
-                    static_routes,interfaces = currentrouterinfo[obj]
-                    for mac, ipaddress, cidr, isexternal, netid in interfaces:
-                        network, prefix = parse_ip4_network(cidr)
-                        link_routes.append((network, prefix, netid))
-
-                        if isexternal:
-                            network, prefix = parse_ip4_network("0.0.0.0/0")
-                            link_routes.append((network, prefix, netid))
-
-                        # add router mac + ipaddress ---->>> l3input
-                        cmds.extend(_createinputflow(mac, ipaddress, netid))
-
-                        # add arp reply flow ---->>>  l3input
-                        cmds.extend(_createarpreplyflow(mac, ipaddress, netid))
+                        if mac != self._parent.inroutermac:
+                            cmds.extend(_createinputflow(self._parent.inroutermac,ipaddress,netid))
+                            cmds.extend(_createarpreplyflow(self._parent.inroutermac,ipaddress,netid))
 
                     for network, prefix, netid in link_routes:
                         add_routes.append((network, prefix, netid))
@@ -655,41 +710,18 @@ class RouterUpdater(FlowUpdater):
                     for _, _, _, _, netid in interfaces:
                         cmds.extend(_createrouterflow(add_routes, netid))
 
-                if obj in currentsubnetinfo and (obj not in lastsubnetinfo or
-                                                 currentsubnetinfo[obj] != lastsubnetinfo[obj]):
-                    link_routes = []
-                    add_routes = []
-                    static_routes,interfaces = currentrouterinfo[currentsubnetinfo[obj][0]]
-                    for mac, ipaddress, cidr, isexternal, netid in interfaces:
 
-                        # every interface have same routes in routerinfo
-                        # static_routes = routes
+            for obj in currentlgportinfo:
+                if obj not in lastlgportinfo or currentlgportinfo[obj] != lastlgportinfo[obj]:
+                    ipaddress,macaddrss,netid,smacaddress = currentlgportinfo[obj]
 
-                        network, prefix = parse_ip4_network(cidr)
-                        link_routes.append((network, prefix, netid))
+                    #add host learn
+                    cmds.extend(_add_host_flow(netid,macaddrss,ipaddress,smacaddress))
 
-                        if isexternal:
-                            network, prefix = parse_ip4_network("0.0.0.0/0")
-                            link_routes.append((network, prefix, netid))
-
-                        # add router mac + ipaddress ---->>> l3input
-                        cmds.extend(_createinputflow(mac, ipaddress, netid))
-
-                        # add arp reply flow ---->>>  l3input
-                        cmds.extend(_createarpreplyflow(mac, ipaddress, netid))
-
-                    for network, prefix, netid in link_routes:
-                        add_routes.append((network, prefix, netid))
-                        for cidr, nethop in static_routes:
-
-                            if ip_in_network(nethop, network, prefix):
-                                c, f = parse_ip4_network(cidr)
-                                add_routes.append((c, f, netid))
-
-                    # add router flow into l3router table
-                    for _, _, _, _, netid in interfaces:
-                        cmds.extend(_createrouterflow(add_routes, netid))
-
+                    #add arp proxy in physicalport
+                    for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
+                                            'arpentries': (ipaddress,macaddrss,netid,False)}):
+                        yield m
 
             for m in self.execute_commands(connection, cmds):
                 yield m
@@ -706,6 +738,7 @@ class L3Router(FlowBase):
     )
 
     _default_inroutermac = '1a:23:67:59:63:33'
+    _default_outroutermacmask = '0a:00:00:00:00:00'
     _default_flush_cycle_time = 10
     _default_host_learn_timeout = 30
 
