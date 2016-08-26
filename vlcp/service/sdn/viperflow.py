@@ -1532,6 +1532,8 @@ class ViperFlow(Module):
                                 end = parse_ip4_address(sn.allocated_end)
                                 try:
                                     assert start <= ip_address <= end
+                                    if hasattr(sn,'gateway'):
+                                        assert ip_address != parse_ip4_address(sn.gateway)
                                 except:
                                     raise ValueError("special ipaddress " + values[1+i].ip_address + " invaild")
 
@@ -1545,8 +1547,12 @@ class ViperFlow(Module):
                             # allocated ip_address from cidr
                             start = parse_ip4_address(sn.allocated_start)
                             end = parse_ip4_address(sn.allocated_end)
+                            gateway = None
+                            if hasattr(sn.gateway):
+                                gateway = parse_ip4_address(sn.gateway)
+
                             for ip_address in range(start,end):
-                                if str(ip_address) not in smn.allocated_ips:
+                                if str(ip_address) not in smn.allocated_ips and ip_address != gateway:
                                     setattr(values[1+i],'ip_address',ip4_addr.formatter(ip_address))
                                     smn.allocated_ips[str(ip_address)] = values[1+i].create_weakreference()
                                     #overlay subnet attr to subnet weakref
@@ -1650,8 +1656,8 @@ class ViperFlow(Module):
                         subnetobj,subnetmapobj = subnetdict.get(SubNet.default_key(subnetid))
                         if subnetobj and subnetmapobj:
                             del subnetmapobj.allocated_ips[str(parse_ip4_address(lgport.ip_address))]
-                    else:
-                        raise ValueError("special subnetid " + subnetid + " not existed")
+                        else:
+                            raise ValueError("special subnetid " + subnetid + " not existed")
             for port in ports:
 
                 lgport = lgportdict.get(LogicalPort.default_key(port["id"]))
@@ -1668,6 +1674,8 @@ class ViperFlow(Module):
                         end = parse_ip4_address(subnetobj.allocated_end)
                         try:
                             assert start <= ip_address <= end
+                            if hasattr(subnetobj,"gateway"):
+                                assert ip_address != parse_ip4_address(subnetobj.gateway)
                         except:
                             raise ValueError("special ipaddress " + port['ip_address'] + " invaild")
 
@@ -1920,114 +1928,47 @@ class ViperFlow(Module):
                     raise
                 else:
                     if 'gateway' in subnet:
-                        try:
-                            gateway = parse_ip4_address(subnet['gateway'])
-                            if not ip_in_network(gateway,cidr,prefix):
-                                raise ValueError(" gateway ip not in cidr")
+                        gateway = parse_ip4_address(subnet['gateway'])
+                        if not ip_in_network(gateway,cidr,prefix):
+                            raise ValueError(" gateway ip not in cidr")
                             # format ipaddr to same in value store
-                            subnet['gateway'] = ip4_addr.formatter(gateway)
-                        except:
-                            raise
+                        subnet['gateway'] = ip4_addr.formatter(gateway)
 
-                        if 'allocated_start' not in subnet:
-                            if 'allocated_end' not in subnet:
-                                # we assume gateway is smallest in a allocate pool
-                                start = gateway + 1
-                                end = network_last(cidr,prefix)
-                                if start == end:
-                                    raise ValueError('special ' + subnet['gateway'] + " as small,\
-                                     allocated is none in cird")
+                    if "allocated_start" not in subnet:
+                        if "allocated_end" not in subnet:
+                            start = network_first(cidr,prefix)
+                            end = network_last(cidr,prefix)
 
-                                subnet['allocated_start'] = ip4_addr.formatter(start)
-                                subnet['allocated_end'] = ip4_addr.formatter(end)
-                            else:
-                                try:
-                                    end = parse_ip4_address(subnet['allocated_end'])
-                                    assert ip_in_network(end,cidr,prefix)
-                                    assert end != gateway
-                                    assert end > network_first(cidr,prefix)
-                                    if end > gateway:
-                                        start = gateway + 1
-                                    else:
-                                        start = network_first(cidr,prefix)
-
-                                    if start == end:
-                                        raise ValueError("allocated pool is none")
-                                    subnet["allocated_start"] = ip4_addr.formatter(start)
-                                    subnet["allocated_end"] = ip4_addr.formatter(end)
-                                except Exception:
-                                    raise ValueError("special allocated end invalid "+subnet['allocated_end'])
+                            subnet['allocated_start'] = ip4_addr.formatter(start)
+                            subnet['allocated_end'] = ip4_addr.formatter(end)
                         else:
-                            if 'allocated_end' not in subnet:
-                                try:
-                                    start = parse_ip4_address(subnet['allocated_start'])
-                                    assert ip_in_network(start,cidr,prefix)
-                                    assert start != gateway
-                                    assert start < network_last(cidr,prefix)
-                                    if start > gateway:
-                                        end = network_last(cidr,prefix)
-                                    else:
-                                        end = gateway - 1
+                            start = network_first(cidr,prefix)
+                            end = parse_ip4_address(subnet['allocated_end'])
 
-                                    if start > end:
-                                        raise ValueError("allocated pool is None")
-                                    subnet['allocated_end'] = ip4_addr.formatter(end)
-                                    subnet['allocated_start'] = ip4_addr.formatter(start)
-                                except Exception:
-                                    raise ValueError('special allocated start invalid'+subnet['allocated_start'])
-                            else:
-                                try:
-                                    start = parse_ip4_address(subnet['allocated_start'])
-                                    end = parse_ip4_address(subnet['allocated_end'])
-                                    assert start < end
-                                    assert ip_in_network(start,cidr,prefix)
-                                    assert ip_in_network(end,cidr,prefix)
+                            if start <= end:
+                                raise ValueError(" allocated ip pool is None")
 
-                                    if start <= gateway <= end:
-                                        raise ValueError('gateway must out of allocated pool')
-                                    subnet['allocated_start'] = ip4_addr.formatter(start)
-                                    subnet['allocated_end'] = ip4_addr.formatter(end)
-                                except Exception:
-                                    raise ValueError(" allocated start end invalid" +subnet['allocated_start']\
-                                                     +" "+subnet['allocated_end'])
-
+                            subnet['allocated_start'] = ip4_addr.formatter(start)
+                            subnet['allocated_end'] = ip4_addr.formatter(end)
                     else:
-                        if 'allocated_start' not in subnet:
-                            if 'allocated_end' not in subnet:
-                                subnet['allocated_start'] = ip4_addr.formatter(network_first(cidr,prefix))
-                                subnet['allocated_end'] = ip4_addr.formatter(network_last(cidr,prefix))
-                            else:
-                                try:
-                                    end = parse_ip4_address(subnet['allocated_end'])
-                                    assert ip_in_network(end,cidr,prefix)
-                                    assert end > network_first(cidr,prefix)
-                                    subnet['allocated_start'] = ip4_addr.formatter(network_first(cidr,prefix))
-                                    subnet['allocated_end'] = ip4_addr.formatter(end)
-                                except Exception:
-                                    raise ValueError("special allocated end invalid "+subnet['allocated_end'])
-                        else:
-                            if 'allocated_end' not in subnet:
-                                try:
-                                    start = parse_ip4_address(subnet['allocated_start'])
-                                    assert ip_in_network(start,cidr,prefix)
-                                    assert start < network_last(cidr,prefix)
-                                    subnet['allocated_end'] = ip4_addr.formatter(network_last(cidr,prefix))
-                                    subnet['allocated_start'] = ip4_addr.formatter(start)
-                                except Exception:
-                                    raise ValueError('special allocated start invalid'+subnet['allocated_start'])
-                            else:
-                                try:
-                                    start = parse_ip4_address(subnet['allocated_start'])
-                                    end = parse_ip4_address(subnet['allocated_end'])
-                                    assert start < end
-                                    assert ip_in_network(start,cidr,prefix)
-                                    assert ip_in_network(end,cidr,prefix)
-                                    subnet['allocated_start'] = ip4_addr.formatter(start)
-                                    subnet['allocated_end'] = ip4_addr.formatter(end)
-                                except Exception:
-                                    raise ValueError("special allocated start end invalid" +\
-                                                     subnet['allocated_start'] + ' ' + subnet['allocated_end'])
+                        if "allocated_end" not in subnet:
+                            start = parse_ip4_address(subnet['allocated_start'])
+                            end = network_last(cidr,prefix)
 
+                            if start <= end:
+                                raise ValueError(" allocated ip pool is None")
+
+                            subnet['allocated_start'] = ip4_addr.formatter(start)
+                            subnet['allocated_end'] = ip4_addr.formatter(end)
+                        else:
+                            start = parse_ip4_address(subnet['allocated_start'])
+                            end = parse_ip4_address(subnet['allocated_end'])
+
+                            if start <= end:
+                                raise ValueError(" allocated ip pool is None")
+
+                            subnet['allocated_start'] = ip4_addr.formatter(start)
+                            subnet['allocated_end'] = ip4_addr.formatter(end)
             newsubnets.append(subnet)
 
         subnetobjs = [self._createsubnet(**sn) for sn in newsubnets]
@@ -2372,14 +2313,13 @@ def check_ip_pool(gateway, start, end, allocated, cidr):
     ncidr,prefix = parse_ip4_network(cidr)
     if gateway:
         ngateway = parse_ip4_address(gateway)
-        assert ip_in_network(ngateway,ncidr,prefix)
         assert ip_in_network(nstart,ncidr,prefix)
         assert ip_in_network(nend,ncidr,prefix)
         assert nstart <= nend
-        assert ngateway < nstart or ngateway > nend
 
         for ip in allocated:
             nip = parse_ip4_address(ip)
+            assert ip != ngateway
             assert nstart <= nip <= nend
     else:
         assert ip_in_network(nstart,ncidr,prefix)
