@@ -1548,7 +1548,7 @@ class ViperFlow(Module):
                             start = parse_ip4_address(sn.allocated_start)
                             end = parse_ip4_address(sn.allocated_end)
                             gateway = None
-                            if hasattr(sn.gateway):
+                            if hasattr(sn,"gateway"):
                                 gateway = parse_ip4_address(sn.gateway)
 
                             for ip_address in range(start,end):
@@ -1945,7 +1945,7 @@ class ViperFlow(Module):
                             start = network_first(cidr,prefix)
                             end = parse_ip4_address(subnet['allocated_end'])
 
-                            if start <= end:
+                            if start >= end:
                                 raise ValueError(" allocated ip pool is None")
 
                             subnet['allocated_start'] = ip4_addr.formatter(start)
@@ -1955,7 +1955,7 @@ class ViperFlow(Module):
                             start = parse_ip4_address(subnet['allocated_start'])
                             end = network_last(cidr,prefix)
 
-                            if start <= end:
+                            if start >= end:
                                 raise ValueError(" allocated ip pool is None")
 
                             subnet['allocated_start'] = ip4_addr.formatter(start)
@@ -1964,7 +1964,7 @@ class ViperFlow(Module):
                             start = parse_ip4_address(subnet['allocated_start'])
                             end = parse_ip4_address(subnet['allocated_end'])
 
-                            if start <= end:
+                            if start >= end:
                                 raise ValueError(" allocated ip pool is None")
 
                             subnet['allocated_start'] = ip4_addr.formatter(start)
