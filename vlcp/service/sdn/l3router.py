@@ -3,8 +3,10 @@ import itertools
 import time
 
 import vlcp.service.sdn.ioprocessing as iop
+from vlcp.event import Event
 
 from vlcp.event import RoutineContainer
+from vlcp.event import withIndices
 from vlcp.protocol.openflow import OpenflowAsyncMessageEvent
 from vlcp.protocol.openflow import OpenflowConnectionStateEvent
 from vlcp.server.module import callAPI
@@ -16,6 +18,9 @@ from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.utils.netutils import parse_ip4_network, ip_in_network, get_netmask
 from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet
 
+@withIndices("connection")
+class ARPRequest(Event):
+    pass
 
 class RouterUpdater(FlowUpdater):
     def __init__(self, connection, parent):
@@ -31,12 +36,13 @@ class RouterUpdater(FlowUpdater):
         self._original_keys = ()
 
         self._packet_buffer = dict()
+        self._arp_cache = dict()
 
     def main(self):
         try:
             self.subroutine(self._update_handler(), True, "updater_handler")
             self.subroutine(self._router_packetin_handler(), True, "router_packetin_handler")
-            self.subroutine(self._time_cycle_handler(),True,"time_cycle_handler")
+            self.subroutine(self._arp_cache_handler(),True,"arp_cache_handler")
 
             for m in FlowUpdater.main(self):
                 yield m
@@ -48,23 +54,108 @@ class RouterUpdater(FlowUpdater):
             if hasattr(self, "router_packetin_handler"):
                 self.router_packetin_handler.close()
 
-            if hasattr(self,"time_cycle_handler"):
-                self.time_cycle_handler.close()
+            if hasattr(self,"arp_cache_handler"):
+                self.arp_cache_handler.close()
 
-    def _time_cycle_handler(self):
+    def _arp_cache_handler(self):
+
+        arp_request_matcher = ARPRequest.createMatcher()
+        arp_incomplete_timeout = 20
 
         while True:
-            
-            for m in self.waitWithTimeout(self._parent.flush_cycle_time):
+            for m in self.waitWithTimeout(5,arp_request_matcher):
                 yield m
-            ct = time.time()
 
-            for _, v in self._packet_buffer.items():
-                for i, (_, t) in enumerate(v):
-                    if ct - t >= self._parent.flush_cycle_time:
-                        del v[i]
-            
-            
+            ct = int(time.time())
+
+            if self.timeout:
+                for k,v in self._arp_cache.items():
+                    status,timeout,isgateway = v
+
+                    if status == 1:
+                        if ct > timeout:
+                            self._arp_cache.pop(v)
+                            del self._packet_buffer[k]
+                        else:
+                            # packet out an arp request
+                            request_ip,outnetid = k
+                            ofdef = self._connection.openflowdef
+
+                            findFlag = False
+                            outsrcmacaddress = None
+                            interface_ipaddress = None
+
+                            for _, interfaces in self._lastrouterinfo.values():
+                                for macaddress, ipaddress, _, _, netid in interfaces:
+
+                                    if outnetid == netid:
+                                        outsrcmacaddress = macaddress
+                                        interface_ipaddress = ipaddress
+                                        findFlag = True
+
+                            if findFlag:
+                                # send ARP request to get dst_ip mac
+                                arp_request_packet = arp_packet_l4(
+                                    dl_src=mac_addr(outsrcmacaddress),
+                                    dl_dst=mac_addr("FF:FF:FF:FF:FF:FF"),
+                                    arp_op=ofdef.ARPOP_REQUEST,
+                                    arp_sha=mac_addr(outsrcmacaddress),
+                                    arp_spa=ip4_addr(interface_ipaddress),
+                                    arp_tpa=request_ip
+                                )
+                                l2output = self._parent._gettableindex("l2output", self._connection.protocol.vhost)
+                                for m in self.execute_commands(self._connection,
+                                                               [
+                                                                   ofdef.ofp_packet_out(
+                                                                       buffer_id=ofdef.OFP_NO_BUFFER,
+                                                                       in_port=ofdef.OFPP_CONTROLLER,
+                                                                       actions=[
+                                                                           ofdef.ofp_action_set_field(
+                                                                               field=ofdef.create_oxm(ofdef.NXM_NX_REG4,
+                                                                                                      netid)
+                                                                           ),
+                                                                           ofdef.ofp_action_set_field(
+                                                                               field=ofdef.create_oxm(ofdef.NXM_NX_REG5,
+                                                                                                      netid)
+                                                                           ),
+                                                                           ofdef.ofp_action_set_field(
+                                                                               field=ofdef.create_oxm(ofdef.NXM_NX_REG6,
+                                                                                                      0xffffffff)
+                                                                           ),
+                                                                           ofdef.nx_action_resubmit(
+                                                                               in_port=ofdef.OFPP_IN_PORT & 0xffff,
+                                                                               table=l2output
+                                                                           )
+                                                                       ],
+                                                                       data=arp_request_packet._tobytes()
+                                                                   )
+                                                               ]
+                                                               ):
+                                    yield m
+
+                            else:
+                                self._logger.warning("arp request can find avaliable network %d drop it",outnetid)
+                                self._arp_cache.pop(v)
+                                del self._packet_buffer[k]
+
+                # when request one arp , but there no reply ,
+                # buffer will have timeout packet , so checkout it here
+                for k,v in self._packet_buffer.items():
+                    nv = [(p,t) for p,t in v if t < ct]
+                    self._packet_buffer[k] = nv
+            else:
+                ipaddress = self.event.ipaddress
+                netid = self.event.logicalnetworkid
+                isgateway = self.event.isgateway
+
+                if (ipaddress,netid) not in self._arp_cache:
+                    entry = (1,ct + arp_incomplete_timeout,isgateway)
+                    self._arp_cache[(ipaddress,netid)] = entry
+                    self._packet_buffer[(ipaddress,netid)] = []
+                else:
+                    # this arp request have in cache , update timeout
+                    entry = (1, ct + arp_incomplete_timeout, isgateway)
+                    self._arp_cache[(ipaddress,netid)] = entry
 
     def _router_packetin_handler(self):
         conn = self._connection
@@ -79,6 +170,13 @@ class RouterUpdater(FlowUpdater):
 
         arpreply_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3input, 0x4,
                                                                    self._connection, self._connection.connmark)
+
+        arpflow_remove_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_FLOW_REMOVED, None, None,
+                                                    l3output, None, self._connection, self._connection.connmark,
+                                                    _ismatch = lambda x: x.message.reason == ofdef.OFPRR_IDLE_TIMEOUT)
+
+        arpflow_request_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3output,
+                                                    0x1,self._connection, self._connection.connmark)
 
         def _send_broadcast_packet_out(netid,packet):
             # in_port == controller
@@ -144,9 +242,9 @@ class RouterUpdater(FlowUpdater):
                             ofdef.ofp_flow_mod(
                                 table_id=l3output,
                                 command=ofdef.OFPFC_ADD,
-                                priority=ofdef.OFP_DEFAULT_PRIORITY,
+                                priority=ofdef.OFP_DEFAULT_PRIORITY + 1,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
-                                idle_timeout = self._parent.host_learn_timeout,
+                                hard_timeout = self._parent.host_learn_timeout,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
@@ -169,6 +267,40 @@ class RouterUpdater(FlowUpdater):
                                             ),
                                         ofdef.ofp_instruction_goto_table(table_id=l2output)
                                         ]
+                            ),
+                            ofdef.ofp_flow_mod(
+                                cookie = 0x1,
+                                cookie_mask=0xffffffffffffffff,
+                                table_id=l3output,
+                                command=ofdef.OFPFC_ADD,
+                                priority=ofdef.OFP_DEFAULT_PRIORITY,
+                                buffer_id=ofdef.OFP_NO_BUFFER,
+                                idle_timeout=self._parent.host_learn_timeout * 3,
+                                flags = ofdef.OFPFF_SEND_FLOW_REM,
+                                out_port=ofdef.OFPP_ANY,
+                                out_group=ofdef.OFPG_ANY,
+                                match=ofdef.ofp_match_oxm(
+                                    oxm_fields=[
+                                        ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
+                                        ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
+                                        ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ipaddress)
+                                    ]
+                                ),
+                                instructions=[
+                                    ofdef.ofp_instruction_actions(
+                                        actions=[
+                                            ofdef.ofp_action_set_field(
+                                                field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, srcmaddress)
+                                            ),
+                                            ofdef.ofp_action_set_field(
+                                                field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, macaddress)
+                                            )
+                                        ]
+                                    ),
+                                    ofdef.ofp_action_output(port = ofdef.OFPP_CONTROLLER,
+                                                            max_len = ofdef.OFP_NO_BUFFER),
+                                    ofdef.ofp_instruction_goto_table(table_id=l2output)
+                                ]
                             )
                         ]
                         ):
@@ -176,49 +308,78 @@ class RouterUpdater(FlowUpdater):
 
 
         while True:
-            yield (packetin_matcher, arpreply_matcher)
+            yield (packetin_matcher, arpreply_matcher,arpflow_request_matcher)
 
             msg = self.event.message
             try:
                 if self.matcher is packetin_matcher:
                     outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
 
-                    findFlag = False
-                    outsrcmacaddress = None
-                    interface_ipaddress = None
-                    
-                    for _,routerinfo in self._lastrouterinfo.values():
-                        for macaddress, ipaddress, _, _, netid in routerinfo:
+                    ippacket = ethernet_l4.create(msg.data)
 
-                            if outnetworkid == netid:
-                                outsrcmacaddress = macaddress
-                                interface_ipaddress = ipaddress
-                                findFlag = True
+                    for m in self.waitForSend(ARPRequest(self._connection,ipaddress=ippacket.ip_dst,
+                                                         logicalnetworkid=outnetworkid,isgateway = False)):
+                        yield m
 
-                    if findFlag:
-                        # store msg in buffer
-                        ippacket = ethernet_l4.create(msg.data)
+                    if (outnetworkid,ippacket.ip_dst) in self._packet_buffer:
+                        # checkout timeout packet
+                        ct = time.time()
+                        nv = [(p,t) for p,t in self._packet_buffer[(outnetworkid,ippacket.ip_dst)]
+                                if t < ct]
+                        nv.append((packet,ct + 30))
 
-                        self._packet_buffer.setdefault((outnetworkid,ippacket.ip_dst),[]).append(
-                            (ippacket,int(time.time()))
-                        )
+                        self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = nv
 
-                        # send ARP request to get dst_ip mac
-                        arp_request_packet = arp_packet_l4(
-                            dl_src = mac_addr(outsrcmacaddress),
-                            dl_dst = mac_addr("FF:FF:FF:FF:FF:FF"),
-                            arp_op=ofdef.ARPOP_REQUEST,
-                            arp_sha=mac_addr(outsrcmacaddress),
-                            arp_spa=ip4_addr(interface_ipaddress),
-                            arp_tpa=ippacket.ip_dst
-                        )
+                if self.matcher is arpflow_request_matcher:
+                    outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
+                    ipaddress = ofdef.get_oxm(msg.match.oxm_fields,ofdef.OXM_OF_IPV4_DST)
+                    outmac = mac_addr("FF:FF:FF:FF:FF:FF")
 
-                        self.subroutine(_send_broadcast_packet_out(outnetworkid,arp_request_packet))
-                    else:
-                        # drop packet
-                        # when packetin don't send all to controller ,, buffer is used for many times
-                        # packet out drop it right now
-                        pass
+                    ct = time.time()
+
+                    if(outnetworkid,ipaddress) in self._arp_cache:
+                        status,timeout,_ = self._arp_cache[(outnetworkid,ipaddress)]
+
+                        if status == 2:
+                            if ct < timeout:
+                                # we should use unicast
+                                outmac = mac_addr("FF:FF:FF:FF:FF:FF")
+
+                            findFlag = False
+                            outsrcmacaddress = None
+                            interface_ipaddress = None
+
+                            for _, routerinfo in self._lastrouterinfo.values():
+                                for macaddress, ipaddress, _, _, netid in routerinfo:
+
+                                    if outnetworkid == netid:
+                                        outsrcmacaddress = macaddress
+                                        interface_ipaddress = ipaddress
+                                        findFlag = True
+
+                            if findFlag:
+                                # send ARP request to get dst_ip mac
+                                arp_request_packet = arp_packet_l4(
+                                    dl_src=mac_addr(outsrcmacaddress),
+                                    dl_dst=outmac,
+                                    arp_op=ofdef.ARPOP_REQUEST,
+                                    arp_sha=mac_addr(outsrcmacaddress),
+                                    arp_spa=ip4_addr(interface_ipaddress),
+                                    arp_tpa=ipaddress
+                                )
+
+                                self.subroutine(_send_broadcast_packet_out(outnetworkid, arp_request_packet))
+
+                if self.matcher is arpflow_remove_matcher:
+                    nid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
+                    ip_address = mac_addr_bytes(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IPV4_DST))
+
+                    if(ip_address,nid) in self._arp_cache:
+                        del self._arp_cache[(ip_address,netid)]
+
+                    if (ip_address,netid) in self._packet_buffer:
+                        del self._packet_buffer[(ip_address,netid)]
+
                 else:
                     netid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields,ofdef.NXM_NX_REG5))
 
@@ -229,13 +390,26 @@ class RouterUpdater(FlowUpdater):
 
                     dst_macaddress = arp_reply_packet.dl_dst
 
-                    # search msg buffer ,, packet out msg there wait this arp reply
-                    if (netid,reply_ipaddress) in self._packet_buffer:
-                        for packet, t in self._packet_buffer[(netid,reply_ipaddress)]:
-                            self.subroutine(_send_buffer_packet_out(netid,reply_macaddress,reply_ipaddress,dst_macaddress,packet))
+                    if (netid,reply_ipaddress) in self._arp_cache:
+                        status, timeout, isgateway = self._arp_cache[(netid,reply_ipaddress)]
+                        if isgateway:
+                            # add default router in l3router
+                            pass
+                        else:
+                            ct = time.time()
+                            # this is the first arp reply
+                            if status == 1:
+                                self._arp_cache[(netid,reply_ipaddress)] = (2,ct + 20,False)
 
-                    # add flow about this host in l3output
-                    self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress))
+                                # search msg buffer ,, packet out msg there wait this arp reply
+                                if (netid,reply_ipaddress) in self._packet_buffer:
+                                    for packet, t in self._packet_buffer[(netid,reply_ipaddress)]:
+                                        self.subroutine(_send_buffer_packet_out(netid,reply_macaddress,
+                                                                            reply_ipaddress,dst_macaddress,packet))
+
+                            # add flow about this host in l3output
+                            self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress))
+
 
             except Exception:
                 self._logger.warning(" handler router packetin message error , ignore !",exc_info=True)
@@ -605,7 +779,7 @@ class RouterUpdater(FlowUpdater):
                                 command=ofdef.OFPFC_ADD,
                                 priority=ofdef.OFP_DEFAULT_PRIORITY,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
-                                #idle_timeout=self._parent.host_learn_timeout,
+                                #hard_timeout=self._parent.host_learn_timeout,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
