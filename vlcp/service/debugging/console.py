@@ -22,6 +22,7 @@ from vlcp.event.connection import Client
 import os
 import socket
 import re
+from vlcp.event.core import InterruptedBySignalException
 try:
     from Queue import Queue, PriorityQueue
 except:
@@ -55,6 +56,10 @@ class ConsoleServiceCancel(Event):
 
 @withIndices('socket')
 class SocketInjectDone(Event):
+    pass
+
+@withIndices()
+class InterruptPoller(Event):
     pass
 
 class Waiter(object):
@@ -196,12 +201,19 @@ console_help()
                 if self.startinconsole:
                     self._interactive()
                 else:
-                    while not scheduler.quitting:
+                    while t.is_alive():
                         try:
-                            _console_connect_event.wait()
+                            while not _console_connect_event.is_set():
+                                # There is a bug in Python 2.x that wait without timeout cannot be
+                                # interrupted by signal
+                                _console_connect_event.wait(3600)
                         except KeyboardInterrupt:
                             break
-                        _console_connect_event.clear()
+                        except InterruptedBySignalException:
+                            # This signal should interrupt the poller, but poller is not in the main thread
+                            # Send an event through the proxy will do the trick
+                            self.sendEventQueue.put((InterruptPoller(),))
+                            continue
                         pstdin_r, pstdin_w = os.pipe()
                         pstdout_r, pstdout_w = os.pipe()
                         orig_stdin = sys.stdin
@@ -244,11 +256,16 @@ console_help()
                             sys.stderr = orig_stderr
             except SystemExit:
                 pass
+            except KeyboardInterrupt:
+                pass
             finally:
-                self.sendEventQueue.put(None)
-                scheduler.quit()
-                print('Wait for scheduler end, this may take some time...')
-                t.join()
+                try:
+                    self.sendEventQueue.put(None)
+                    scheduler.quit()
+                    print('Wait for scheduler end, this may take some time...')
+                    t.join()
+                except KeyboardInterrupt:
+                    pass
         for m in self.apiroutine.syscall(syscall_threaded_main, True):
             yield m
     def _telnet_server_writer(self, queue, sock):
