@@ -17,6 +17,7 @@ from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes, ip4_addr, arp_pa
 from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.utils.netutils import parse_ip4_network, ip_in_network, get_netmask
 from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet
+from namedstruct import dump
 
 @withIndices("connection")
 class ARPRequest(Event):
@@ -184,7 +185,7 @@ class RouterUpdater(FlowUpdater):
                             arp_op=ofdef.ARPOP_REQUEST,
                             arp_sha=mac_addr(mac),
                             arp_spa=ip4_addr(interface_ip),
-                            arp_tpa=ip4_addr(ipaddress)
+                            arp_tpa=ipaddress
                     )
 
                     for m in self._packet_out_message(netid,arp_request_packet):
@@ -312,7 +313,7 @@ class RouterUpdater(FlowUpdater):
                                 command=ofdef.OFPFC_ADD,
                                 priority=ofdef.OFP_DEFAULT_PRIORITY,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
-                                idle_timeout=self._parent.host_learn_timeout * 3,
+                                idle_timeout=self._parent.host_learn_timeout * 2,
                                 flags = ofdef.OFPFF_SEND_FLOW_REM,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
@@ -347,7 +348,7 @@ class RouterUpdater(FlowUpdater):
 
 
         while True:
-            yield (packetin_matcher, arpreply_matcher,arpflow_request_matcher)
+            yield (packetin_matcher, arpreply_matcher,arpflow_request_matcher,arpflow_remove_matcher)
 
             msg = self.event.message
             try:
@@ -360,25 +361,29 @@ class RouterUpdater(FlowUpdater):
                                                          logicalnetworkid=outnetworkid,isgateway = False)):
                         yield m
 
+                    ct = time.time()
+                    
                     if (outnetworkid,ippacket.ip_dst) in self._packet_buffer:
                         # checkout timeout packet
-                        ct = time.time()
                         nv = [(p,t) for p,t in self._packet_buffer[(outnetworkid,ippacket.ip_dst)]
-                                if t < ct]
+                                if ct < t]
                         nv.append((ippacket,ct + 30))
-
                         self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = nv
                     else:
                         self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = [(ippacket,ct + 30)]
 
                 if self.matcher is arpflow_request_matcher:
                     outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
-                    ipaddress = ofdef.get_oxm(msg.match.oxm_fields,ofdef.OXM_OF_IPV4_DST)
+                    #ipaddress = ofdef.get_oxm(msg.match.oxm_fields,ofdef.OXM_OF_IPV4_DST)
+                    
+                    ippacket = ethernet_l4.create(msg.data)
+                    ipaddress = ippacket.ip_dst
                     outmac = mac_addr("FF:FF:FF:FF:FF:FF")
 
                     ct = time.time()
 
                     if(outnetworkid,ipaddress) in self._arp_cache:
+
                         status,timeout,_ = self._arp_cache[(outnetworkid,ipaddress)]
 
                         if status == 2:
@@ -391,12 +396,13 @@ class RouterUpdater(FlowUpdater):
                             interface_ipaddress = None
 
                             for _, routerinfo in self._lastrouterinfo.values():
-                                for macaddress, ipaddress, _, _, netid in routerinfo:
+                                for macaddress, ip, _, _, netid in routerinfo:
 
                                     if outnetworkid == netid:
                                         outsrcmacaddress = macaddress
-                                        interface_ipaddress = ipaddress
+                                        interface_ipaddress = ip
                                         findFlag = True
+                                        break
 
                             if findFlag:
                                 # send ARP request to get dst_ip mac
@@ -413,13 +419,15 @@ class RouterUpdater(FlowUpdater):
 
                 if self.matcher is arpflow_remove_matcher:
                     nid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
-                    ip_address = mac_addr_bytes(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IPV4_DST))
+                    ip_address = ip4_addr(ip4_addr_bytes.formatter(
+                                    ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IPV4_DST)))
+                    
+                    if(nid,ip_address) in self._arp_cache:
 
-                    if(netid,ip_address) in self._arp_cache:
-                        del self._arp_cache[(netid,ip_address)]
+                        del self._arp_cache[(nid,ip_address)]
 
-                    if (ip_address,netid) in self._packet_buffer:
-                        del self._packet_buffer[(netid,ip_address)]
+                    if (nid,ip_address) in self._packet_buffer:
+                        del self._packet_buffer[(nid,ip_address)]
 
                 if self.matcher is arpreply_matcher:
                     netid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields,ofdef.NXM_NX_REG5))
