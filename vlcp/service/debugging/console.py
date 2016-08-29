@@ -189,11 +189,13 @@ console_help()
         def syscall_threaded_main(scheduler, processor):
             # Detach self
             scheduler.unregisterall(cr)
+            self._threaded_main_quit = False
             def threaded_main():
                 try:
                     scheduler.main(False, False)
                 finally:
-                    thread.interrupt_main()
+                    self._threaded_main_quit = True
+                    _console_connect_event.set()
             t = threading.Thread(target=threaded_main)
             t.daemon = True
             t.start()
@@ -201,14 +203,14 @@ console_help()
                 if self.startinconsole:
                     self._interactive()
                 else:
-                    while t.is_alive():
+                    while not self._threaded_main_quit:
                         try:
                             while not _console_connect_event.is_set():
                                 # There is a bug in Python 2.x that wait without timeout cannot be
                                 # interrupted by signal
                                 _console_connect_event.wait(3600)
-                        except KeyboardInterrupt:
-                            break
+                            if self._threaded_main_quit:
+                                break
                         except InterruptedBySignalException:
                             # This signal should interrupt the poller, but poller is not in the main thread
                             # Send an event through the proxy will do the trick
@@ -256,16 +258,12 @@ console_help()
                             sys.stderr = orig_stderr
             except SystemExit:
                 pass
-            except KeyboardInterrupt:
-                pass
             finally:
-                try:
-                    self.sendEventQueue.put(None)
-                    scheduler.quit()
+                self.sendEventQueue.put(None)
+                scheduler.quit()
+                if self.startinconsole:
                     print('Wait for scheduler end, this may take some time...')
-                    t.join()
-                except KeyboardInterrupt:
-                    pass
+                t.join()
         for m in self.apiroutine.syscall(syscall_threaded_main, True):
             yield m
     def _telnet_server_writer(self, queue, sock):
