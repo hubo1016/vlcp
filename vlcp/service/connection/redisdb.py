@@ -40,8 +40,8 @@ class RedisDB(TcpServerBase):
     _default_deflate = True
     _default_pickleversion = 'default'
     _default_cpickle = True
-    _default_maxretry = 16
-    _default_maxspin = 10
+    _default_maxretry = 160
+    _default_maxspin = 100
     client = True
     def __init__(self, server):
         self._redis_clients = {}

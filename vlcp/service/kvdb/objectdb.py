@@ -525,8 +525,8 @@ class ObjectDB(Module):
                 yield (notification_matcher, request_matcher)
                 if self.apiroutine.matcher is notification_matcher:
                     onupdate(self.apiroutine.event, self.apiroutine.matcher)
-                for m in updateinner():
-                    yield m
+            for m in updateinner():
+                yield m
     def mget(self, keys, requestid, nostale = False):
         "Get multiple objects and manage them. Return references to the objects."
         keys = tuple(_str2(k) for k in keys)
