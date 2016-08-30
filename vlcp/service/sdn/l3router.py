@@ -116,10 +116,11 @@ class RouterUpdater(FlowUpdater):
     def _time_cycle_handler(self):
 
         while True:
-            for m in self.waitWithTimeout(5):
+            for m in self.waitWithTimeout(self._parent.arp_cycle_time):
                 yield m
             ct = int(time.time())
 
+            # check incomplte arp entry ,, send arp request cycle unitl timeout
             for k,v in self._arp_cache.items():
                 status,timeout,isgateway = v
 
@@ -161,7 +162,7 @@ class RouterUpdater(FlowUpdater):
     def _arp_cache_handler(self):
 
         arp_request_matcher = ARPRequest.createMatcher()
-        arp_incomplete_timeout = 20
+        arp_incomplete_timeout = self._parent.arp_incomplete_timeout
 
         while True:
             yield (arp_request_matcher,)
@@ -282,7 +283,7 @@ class RouterUpdater(FlowUpdater):
                                 command=ofdef.OFPFC_ADD,
                                 priority=ofdef.OFP_DEFAULT_PRIORITY + 1,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
-                                hard_timeout = self._parent.host_learn_timeout,
+                                hard_timeout = self._parent.arp_complete_timeout,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
@@ -300,6 +301,9 @@ class RouterUpdater(FlowUpdater):
                                                     ),
                                                     ofdef.ofp_action_set_field(
                                                         field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,macaddress)
+                                                    ),
+                                                    ofdef.ofp_action(
+                                                        type=ofdef.OFPAT_DEC_NW_TTL
                                                     )
                                                 ]
                                             ),
@@ -313,7 +317,7 @@ class RouterUpdater(FlowUpdater):
                                 command=ofdef.OFPFC_ADD,
                                 priority=ofdef.OFP_DEFAULT_PRIORITY,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
-                                idle_timeout=self._parent.host_learn_timeout * 2,
+                                idle_timeout=self._parent.arp_complete_timeout * 2,
                                 flags = ofdef.OFPFF_SEND_FLOW_REM,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
@@ -332,6 +336,9 @@ class RouterUpdater(FlowUpdater):
                                             ),
                                             ofdef.ofp_action_set_field(
                                                 field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, macaddress)
+                                            ),
+                                            ofdef.ofp_action(
+                                                type=ofdef.OFPAT_DEC_NW_TTL
                                             ),
                                             ofdef.ofp_action_output(
                                                 port = ofdef.OFPP_CONTROLLER,
@@ -367,10 +374,11 @@ class RouterUpdater(FlowUpdater):
                         # checkout timeout packet
                         nv = [(p,t) for p,t in self._packet_buffer[(outnetworkid,ippacket.ip_dst)]
                                 if ct < t]
-                        nv.append((ippacket,ct + 30))
+                        nv.append((ippacket,ct + self._parent.buffer_packet_timeout))
                         self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = nv
                     else:
-                        self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = [(ippacket,ct + 30)]
+                        self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = \
+                            [(ippacket,ct + self._parent.buffer_packet_timeout)]
 
                 if self.matcher is arpflow_request_matcher:
                     outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
@@ -378,6 +386,9 @@ class RouterUpdater(FlowUpdater):
                     
                     ippacket = ethernet_l4.create(msg.data)
                     ipaddress = ippacket.ip_dst
+                    # dl_dst have been apply set field actions,
+                    # dst_mac is real mac last arp reply
+                    dst_mac = ippacket.dl_dst
                     outmac = mac_addr("FF:FF:FF:FF:FF:FF")
 
                     ct = time.time()
@@ -388,34 +399,24 @@ class RouterUpdater(FlowUpdater):
 
                         if status == 2:
                             if ct < timeout:
-                                # we should use unicast
-                                outmac = mac_addr("FF:FF:FF:FF:FF:FF")
+                                # in complete timeout ,we should use unicast
+                                outmac = dst_mac
 
-                            findFlag = False
-                            outsrcmacaddress = None
-                            interface_ipaddress = None
-
-                            for _, routerinfo in self._lastrouterinfo.values():
-                                for macaddress, ip, _, _, netid in routerinfo:
-
-                                    if outnetworkid == netid:
-                                        outsrcmacaddress = macaddress
-                                        interface_ipaddress = ip
-                                        findFlag = True
-                                        break
-
-                            if findFlag:
+                            info = self._getinterfaceinfo(outnetworkid)
+                            if info:
+                                mac,ip = info
                                 # send ARP request to get dst_ip mac
                                 arp_request_packet = arp_packet_l4(
-                                    dl_src=mac_addr(outsrcmacaddress),
+                                    dl_src=mac_addr(mac),
                                     dl_dst=outmac,
                                     arp_op=ofdef.ARPOP_REQUEST,
-                                    arp_sha=mac_addr(outsrcmacaddress),
-                                    arp_spa=ip4_addr(interface_ipaddress),
+                                    arp_sha=mac_addr(mac),
+                                    arp_spa=ip4_addr(ip),
                                     arp_tpa=ipaddress
                                 )
 
                                 self.subroutine(_send_broadcast_packet_out(outnetworkid, arp_request_packet))
+
 
                 if self.matcher is arpflow_remove_matcher:
                     nid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
@@ -448,7 +449,11 @@ class RouterUpdater(FlowUpdater):
                             ct = time.time()
                             # this is the first arp reply
                             if status == 1:
-                                self._arp_cache[(netid,reply_ipaddress)] = (2,ct + 20,False)
+                                # complete timeout ,,, after flow hard_timeout, packet will send to controller too
+                                # if packet in this timeout ,  will send an unicast arp request
+                                # is best  1*self._parent.arp_complete_timeout < t < 2*self._parent.arp_complete_timeout
+                                self._arp_cache[(netid,reply_ipaddress)] = (2,
+                                            ct + self._parent.arp_complete_timeout + 10,False)
 
                                 # search msg buffer ,, packet out msg there wait this arp reply
                                 if (netid,reply_ipaddress) in self._packet_buffer:
@@ -828,7 +833,6 @@ class RouterUpdater(FlowUpdater):
                                 command=ofdef.OFPFC_ADD,
                                 priority=ofdef.OFP_DEFAULT_PRIORITY,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
-                                #hard_timeout=self._parent.host_learn_timeout,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
@@ -846,7 +850,10 @@ class RouterUpdater(FlowUpdater):
                                                 ),
                                             ofdef.ofp_action_set_field(
                                                 field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,mac_addr(macaddress))
-                                                )
+                                                ),
+                                            ofdef.ofp_action(
+                                                type=ofdef.OFPAT_DEC_NW_TTL
+                                            )
                                             ]
                                         ),
                                     ofdef.ofp_instruction_goto_table(table_id=l2output)
@@ -861,7 +868,6 @@ class RouterUpdater(FlowUpdater):
                                 command=ofdef.OFPFC_DELETE,
                                 priority=ofdef.OFP_DEFAULT_PRIORITY,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
-                                #idle_timeout=self._parent.host_learn_timeout,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
@@ -971,8 +977,16 @@ class L3Router(FlowBase):
 
     _default_inroutermac = '1a:23:67:59:63:33'
     _default_outroutermacmask = '0a:00:00:00:00:00'
-    _default_flush_cycle_time = 10
-    _default_host_learn_timeout = 30
+    _default_arp_cycle_time = 5
+
+    # if arp entry have no reply ,  it will send in arp cycle until timeout
+    # but if new packet request arp ,, it will flush this timeout in arp entry
+    _default_arp_incomplete_timeout = 60
+
+    _default_arp_complete_timeout = 30
+
+    _default_buffer_packet_timeout = 30
+
 
     def __init__(self, server):
         super(L3Router, self).__init__(server)
