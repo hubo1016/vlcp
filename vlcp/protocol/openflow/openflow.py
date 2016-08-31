@@ -186,16 +186,19 @@ class Openflow(Protocol):
             self._logger.exception('Unexpected exception on processing openflow protocols, Connection = %r', connection)
             for m in connection.reset(True, connmark):
                 yield m
-    def formatrequest(self, request, connection):
-        request.header.xid = connection.xid
-        connection.xid += 1
-        if connection.xid > 0xffffffffffffffff:
-            # Skip xid = 0 for special response
-            connection.xid = 1
+    def formatrequest(self, request, connection, assignxid = True):
+        if assignxid:
+            self.assignxid(request, connection)
         c = ConnectionWriteEvent(connection = connection, connmark = connection.connmark, data = request._tobytes())
         if self.debugging:
             self._logger.debug('message formatted: %r', common.dump(request))
         return c
+    def assignxid(self, request, connection):
+        request.header.xid = connection.xid
+        connection.xid += 1
+        if connection.xid > 0xffffffffffffffff:
+            # Skip xid = 0 for special response
+            connection.xid = 1        
     def formatreply(self, reply, request, connection):
         reply.header.xid = request.header.xid
         c = ConnectionWriteEvent(connection = connection, connmark = connection.connmark, data = reply._tobytes())
@@ -243,7 +246,8 @@ class Openflow(Protocol):
                 break
         container.openflow_reply = messages
     def batch(self, requests, connection, container, raiseonerror = True):
-        batchrequests = [self.formatrequest(r, connection) for r in requests]
+        for r in requests:
+            self.assignxid(r, connection)
         replymatchers = dict((self.replymatcher(r, connection), r) for r in requests)
         replydict = {}
         replymessages = []
@@ -258,8 +262,8 @@ class Openflow(Protocol):
             replydict.setdefault(matcher, []).append(msg)
             replymessages.append(msg)
         def batchprocess():
-            for r in batchrequests:
-                for m in connection.write(r, False):
+            for r in requests:
+                for m in connection.write(self.formatrequest(r, connection, False), False):
                     yield m
             barrier = connection.openflowdef.ofp_msg.new()
             barrier.header.type = connection.openflowdef.OFPT_BARRIER_REQUEST

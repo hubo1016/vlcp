@@ -353,6 +353,7 @@ class Test(unittest.TestCase):
         self.queue.clear()
         self.assertEqual(len(self.queue), 0)
         self.assertFalse(self.queue.canPop())
+        self.assertFalse(self.queue.blockEvents)
     
     def testCircleList(self):
         cl = CBQueue.MultiQueue.CircleList()

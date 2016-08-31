@@ -759,6 +759,7 @@ except:
             subqueues = set()
             def allSubqueues(q):
                 subqueues.add(q)
+                subqueues.add(q.defaultQueue)
                 for v in q.queueindex.values():
                     if len(v) == 3:
                         allSubqueues(v[1])
