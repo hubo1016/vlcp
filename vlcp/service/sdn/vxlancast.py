@@ -80,7 +80,7 @@ class VXLANUpdater(FlowUpdater):
     def main(self):
         try:
             if self._connection.protocol.disablenxext:
-                raise StopIteration
+                return
             self.subroutine(self._update_handler(), name = '_update_handler_routine')
             self.subroutine(self._refresh_handler(), name = '_refresh_handler_routine')
             if not self._parent.prepush and not self._parent.learning:
@@ -322,7 +322,7 @@ class VXLANUpdater(FlowUpdater):
                 yield m
         except Exception:
             self._logger.warning("OVSDB bridge is not ready", exc_info = True)
-            raise StopIteration
+            return
         else:
             bridge, system_id, _ = self.retvalue
         if newports:

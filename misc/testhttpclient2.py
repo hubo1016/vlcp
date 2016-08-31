@@ -20,9 +20,9 @@ class MainRoutine(RoutineContainer):
         RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
     def robot(self, wc, url, referer = None):
         if self.robotcount > 1000:
-            raise StopIteration
+            return
         if url in self.urls:
-            raise StopIteration
+            return
         headers = {}
         if referer:
             headers['Referer'] = referer
@@ -33,7 +33,7 @@ class MainRoutine(RoutineContainer):
                 yield m
         except (IOError, HttpProtocolException) as exc:
             print('Failed to open %r: %s' % (url, exc))
-            raise StopIteration
+            return
         resp = self.retvalue
         try:
             if resp.get_header('Content-Type', 'text/html').lower().startswith('text/'):

@@ -430,14 +430,14 @@ class TestObjectDB(Module):
             with watch_context([LogicalNetwork.default_key(id)], [result], reqid, self.apiroutine):
                 if result is None:
                     self.apiroutine.retvalue = []
-                    raise StopIteration
+                    return
                 if physicalnetwork is not None and physicalnetwork != result.physicalnetwork.id:
                     self.apiroutine.retvalue = []
-                    raise StopIteration
+                    return
                 for k,v in kwargs.items():
                     if getattr(result, k, None) != v:
                         self.apiroutine.retvalue = []
-                        raise StopIteration
+                        return
                 self.apiroutine.retvalue = [dump(result)]
         elif physicalnetwork is not None:
             self._reqid += 1

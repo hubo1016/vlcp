@@ -899,7 +899,7 @@ class IOProcessing(FlowBase):
         # Do not re-enter
         if conn in self._portchanging:
             self._portchanged.add(conn)
-            raise StopIteration
+            return
         self._portchanging.add(conn)
         try:
             while True:
@@ -920,7 +920,7 @@ class IOProcessing(FlowBase):
                         try:
                             if conn in self._portchanged:
                                 self.apiroutine.retvalue = None
-                                raise StopIteration
+                                return
                             for m in self.apiroutine.executeAll([callAPI(self.apiroutine, 'ovsdbportmanager', 'waitportbyno', {'datapathid': datapath_id,
                                                                                                    'vhost': ovsdb_vhost,
                                                                                                    'portno': p.port_no,
@@ -953,7 +953,7 @@ class IOProcessing(FlowBase):
                         yield m
                 except RoutineException:
                     self._portchanged.discard(conn)
-                    raise StopIteration
+                    return
                 if conn in self._portchanged:
                     continue
                 ovsdb_ports = self.apiroutine.retvalue

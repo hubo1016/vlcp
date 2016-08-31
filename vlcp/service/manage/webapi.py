@@ -53,12 +53,12 @@ class WebAPIHandler(HttpHandler):
             if targetname not in parent.allowtargets:
                 for m in env.error(403):
                     yield m
-                raise StopIteration
+                return
         elif parent.denytargets is not None:
             if targetname in parent.denytargets:
                 for m in env.error(403):
                     yield m
-                raise StopIteration
+                return
         if parent.authmethod:
             for m in callAPI(self, parent.authtarget, parent.authmethod,
                              {'env':env, 'targetname':targetname, 'name':methodname, 'params': params}):

@@ -46,7 +46,7 @@ class FlowBase(Module):
     def _acquiretable(self):
         try:
             if not self._tablerequest:
-                raise StopIteration
+                return
             def update_table():
                 self._all_tables = dict((v,r[0]) for v,r in self._tableacquire_routine.event.result.items())
                 self._path_tables = dict((v, r[1]) for v,r in self._tableacquire_routine.event.result.items())

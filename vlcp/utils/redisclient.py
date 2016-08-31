@@ -60,7 +60,7 @@ class RedisClientBase(Configurable):
                 if not self._defaultconn.connected or self._defaultconn.connmark != self._lockconnmark:
                     raise IOError('Disconnected from redis server; reconnected is not allowed in with scope')
                 else:
-                    raise StopIteration
+                    return
         for m in self._get_connection(container, self._defaultconn):
             yield m
         if self._lockconnmark is not None and self._lockconnmark < 0:
@@ -124,7 +124,7 @@ class RedisClientBase(Configurable):
                 self._lockconnmark = None
             self._lockconnmark = None
             if release:
-                container.subroutine(self.release(container))
+                container.subroutine(self.release(container), False)
     @_conn
     def execute_command(self, container, *args):
         '''
@@ -279,7 +279,7 @@ class RedisClient(RedisClientBase):
                     yield m
                 for m in self._protocol.execute_command(self._subscribeconn, container, *args):
                     yield m
-                raise StopIteration
+                return
             elif cmd in ('BLPOP', 'BRPOP', 'BRPOPLPUSH'):
                 for m in self.get_connection(container):
                     yield m
@@ -289,7 +289,7 @@ class RedisClient(RedisClientBase):
                         yield m
                     r = container.retvalue
                 container.retvalue = r
-                raise StopIteration
+                return
         for m in RedisClientBase.execute_command(self, container, *args):
             yield m
     def subscribe(self, container, *keys):

@@ -470,7 +470,7 @@ console_help()
                             yield matchers
                         if blocking and self.apiroutine.matcher is csm:
                             # Cancelled
-                            raise StopIteration
+                            return
                         print('Event Captured: Capture %r with %r' % (self.apiroutine.event, self.apiroutine.matcher))
                         if firsttime and blocking:
                             waiter.send_result((self.apiroutine.event, self.apiroutine.matcher, self.apiroutine.currentroutine))

@@ -254,7 +254,7 @@ class OpenflowPortManager(Module):
             for p in ports.values():
                 if p.name == name:
                     self.apiroutine.retvalue = p
-                    raise StopIteration
+                    return
             yield (OpenflowAsyncMessageEvent.createMatcher(of13.OFPT_PORT_STATUS, datapathid, 0, _ismatch = lambda x: x.message.desc.name == name),)
             self.apiroutine.retvalue = self.apiroutine.event.message.desc
         for m in self.apiroutine.executeWithTimeout(timeout, waitinner()):
