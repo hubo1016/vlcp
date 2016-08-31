@@ -156,7 +156,7 @@ class RouterUpdater(FlowUpdater):
             # when request one arp , but there no reply ,
             # buffer will have timeout packet , so checkout it here
             for k, v in self._packet_buffer.items():
-                nv = [(p, t) for p, t in v if ct < t]
+                nv = [(p,bid,t) for p,bid,t in v if ct < t]
                 self._packet_buffer[k] = nv
 
     def _arp_cache_handler(self):
@@ -247,12 +247,11 @@ class RouterUpdater(FlowUpdater):
                         ):
                 yield m
 
-        def _send_buffer_packet_out(netid,macaddress,ipaddress,srcmacaddress,packet):
-
+        def _send_buffer_packet_out(netid,macaddress,ipaddress,srcmacaddress,packet,bid = ofdef.OFP_NO_BUFFER):
             for m in self.execute_commands(conn,
                         [
                             ofdef.ofp_packet_out(
-                                buffer_id = ofdef.OFP_NO_BUFFER,
+                                buffer_id = bid,
                                 in_port = ofdef.OFPP_CONTROLLER,
                                 actions = [
                                     ofdef.ofp_action_set_field(
@@ -342,7 +341,7 @@ class RouterUpdater(FlowUpdater):
                                             ),
                                             ofdef.ofp_action_output(
                                                 port = ofdef.OFPP_CONTROLLER,
-                                                max_len = ofdef.OFPCML_NO_BUFFER
+                                                max_len = 60
                                             )
                                         ]
                                     ),
@@ -361,7 +360,7 @@ class RouterUpdater(FlowUpdater):
             try:
                 if self.matcher is packetin_matcher:
                     outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
-
+                    
                     ippacket = ethernet_l4.create(msg.data)
 
                     for m in self.waitForSend(ARPRequest(self._connection,ipaddress=ippacket.ip_dst,
@@ -372,13 +371,13 @@ class RouterUpdater(FlowUpdater):
                     
                     if (outnetworkid,ippacket.ip_dst) in self._packet_buffer:
                         # checkout timeout packet
-                        nv = [(p,t) for p,t in self._packet_buffer[(outnetworkid,ippacket.ip_dst)]
+                        nv = [(p,bid,t) for p,bid,t in self._packet_buffer[(outnetworkid,ippacket.ip_dst)]
                                 if ct < t]
-                        nv.append((ippacket,ct + self._parent.buffer_packet_timeout))
+                        nv.append((ippacket,msg.buffer_id,ct + self._parent.buffer_packet_timeout))
                         self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = nv
                     else:
                         self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = \
-                            [(ippacket,ct + self._parent.buffer_packet_timeout)]
+                            [(ippacket,msg.buffer_id,ct + self._parent.buffer_packet_timeout)]
 
                 if self.matcher is arpflow_request_matcher:
                     outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
@@ -457,9 +456,10 @@ class RouterUpdater(FlowUpdater):
 
                                 # search msg buffer ,, packet out msg there wait this arp reply
                                 if (netid,reply_ipaddress) in self._packet_buffer:
-                                    for packet, t in self._packet_buffer[(netid,reply_ipaddress)]:
+
+                                    for packet,bid, t in self._packet_buffer[(netid,reply_ipaddress)]:
                                         self.subroutine(_send_buffer_packet_out(netid,reply_macaddress,
-                                                                            reply_ipaddress,dst_macaddress,packet))
+                                                                            reply_ipaddress,dst_macaddress,packet,bid))
 
                             # add flow about this host in l3output
                             self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress))
@@ -1040,7 +1040,9 @@ class L3Router(FlowBase):
                 )
             ]
         )
-
+        
+        # as default mis flow,  max_len = mis_send_len
+        # ofdef.OFPCML_NO_BUFFER is invaild
         l3output_default_flow = ofdef.ofp_flow_mod(
             table_id=l3output,
             command = ofdef.OFPFC_ADD,
