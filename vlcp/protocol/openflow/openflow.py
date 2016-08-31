@@ -291,6 +291,9 @@ class Openflow(Protocol):
                 self.messagepriority, OpenflowAsyncMessageEvent.createMatcher(connection = connection), ('async', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, OpenflowExperimenterMessageEvent.createMatcher(connection = connection), ('experimenter', connection), self.messagequeuesize))
+        # Add priority to echo reply, or the whole connection is down
+        connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
+                self.writepriority + 10, ConnectionWriteEvent.createMatcher(connection = connection, _ismatch = lambda x: hasattr(x, 'echoreply') and x.echoreply), ('echoreply', connection)))
         for m in self.reconnect_init(connection):
             yield m
     def reconnect_init(self, connection):
@@ -323,7 +326,9 @@ class Openflow(Protocol):
         if msg.header.type == common.OFPT_ECHO_REQUEST:
             # Direct reply without enqueue
             msg.header.type = common.OFPT_ECHO_REPLY
-            return self.formatreply(msg, msg, connection)
+            echoreply = self.formatreply(msg, msg, connection)
+            echoreply.echoreply = True
+            return echoreply
         elif connection.openflow_datapathid is None:
             # Connection is pre-setup
             if msg.header.type == common.OFPT_HELLO or msg.header.type == common.OFPT_ERROR:
