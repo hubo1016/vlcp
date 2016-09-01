@@ -350,14 +350,14 @@ class DHCPUpdater(FlowUpdater):
             cmds = []
             if connection.protocol.disablenxext:
                 def match_network(nid):
-                    return ofdef.create_oxm(ofdef.OXM_OF_METADATA_W, (nid & 0xffff) << 32,
-                                            b'\x00\x00\xff\xff\x00\x00\x00\x00')
+                    return [ofdef.create_oxm(ofdef.OXM_OF_METADATA_W, ((nid & 0xffff) << 32) | (0xffff << 16),
+                                            b'\x00\x00\xff\xff\x40\x00\x00\x00')]
             else:
                 def match_network(nid):
-                    return ofdef.create_oxm(ofdef.NXM_NX_REG5, nid)
-            def _delete_flows(p):
-                pid, nid, _, _, _ = lastlogportinfo[p]
-                return [ofdef.ofp_flow_mod(cookie = 0x1,
+                    return [ofdef.create_oxm(ofdef.NXM_NX_REG5, nid),
+                            ofdef.create_oxm(ofdef.NXM_NX_REG7_W, 0x4000, 0x4000)]
+            def _delete_flows(nid):
+                return ofdef.ofp_flow_mod(cookie = 0x1,
                                                cookie_mask = 0xffffffffffffffff,
                                                table_id = l3,
                                                command = ofdef.OFPFC_DELETE,
@@ -366,82 +366,102 @@ class DHCPUpdater(FlowUpdater):
                                                out_port = ofdef.OFPP_ANY,
                                                out_group = ofdef.OFPG_ANY,
                                                match = ofdef.ofp_match_oxm(
-                                                            oxm_fields = [
-                                                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid),
-                                                                match_network(nid),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
+                                                            oxm_fields = 
+                                                                match_network(nid) +
+                                                                [ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO, ofdef.IPPROTO_UDP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_UDP_DST, 67)
                                                                 ]
                                                         )
-                                               )]
-            def _create_flows(p):
-                pid, nid, _, mac, serveraddr = currentlogportinfo[p]
-                return [ofdef.ofp_flow_mod(cookie = 0x1,
+                                               )
+            def _delete_flows2(nid, serveraddr):
+                return ofdef.ofp_flow_mod(cookie = 0x1,
                                                cookie_mask = 0xffffffffffffffff,
                                                table_id = l3,
-                                               command = ofdef.OFPFC_ADD,
+                                               command = ofdef.OFPFC_DELETE,
                                                priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                buffer_id = ofdef.OFP_NO_BUFFER,
                                                out_port = ofdef.OFPP_ANY,
                                                out_group = ofdef.OFPG_ANY,
                                                match = ofdef.ofp_match_oxm(
-                                                            oxm_fields = [
-                                                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid),
-                                                                match_network(nid),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(mac)),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00'),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO, ofdef.IPPROTO_UDP),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_UDP_DST, 67)
-                                                                ]
-                                                        ),
-                                               instructions = [
-                                                    ofdef.ofp_instruction_actions(
-                                                                actions = [
-                                                                    ofdef.ofp_action_output(port = ofdef.OFPP_CONTROLLER,
-                                                                                            max_len = ofdef.OFPCML_NO_BUFFER
-                                                                                            )
-                                                                ]
-                                                            )
-                                                        ]
-                                               ),
-                        ofdef.ofp_flow_mod(cookie = 0x1,
-                                               cookie_mask = 0xffffffffffffffff,
-                                               table_id = l3,
-                                               command = ofdef.OFPFC_ADD,
-                                               priority = ofdef.OFP_DEFAULT_PRIORITY,
-                                               buffer_id = ofdef.OFP_NO_BUFFER,
-                                               out_port = ofdef.OFPP_ANY,
-                                               out_group = ofdef.OFPG_ANY,
-                                               match = ofdef.ofp_match_oxm(
-                                                            oxm_fields = [
-                                                                ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid),
-                                                                match_network(nid),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, mac_addr_bytes(mac)),
-                                                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
+                                                            oxm_fields = 
+                                                                match_network(nid) +
+                                                                [ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO, ofdef.IPPROTO_UDP),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,
                                                                                  ip4_addr_bytes(serveraddr)),
                                                                 ofdef.create_oxm(ofdef.OXM_OF_UDP_DST, 67)
                                                                 ]
-                                                        ),
-                                               instructions = [
-                                                    ofdef.ofp_instruction_actions(
-                                                                actions = [
-                                                                    ofdef.ofp_action_output(port = ofdef.OFPP_CONTROLLER,
-                                                                                            max_len = ofdef.OFPCML_NO_BUFFER
-                                                                                            )
-                                                                ]
-                                                            )
-                                                        ]
-                                               )]
-            for p in removevalues:
-                if p in lastlogportinfo:
-                    cmds.extend(_delete_flows(p))
-            for p in updatedvalues:
-                if p in lastlogportinfo and (p not in currentlogportinfo or lastlogportinfo[p] != currentlogportinfo[p]):
-                    cmds.extend(_delete_flows(p))
+                                                        )
+                                               )
+            def _create_flows(nid):
+                return ofdef.ofp_flow_mod(cookie = 0x1,
+                                           cookie_mask = 0xffffffffffffffff,
+                                           table_id = l3,
+                                           command = ofdef.OFPFC_ADD,
+                                           priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                           buffer_id = ofdef.OFP_NO_BUFFER,
+                                           out_port = ofdef.OFPP_ANY,
+                                           out_group = ofdef.OFPG_ANY,
+                                           match = ofdef.ofp_match_oxm(
+                                                        oxm_fields = 
+                                                            match_network(nid) +
+                                                            [ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00'),
+                                                            ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
+                                                            ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO, ofdef.IPPROTO_UDP),
+                                                            ofdef.create_oxm(ofdef.OXM_OF_UDP_DST, 67)
+                                                            ]
+                                                    ),
+                                           instructions = [
+                                                ofdef.ofp_instruction_actions(
+                                                            actions = [
+                                                                ofdef.ofp_action_output(port = ofdef.OFPP_CONTROLLER,
+                                                                                        max_len = ofdef.OFPCML_NO_BUFFER
+                                                                                        )
+                                                            ]
+                                                        )
+                                                    ]
+                                           )
+            def _create_flows2(nid, serveraddr):
+                return ofdef.ofp_flow_mod(cookie = 0x1,
+                                           cookie_mask = 0xffffffffffffffff,
+                                           table_id = l3,
+                                           command = ofdef.OFPFC_ADD,
+                                           priority = ofdef.OFP_DEFAULT_PRIORITY,
+                                           buffer_id = ofdef.OFP_NO_BUFFER,
+                                           out_port = ofdef.OFPP_ANY,
+                                           out_group = ofdef.OFPG_ANY,
+                                           match = ofdef.ofp_match_oxm(
+                                                        oxm_fields = match_network(nid) +
+                                                            [ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
+                                                            ofdef.create_oxm(ofdef.OXM_OF_IP_PROTO, ofdef.IPPROTO_UDP),
+                                                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST,
+                                                                             ip4_addr_bytes(serveraddr)),
+                                                            ofdef.create_oxm(ofdef.OXM_OF_UDP_DST, 67)
+                                                            ]
+                                                    ),
+                                           instructions = [
+                                                ofdef.ofp_instruction_actions(
+                                                            actions = [
+                                                                ofdef.ofp_action_output(port = ofdef.OFPP_CONTROLLER,
+                                                                                        max_len = ofdef.OFPCML_NO_BUFFER
+                                                                                        )
+                                                            ]
+                                                        )
+                                                    ]
+                                           )
+            for n in removevalues:
+                if n in lastlognetinfo:
+                    nid = lastlognetinfo[n]
+                    cmds.append(_delete_flows(nid))
+            lastnetdict = {n.id:n for n in lastlognetinfo}
+            for serveraddr in lastserveraddresses:
+                if serveraddr not in currentserveraddresses:
+                    addr, _, networkid, _ = serveraddr
+                    if networkid in lastnetdict:
+                        n = lastnetdict[networkid]
+                        nid = lastlognetinfo[n]
+                        cmds.append(_delete_flows2(nid, addr))
             for m in self.execute_commands(connection, cmds):
                 yield m
             
@@ -457,12 +477,18 @@ class DHCPUpdater(FlowUpdater):
                                                                           'arpentries': add_arps}):
                     yield m
             del cmds[:]
-            for p in addvalues:
-                if p in currentlogportinfo:
-                    cmds.extend(_create_flows(p))
-            for p in updatedvalues:
-                if p in currentlogportinfo and (p not in lastlogportinfo or lastlogportinfo[p] != currentlogportinfo[p]):
-                    cmds.extend(_create_flows(p))
+            for n in addvalues:
+                if n in currentlognetinfo:
+                    nid = currentlognetinfo[n]
+                    cmds.append(_create_flows(nid))
+            currnetdict = {n.id:n for n in currentlognetinfo}
+            for serveraddr in currentserveraddresses:
+                if serveraddr not in lastserveraddresses:
+                    addr, _, networkid, _ = serveraddr
+                    if networkid in currnetdict:
+                        n = currnetdict[networkid]
+                        nid = currentlognetinfo[n]
+                        cmds.append(_create_flows2(nid, addr))
             for m in self.execute_commands(connection, cmds):
                 yield m
         except Exception:

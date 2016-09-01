@@ -279,11 +279,12 @@ class IOFlowUpdater(FlowUpdater):
                 # output port = OFPP_ANY, reserved bits are 0x0000
                 # Currently used reserved bits:
                 # left-most (offset = 15, mask = 0x8000): allow output to IN_PORT
+                # offset = 14, mask = 0x4000: 1 if is IN_PORT is a logical port, 0 else
                 # right-most (offset = 0, mask = 0x0001): VXLAN learned
-                def create_input_instructions(lognetid, extra_actions):
+                def create_input_instructions(lognetid, extra_actions, is_logport):
                     lognetid = (lognetid & 0xffff)
                     instructions = [ofdef.ofp_instruction_write_metadata(
-                                        metadata = (lognetid << 48) | (lognetid << 32) | (0x0000 << 16) | (ofdef.OFPP_ANY & 0xffff),
+                                        metadata = (lognetid << 48) | (lognetid << 32) | ((0x4000 if is_logport else 0) << 16) | (ofdef.OFPP_ANY & 0xffff),
                                         metadata_mask = 0xffffffffffffffff
                                     ),
                                     ofdef.ofp_instruction_goto_table(table_id = input_next)
@@ -299,7 +300,7 @@ class IOFlowUpdater(FlowUpdater):
             else:
                 # With nicira extension, we store input network, output network and output port in REG4, REG5 and REG6
                 # REG7 is used as the reserved bits
-                def create_input_instructions(lognetid, extra_actions):
+                def create_input_instructions(lognetid, extra_actions, is_logport):
                     lognetid = (lognetid & 0xffff)
                     return [ofdef.ofp_instruction_actions(actions = [
                                     ofdef.ofp_action_set_field(
@@ -312,7 +313,7 @@ class IOFlowUpdater(FlowUpdater):
                                             field = ofdef.create_oxm(ofdef.NXM_NX_REG6, ofdef.OFPP_ANY)
                                             ),
                                     ofdef.ofp_action_set_field(
-                                            field = ofdef.create_oxm(ofdef.NXM_NX_REG7, 0)
+                                            field = ofdef.create_oxm(ofdef.NXM_NX_REG7, (0x4000 if is_logport else 0))
                                             )
                                 ] + list(extra_actions)),
                             ofdef.ofp_instruction_goto_table(table_id = input_next)
@@ -534,7 +535,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                 ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
                                                                                  ofport
                                                                                  )]),
-                                                       instructions = create_input_instructions(lognetid, [])
+                                                       instructions = create_input_instructions(lognetid, [], True)
                                                        ))
                         cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                        command = ofdef.OFPFC_ADD,
@@ -580,7 +581,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                         ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
                                                                                          ofport
                                                                                          )] + list(input_oxm)),
-                                                               instructions = create_input_instructions(lognetid, input_actions)
+                                                               instructions = create_input_instructions(lognetid, input_actions, False)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                                cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
@@ -626,7 +627,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                         ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
                                                                                          ofport
                                                                                          )] + input_oxm),
-                                                               instructions = create_input_instructions(lognetid, input_actions)
+                                                               instructions = create_input_instructions(lognetid, input_actions, False)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                                cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
@@ -672,7 +673,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                         ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
                                                                                          ofport
                                                                                          )] + input_oxm),
-                                                               instructions = create_input_instructions(lognetid, input_actions)
+                                                               instructions = create_input_instructions(lognetid, input_actions, False)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                                cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
@@ -718,7 +719,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                         ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
                                                                                          ofport
                                                                                          )] + input_oxm),
-                                                               instructions = create_input_instructions(lognetid, input_actions)
+                                                               instructions = create_input_instructions(lognetid, input_actions, False)
                                                                ))
                                 cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                                cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
@@ -767,7 +768,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                                 ofdef.create_oxm(ofdef.OXM_OF_IN_PORT,
                                                                                                  ofport
                                                                                                  )] + input_oxm),
-                                                                       instructions = create_input_instructions(lognetid, input_actions)
+                                                                       instructions = create_input_instructions(lognetid, input_actions, False)
                                                                        ))
                                         cmds.append(ofdef.ofp_flow_mod(table_id = output_table,
                                                                        cookie = 0x0001000000000000 | lognetid | ((ofport & 0xffff) << 16),
