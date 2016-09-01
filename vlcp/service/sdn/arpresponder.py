@@ -306,7 +306,7 @@ class ARPUpdater(FlowUpdater):
             phyportdict = {}
             for p in currentphyportinfo:
                 phynet = p.physicalnetwork
-                phynetdict.setdefault(phynet, []).append(p)
+                phyportdict.setdefault(phynet, []).append(p)
             for n, arps in current_arps.items():
                 if n in currentlognetinfo:
                     nid, _ = currentlognetinfo[n]

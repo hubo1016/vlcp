@@ -126,7 +126,7 @@ class RouterUpdater(FlowUpdater):
 
                 if status == 1:
                     if ct > timeout:
-                        self._arp_cache.pop(v)
+                        self._arp_cache.pop(k)
                         del self._packet_buffer[k]
                     else:
                         # packet out an arp request
@@ -460,6 +460,8 @@ class RouterUpdater(FlowUpdater):
                                     for packet,bid, t in self._packet_buffer[(netid,reply_ipaddress)]:
                                         self.subroutine(_send_buffer_packet_out(netid,reply_macaddress,
                                                                             reply_ipaddress,dst_macaddress,packet,bid))
+
+                                    del self._packet_buffer[(netid,reply_ipaddress)]
 
                             # add flow about this host in l3output
                             self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress))
