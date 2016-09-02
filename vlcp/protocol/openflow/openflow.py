@@ -13,7 +13,7 @@ from vlcp.event.connection import ConnectionWriteEvent, ConnectionControlEvent
 import logging
 import os
 from namedstruct import dump
-from vlcp.event.lock import Lock
+
 
 @withIndices('datapathid', 'auxiliaryid', 'state', 'connection', 'connmark', 'createby')
 class OpenflowConnectionStateEvent(Event):
@@ -262,20 +262,15 @@ class Openflow(Protocol):
             replydict.setdefault(matcher, []).append(msg)
             replymessages.append(msg)
         def batchprocess():
-            for i in range(0, len(requests), 256):
-                l = Lock((connection, 'openflow_batch'), container.scheduler)
-                for m in l.lock(container):
+            for r in requests:
+                for m in connection.write(self.formatrequest(r, connection, False), False):
                     yield m
-                with l:
-                    for r in requests[i:i+256]:
-                        for m in connection.write(self.formatrequest(r, connection, False), False):
-                            yield m
-                    barrier = connection.openflowdef.ofp_msg.new()
-                    barrier.header.type = connection.openflowdef.OFPT_BARRIER_REQUEST
-                    for m in container.waitForSend(self.formatrequest(barrier, connection)):
-                        yield m
-                    barrierreply = self.replymatcher(barrier, connection)
-                    yield (barrierreply,)
+            barrier = connection.openflowdef.ofp_msg.new()
+            barrier.header.type = connection.openflowdef.OFPT_BARRIER_REQUEST
+            for m in container.waitForSend(self.formatrequest(barrier, connection)):
+                yield m
+            barrierreply = self.replymatcher(barrier, connection)
+            yield (barrierreply,)
         for m in container.withCallback(batchprocess(), callback, conndown, *replymatchers.keys()):
             yield m
         container.openflow_reply = replymessages
