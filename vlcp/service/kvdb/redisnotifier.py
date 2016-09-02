@@ -259,7 +259,7 @@ class _Notifier(RoutineContainer):
         else:
             merged_keys = list(keys)
         if not merged_keys:
-            raise StopIteration
+            return
         for m in callAPI(self, 'redisdb', 'getclient', {'vhost':self.vhostbind}):
             yield m
         client, encoder, _ = self.retvalue

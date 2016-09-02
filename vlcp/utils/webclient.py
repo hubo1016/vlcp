@@ -500,7 +500,7 @@ class WebClient(Configurable):
             conn.setdaemon(False)
             container.retvalue = (conn, False)
             conns[2] += 1
-            raise StopIteration
+            return
         matcher = WebClientRequestDoneEvent.createMatcher(host)
         while self.samehostlimit and len(conns[0]) + len(conns[1]) + conns[2] >= self.samehostlimit:
             if myset:
@@ -519,7 +519,7 @@ class WebClient(Configurable):
                     conn.setdaemon(False)
                     container.retvalue = (conn, False)
                     conns[2] += 1
-                    raise StopIteration
+                    return
         # Create new connection
         conns[2] += 1
         conn = Client(urlunsplit(('ssl' if https else 'tcp', host, '/', '', '')), self._protocol, container.scheduler,

@@ -138,7 +138,7 @@ class l2switch(RoutineContainer):
                 in_port = int(port_str)    
         
             if datapathid not in self.mac_to_port:
-                raise StopIteration
+                return
 
             ethernet = common.dump(ethernetPacket.create(event.message.data))
             dstMac = ethernet['dstMac']

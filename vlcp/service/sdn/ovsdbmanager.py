@@ -360,7 +360,7 @@ class OVSDBManager(Module):
             for _, dpid, n, _ in bridges:
                 if n == name:
                     self.apiroutine.retvalue = dpid
-                    raise StopIteration
+                    return
             self.apiroutine.retvalue = None
         else:
             self.apiroutine.retvalue = None
@@ -398,7 +398,7 @@ class OVSDBManager(Module):
             for _, dpid, _, buuid in bridges:
                 if buuid == uuid:
                     self.apiroutine.retvalue = dpid
-                    raise StopIteration
+                    return
             self.apiroutine.retvalue = None
         else:
             self.apiroutine.retvalue = None
@@ -513,7 +513,7 @@ class OVSDBManager(Module):
                 for _, dpid, n, buuid in bridges:
                     if dpid == datapathid:
                         self.apiroutine.retvalue = (n, c.ovsdb_systemid, buuid)
-                        raise StopIteration
+                        return
                 self.apiroutine.retvalue = None
             else:
                 self.apiroutine.retvalue = None

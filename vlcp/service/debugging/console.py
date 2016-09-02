@@ -22,6 +22,7 @@ from vlcp.event.connection import Client
 import os
 import socket
 import re
+from vlcp.event.core import InterruptedBySignalException
 try:
     from Queue import Queue, PriorityQueue
 except:
@@ -55,6 +56,10 @@ class ConsoleServiceCancel(Event):
 
 @withIndices('socket')
 class SocketInjectDone(Event):
+    pass
+
+@withIndices()
+class InterruptPoller(Event):
     pass
 
 class Waiter(object):
@@ -184,11 +189,13 @@ console_help()
         def syscall_threaded_main(scheduler, processor):
             # Detach self
             scheduler.unregisterall(cr)
+            self._threaded_main_quit = False
             def threaded_main():
                 try:
                     scheduler.main(False, False)
                 finally:
-                    thread.interrupt_main()
+                    self._threaded_main_quit = True
+                    _console_connect_event.set()
             t = threading.Thread(target=threaded_main)
             t.daemon = True
             t.start()
@@ -196,12 +203,19 @@ console_help()
                 if self.startinconsole:
                     self._interactive()
                 else:
-                    while not scheduler.quitting:
+                    while not self._threaded_main_quit:
                         try:
-                            _console_connect_event.wait()
-                        except KeyboardInterrupt:
-                            break
-                        _console_connect_event.clear()
+                            while not _console_connect_event.is_set():
+                                # There is a bug in Python 2.x that wait without timeout cannot be
+                                # interrupted by signal
+                                _console_connect_event.wait(3600)
+                            if self._threaded_main_quit:
+                                break
+                        except InterruptedBySignalException:
+                            # This signal should interrupt the poller, but poller is not in the main thread
+                            # Send an event through the proxy will do the trick
+                            self.sendEventQueue.put((InterruptPoller(),))
+                            continue
                         pstdin_r, pstdin_w = os.pipe()
                         pstdout_r, pstdout_w = os.pipe()
                         orig_stdin = sys.stdin
@@ -247,7 +261,8 @@ console_help()
             finally:
                 self.sendEventQueue.put(None)
                 scheduler.quit()
-                print('Wait for scheduler end, this may take some time...')
+                if self.startinconsole:
+                    print('Wait for scheduler end, this may take some time...')
                 t.join()
         for m in self.apiroutine.syscall(syscall_threaded_main, True):
             yield m
@@ -455,7 +470,7 @@ console_help()
                             yield matchers
                         if blocking and self.apiroutine.matcher is csm:
                             # Cancelled
-                            raise StopIteration
+                            return
                         print('Event Captured: Capture %r with %r' % (self.apiroutine.event, self.apiroutine.matcher))
                         if firsttime and blocking:
                             waiter.send_result((self.apiroutine.event, self.apiroutine.matcher, self.apiroutine.currentroutine))
