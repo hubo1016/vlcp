@@ -89,7 +89,7 @@ except:
                 self.queue.clear()
                 if self.isWaited and self.canAppend():
                     self.isWaited = False
-                    return (QueueCanWriteEvent(self), [])
+                    return ([QueueCanWriteEvent(self)], [])
                 else:
                     return ([], [])
             def __len__(self):
@@ -759,6 +759,7 @@ except:
             subqueues = set()
             def allSubqueues(q):
                 subqueues.add(q)
+                subqueues.add(q.defaultQueue)
                 for v in q.queueindex.values():
                     if len(v) == 3:
                         allSubqueues(v[1])

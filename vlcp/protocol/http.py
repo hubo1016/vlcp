@@ -770,7 +770,7 @@ class Http(Protocol):
                     # If you give a MemoryStream(b'') to a GET request
                     # there will be a content-length header, which may cause problem
                     # for some servers
-                    newheaders.append(b'Content-Length', b'0')
+                    newheaders.append((b'Content-Length', b'0'))
             else:
                 newheaders.append((b'Content-Length', str(size).encode('ascii')))
             existingHeaders.add(b'content-length')

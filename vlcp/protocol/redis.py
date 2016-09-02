@@ -387,7 +387,7 @@ class Redis(Protocol):
         '''
         if not cmds:
             container.retvalue = []
-            raise StopIteration
+            return
         for m in self.send_batch(connection, container, *cmds):
             yield m
         matchers = container.retvalue

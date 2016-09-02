@@ -37,7 +37,7 @@ class ARPUpdater(FlowUpdater):
     def main(self):
         try:
             if self._connection.protocol.disablenxext:
-                raise StopIteration
+                return
             self.subroutine(self._update_handler(), True, '_update_handler_routine')
             for m in FlowUpdater.main(self):
                 yield m

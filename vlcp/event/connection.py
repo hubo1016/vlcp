@@ -472,7 +472,7 @@ class Connection(RoutineContainer):
                     if not ignoreException:
                         raise ConnectionResetException
                     else:
-                        raise StopIteration
+                        return
         else:
             if not ignoreException:
                 raise ConnectionResetException

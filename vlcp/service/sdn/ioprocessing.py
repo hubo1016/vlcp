@@ -953,7 +953,7 @@ class IOProcessing(FlowBase):
         # Do not re-enter
         if conn in self._portchanging:
             self._portchanged.add(conn)
-            raise StopIteration
+            return
         self._portchanging.add(conn)
         try:
             while True:
@@ -969,35 +969,53 @@ class IOProcessing(FlowBase):
                 ports = self.apiroutine.retvalue
                 if conn in self._portchanged:
                     continue
+                if not conn.connected:
+                    self._portchanged.discard(conn)
+                    return
                 def ovsdb_info():
                     while True:
                         try:
                             if conn in self._portchanged:
                                 self.apiroutine.retvalue = None
-                                raise StopIteration
+                                return
                             for m in self.apiroutine.executeAll([callAPI(self.apiroutine, 'ovsdbportmanager', 'waitportbyno', {'datapathid': datapath_id,
                                                                                                    'vhost': ovsdb_vhost,
                                                                                                    'portno': p.port_no,
+                                                                                                   'timeout': 5
                                                                                                    })
                                                                  for p in ports]):
                                 yield m
                         except StopIteration:
                             break
                         except Exception:
-                            self._logger.warning("OVSDB connection may not be ready for datapathid %016x, vhost = %r", datapath_id, ovsdb_vhost, exc_info = True)
-                            trytimes = 0
-                            while True:
-                                try:
-                                    for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitconnection', {'datapathid': datapath_id,
-                                                                                                         'vhost': ovsdb_vhost}):
-                                        yield m
-                                except Exception:
-                                    trytimes += 1
-                                    if trytimes > 10:
-                                        self._logger.warning("OVSDB connection is still not ready after a long time for %016x, vhost = %r. Keep waiting...", datapath_id, ovsdb_vhost)
-                                        trytimes = 0
-                                else:
-                                    break
+                            self._logger.warning('Cannot retrieve port info from OVSDB for datapathid %016x, vhost = %r', datapath_id, ovsdb_vhost, exc_info = True)
+                            for m in callAPI(self.apiroutine, 'ovsdbmanager', 'getconnection', {'datapathid': datapath_id,
+                                                                                                'vhost': ovsdb_vhost}):
+                                yield m
+                            if self.apiroutine.retvalue is None:
+                                self._logger.warning("OVSDB connection may not be ready for datapathid %016x, vhost = %r", datapath_id, ovsdb_vhost)
+                                trytimes = 0
+                                while True:
+                                    try:
+                                        for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitconnection', {'datapathid': datapath_id,
+                                                                                                             'vhost': ovsdb_vhost}):
+                                            yield m
+                                    except Exception:
+                                        trytimes += 1
+                                        if trytimes > 10:
+                                            self._logger.warning("OVSDB connection is still not ready after a long time for %016x, vhost = %r. Keep waiting...", datapath_id, ovsdb_vhost)
+                                            trytimes = 0
+                                    else:
+                                        break
+                            else:
+                                self._logger.warning('OpenFlow ports may not be synchronized. Try resync...')
+                                # Connection is up but ports are not synchronized, try resync
+                                for m in callAPI(self.apiroutine, 'openflowportmanager', 'resync', {'datapathid': datapath_id,
+                                                                                                    'vhost': conn.protocol.vhost}):
+                                    yield m
+                                # Do not resync too often
+                                for m in self.apiroutine.waitWithTimeout(0.1):
+                                    yield m
                         else:
                             break
                     self.apiroutine.retvalue = [r[0] for r in self.apiroutine.retvalue]
@@ -1007,7 +1025,7 @@ class IOProcessing(FlowBase):
                         yield m
                 except RoutineException:
                     self._portchanged.discard(conn)
-                    raise StopIteration
+                    return
                 if conn in self._portchanged:
                     continue
                 ovsdb_ports = self.apiroutine.retvalue

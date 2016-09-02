@@ -374,6 +374,9 @@ class Scheduler(object):
         if getattr(self.polling, 'shouldraise', False):
             self.polling.shouldraise = False
             raise InterruptedBySignalException()
+    def _tracesignal(self, signum, frame):
+        import traceback
+        self.logger.warning('Signal USR1, trace:\n%s', ''.join(traceback.format_stack()))
     def main(self, installsignal = True, sendinit = True):
         '''
         Start main loop
@@ -381,6 +384,11 @@ class Scheduler(object):
         if installsignal:
             sigterm = signal(SIGTERM, self._quitsignal)
             sigint = signal(SIGINT, self._quitsignal)
+            try:
+                from signal import SIGUSR1
+                sigusr1 = signal(SIGUSR1, self._tracesignal)
+            except Exception:
+                pass
         try:
             if sendinit:
                 self.queue.append(SystemControlEvent(SystemControlEvent.INIT), True)
@@ -517,6 +525,10 @@ class Scheduler(object):
             if installsignal:
                 signal(SIGTERM, sigterm)
                 signal(SIGINT, sigint)
+                try:
+                    signal(SIGUSR1, sigusr1)
+                except Exception:
+                    pass
 
 def syscall_direct(*events):
     def _syscall(scheduler, processor):
