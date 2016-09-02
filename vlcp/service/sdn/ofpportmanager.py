@@ -43,7 +43,8 @@ class OpenflowPortManager(Module):
                        api(self.getportbyno, self.apiroutine),
                        api(self.waitportbyno, self.apiroutine),
                        api(self.getportbyname, self.apiroutine),
-                       api(self.waitportbyname, self.apiroutine)
+                       api(self.waitportbyname, self.apiroutine),
+                       api(self.resync, self.apiroutine)
                        )
         self._synchronized = False
     def _get_ports(self, connection, protocol, onup = False, update = True):
@@ -261,4 +262,101 @@ class OpenflowPortManager(Module):
             yield m
         if self.apiroutine.timeout:
             raise OpenflowPortNotAppearException('Port %r does not appear on datapath %016x' % (name, datapathid))
-        
+    def resync(self, datapathid, vhost = ''):
+        '''
+        Resync with current ports
+        '''
+        # Sometimes when the OpenFlow connection is very busy, PORT_STATUS message may be dropped.
+        # We must deal with this and recover from it
+        # Save current manged_ports
+        if (vhost, datapathid) not in self.managed_ports:
+            self.apiroutine.retvalue = None
+            return
+        else:
+            last_ports = set(self.managed_ports[(vhost, datapathid)].keys())
+        add = set()
+        remove = set()
+        ports = {}
+        for _ in range(0, 10):
+            for m in callAPI(self.apiroutine, 'openflowmanager', 'getconnection', {'datapathid': datapathid, 'vhost':vhost}):
+                yield m
+            c = self.apiroutine.retvalue
+            if c is None:
+                # Disconnected, will automatically resync when reconnected
+                self.apiroutine.retvalue = None
+                return
+            ofdef = c.openflowdef
+            protocol = c.protocol
+            try:
+                if hasattr(ofdef, 'ofp_multipart_request'):
+                    # Openflow 1.3, use ofp_multipart_request to get ports
+                    for m in protocol.querymultipart(ofdef.ofp_multipart_request(type=ofdef.OFPMP_PORT_DESC), c, self.apiroutine):
+                        yield m
+                    for msg in self.apiroutine.openflow_reply:
+                        for p in msg.ports:
+                            ports[p.port_no] = p
+                else:
+                    # Openflow 1.0, use features_request
+                    request = ofdef.ofp_msg()
+                    request.header.type = ofdef.OFPT_FEATURES_REQUEST
+                    for m in protocol.querywithreply(request):
+                        yield m
+                    reply = self.apiroutine.retvalue
+                    for p in reply.ports:
+                        ports[p.port_no] = p
+            except ConnectionResetException:
+                break
+            except OpenflowProtocolException:
+                break
+            else:
+                if (vhost, datapathid) not in self.managed_ports:
+                    self.apiroutine.retvalue = None
+                    return
+                current_ports = set(self.managed_ports[(vhost, datapathid)])
+                # If a port is already removed
+                remove.intersection_update(current_ports)
+                # If a port is already added
+                add.difference_update(current_ports)
+                # If a port is not acquired, we do not add it
+                acquired_keys = set(ports.keys())
+                add.difference_update(acquired_keys)
+                # Add and remove previous added/removed ports
+                current_ports.difference_update(remove)
+                current_ports.update(add)
+                # If there are changed ports, the changed ports may or may not appear in the acquired port list
+                # We only deal with following situations:
+                # 1. If both lack ports, we add them
+                # 2. If both have additional ports, we remote them
+                to_add = acquired_keys.difference(current_ports.union(last_ports))
+                to_remove = current_ports.intersection(last_ports).difference(acquired_keys)
+                if not to_add and not to_remove and current_ports == last_ports:
+                    break
+                else:
+                    add.update(to_add)
+                    remove.update(to_remove)
+                    current_ports.update(to_add)
+                    current_ports.difference_update(to_remove)
+                    last_ports = current_ports
+        # Actual add and remove
+        mports = self.managed_ports[(vhost, datapathid)]
+        add_ports = []
+        remove_ports = []
+        for k in add:
+            if k not in mports:
+                add_ports.append(ports[k])
+            mports[k] = ports[k]
+        for k in remove:
+            try:
+                oldport = mports.pop(k)
+            except KeyError:
+                pass
+            else:
+                remove_ports.append(oldport)
+        for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'update',
+                                                                 datapathid = datapathid,
+                                                                 connection = c,
+                                                                 vhost = vhost,
+                                                                 add = add_ports, remove = remove_ports,
+                                                                 reason = 'resync')):
+            yield m
+        self.apiroutine.retvalue = None

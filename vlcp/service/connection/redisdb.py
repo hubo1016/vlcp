@@ -7,7 +7,7 @@ from vlcp.config import defaultconfig
 from vlcp.service.connection.tcpserver import TcpServerBase
 from vlcp.protocol.redis import Redis
 from vlcp.server.module import api
-from vlcp.utils.redisclient import RedisClient
+from vlcp.utils.redisclient import RedisClient, RedisConnectionDown
 from vlcp.event.runnable import RoutineContainer
 from vlcp.event.lock import Lock
 from zlib import compress, decompress, error as zlib_error
@@ -234,17 +234,20 @@ class RedisDB(TcpServerBase):
     def _retry_write(self, process, vhost):
         c = self._redis_clients.get(vhost)
         # Always try once first
-        for m in c.get_connection(self.apiroutine):
-            yield m
-        newconn = self.apiroutine.retvalue
-        with newconn.context(self.apiroutine):
-            try:
-                for m in process(newconn):
-                    yield m
-            except RedisWriteConflictException:
-                pass
-            else:
-                return
+        while True:
+            for m in c.get_connection(self.apiroutine):
+                yield m
+            newconn = self.apiroutine.retvalue
+            with newconn.context(self.apiroutine):
+                try:
+                    for m in process(newconn):
+                        yield m
+                except RedisConnectionDown:
+                    continue
+                except RedisWriteConflictException:
+                    break
+                else:
+                    return
         enterseq = self.enterseq
         enterlock = self.enterlock
         for i in range(0, self.maxretry):
@@ -267,6 +270,8 @@ class RedisDB(TcpServerBase):
                         try:
                             for m in process(newconn):
                                 yield m
+                        except RedisConnectionDown:
+                            continue
                         except RedisWriteConflictException:
                             if i > enterseq and not self._sequencial:
                                 self._sequencial = True
@@ -297,6 +302,8 @@ class RedisDB(TcpServerBase):
                     try:
                         for m in process(newconn):
                             yield m
+                    except RedisConnectionDown:
+                        continue
                     except RedisWriteConflictException:
                         if i > enterseq and not self._sequencial:
                             self._sequencial = True

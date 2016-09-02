@@ -25,6 +25,11 @@ def _conn(func):
             yield m
     return f
 
+class RedisConnectionDown(IOError):
+    pass
+
+class RedisConnectionRestarted(RedisConnectionDown):
+    pass
 
 @config('redisclient')
 class RedisClientBase(Configurable):
@@ -51,14 +56,14 @@ class RedisClientBase(Configurable):
             for m in container.waitWithTimeout(self.timeout, self._protocol.statematcher(connection, RedisConnectionStateEvent.CONNECTION_UP, False)):
                 yield m
             if container.timeout:
-                raise IOError('Disconnected from redis server')        
+                raise RedisConnectionDown('Disconnected from redis server')        
     def _get_default_connection(self, container):
         if not self._defaultconn:
-            raise IOError('Not connected to redis server')
+            raise RedisConnectionDown('Not connected to redis server')
         if self._lockconnmark is not None:
             if self._lockconnmark >= 0:
                 if not self._defaultconn.connected or self._defaultconn.connmark != self._lockconnmark:
-                    raise IOError('Disconnected from redis server; reconnected is not allowed in with scope')
+                    raise RedisConnectionRestarted('Disconnected from redis server; reconnected is not allowed in with scope')
                 else:
                     return
         for m in self._get_connection(container, self._defaultconn):
