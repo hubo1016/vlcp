@@ -59,7 +59,8 @@ class OVSDBPortManager(Module):
                        api(self.getportbyname, self.apiroutine),
                        api(self.waitportbyname, self.apiroutine),
                        api(self.getportbyno, self.apiroutine),
-                       api(self.waitportbyno, self.apiroutine)
+                       api(self.waitportbyno, self.apiroutine),
+                       api(self.resync, self.apiroutine)
                        )
         self._synchronized = False
     def _get_interface_info(self, connection, protocol, datapath_id, interface_uuid, port_uuid):
@@ -560,3 +561,27 @@ class OVSDBPortManager(Module):
             yield m
         if self.apiroutine.timeout:
             raise OVSDBPortNotAppearException('Port ' + repr(id) + ' does not appear before timeout')
+    def resync(self, datapathid, vhost = ''):
+        '''
+        Resync with current ports
+        '''
+        # Sometimes when the OVSDB connection is very busy, monitor message may be dropped.
+        # We must deal with this and recover from it
+        # Save current manged_ports
+        if (vhost, datapathid) not in self.managed_ports:
+            self.apiroutine.retvalue = None
+            return
+        else:
+            for m in callAPI(self.apiroutine, 'ovsdbmanager', 'getconnection', {'datapathid': datapathid, 'vhost':vhost}):
+                yield m
+            c = self.apiroutine.retvalue
+            if c is not None:
+                # For now, we restart the connection...
+                for m in c.reconnect(False):
+                    yield m
+                for m in self.apiroutine.waitWithTimeout(0.1):
+                    yield m
+                for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitconnection', {'datapathid': datapathid,
+                                                                                     'vhost': vhost}):
+                    yield m
+        self.apiroutine.retvalue = None
