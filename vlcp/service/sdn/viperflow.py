@@ -2180,6 +2180,10 @@ class ViperFlow(Module):
                         snobj,snmobj = subnetsdict.get(k)
                         if snmobj.allocated_ips:
                             raise ValueError("there logicalport in " + k + " delete it before")
+
+                        if hasattr(snobj,"router"):
+                            raise ValueError("there router interface use subnet " + k + " delete it before")
+
                         _,lgnetmap = lgnetdict.get(nk)
                         lgnetmap.subnets.dataset().discard(snobj.create_weakreference())
                         subset.set.dataset().discard(snobj.create_weakreference())
