@@ -284,6 +284,9 @@ class RouterUpdater(FlowUpdater):
                                     ofdef.ofp_action_set_field(
                                         field = ofdef.create_oxm(ofdef.OXM_OF_ETH_DST,macaddress)
                                     ),
+                                    ofdef.ofp_action(
+                                        type = ofdef.OFPAT_DEC_NW_TTL    
+                                    ),
                                     ofdef.nx_action_resubmit(
                                         in_port = ofdef.OFPP_IN_PORT & 0xffff,
                                         table = l2output
@@ -742,8 +745,8 @@ class RouterUpdater(FlowUpdater):
                                 match_network(nid),
                                 ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
                                 ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST_W,
-                                                 ip4_addr_bytes(ip4_addr.formatter(cidr)),
-                                                 ip4_addr_bytes(ip4_addr.formatter(get_netmask(prefix))))
+                                                 cidr,
+                                                 get_netmask(prefix))
                             ]
                         ),
                         instructions=[
