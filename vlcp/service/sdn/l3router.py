@@ -15,7 +15,7 @@ from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes, ip4_addr, arp_packet_l4, mac_addr, ethernet_l4, \
     ethernet_l7
 from vlcp.utils.flowupdater import FlowUpdater
-from vlcp.utils.netutils import parse_ip4_network, ip_in_network, get_netmask
+from vlcp.utils.netutils import parse_ip4_network, ip_in_network, get_netmask, parse_ip4_address
 from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet
 from namedstruct import dump
 
@@ -595,7 +595,6 @@ class RouterUpdater(FlowUpdater):
 
             # phyport : phynet = 1:1, so we use phynet as key
             currentphyportinfo = dict((p.physicalnetwork, (p,id)) for p, id in self._lastphyport if p in allobjects)
-            #currentlognetinfo = dict((n, (id,n.physicalnetwork)) for n, id in self._lastlogicalnet if n in allobjects)
 
             currentlognetinfo = {}
 
@@ -618,7 +617,6 @@ class RouterUpdater(FlowUpdater):
                     outmac = [s ^ m for s, m in zip(portmac, mac_addr(self._parent.outroutermacmask))]
 
                     currentlognetinfo[n] = (id,mac_addr.formatter(outmac))
-                    #currentphyportinfo[p] = (mac_addr.formatter(outmac), portno)
                 else:
                     currentlognetinfo[n] = (id,self._parent.inroutermac)
 
@@ -658,9 +656,7 @@ class RouterUpdater(FlowUpdater):
             self._lastrouterinfo = currentrouterinfo
             self._lastsubnetinfo = currentsubnetinfo
             self._lastlgportinfo = currentlgportinfo
-           
-            #ofdef = connection.openflowdef
-            #vhost = connection.protocol.vhost
+
             l3input = self._parent._gettableindex("l3input", vhost)
             l3router = self._parent._gettableindex("l3router", vhost)
             l3output = self._parent._gettableindex("l3output", vhost)
@@ -924,10 +920,6 @@ class RouterUpdater(FlowUpdater):
                         network, prefix = parse_ip4_network(cidr)
                         link_routes.append((network, prefix, netid))
 
-                        if isexternal:
-                            network, prefix = parse_ip4_network("0.0.0.0/0")
-                            link_routes.append((network, prefix, netid))
-
                         # add router mac + ipaddress ---->>> l3input
                         cmds.extend(_createinputflow(mac, ipaddress, netid))
 
@@ -937,14 +929,6 @@ class RouterUpdater(FlowUpdater):
                         if mac != self._parent.inroutermac:
                             cmds.extend(_createinputflow(self._parent.inroutermac,ipaddress,netid))
                             cmds.extend(_createarpreplyflow(self._parent.inroutermac,ipaddress,netid))
-
-                    for network, prefix, netid in link_routes:
-                        add_routes.append((network, prefix, netid))
-                        for cidr, nethop in static_routes:
-
-                            if ip_in_network(nethop, network, prefix):
-                                c, f = parse_ip4_network(cidr)
-                                add_routes.append((c, f, netid))
 
                     # add router flow into l3router table
                     for _, _, _, _, netid in interfaces:
