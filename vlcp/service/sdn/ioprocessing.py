@@ -973,6 +973,7 @@ class IOProcessing(FlowBase):
                     self._portchanged.discard(conn)
                     return
                 def ovsdb_info():
+                    resync = 0
                     while True:
                         try:
                             if conn in self._portchanged:
@@ -981,7 +982,7 @@ class IOProcessing(FlowBase):
                             for m in self.apiroutine.executeAll([callAPI(self.apiroutine, 'ovsdbportmanager', 'waitportbyno', {'datapathid': datapath_id,
                                                                                                    'vhost': ovsdb_vhost,
                                                                                                    'portno': p.port_no,
-                                                                                                   'timeout': 5
+                                                                                                   'timeout': 5 + 5 * min(resync, 5)
                                                                                                    })
                                                                  for p in ports]):
                                 yield m
@@ -1010,12 +1011,17 @@ class IOProcessing(FlowBase):
                             else:
                                 self._logger.warning('OpenFlow ports may not be synchronized. Try resync...')
                                 # Connection is up but ports are not synchronized, try resync
-                                for m in callAPI(self.apiroutine, 'openflowportmanager', 'resync', {'datapathid': datapath_id,
-                                                                                                    'vhost': conn.protocol.vhost}):
+                                for m in self.apiroutine.executeAll([callAPI(self.apiroutine, 'openflowportmanager', 'resync',
+                                                                             {'datapathid': datapath_id,
+                                                                              'vhost': conn.protocol.vhost}),
+                                                                     callAPI(self.apiroutine, 'ovsdbportmanager', 'resync',
+                                                                             {'datapathid': datapath_id,
+                                                                              'vhost': ovsdb_vhost})]):
                                     yield m
                                 # Do not resync too often
                                 for m in self.apiroutine.waitWithTimeout(0.1):
                                     yield m
+                                resync += 1
                         else:
                             break
                     self.apiroutine.retvalue = [r[0] for r in self.apiroutine.retvalue]
