@@ -87,6 +87,19 @@ class ViperFlow(Module):
         with watch_context(keys,retobjs,reqid,self.app_routine):
             self.app_routine.retvalue = [dump(v) for v in retobjs]
 
+
+    def _dumpone(self,key,filter):
+        for m in self._getkeys([key]):
+            yield m
+        retobjs = self.app_routine.retvalue
+        if len(retobjs) == 0 or retobjs[0] is None:
+            self.app_routine.retvalue = []
+        else:
+            if all(getattr(retobjs[0], k, None) == v for k, v in filter.items()):
+                self.app_routine.retvalue = dump(retobjs)
+            else:
+                self.app_routine.retvalue = []
+
     def _getkeys(self,keys):
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
@@ -456,18 +469,11 @@ class ViperFlow(Module):
                 self.app_routine.retvalue = [dump(r) for r in values]
 
         else:
-        # get that id phynet info
+            # get that id phynet info
             phynetkey = PhysicalNetwork.default_key(id)
-            for m in self._getkeys([phynetkey]):
+            for m in self._dumpone(phynetkey,kwargs):
                 yield m
-            retobj = self.app_routine.retvalue
-            if len(retobj) == 0 or retobj[0] is None:
-                self.app_routine.retvalue = []
-            else:
-                if all(getattr(retobj[0],k,None) == v for k,v in kwargs.items()):
-                    self.app_routine.retvalue = dump(retobj)
-                else:
-                    self.app_routine.retvalue = []
+
 
     def createphysicalport(self,physicalnetwork,name,vhost='',systemid='%',bridge='%',**kwargs):
         "create physicalport,return created info"
@@ -936,18 +942,8 @@ class ViperFlow(Module):
         else:
             phyportkey = PhysicalPort.default_key(vhost,systemid,bridge,name)
 
-            for m in self._getkeys([phyportkey]):
+            for m in self._dumpone(phyportkey,args):
                 yield m
-
-            retobj = self.app_routine.retvalue
-
-            if len(retobj) == 0 or retobj[0] is None:
-                self.app_routine.retvalue = []
-            else:
-                if all(getattr(retobj,k,None) == v for k,v in args.items()):
-                    self.app_routine.retvalue = dump(retobj)
-                else:
-                    self.app_routine.retvalue = []
 
     def createlogicalnetwork(self,physicalnetwork,id = None,**kwargs):
         "create logicalnetwork info,return creared info"
@@ -1426,15 +1422,8 @@ class ViperFlow(Module):
         else:
             lgnetkey = LogicalNetwork.default_key(id)
 
-            for m in self._getkeys([lgnetkey]):
+            for m in self._dumpone(lgnetkey,args):
                 yield m
-
-            retobj = self.app_routine.retvalue
-
-            if all(getattr(retobj,k,None) == v for k,v in args.items()):
-                self.app_routine.retvalue = dump(retobj)
-            else:
-                self.app_routine.retvalue = []
 
     def createlogicalport(self,logicalnetwork,id=None,subnet=None,**args):
         "create logicalport info,return created info"
@@ -1882,15 +1871,8 @@ class ViperFlow(Module):
         else:
             lgportkey = LogicalPort.default_key(id)
 
-            for m in self._getkeys([lgportkey]):
+            for m in self._dumpone(lgportkey,kwargs):
                 yield m
-
-            retobj = self.app_routine.retvalue
-
-            if all(getattr(retobj,k,None) == v for k,v in kwargs.items()):
-                self.app_routine.retvalue = [dump(retobj)]
-            else:
-                self.app_routine.retvalue = []
 
     def createsubnet(self,logicalnetwork,cidr,id=None,**kwargs):
         "create subnet info"
@@ -2269,15 +2251,9 @@ class ViperFlow(Module):
         else:
             subnetkey = SubNet.default_key(id)
 
-            for m in self._getkeys([subnetkey]):
+            for m in self._dumpone(subnetkey,kwargs):
                 yield m
 
-            retobj = self.app_routine.retvalue
-
-            if all(getattr(retobj,k,None) == v for k,v in kwargs.items()):
-                self.app_routine.retvalue = dump(retobj)
-            else:
-                self.app_routine.retvalue = []
     # the first run as routine going
     def load(self,container):
 
@@ -2333,3 +2309,5 @@ def check_ip_pool(gateway, start, end, allocated, cidr):
         for ip in allocated:
             nip = parse_ip4_address(ip)
             assert nstart <= nip <= nend
+
+
