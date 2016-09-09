@@ -278,6 +278,9 @@ class RouterUpdater(FlowUpdater):
                                         field = ofdef.create_oxm(ofdef.NXM_NX_REG5,netid)
                                     ),
                                     ofdef.ofp_action_set_field(
+                                        field=ofdef.create_oxm(ofdef.NXM_NX_REG6, 0xffffffff)
+                                    ),
+                                    ofdef.ofp_action_set_field(
                                         field = ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC,srcmacaddress)
                                     ),
                                     ofdef.ofp_action_set_field(
