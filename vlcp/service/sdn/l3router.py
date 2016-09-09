@@ -232,8 +232,7 @@ class RouterUpdater(FlowUpdater):
                                                                    self._connection, self._connection.connmark)
 
         arpflow_remove_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_FLOW_REMOVED, None, None,
-                                                    l3output, None, self._connection, self._connection.connmark,
-                                                    _ismatch = lambda x: x.message.reason == ofdef.OFPRR_IDLE_TIMEOUT)
+                                                    l3output, None, self._connection, self._connection.connmark)
 
         arpflow_request_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3output,
                                                     0x1,self._connection, self._connection.connmark)
@@ -842,7 +841,7 @@ class RouterUpdater(FlowUpdater):
                             ofdef.ofp_flow_mod(
                                 table_id=l3output,
                                 command=ofdef.OFPFC_ADD,
-                                priority=ofdef.OFP_DEFAULT_PRIORITY,
+                                priority=ofdef.OFP_DEFAULT_PRIORITY + 1,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
                                 out_port=ofdef.OFPP_ANY,
                                 out_group=ofdef.OFPG_ANY,
