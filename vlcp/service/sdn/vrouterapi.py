@@ -162,8 +162,8 @@ class VRouterApi(Module):
                     idset.add(router['id'])
 
             # if routers updating ,, check format
-            if 'routers' in router:
-                for r in router['routers']:
+            if 'routes' in router:
+                for r in router['routes']:
                     ip_prefix = r.get('ip_prefix')
                     nexthop = r.get('nexthop')
 
@@ -171,7 +171,7 @@ class VRouterApi(Module):
                         ip_prefix = format_network_cidr(ip_prefix)
                         nexthop = check_ip_address(nexthop)
                     else:
-                        raise ValueError("routers format error " + r)
+                        raise ValueError("routes format error " + r)
 
         routerkeys = [VRouter.default_key(r['id']) for r in routers]
 

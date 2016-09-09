@@ -377,7 +377,7 @@ class VXLANUpdater(FlowUpdater):
             removephynets = set(p.physicalnetwork for p in removed_ports)
             transact_networks.update(lognet for lognet, (phynet, _) in lastlognetinfo.items()
                                      if phynet in removephynets)
-        transact_networks.update(n for n in updatedvalues if isinstance(n, LogicalNetwork) and n in currentlognetinfo)
+        transact_networks.update(n for n in updatedvalues if n.isinstance(LogicalNetwork) and n in currentlognetinfo)
         # LogicalPortVXLANInfo
         lastvxlaninfo = self._lastvxlaninfo
         otherlogports = dict((p.id, p) for p in allresult
