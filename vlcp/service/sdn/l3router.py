@@ -479,7 +479,9 @@ class RouterUpdater(FlowUpdater):
                                     del self._packet_buffer[(netid,reply_ipaddress)]
 
                             # add flow about this host in l3output
-                            self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress),asyncStart=False)
+
+                            # change asyncStart from false to true ,,  send buffer packet before add flow
+                            self.subroutine(_add_host_flow(netid,reply_macaddress,reply_ipaddress,dst_macaddress))
 
 
             except Exception:
