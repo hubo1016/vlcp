@@ -915,7 +915,7 @@ class RouterUpdater(FlowUpdater):
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
                                     oxm_fields=[
-                                        ofdef.create_oxm(ofdef.NXM_NX_REG7, 0x4000),
+                                        ofdef.create_oxm(ofdef.NXM_NX_REG7_W, 0,0x4000),
                                         ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
                                         ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
                                         ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REQUEST),
@@ -937,7 +937,7 @@ class RouterUpdater(FlowUpdater):
                                 out_group=ofdef.OFPG_ANY,
                                 match=ofdef.ofp_match_oxm(
                                     oxm_fields=[
-                                        ofdef.create_oxm(ofdef.NXM_NX_REG7, 0x4000),
+                                        ofdef.create_oxm(ofdef.NXM_NX_REG7_W, 0,0x4000),
                                         ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
                                         ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
                                         ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REQUEST),
@@ -1007,7 +1007,7 @@ class RouterUpdater(FlowUpdater):
                             cmds.extend(_createarpreplyflow(self._parent.inroutermac,ipaddress,netid))
 
                     # add router flow into l3router table
-                    for _, _, _, _, netid in interfaces:
+                    for _, _, _, _, netid,_ in interfaces:
                         cmds.extend(_createrouterflow(link_routes, netid))
 
 
