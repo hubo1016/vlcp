@@ -3,21 +3,24 @@ import itertools
 import time
 
 import vlcp.service.sdn.ioprocessing as iop
+from vlcp.config import defaultconfig
 from vlcp.event import Event
 
 from vlcp.event import RoutineContainer
 from vlcp.event import withIndices
 from vlcp.protocol.openflow import OpenflowAsyncMessageEvent
 from vlcp.protocol.openflow import OpenflowConnectionStateEvent
-from vlcp.server.module import callAPI
+from vlcp.server.module import callAPI, depend
 from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
+from vlcp.service.sdn import arpresponder
+from vlcp.service.sdn import icmpresponder
 from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes, ip4_addr, arp_packet_l4, mac_addr, ethernet_l4, \
     ethernet_l7
 from vlcp.utils.flowupdater import FlowUpdater
-from vlcp.utils.netutils import parse_ip4_network, ip_in_network, get_netmask, parse_ip4_address
+from vlcp.utils.netutils import parse_ip4_network,get_netmask
 from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet
-from namedstruct import dump
+
 
 @withIndices("connection")
 class ARPRequest(Event):
@@ -78,7 +81,7 @@ class RouterUpdater(FlowUpdater):
                     break
 
         if find:
-            return (mac,ip,phyport)
+            return (mac, ip, phyportno)
         else:
             return ()
 
@@ -1030,7 +1033,8 @@ class RouterUpdater(FlowUpdater):
         except Exception:
             self._logger.warning("router update flow exception, ignore it! continue", exc_info=True)
 
-
+@defaultconfig
+@depend(arpresponder.ARPResponder,icmpresponder.ICMPResponder)
 class L3Router(FlowBase):
     _tablerequest = (
         ("l3router", ("l3input",), "router"),
