@@ -446,7 +446,7 @@ class VXLANUpdater(FlowUpdater):
                             v.endpointlist = [ep for ep in v.endpointlist
                                               if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge)
                                               and ep[4] >= timestamp]
-                            if n.physicalnetwork in unique_phyports:
+                            if n is not None and not n.isdeleted() and n.physicalnetwork in unique_phyports:
                                 phyport = unique_phyports[n.physicalnetwork]
                                 if phyport in currentphyportinfo:
                                     v.endpointlist.append([currentphyportinfo[phyport][2],
