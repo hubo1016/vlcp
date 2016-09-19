@@ -159,7 +159,7 @@ class ICMPResponderUpdater(FlowUpdater):
             currentlognetsinfo = dict((n,id) for n,id in self._lastlognets if n in allobjects)
             currentrouterportsinfo = dict((o.subnet,o) for o in allobjects
                                             if o.isinstance(RouterPort))
-            currentsubnetsinfo = dict((o,(getattr(currentrouterportsinfo[o],"ip_address",o.gateway),
+            currentsubnetsinfo = dict((o,(getattr(currentrouterportsinfo[o],"ip_address",getattr(o,"gateway",None)),
                                           self.parent.inroutermac,o.network.id,currentlognetsinfo[o.network]))
                                         for o in allobjects if o.isinstance(SubNet)
                                             and hasattr(o,"router") and o in currentrouterportsinfo
