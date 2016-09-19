@@ -153,6 +153,9 @@ class RouterUpdater(FlowUpdater):
                                 )
                                 for m in self._packet_out_message(outnetid,arp_request_packet,phyport):
                                     yield m
+                            # else
+                            # arp_cache will not have entry which goto network has no phyport
+                            # so nerver run here
                         else:
                             self._logger.warning("arp request can find avaliable network %d drop it",outnetid)
                             self._arp_cache.pop(k)
@@ -189,7 +192,7 @@ class RouterUpdater(FlowUpdater):
 
     def _arp_cache_handler(self):
 
-        arp_request_matcher = ARPRequest.createMatcher()
+        arp_request_matcher = ARPRequest.createMatcher(connection=self._connection)
         arp_incomplete_timeout = self._parent.arp_incomplete_timeout
 
         while True:
@@ -219,6 +222,15 @@ class RouterUpdater(FlowUpdater):
                         )
 
                         self.subroutine(self._packet_out_message(netid,arp_request_packet,phyport))
+                    else:
+                        # logicalnetwork has no phyport, don't send
+                        # arp request, drop arp cache , and packet
+                        del self._arp_cache[(netid,ipaddress)]
+
+                        if (netid,ipaddress) in self._packet_buffer:
+                            del self._packet_buffer[(netid,ipaddress)]
+
+                        self._logger.warning(" lgnet %r don't have phyport, drop everything to it",netid)
             else:
                 s,_,g,mac = self._arp_cache[(netid,ipaddress)]
                 # this arp request have in cache , update timeout
