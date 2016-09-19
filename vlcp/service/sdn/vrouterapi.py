@@ -7,7 +7,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.networkmodel import *
 from vlcp.utils.dataobject import watch_context,set_new,dump,ReferenceObject,WeakReferenceObject
 from vlcp.utils.ethernet import ip4_addr
-from vlcp.utils.netutils import format_network_cidr,check_ip_address
+from vlcp.utils.netutils import format_network_cidr,check_ip_address, parse_ip4_network, ip_in_network
 
 import vlcp.service.kvdb.objectdb as objectdb
 
@@ -387,6 +387,11 @@ class VRouterApi(Module):
                         # new router port special ip address , we check it in subnetmap
                         if hasattr(newrouterport,"ip_address"):
                             ipaddress = ip4_addr(newrouterport.ip_address)
+
+                            n,p = parse_ip4_network(subnetobj.cidr)
+
+                            if not ip_in_network(ipaddress,n,p):
+                                raise ValueError(" special ip address not in subnet cidr")
 
                             if str(ipaddress) not in subnetmapobj.allocated_ips:
                                 subnetmapobj.allocated_ips[str(ipaddress)] = newrouterport.create_weakreference()
