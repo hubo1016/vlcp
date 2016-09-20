@@ -173,6 +173,29 @@ zk_client_state = enum('zk_client_state', globals(), int32,
     ZOO_EXPIRED_STATE = -112
 )
 
+zk_err = enum('zk_err', globals(), int32,
+    ZOO_ERR_OK = 0,
+    ZOO_ERR_SYSTEMERROR = -1,
+    ZOO_ERR_RUNTIMEINCONSISTENCY = -2,
+    ZOO_ERR_DATAINCONSISTENCY = -3,
+    ZOO_ERR_CONNECTIONLOSS = -4,
+    ZOO_ERR_MARSHALLINGERROR = -5,
+    ZOO_ERR_UNIMPLEMENTED = -6,
+    ZOO_ERR_OPERATIONTIMEOUT = -7,
+    ZOO_ERR_BADARGUMENTS = -8,
+    ZOO_ERR_APIERROR = -100,
+    ZOO_ERR_NONODE = -101,
+    ZOO_ERR_NOAUTH = -102,
+    ZOO_ERR_BADVERSION = -103,
+    ZOO_ERR_NOCHILDRENFOREPHEMERALS = -108,
+    ZOO_ERR_NODEEXISTS = -110,
+    ZOO_ERR_NOTEMPTY = -111,
+    ZOO_ERR_SESSIONEXPIRED = -112,
+    ZOO_ERR_INVALIDCALLBACK = -113,
+    ZOO_ERR_INVALIDACL = -114,
+    ZOO_ERR_AUTHFAILED = -115
+    )
+
 zk_create_flag = enum('zk_create_flag', globals(), int32, True,
                     ZOO_EPHEMERAL = 1 << 0,
                     ZOO_SEQUENCE = 1 << 1,
@@ -312,7 +335,7 @@ RequestHeader = nstruct(
 ReplyHeader = nstruct(
         (int32, 'xid'),
         (int64, 'zxid'),
-        (int32, 'err'),
+        (zk_err, 'err'),
         name = 'ReplyHeader',
         base = _TypedZooKeeperReply,
         criteria = lambda x: x.zookeeper_type != CONNECT_PACKET,
@@ -354,7 +377,7 @@ AuthPacket = nstruct(
 MultiHeader = nstruct(
         (int32, 'type'),
         (boolean, 'done'),
-        (int32, 'err'),
+        (zk_err, 'err'),
         name = 'MultiHeader',
         padding = 1
     )
@@ -495,7 +518,7 @@ _WatcherEvent = nstruct(
     )
 
 _ErrorResponse = nstruct(
-        (int32, 'err'),
+        (zk_err, 'err2'),
         name = '_ErrorResponse',
         padding = 1
     )
