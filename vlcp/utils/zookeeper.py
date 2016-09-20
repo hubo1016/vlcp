@@ -196,6 +196,15 @@ zk_err = enum('zk_err', globals(), int32,
     ZOO_ERR_AUTHFAILED = -115
     )
 
+zk_perm = enum('zk_perm', globals(), int32, True,
+    ZOO_PERM_READ = 1 << 0,
+    ZOO_PERM_WRITE = 1 << 1,
+    ZOO_PERM_CREATE = 1 << 2,
+    ZOO_PERM_DELETE = 1 << 3,
+    ZOO_PERM_ADMIN = 1 << 4,
+    ZOO_PERM_ALL = 0x1f
+)
+
 zk_create_flag = enum('zk_create_flag', globals(), int32, True,
                     ZOO_EPHEMERAL = 1 << 0,
                     ZOO_SEQUENCE = 1 << 1,
@@ -209,7 +218,7 @@ Id = nstruct(
      )
 
 ACL = nstruct(
-        (int32, 'perms'),
+        (zk_perm, 'perms'),
         (Id, 'id'),
         name = 'ACL',
         padding = 1
