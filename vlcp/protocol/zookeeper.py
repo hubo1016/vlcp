@@ -193,7 +193,7 @@ class ZooKeeper(Protocol):
                     sent_requests.append(container.retvalue)
                 except ZooKeeperRetryException:
                     raise ZooKeeperRetryException(sent_requests)
-            container.retvalue = None
+            container.retvalue = sent_requests
         return (matchers, _sendall())
     def requests(self, connection, requests, container):
         matchers, routine = self.async_requests(connection, requests, container)
