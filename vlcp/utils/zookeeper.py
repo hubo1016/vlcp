@@ -93,7 +93,7 @@ class VectorParser(object):
             start += size
         return (result, start)
     def new(self, inlineparent = None):
-        return None
+        return []
     def create(self, data, inlineparent = None):
         r = self.parse(data)
         if r is None:
