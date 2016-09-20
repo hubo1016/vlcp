@@ -160,7 +160,7 @@ class ZooKeeper(Protocol):
             if lost or retry:
                 raise ZooKeeperRetryException
         else:
-            receive = {}
+            receive = []
         if handshake_received[0] is None:
             if not connection.connected or connection.connmark != connmark:
                 raise ZooKeeperRetryException
@@ -234,12 +234,12 @@ class ZooKeeper(Protocol):
         (((receive_all, responses),), ((_, sent_events),)) = container.retvalue
         received_responses = {k:v for k,v in zip(requests, responses) if v is not None}
         if receive_all:
-            container.retvalue = (received_responses, [], [])
+            container.retvalue = (responses, [], [])
         else:
             # Some results are missing
             lost_responses = [r for r,c in zip(requests, sent_events) if c._zookeeper_sent and r not in received_responses]
             retry_requests = [r for r,c in zip(requests, sent_events) if not c._zookeeper_sent] + requests[len(sent_events):]
-            container.retvalue = (received_responses, lost_responses, retry_requests)
+            container.retvalue = (responses, lost_responses, retry_requests)
     def error(self, connection):
         for m in connection.waitForSend(ZooKeeperConnectionStateEvent(ZooKeeperConnectionStateEvent.DOWN,
                                                                       connection,
