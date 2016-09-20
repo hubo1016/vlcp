@@ -324,7 +324,7 @@ ReplyHeader = nstruct(
 _TypedReply = nstruct(
         name = '_TypedReply',
         base = ReplyHeader,
-        criteria = lambda x: hasattr(x, 'zookeeper_request_type'),
+        criteria = lambda x: hasattr(x, 'zookeeper_request_type') and (x.err == 0 or len(x) > 20),
         classifier = lambda x: x.zookeeper_request_type
     )
 
