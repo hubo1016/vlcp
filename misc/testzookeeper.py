@@ -34,8 +34,8 @@ class TestModule(Module):
             print('WatcherEvent: %r' % (dump(self.apiroutine.event.message),))
     def main(self):
         self.apiroutine.subroutine(self.watcher(), False, daemon = True)
-        up = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.UP, self.client, self.client.connmark)
-        notconn = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.NOTCONNECTED, self.client, self.client.connmark)
+        up = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.UP, self.client)
+        notconn = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.NOTCONNECTED, self.client)
         yield (up, notconn)
         if self.apiroutine.matcher is notconn:
             print('Not connected')
