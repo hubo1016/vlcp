@@ -82,7 +82,7 @@ class ZooKeeper(Protocol):
     def reconnect_init(self, connection):
         for m in Protocol.reconnect_init(self, connection):
             yield m
-        connection.xid = os.urandom(1)
+        connection.xid = ord(os.urandom(1)) + 1
         connection.zookeeper_requests = {}
         connection.zookeeper_handshake = False
         for m in connection.waitForSend(ZooKeeperConnectionStateEvent(ZooKeeperConnectionStateEvent.UP,
