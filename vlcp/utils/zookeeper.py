@@ -32,7 +32,7 @@ class UStringParser(object):
         else:
             return (buffer[4:4+length], 4 + length)
     def new(self, inlineparent = None):
-        return None
+        return b''
     def create(self, data, inlineparent = None):
         r = self.parse(data)
         if r is None:
