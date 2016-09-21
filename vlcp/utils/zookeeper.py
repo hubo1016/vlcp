@@ -384,7 +384,7 @@ AuthPacket = nstruct(
     )
 
 MultiHeader = nstruct(
-        (int32, 'type'),
+        (zk_request_type, 'type'),
         (boolean, 'done'),
         (zk_err, 'err'),
         name = 'MultiHeader',
@@ -756,26 +756,18 @@ GetChildren2Response = nstruct(
         classifyby = (ZOO_GETCHILDREN2_OP,)
     )
 
-_multi_header_len = len(MultiHeader())
-
-_multiop_request_size = {}
-
-MultiOpRequest = nstruct(
-        (MultiHeader,),
-        name = 'MultiOpRequest',
+MultiOpRequest = nvariant(
+        'MultiOpRequest',
+        MultiHeader,
         classifier = lambda x: x.type,
-        padding = 1,
-        size = lambda x: _multi_header_len if x.done else _multiop_request_size.get(x.type, _multi_header_len)
+        padding = 1
     )
 
-_multiop_response_size = {}
-
-MultiOpResponse = nstruct(
-        (MultiHeader,),
-        name = 'MultiOpResponse',
+MultiOpResponse = nvariant(
+        'MultiOpResponse',
+        MultiHeader,
         classifier = lambda x: x.type,
-        padding = 1,
-        size = lambda x: _multi_header_len if x.done else _multiop_response_size.get(x.type, _multi_header_len)
+        padding = 1
     )
 
 MultiOpCheck = nstruct(
@@ -785,8 +777,6 @@ MultiOpCheck = nstruct(
         init = packvalue(ZOO_CHECK_OP, 'type'),
         classifyby = (ZOO_CHECK_OP,)
     )
-
-_multiop_request_size[ZOO_CHECK_OP] = len(MultiOpCheck())
 
 # Check does not have response body
 
@@ -798,8 +788,6 @@ MultiOpCreate = nstruct(
         classifyby = (ZOO_CREATE_OP,)
     )
 
-_multiop_request_size[ZOO_CREATE_OP] = len(MultiOpCreate())
-
 MultiOpCreateResponse = nstruct(
         (_CreateResponse,),
         name = 'MultiOpCreateResponse',
@@ -807,8 +795,6 @@ MultiOpCreateResponse = nstruct(
         init = packvalue(ZOO_CREATE_OP, 'type'),
         classifyby = (ZOO_CREATE_OP,)
     )
-
-_multiop_response_size[ZOO_CREATE_OP] = len(MultiOpCreateResponse())
 
 MultiOpDelete = nstruct(
         (_DeleteRequest,),
@@ -818,8 +804,6 @@ MultiOpDelete = nstruct(
         classifyby = (ZOO_DELETE_OP,)
     )
 
-_multiop_request_size[ZOO_DELETE_OP] = len(MultiOpDelete())
-
 MultiOpSetData = nstruct(
         (_SetDataRequest,),
         name = 'MultiOpSetData',
@@ -827,8 +811,6 @@ MultiOpSetData = nstruct(
         init = packvalue(ZOO_SETDATA_OP, 'type'),
         classifyby = (ZOO_SETDATA_OP,)
     )
-
-_multiop_request_size[ZOO_SETDATA_OP] = len(MultiOpSetData())
 
 MultiOpSetDataResponse = nstruct(
         (_SetDataResponse,),
@@ -838,8 +820,6 @@ MultiOpSetDataResponse = nstruct(
         classifyby = (ZOO_SETDATA_OP,)
     )
 
-_multiop_response_size[ZOO_SETDATA_OP] = len(MultiOpSetDataResponse())
-
 MultiOpErrorResponse = nstruct(
         (_ErrorResponse,),
         name = 'MultiOpErrorResponse',
@@ -848,8 +828,6 @@ MultiOpErrorResponse = nstruct(
         classifyby = (ZOO_ERROR_TYPE,)
     )
 
-_multiop_response_size[ZOO_ERROR_TYPE] = len(MultiOpErrorResponse())
-
 MultiRequest = nstruct(
         (MultiOpRequest[0], 'requests'),
         name = 'MultiRequest',
@@ -857,6 +835,8 @@ MultiRequest = nstruct(
         classifyby = (ZOO_MULTI_OP,),
         init = packvalue(ZOO_MULTI_OP, 'type')
     )
+
+
 
 MultiResponse = nstruct(
         (MultiOpResponse[0], 'responses'),
