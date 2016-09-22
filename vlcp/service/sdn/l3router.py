@@ -127,7 +127,7 @@ class RouterUpdater(FlowUpdater):
 
             # check incomplte arp entry ,, send arp request cycle unitl timeout
             for k,v in self._arp_cache.items():
-                status,timeout,isgateway,realmac = v
+                status,timeout,isstatic,realmac,cidr = v
 
                 if status == 1:
                     if ct > timeout:
@@ -201,10 +201,14 @@ class RouterUpdater(FlowUpdater):
 
             ipaddress = self.event.ipaddress
             netid = self.event.logicalnetworkid
-            isgateway = self.event.isgateway
+
+            # isstatic : this type arp entry will add when arp request static router and gateway
+            # cidr : when isstatic arp entry reply , use cidr to add flows into sw
+            isstatic = self.event.isstatic
+            cidr = self.event.cidr
 
             if (netid,ipaddress) not in self._arp_cache:
-                entry = (1,ct + arp_incomplete_timeout,isgateway,"")
+                entry = (1,ct + arp_incomplete_timeout,isstatic,"",cidr)
                 self._arp_cache[(netid,ipaddress)] = entry
 
                 ofdef = self._connection.openflowdef
@@ -232,9 +236,9 @@ class RouterUpdater(FlowUpdater):
 
                         self._logger.warning(" lgnet %r don't have phyport, drop everything to it",netid)
             else:
-                s,_,g,mac = self._arp_cache[(netid,ipaddress)]
+                s,_,isstatic,mac,cidr = self._arp_cache[(netid,ipaddress)]
                 # this arp request have in cache , update timeout
-                entry = (s, ct + arp_incomplete_timeout, g,mac)
+                entry = (s, ct + arp_incomplete_timeout, isstatic,mac,cidr)
                 self._arp_cache[(netid,ipaddress)] = entry
 
     def _router_packetin_handler(self):
@@ -412,14 +416,15 @@ class RouterUpdater(FlowUpdater):
                     ct = time.time()
                     
                     if (outnetworkid,ippacket.ip_dst) in self._arp_cache:
-                        status,_,_,mac = self._arp_cache[(outnetworkid,ippacket.ip_dst)]
+                        status,_,_,mac,_ = self._arp_cache[(outnetworkid,ippacket.ip_dst)]
                         
                         # this mac is real mac
                         if status == 2:
                             info = self._getinterfaceinfo(outnetworkid)
                             if info:
                                 smac,ip,_= info
-                                self.subroutine(_send_buffer_packet_out(outnetworkid,mac,ip,mac_addr(smac),ippacket,msg.buffer_id))
+                                self.subroutine(_send_buffer_packet_out(outnetworkid,mac,ip,mac_addr(smac),
+                                                                        ippacket,msg.buffer_id))
                                 continue
 
                     if (outnetworkid,ippacket.ip_dst) in self._packet_buffer:
@@ -432,7 +437,8 @@ class RouterUpdater(FlowUpdater):
                         self._packet_buffer[(outnetworkid,ippacket.ip_dst)] = \
                             [(ippacket,msg.buffer_id,ct + self._parent.buffer_packet_timeout)]
                     e = ARPRequest(self._connection,ipaddress=ippacket.ip_dst,
-                                    logicalnetworkid=outnetworkid,isgateway=False)
+                                    logicalnetworkid=outnetworkid,isstatic=False,
+                                    cidr=ip4_addr.formatter(ippacket.ip_dst))
 
                     self.subroutine(self.waitForSend(e))
 
@@ -446,11 +452,11 @@ class RouterUpdater(FlowUpdater):
 
                     if(outnetworkid,ipaddress) in self._arp_cache:
 
-                        status,timeout,isgateway,mac = self._arp_cache[(outnetworkid,ipaddress)]
+                        status,timeout,isstatic,mac,cidr = self._arp_cache[(outnetworkid,ipaddress)]
 
                         if status == 2:
                             # we change this arp entry status in cache ,, next cycle will send arp request
-                            entry = (3,timeout,isgateway,mac)
+                            entry = (3,timeout,isstatic,mac,cidr)
                             self._arp_cache[(outnetworkid,ipaddress)] = entry
 
                 if self.matcher is arpflow_remove_matcher:
@@ -475,8 +481,8 @@ class RouterUpdater(FlowUpdater):
 
                     dst_macaddress = arp_reply_packet.dl_dst
                     if (netid,reply_ipaddress) in self._arp_cache:
-                        status, timeout, isgateway,_ = self._arp_cache[(netid,reply_ipaddress)]
-                        if isgateway:
+                        status, timeout, isstatic,_,cidr = self._arp_cache[(netid,reply_ipaddress)]
+                        if isstatic:
                             # add default router in l3router
                             pass
                         else:
@@ -487,7 +493,7 @@ class RouterUpdater(FlowUpdater):
                                 # if packet in this timeout ,  will send an unicast arp request
                                 # is best  1*self._parent.arp_complete_timeout < t < 2*self._parent.arp_complete_timeout
                                 self._arp_cache[(netid,reply_ipaddress)] = (2,
-                                            ct + self._parent.arp_complete_timeout + 20,False,reply_macaddress)
+                                            ct + self._parent.arp_complete_timeout + 20,False,reply_macaddress,cidr)
                                 
                                 # search msg buffer ,, packet out msg there wait this arp reply
                                 if (netid,reply_ipaddress) in self._packet_buffer:

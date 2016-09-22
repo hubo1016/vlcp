@@ -89,21 +89,24 @@ class VRouterApi(Module):
             newrouters.append(router)
         
         routerkeys = [VRouter.default_key(r['id']) for r in newrouters]
+        dvrouterinfokeys = [DVRouterInfo.default_key(r['id']) for r in newrouters]
         routersetkey = [VRouterSet.default_key()]
 
-        routerobject = [self._createvirtualrouter(**r) for r in newrouters ]
+        routerobjects = [self._createvirtualrouter(**r) for r in newrouters ]
+        dvrouterinfoobjects = [DVRouterInfo.create_instance(r['id']) for r in newrouters ]
 
         def createrouterdb(keys,values):
             routerset = values[0]
 
             for i in range(0,len(routerkeys)):
-                values[i+1] = set_new(values[i+1],routerobject[i])
-                routerset.set.dataset().add(routerobject[i].create_weakreference())
-            
+                values[i+1] = set_new(values[i+1],routerobjects[i])
+                values[i+1+len(routerkeys)] = set_new(values[i+1+len(routerkeys)],dvrouterinfoobjects[i])
+                routerset.set.dataset().add(routerobjects[i].create_weakreference())
+
             return keys,values
         try:
             for m in callAPI(self.app_routine,"objectdb","transact",
-                             {"keys":routersetkey+routerkeys,"updater":createrouterdb}):
+                             {"keys":routersetkey+routerkeys+dvrouterinfokeys,"updater":createrouterdb}):
                 yield m
         except:
             raise
