@@ -118,23 +118,18 @@ class VRouterApi(Module):
 
         router = VRouter.create_instance(id)
 
-        # {'routers':[{"ip_prefix":cidr,"nexthop":ip}]}
+        # [(prefix, nexthop),(prefix, nexthop)]
         if 'routes' in kwargs:
-            for r in kwargs['routes']:
-                ip_prefix = r.get('ip_prefix')
-                nexthop = r.get('nexthop')
+            for e in kwargs['routes']:
+                ip_prefix = e[0]
+                nexthop = e[1]
 
                 if ip_prefix and nexthop:
-
-                    # ip_prefix must be cidr
-                    # nexthop must be ip_address
                     ip_prefix = format_network_cidr(ip_prefix)
                     nexthop = check_ip_address(nexthop)
-                    # when create virtual route , there no interface in it
-                    # add static route
                     router.routes.append((ip_prefix,nexthop))
                 else:
-                    raise ValueError("routers format error " + r)
+                    raise ValueError(" routes format error " + e)
 
         for k,v in kwargs.items():
             if k != "routes":
@@ -167,11 +162,11 @@ class VRouterApi(Module):
             # if routers updating ,, check format
             if 'routes' in router:
                 for r in router['routes']:
-                    ip_prefix = r.get('ip_prefix')
-                    nexthop = r.get('nexthop')
+                    ip_prefix = r[0]
+                    nexthop = r[1]
 
                     if ip_prefix and nexthop:
-                        ip_prefix = format_network_cidr(ip_prefix)
+                        ip_prefix = parse_ip4_network(ip_prefix)
                         nexthop = check_ip_address(nexthop)
                     else:
                         raise ValueError("routes format error " + r)
