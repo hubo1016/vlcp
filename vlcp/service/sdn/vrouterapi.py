@@ -181,7 +181,7 @@ class VRouterApi(Module):
 
                         if k == 'routes':
                             # update routers accord new static routes
-                            values[i].routes.clear()
+                            values[i].routes = []
                             for pn in v:
                                 values[i].routes.append(pn)
                         else:
