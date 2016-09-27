@@ -42,6 +42,7 @@ class RouterUpdater(FlowUpdater):
         self._lastrouterstoreinterfacenetinfo = dict()
         self._lastnetworkrouterinfo = dict()
         self._lastnetworkroutertableinfo = dict()
+        self._lastnetworkstaticroutesinfo = dict()
         self._laststaticroutes = dict()
         self._lastallrouterinfo = dict()
 
@@ -655,7 +656,8 @@ class RouterUpdater(FlowUpdater):
                             for smac,nid in self._getallinterfaceinfobynetid(netid):
                                 self.subroutine(_add_static_routes_flow(nid,cidr,netid,mac_addr(smac),reply_macaddress))
 
-                                self.subroutine(_add_static_host_flow(ip4_addr.formatter(reply_ipaddress),
+                                if netid == nid:
+                                    self.subroutine(_add_static_host_flow(ip4_addr.formatter(reply_ipaddress),
                                                                       reply_macaddress,nid,smac))
                         else:
                             # this is the first arp reply
@@ -805,6 +807,7 @@ class RouterUpdater(FlowUpdater):
             lastrouterstoreinterfaceinfo = self._lastrouterstoreinterfacenetinfo
             lastnetworkrouterinfo = self._lastnetworkrouterinfo
             lastnetworkroutertableinfo = self._lastnetworkroutertableinfo
+            lastnetworkstaticroutesinfo= self._lastnetworkstaticroutesinfo
             laststaticroutes= self._laststaticroutes
 
             allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
@@ -988,6 +991,15 @@ class RouterUpdater(FlowUpdater):
                             currentstaticroutes.setdefault(r,set()).add(("0.0.0.0/0",v[5],v[6]))
 
             self._laststaticroutes = currentstaticroutes
+
+            currentnetworkstaticroutesinfo = dict()
+            for network in currentnetworkrouterinfo.keys():
+                if network_to_router[network] in currentstaticroutes:
+                    for route in currentstaticroutes[network_to_router[network]]:
+                        currentnetworkstaticroutesinfo.setdefault(network,set()).\
+                            add((currentnetworkrouterinfo[network][5],route[0],route[1],route[2]))
+
+            self._lastnetworkstaticroutesinfo = currentnetworkstaticroutesinfo
 
             add_transact_router_store = dict()
             remove_transact_router_store = dict()
@@ -1411,6 +1423,11 @@ class RouterUpdater(FlowUpdater):
                             if nid == netid:
                                 cmds.extend(_remove_host_flow(nexthop,mac,nid,mac))
 
+            for n in lastnetworkstaticroutesinfo:
+                if n not in currentnetworkstaticroutesinfo:
+                    for from_network_id,prefix,nexthop,to_network_id in lastnetworkstaticroutesinfo[n]:
+                        cmds.extend(_delete_router_route(from_network_id,prefix,to_network_id))
+
             for p in lastlgportinfo:
                 if p not in currentlgportinfo or (p in currentlgportinfo
                                 and currentlgportinfo[p] != lastlgportinfo[p]):
@@ -1465,60 +1482,60 @@ class RouterUpdater(FlowUpdater):
                         cmds.extend(_add_router_route(from_network_id,cidr,to_network_id))
 
             arp_request_event = []
-            for r in currentstaticroutes:
-                if r not in laststaticroutes:
-                    for prefix,nexthop,netid in currentstaticroutes[r]:
 
-                        if (netid,ip4_addr(nexthop)) in self._arp_cache:
-                            _, _, _, mac, _ = self._arp_cache[(netid, ip4_addr(nexthop))]
+            for n in currentnetworkstaticroutesinfo:
+                if n not in lastnetworkstaticroutesinfo:
+                    for from_network_id,prefix,nexthop,to_network_id in currentnetworkstaticroutesinfo[n]:
 
-                            # add static routes in l3router
-                            for smac,nid in self._getallinterfaceinfobynetid(netid):
-                                #self.subroutine(_add_static_routes_flow(nid,cidr,netid,mac_addr(smac),mac))
-                                cmds.extend(_add_static_routes_flow(nid,prefix,netid,mac_addr(smac),mac))
+                        if (to_network_id,ip4_addr(nexthop)) in self._arp_cache \
+                                and (self._arp_cache[(to_network_id,ip4_addr(nexthop))][0] == 2 or
+                                     self._arp_cache[(to_network_id,ip4_addr(nexthop))][0] == 3):
+                            _, _, _, mac, _ = self._arp_cache[(to_network_id, ip4_addr(nexthop))]
 
-                                if nid == netid:
-                                    # add this host static flow
-                                    cmds.extend(_add_host_flow(nexthop,mac_addr.formatter(mac),
-                                                               nid,smac))
+                            smac, _, _ = self._getinterfaceinfobynetid(to_network_id)
+
+                            cmds.extend(_add_static_routes_flow(from_network_id,prefix,
+                                                                to_network_id,mac_addr(smac),mac))
+
+                            if from_network_id == to_network_id:
+                                cmds.extend(_add_host_flow(nexthop,mac_addr.formatter(mac),
+                                                           from_network_id,smac))
 
                             # change this arp entry from host to static entry ..
-                            entry = (1,time.time() + self._parent.arp_incomplete_timeout,True,mac,prefix)
-                            self._arp_cache[(netid,ip4_addr(nexthop))] = entry
+                            entry = (2,time.time() + self._parent.arp_incomplete_timeout,True,mac,prefix)
+                            self._arp_cache[(to_network_id,ip4_addr(nexthop))] = entry
                         else:
                             e = ARPRequest(self._connection, ipaddress=ip4_addr(nexthop),
-                                           logicalnetworkid=netid, isstatic=True,
+                                           logicalnetworkid=to_network_id, isstatic=True,
                                            cidr=prefix)
                             arp_request_event.append(e)
 
-                elif currentstaticroutes[r] != laststaticroutes[r]:
-                    last_router_routes_set = laststaticroutes[r]
-                    new_router_routes_set = currentstaticroutes[r]
-                    for prefix, nexthop, netid in new_router_routes_set.difference(last_router_routes_set):
-                        # e = ARPRequest(self._connection, ipaddress=ip4_addr(nexthop),
-                        #                logicalnetworkid=netid, isstatic=True,
-                        #                cidr=prefix)
-                        # arp_request_event.append(e)
-                        if (netid,ip4_addr(nexthop)) in self._arp_cache:
-                            _, _, _, mac, _ = self._arp_cache[(netid, ip4_addr(nexthop))]
+                elif currentnetworkstaticroutesinfo[n] != lastnetworkstaticroutesinfo[n]:
+                    last_router_routes_set = lastnetworkstaticroutesinfo[n]
+                    new_router_routes_set = currentnetworkstaticroutesinfo[n]
+                    for from_network_id,prefix, nexthop, to_network_id in \
+                            new_router_routes_set.difference(last_router_routes_set):
 
-                            # add static routes in l3router
-                            for smac,nid in self._getallinterfaceinfobynetid(netid):
-                                #self.subroutine(_add_static_routes_flow(nid,cidr,netid,mac_addr(smac),mac))
-                                cmds.extend(_add_static_routes_flow(nid,prefix,netid,mac_addr(smac),mac))
+                        if (to_network_id,ip4_addr(nexthop)) in self._arp_cache \
+                                and (self._arp_cache[(to_network_id,ip4_addr(nexthop))][0] == 2 or
+                                     self._arp_cache[(to_network_id,ip4_addr(nexthop))][0] == 3):
+                            _, _, _, mac, _ = self._arp_cache[(to_network_id, ip4_addr(nexthop))]
 
-                                if nid == netid:
-                                    # add this host static flow
-                                    cmds.extend(_add_host_flow(nexthop, mac_addr.formatter(mac),
-                                                               nid, smac))
+                            smac, _, _ = self._getinterfaceinfobynetid(to_network_id)
 
+                            cmds.extend(_add_static_routes_flow(from_network_id,prefix,
+                                                                to_network_id,mac_addr(smac),mac))
+
+                            if from_network_id == to_network_id:
+                                cmds.extend(_add_host_flow(nexthop,mac_addr.formatter(mac),
+                                                           from_network_id,smac))
 
                             # change this arp entry from host to static entry ..
-                            entry = (1,time.time() + self._parent.arp_incomplete_timeout,True,mac,prefix)
-                            self._arp_cache[(netid,ip4_addr(nexthop))] = entry
+                            entry = (2,time.time() + self._parent.arp_incomplete_timeout,True,mac,prefix)
+                            self._arp_cache[(to_network_id,ip4_addr(nexthop))] = entry
                         else:
                             e = ARPRequest(self._connection, ipaddress=ip4_addr(nexthop),
-                                           logicalnetworkid=netid, isstatic=True,
+                                           logicalnetworkid=to_network_id, isstatic=True,
                                            cidr=prefix)
                             arp_request_event.append(e)
 
