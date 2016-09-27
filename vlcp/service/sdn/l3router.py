@@ -116,8 +116,7 @@ class RouterUpdater(FlowUpdater):
         if router:
             v = self._lastallrouterinfo[router]
             for e in v:
-                if e[6] != netid:
-                    ret_info.append(e[6])
+                ret_info.append((e[4],e[6]))
 
         return  ret_info
 
@@ -165,11 +164,85 @@ class RouterUpdater(FlowUpdater):
             for k,v in self._arp_cache.items():
                 status,timeout,isstatic,realmac,cidr = v
 
-                if status == 1:
-                    if ct > timeout:
-                        self._arp_cache.pop(k)
-                        del self._packet_buffer[k]
-                    else:
+                if isstatic:
+                    if status == 1:
+                        outnetid, request_ip = k
+                        ofdef = self._connection.openflowdef
+
+                        info = self._getinterfaceinfobynetid(outnetid)
+
+                        if info:
+                            mac, ipaddress, phyport = info
+                            if phyport:
+                                arp_request_packet = arp_packet_l4(
+                                    dl_src=mac_addr(mac),
+                                    dl_dst=mac_addr("FF:FF:FF:FF:FF:FF"),
+                                    arp_op=ofdef.ARPOP_REQUEST,
+                                    arp_sha=mac_addr(mac),
+                                    arp_spa=ip4_addr(ipaddress),
+                                    arp_tpa=request_ip
+                                )
+                                for m in self._packet_out_message(outnetid, arp_request_packet, phyport):
+                                    yield m
+                    if status == 2:
+                        if ct > timeout:
+                            if ct - timeout >= self._parent.static_host_arp_refresh_interval:
+                                realmac = mac_addr("FF:FF:FF:FF:FF:FF")
+
+                            outnetid, request_ip = k
+                            ofdef = self._connection.openflowdef
+
+                            info = self._getinterfaceinfobynetid(outnetid)
+
+                            if info:
+                                mac, ipaddress, phyport = info
+                                if phyport:
+                                    arp_request_packet = arp_packet_l4(
+                                        dl_src=mac_addr(mac),
+                                        dl_dst=realmac,
+                                        arp_op=ofdef.ARPOP_REQUEST,
+                                        arp_sha=mac_addr(mac),
+                                        arp_spa=ip4_addr(ipaddress),
+                                        arp_tpa=request_ip
+                                    )
+                                    for m in self._packet_out_message(outnetid, arp_request_packet, phyport):
+                                        yield m
+                else:
+                    if status == 1:
+                        if ct > timeout:
+                            self._arp_cache.pop(k)
+                            if k in self._packet_buffer:
+                                del self._packet_buffer[k]
+                        else:
+                            # packet out an arp request
+                            outnetid,request_ip= k
+                            ofdef = self._connection.openflowdef
+
+                            info = self._getinterfaceinfobynetid(outnetid)
+
+                            if info:
+                                mac,ipaddress,phyport = info
+                                if phyport:
+                                    arp_request_packet = arp_packet_l4(
+                                        dl_src=mac_addr(mac),
+                                        dl_dst=mac_addr("FF:FF:FF:FF:FF:FF"),
+                                        arp_op=ofdef.ARPOP_REQUEST,
+                                        arp_sha=mac_addr(mac),
+                                        arp_spa=ip4_addr(ipaddress),
+                                        arp_tpa=request_ip
+                                    )
+                                    for m in self._packet_out_message(outnetid,arp_request_packet,phyport):
+                                        yield m
+                                # else
+                                # arp_cache will not have entry which goto network has no phyport
+                                # so nerver run here
+                            else:
+                                self._logger.warning("arp request can find avaliable network %d drop it",outnetid)
+                                self._arp_cache.pop(k)
+                                del self._packet_buffer[k]
+                    if status == 3:
+                        if ct > timeout:
+                            realmac = mac_addr("FF:FF:FF:FF:FF:FF")
                         # packet out an arp request
                         outnetid,request_ip= k
                         ofdef = self._connection.openflowdef
@@ -181,7 +254,7 @@ class RouterUpdater(FlowUpdater):
                             if phyport:
                                 arp_request_packet = arp_packet_l4(
                                     dl_src=mac_addr(mac),
-                                    dl_dst=mac_addr("FF:FF:FF:FF:FF:FF"),
+                                    dl_dst=realmac,
                                     arp_op=ofdef.ARPOP_REQUEST,
                                     arp_sha=mac_addr(mac),
                                     arp_spa=ip4_addr(ipaddress),
@@ -189,35 +262,6 @@ class RouterUpdater(FlowUpdater):
                                 )
                                 for m in self._packet_out_message(outnetid,arp_request_packet,phyport):
                                     yield m
-                            # else
-                            # arp_cache will not have entry which goto network has no phyport
-                            # so nerver run here
-                        else:
-                            self._logger.warning("arp request can find avaliable network %d drop it",outnetid)
-                            self._arp_cache.pop(k)
-                            del self._packet_buffer[k]
-                if status == 3:
-                    if ct > timeout:
-                        realmac = mac_addr("FF:FF:FF:FF:FF:FF")
-                    # packet out an arp request
-                    outnetid,request_ip= k
-                    ofdef = self._connection.openflowdef
-
-                    info = self._getinterfaceinfobynetid(outnetid)
-
-                    if info:
-                        mac,ipaddress,phyport = info
-                        if phyport:
-                            arp_request_packet = arp_packet_l4(
-                                dl_src=mac_addr(mac),
-                                dl_dst=realmac,
-                                arp_op=ofdef.ARPOP_REQUEST,
-                                arp_sha=mac_addr(mac),
-                                arp_spa=ip4_addr(ipaddress),
-                                arp_tpa=request_ip
-                            )
-                            for m in self._packet_out_message(outnetid,arp_request_packet,phyport):
-                                yield m
 
 
             # when request one arp , but there no reply ,
@@ -284,6 +328,7 @@ class RouterUpdater(FlowUpdater):
         l3output = self._parent._gettableindex("l3output", self._connection.protocol.vhost)
         l3input = self._parent._gettableindex("l3input", self._connection.protocol.vhost)
         l2output = self._parent._gettableindex("l2output", self._connection.protocol.vhost)
+        l3router = self._parent._gettableindex("l3router", self._connection.protocol.vhost)
 
         packetin_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3output, None,
                                                                    self._connection, self._connection.connmark)
@@ -438,6 +483,85 @@ class RouterUpdater(FlowUpdater):
                         ):
                 yield m
 
+        def _add_static_routes_flow(from_net_id,cidr,to_net_id,smac,dmac):
+            network,prefix = parse_ip4_network(cidr)
+
+            for m in self.execute_commands(conn,[
+                ofdef.ofp_flow_mod(
+                    table_id=l3router,
+                    command=ofdef.OFPFC_ADD,
+                    priority=ofdef.OFP_DEFAULT_PRIORITY + prefix,
+                    buffer_id=ofdef.OFP_NO_BUFFER,
+                    out_port=ofdef.OFPP_ANY,
+                    out_group=ofdef.OFPG_ANY,
+                    match=ofdef.ofp_match_oxm(
+                        oxm_fields=[
+                            ofdef.create_oxm(ofdef.NXM_NX_REG4, from_net_id),
+                            ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
+                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST_W,
+                                             network,
+                                             get_netmask(prefix))
+                        ]
+                    ),
+                    instructions=[
+                        ofdef.ofp_instruction_actions(
+                            actions=[
+                                ofdef.ofp_action_set_field(
+                                    field=ofdef.create_oxm(ofdef.NXM_NX_REG5, to_net_id)
+                                ),
+                                ofdef.ofp_action_set_field(
+                                    field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, smac)
+                                ),
+                                ofdef.ofp_action_set_field(
+                                    field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, dmac)
+                                ),
+                                ofdef.ofp_action(
+                                    type=ofdef.OFPAT_DEC_NW_TTL
+                                )
+                            ]
+                        ),
+                        ofdef.ofp_instruction_goto_table(table_id=l3output)
+                    ]
+                )
+            ]):
+                yield m
+
+        def _add_static_host_flow(ipaddress, dmac, netid, smac):
+
+            for m in self.execute_commands(conn, [
+                ofdef.ofp_flow_mod(
+                    table_id=l3output,
+                    command=ofdef.OFPFC_ADD,
+                    priority=ofdef.OFP_DEFAULT_PRIORITY + 1,
+                    buffer_id=ofdef.OFP_NO_BUFFER,
+                    out_port=ofdef.OFPP_ANY,
+                    out_group=ofdef.OFPG_ANY,
+                    match=ofdef.ofp_match_oxm(
+                        oxm_fields=[
+                            ofdef.create_oxm(ofdef.NXM_NX_REG5, netid),
+                            ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
+                            ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST, ip4_addr(ipaddress))
+                        ]
+                    ),
+                    instructions=[
+                        ofdef.ofp_instruction_actions(
+                            actions=[
+                                ofdef.ofp_action_set_field(
+                                    field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, smac)
+                                ),
+                                ofdef.ofp_action_set_field(
+                                    field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, dmac)
+                                ),
+                                ofdef.ofp_action(
+                                    type=ofdef.OFPAT_DEC_NW_TTL
+                                )
+                            ]
+                        ),
+                        ofdef.ofp_instruction_goto_table(table_id=l2output)
+                    ]
+                )
+            ]):
+                yield m
 
         while True:
             yield (packetin_matcher, arpreply_matcher,arpflow_request_matcher,arpflow_remove_matcher)
@@ -501,11 +625,14 @@ class RouterUpdater(FlowUpdater):
                                     ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IPV4_DST)))
 
                     if(nid,ip_address) in self._arp_cache:
+                        _, _, isstatic, _, _ = self._arp_cache[(nid,ip_address)]
 
-                        del self._arp_cache[(nid,ip_address)]
+                        # never delete static arp entry ..
+                        if not isstatic:
+                            del self._arp_cache[(nid,ip_address)]
 
-                    if (nid,ip_address) in self._packet_buffer:
-                        del self._packet_buffer[(nid,ip_address)]
+                            if (nid,ip_address) in self._packet_buffer:
+                                del self._packet_buffer[(nid,ip_address)]
 
                 if self.matcher is arpreply_matcher:
                     netid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields,ofdef.NXM_NX_REG5))
@@ -518,11 +645,19 @@ class RouterUpdater(FlowUpdater):
                     dst_macaddress = arp_reply_packet.dl_dst
                     if (netid,reply_ipaddress) in self._arp_cache:
                         status, timeout, isstatic,_,cidr = self._arp_cache[(netid,reply_ipaddress)]
+                        ct = time.time()
                         if isstatic:
-                            # add default router in l3router
-                            pass
+                            entry = (2,ct + self._parent.static_host_arp_refresh_interval,
+                                    isstatic,reply_macaddress,cidr)
+                            self._arp_cache[(netid,reply_ipaddress)] = entry
+
+                            # add static routes in l3router
+                            for smac,nid in self._getallinterfaceinfobynetid(netid):
+                                self.subroutine(_add_static_routes_flow(nid,cidr,netid,mac_addr(smac),reply_macaddress))
+
+                                self.subroutine(_add_static_host_flow(ip4_addr.formatter(reply_ipaddress),
+                                                                      reply_macaddress,nid,smac))
                         else:
-                            ct = time.time()
                             # this is the first arp reply
                             if status == 1 or status == 3:
                                 # complete timeout ,,, after flow hard_timeout, packet will send to controller too
@@ -1170,6 +1305,46 @@ class RouterUpdater(FlowUpdater):
                     )
                 ]
 
+            def _add_static_routes_flow(from_net_id,cidr,to_net_id,smac,dmac):
+                network, prefix = parse_ip4_network(cidr)
+                return [
+                    ofdef.ofp_flow_mod(
+                        table_id=l3router,
+                        command=ofdef.OFPFC_ADD,
+                        priority=ofdef.OFP_DEFAULT_PRIORITY + prefix,
+                        buffer_id=ofdef.OFP_NO_BUFFER,
+                        out_port=ofdef.OFPP_ANY,
+                        out_group=ofdef.OFPG_ANY,
+                        match=ofdef.ofp_match_oxm(
+                            oxm_fields=[
+                                ofdef.create_oxm(ofdef.NXM_NX_REG4, from_net_id),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_IP),
+                                ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST_W,
+                                                 network,
+                                                 get_netmask(prefix))
+                            ]
+                        ),
+                        instructions=[
+                            ofdef.ofp_instruction_actions(
+                                actions=[
+                                    ofdef.ofp_action_set_field(
+                                        field=ofdef.create_oxm(ofdef.NXM_NX_REG5, to_net_id)
+                                    ),
+                                    ofdef.ofp_action_set_field(
+                                        field=ofdef.create_oxm(ofdef.OXM_OF_ETH_SRC, smac)
+                                    ),
+                                    ofdef.ofp_action_set_field(
+                                        field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, dmac)
+                                    ),
+                                    ofdef.ofp_action(
+                                        type=ofdef.OFPAT_DEC_NW_TTL
+                                    )
+                                ]
+                            ),
+                            ofdef.ofp_instruction_goto_table(table_id=l3output)
+                        ]
+                    )
+                ]
             for n in lastnetworkrouterinfo:
                 if n not in currentnetworkrouterinfo or (n in currentnetworkrouterinfo
                         and currentnetworkrouterinfo[n] != lastnetworkrouterinfo[n]):
@@ -1211,13 +1386,15 @@ class RouterUpdater(FlowUpdater):
                 if r not in currentstaticroutes:
                     for prefix,nexthop,netid in laststaticroutes[r]:
                         # delete arp cache entry
-                        if (ip4_addr(nexthop),netid) in self._arp_cache:
-                            del self._arp_cache[(ip4_addr(nexthop),netid)]
+                        if (netid,ip4_addr(nexthop)) in self._arp_cache:
+                            del self._arp_cache[(netid,ip4_addr(nexthop))]
 
                         # delete all network routes from this prefix
-                        for nid in self._getallinterfaceinfobynetid(netid):
+                        for mac,nid in self._getallinterfaceinfobynetid(netid):
                             # this static routes mybe in this netwrok, delete it try!
                             cmds.extend(_delete_router_route(nid,prefix,netid))
+                            if nid == netid:
+                                cmds.extend(_remove_host_flow(nexthop,mac,nid,mac))
 
                 elif laststaticroutes[r] != currentstaticroutes[r]:
                     last_router_routes_set = laststaticroutes[r]
@@ -1228,9 +1405,12 @@ class RouterUpdater(FlowUpdater):
                             del self._arp_cache[(ip4_addr(nexthop),netid)]
 
                         # delete all network routes from this prefix
-                        for nid in self._getallinterfaceinfobynetid(netid):
+                        for mac,nid in self._getallinterfaceinfobynetid(netid):
                             # this static routes mybe in this netwrok, delete it try!
                             cmds.extend(_delete_router_route(nid,prefix,netid))
+                            if nid == netid:
+                                cmds.extend(_remove_host_flow(nexthop,mac,nid,mac))
+
             for p in lastlgportinfo:
                 if p not in currentlgportinfo or (p in currentlgportinfo
                                 and currentlgportinfo[p] != lastlgportinfo[p]):
@@ -1288,18 +1468,60 @@ class RouterUpdater(FlowUpdater):
             for r in currentstaticroutes:
                 if r not in laststaticroutes:
                     for prefix,nexthop,netid in currentstaticroutes[r]:
-                        e = ARPRequest(self._connection, ipaddress=ip4_addr(nexthop),
-                                       logicalnetworkid=netid, isstatic=True,
-                                       cidr=prefix)
-                        arp_request_event.append(e)
+
+                        if (netid,ip4_addr(nexthop)) in self._arp_cache:
+                            _, _, _, mac, _ = self._arp_cache[(netid, ip4_addr(nexthop))]
+
+                            # add static routes in l3router
+                            for smac,nid in self._getallinterfaceinfobynetid(netid):
+                                #self.subroutine(_add_static_routes_flow(nid,cidr,netid,mac_addr(smac),mac))
+                                cmds.extend(_add_static_routes_flow(nid,prefix,netid,mac_addr(smac),mac))
+
+                                if nid == netid:
+                                    # add this host static flow
+                                    cmds.extend(_add_host_flow(nexthop,mac_addr.formatter(mac),
+                                                               nid,smac))
+
+                            # change this arp entry from host to static entry ..
+                            entry = (1,time.time() + self._parent.arp_incomplete_timeout,True,mac,prefix)
+                            self._arp_cache[(netid,ip4_addr(nexthop))] = entry
+                        else:
+                            e = ARPRequest(self._connection, ipaddress=ip4_addr(nexthop),
+                                           logicalnetworkid=netid, isstatic=True,
+                                           cidr=prefix)
+                            arp_request_event.append(e)
+
                 elif currentstaticroutes[r] != laststaticroutes[r]:
                     last_router_routes_set = laststaticroutes[r]
                     new_router_routes_set = currentstaticroutes[r]
                     for prefix, nexthop, netid in new_router_routes_set.difference(last_router_routes_set):
-                        e = ARPRequest(self._connection, ipaddress=ip4_addr(nexthop),
-                                       logicalnetworkid=netid, isstatic=True,
-                                       cidr=prefix)
-                        arp_request_event.append(e)
+                        # e = ARPRequest(self._connection, ipaddress=ip4_addr(nexthop),
+                        #                logicalnetworkid=netid, isstatic=True,
+                        #                cidr=prefix)
+                        # arp_request_event.append(e)
+                        if (netid,ip4_addr(nexthop)) in self._arp_cache:
+                            _, _, _, mac, _ = self._arp_cache[(netid, ip4_addr(nexthop))]
+
+                            # add static routes in l3router
+                            for smac,nid in self._getallinterfaceinfobynetid(netid):
+                                #self.subroutine(_add_static_routes_flow(nid,cidr,netid,mac_addr(smac),mac))
+                                cmds.extend(_add_static_routes_flow(nid,prefix,netid,mac_addr(smac),mac))
+
+                                if nid == netid:
+                                    # add this host static flow
+                                    cmds.extend(_add_host_flow(nexthop, mac_addr.formatter(mac),
+                                                               nid, smac))
+
+
+                            # change this arp entry from host to static entry ..
+                            entry = (1,time.time() + self._parent.arp_incomplete_timeout,True,mac,prefix)
+                            self._arp_cache[(netid,ip4_addr(nexthop))] = entry
+                        else:
+                            e = ARPRequest(self._connection, ipaddress=ip4_addr(nexthop),
+                                           logicalnetworkid=netid, isstatic=True,
+                                           cidr=prefix)
+                            arp_request_event.append(e)
+
 
             for p in currentlgportinfo:
                 if p not in lastlgportinfo or (p in lastlgportinfo
@@ -1346,6 +1568,7 @@ class L3Router(FlowBase):
 
     _default_buffer_packet_timeout = 30
 
+    _default_static_host_arp_refresh_interval = 60
 
     def __init__(self, server):
         super(L3Router, self).__init__(server)
