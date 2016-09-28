@@ -305,7 +305,7 @@ class ARPUpdater(FlowUpdater):
                                         ),
                                instructions = [ofdef.ofp_instruction_actions(type = ofdef.OFPIT_CLEAR_ACTIONS)]
                                )
-            logport_arps = {ent[3]:ent for n,v in current_arps.items() for ent in v if ent[3] is not None}
+            logport_arps = dict((ent[3],ent) for n,v in current_arps.items() for ent in v if ent[3] is not None)
             for p in currentlogportinfo:
                 if p not in lastlogportinfo or lastlogportinfo[p] != currentlogportinfo[p]:
                     if p in logport_arps:
