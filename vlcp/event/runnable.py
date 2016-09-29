@@ -391,7 +391,7 @@ class RoutineContainer(object):
             raise self.event.exception[1]
         else:
             self.retvalue = self.event.retvalue
-    def delegate(self, subprocess):
+    def delegate(self, subprocess, forceclose = False):
         '''
         Run a subprocess without container support
         Many subprocess assume itself running in a specified container, it uses container reference
@@ -418,8 +418,12 @@ class RoutineContainer(object):
                     yield m
         r = self.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
         finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
-        # As long as we do not use self.event to read the event, we are safe to receive them from other contaiers
-        yield (finish,)
+        # As long as we do not use self.event to read the event, we are safe to receive them from other containers
+        try:
+            yield (finish,)
+        finally:
+            if forceclose:
+                r.close()
     def beginDelegateOther(self, subprocess, container, retnames = ('retvalue',)):
         '''
         Start the delegate routine, but do not wait for result, instead returns a matcher in self.retvalue.
@@ -449,7 +453,7 @@ class RoutineContainer(object):
                     yield m
         r = container.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
         return (RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r), r)
-    def delegateOther(self, subprocess, container, retnames = ('retvalue',)):
+    def delegateOther(self, subprocess, container, retnames = ('retvalue',), forceclose = False):
         '''
         Another format of delegate allows delegate a subprocess in another container, and get some returning values
         the subprocess is actually running in 'container'.
@@ -457,12 +461,16 @@ class RoutineContainer(object):
             yield m
         ret = self.retvalue
         '''
-        finish, _ = self.beginDelegateOther(subprocess, container, retnames)
-        yield (finish,)
-        if hasattr(self.event, 'exception'):
-            raise self.event.exception
-        for n, v in zip(retnames, self.event.result):
-            setattr(self, n, v)
+        finish, r = self.beginDelegateOther(subprocess, container, retnames)
+        try:
+            yield (finish,)
+            if hasattr(self.event, 'exception'):
+                raise self.event.exception
+            for n, v in zip(retnames, self.event.result):
+                setattr(self, n, v)
+        finally:
+            if forceclose:
+                r.close()
     def executeAll(self, subprocesses, container = None, retnames = ('retvalue',), forceclose = True):
         '''
         Execute all subprocesses and get the return values. Return values are in self.retvalue.

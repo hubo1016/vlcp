@@ -21,16 +21,20 @@ class ZooKeeperConnectionStateEvent(Event):
     DOWN = 'down'
     NOTCONNECTED = 'notconnected'
 
-@withIndices('xid', 'connection', 'connmark', 'createby')
-class ZooKeeperResponseEvent(Event):
-    pass
-
-@withIndices('type', 'state', 'path', 'connection', 'connmark', 'createby')
-class ZooKeeperWatcherEvent(Event):
-    pass
-
 @withIndices('connection', 'connmark', 'createby')
-class ZooKeeperHandshakeEvent(Event):
+class ZooKeeperMessageEvent(Event):
+    pass
+
+@withIndices('xid')
+class ZooKeeperResponseEvent(ZooKeeperMessageEvent):
+    pass
+
+@withIndices('type', 'state', 'path')
+class ZooKeeperWatcherEvent(ZooKeeperMessageEvent):
+    pass
+
+@withIndices()
+class ZooKeeperHandshakeEvent(ZooKeeperMessageEvent):
     pass
 
 class ZooKeeperProtocolException(Exception):
@@ -72,11 +76,11 @@ class ZooKeeper(Protocol):
         for m in Protocol.init(self, connection):
             yield m
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority, ZooKeeperHandshakeEvent.createMatcher(connection = connection), ('presetup', connection)))
-        connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, ZooKeeperConnectionStateEvent.createMatcher(connection = connection), ('connstate', connection)))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority + 1, ZooKeeperResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
+                self.messagepriority + 1, ZooKeeperMessageEvent.createMatcher(connection = connection), ('message', connection), self.messagequeuesize))
+        connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
+                self.messagepriority + 2, ZooKeeperResponseEvent.createMatcher(connection = connection, xid = zk.PING_XID)))
         for m in self.reconnect_init(connection):
             yield m
     def reconnect_init(self, connection):
@@ -85,6 +89,7 @@ class ZooKeeper(Protocol):
         connection.xid = ord(os.urandom(1)) + 1
         connection.zookeeper_requests = {}
         connection.zookeeper_handshake = False
+        connection.zookeeper_lastzxid = 0
         for m in connection.waitForSend(ZooKeeperConnectionStateEvent(ZooKeeperConnectionStateEvent.UP,
                                                                       connection,
                                                                       connection.connmark,
@@ -110,7 +115,8 @@ class ZooKeeper(Protocol):
             else:
                 reply.zookeeper_type = HEADER_PACKET
                 reply._autosubclass()
-                connection.zookeeper_lastzxid = reply.zxid
+                if reply.zxid > 0:
+                    connection.zookeeper_lastzxid = reply.zxid
                 if reply.xid >= 0:
                     xid = reply.xid
                     if xid not in connection.zookeeper_requests:
@@ -119,11 +125,12 @@ class ZooKeeper(Protocol):
                     reply.zookeeper_request_type = request_type
                     reply._autosubclass()
                 if reply.xid == WATCHER_EVENT_XID:
-                    events.append(ZooKeeperWatcherEvent(reply.type, reply.state, b'' if reply.path is None else reply.path, connection, connection.connmark,
-                                                        self, message = reply))
+                    events.append(ZooKeeperWatcherEvent(connection, connection.connmark,
+                                                        self, reply.type, reply.state, b'' if reply.path is None else reply.path,
+                                                        message = reply))
                 else:
-                    events.append(ZooKeeperResponseEvent(reply.xid, connection, connection.connmark,
-                                                         self, message = reply))
+                    events.append(ZooKeeperResponseEvent(connection, connection.connmark,
+                                                         self, reply.xid, message = reply))
         if laststart == len(data):
             # Remote write close
             events.append(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
@@ -182,7 +189,7 @@ class ZooKeeper(Protocol):
         matchers = []
         for r in requests:
             xid = self._assign_xid(connection, r)
-            resp_matcher = ZooKeeperResponseEvent.createMatcher(xid, connection, connection.connmark)
+            resp_matcher = ZooKeeperResponseEvent.createMatcher(connection, connection.connmark, None, xid)
             matchers.append(resp_matcher)
         def _sendall():
             sent_requests = []
@@ -195,8 +202,26 @@ class ZooKeeper(Protocol):
                     raise ZooKeeperRetryException(sent_requests)
             container.retvalue = sent_requests
         return (matchers, _sendall())
-    def requests(self, connection, requests, container):
+    def requests(self, connection, requests, container, callback = None):
+        '''
+        Send requests by sequence, return all the results (including the lost ones)
+        
+        :params connection: ZooKeeper connection
+        
+        :params requests: a sequence of ZooKeeper requests
+        
+        :params container: routine container of current routine
+        
+        :params callback: if not None, callback(request, response) is called immediately after
+        each response received
+        
+        :return: (responses, lost_responses, retry_requests), where responses is a list of responses corresponded
+        to the requests (None if response is not received); lost_responses is a list of requests that are sent
+        but the responses are lost due to connection lost, it is the caller's responsibility to determine whether
+        the call is succeeded or failed; retry_requests are the requests which are not sent and are safe to retry. 
+        '''
         matchers, routine = self.async_requests(connection, requests, container)
+        requests_dict = dict((m,r) for m,r in zip(matchers, requests))
         connmark = connection.connmark
         def _wait_for_all():
             eventdict = {}
@@ -214,6 +239,8 @@ class ZooKeeper(Protocol):
                     container.scheduler.unregister((container.matcher,), container.currentroutine)
                     ms -= 1
                     eventdict[container.matcher] = container.event
+                    if callback:
+                        callback(requests_dict[container.matcher], container.event.message)
             except:
                 container.scheduler.unregister(matchers, container.currentroutine)
                 raise
@@ -232,7 +259,7 @@ class ZooKeeper(Protocol):
             yield m
         # There are three possible results: not sent; sent but response lost; response received
         (((receive_all, responses),), ((_, sent_events),)) = container.retvalue
-        received_responses = {k:v for k,v in zip(requests, responses) if v is not None}
+        received_responses = dict((k,v) for k,v in zip(requests, responses) if v is not None)
         if receive_all:
             container.retvalue = (responses, [], [])
         else:
