@@ -324,6 +324,7 @@ _ConnectResponseOptional = nstruct(
 
 _ConnectResponseReadOnly = nstruct(
         (boolean, 'readOnly'),
+        name = '_ConnectResponseReadOnly',
         base = _ConnectResponseOptional,
         criteria = lambda x: x._realsize() > 0
     )
@@ -882,7 +883,7 @@ def multi(*ops):
 
 def create(path, data, ephemeral = False, sequence = False, acl = None):
     if acl is None:
-        acl = default_acl()
+        acl = [default_acl()]
     return CreateRequest(path = path, data = data, acl = acl,
                          flags = (ZOO_EPHEMERAL if ephemeral else 0) | (ZOO_SEQUENCE if sequence else 0))
 
@@ -908,7 +909,7 @@ def getchildren2(path, watch = False):
 
 def multi_create(path, data, ephemeral = False, sequence = False, acl = None):
     if acl is None:
-        acl = default_acl()
+        acl = [default_acl()]
     return MultiOpCreate(path = path, data = data, acl = acl,
                          flags = (ZOO_EPHEMERAL if ephemeral else 0) | (ZOO_SEQUENCE if sequence else 0))
 
