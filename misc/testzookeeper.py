@@ -44,12 +44,35 @@ class TestModule(Module):
             print('Connection is up: %r' % (self.client,))
         # Handshake
         for m in self.protocol.handshake(self.client, zk.ConnectRequest(
-                                                        timeOut = int(self.sessiontimeout * 1000)
+                                                        timeOut = int(self.sessiontimeout * 1000),
+                                                        passwd = b'\x00' * 16,      # Why is it necessary...
                                                     ), self.apiroutine, []):
             yield m
+        for m in self.protocol.requests(self.client, [zk.create(b'/vlcptest', b'test'),
+                                                      zk.getdata(b'/vlcptest', True)], self.apiroutine):
+            yield m
+        pprint(dump(self.apiroutine.retvalue[0]))
         for m in self.apiroutine.waitWithTimeout(0.2):
             yield m
-
+        for m in self.protocol.requests(self.client, [zk.delete(b'/vlcptest'),
+                                                      zk.getdata(b'/vlcptest', watch = True)], self.apiroutine):
+            yield m
+        pprint(dump(self.apiroutine.retvalue[0]))
+        for m in self.protocol.requests(self.client, [zk.multi(
+                                                            zk.multi_create(b'/vlcptest2', b'test'),
+                                                            zk.multi_create(b'/vlcptest2/subtest', 'test2')
+                                                        ),
+                                                      zk.getchildren2(b'/vlcptest2', True)], self.apiroutine):
+            yield m
+        pprint(dump(self.apiroutine.retvalue[0]))
+        for m in self.protocol.requests(self.client, [zk.multi(
+                                                            zk.multi_delete(b'/vlcptest2/subtest'),
+                                                            zk.multi_delete(b'/vlcptest2')),
+                                                      zk.getchildren2(b'/vlcptest2', True)], self.apiroutine):
+            yield m
+        pprint(dump(self.apiroutine.retvalue[0]))
+        
+        
 if __name__ == '__main__':
     main()
     

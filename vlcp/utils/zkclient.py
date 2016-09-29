@@ -456,6 +456,7 @@ class ZooKeeperClient(Configurable):
                     lost_responses = new_lost
                     retry_requests = new_retry
                     break
+            retry_requests = new_retry
         container.retvalue = ([result.get(r, None) for r in requests],
                               lost_responses,
                               retry_requests,
