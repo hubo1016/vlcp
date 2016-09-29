@@ -449,7 +449,7 @@ _CreateRequest = nstruct(
         (ustring, 'path'),
         (z_buffer, 'data'),
         (vector(ACL), 'acl'),
-        (int32, 'flags'),
+        (zk_create_flag, 'flags'),
         name = '_CreateRequest',
         padding = 1
     )
@@ -868,3 +868,62 @@ WatcherEvent = nstruct(
         criteria = lambda x: x.xid == WATCHER_EVENT_XID,
         init = packvalue(WATCHER_EVENT_XID, 'xid')
     )
+
+# Helpers
+
+def default_acl():
+    return ACL(perms = ZOO_PERM_ALL, id = Id(scheme = 'world', id = 'anyone'))
+
+def multi(*ops):
+    return MultiRequest(
+                requests = list(ops) + \
+                            [MultiOpRequest(type = -1, done = True, err = -1)]
+                )
+
+def create(path, data, ephemeral = False, sequence = False, acl = None):
+    if acl is None:
+        acl = default_acl()
+    return CreateRequest(path = path, data = data, acl = acl,
+                         flags = (ZOO_EPHEMERAL if ephemeral else 0) | (ZOO_SEQUENCE if sequence else 0))
+
+
+
+def delete(path, version = -1):
+    return DeleteRequest(path = path, version = -1)
+
+def exists(path, watch = False):
+    return ExistsRequest(path = path, watch = watch)
+
+def getdata(path, watch = False):
+    return GetDataRequest(path = path, watch = watch)
+
+def setdata(path, data, version = -1):
+    return SetDataRequest(path = path, data = data, version = -1)
+
+def getchildren(path, watch = False):
+    return GetChildrenRequest(path = path, watch = watch)
+
+def getchildren2(path, watch = False):
+    return GetChildren2Request(path = path, watch = watch)
+
+def multi_create(path, data, ephemeral = False, sequence = False, acl = None):
+    if acl is None:
+        acl = default_acl()
+    return MultiOpCreate(path = path, data = data, acl = acl,
+                         flags = (ZOO_EPHEMERAL if ephemeral else 0) | (ZOO_SEQUENCE if sequence else 0))
+
+def multi_delete(path, version = -1):
+    return MultiOpDelete(path = path, version = -1)
+
+def multi_check(path, version):
+    return MultiOpCheck(path, version)
+
+def multi_setdata(path, data, version = -1):
+    return MultiOpSetData(path = path, data = data, version = -1)
+
+def getacl(path):
+    return GetACLRequest(path = path)
+
+def setacl(path, acl, version = -1):
+    return SetACLRequest(path = path, acl = acl, version = version)
+
