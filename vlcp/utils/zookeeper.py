@@ -316,16 +316,31 @@ ConnectRequest = nstruct(
         init = packvalue(CONNECT_PACKET, 'zookeeper_type')
     )
 
+_ConnectResponseOptional = nstruct(
+        name = '_ConnectResponseOptional',
+        padding = 1,
+        inline = False
+    )
+
+_ConnectResponseReadOnly = nstruct(
+        (boolean, 'readOnly'),
+        base = _ConnectResponseOptional,
+        criteria = lambda x: x._realsize() > 0
+    )
+
 ConnectResponse = nstruct(
         (int32, 'protocolVersion'),
         (int32, 'timeOut'),
         (int64, 'sessionId'),
         (z_buffer, 'passwd'),
+        (_ConnectResponseOptional,),
         name = 'ConnectResponse',
         base = _TypedZooKeeperReply,
         criteria = lambda x: x.zookeeper_type == CONNECT_PACKET,
-        init = packvalue(CONNECT_PACKET, 'zookeeper_type')
+        init = packvalue(CONNECT_PACKET, 'zookeeper_type'),
+        lastextra = True
     )
+
 
 # All the other requests and responses are prepended by a header
 

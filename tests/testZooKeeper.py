@@ -28,6 +28,25 @@ class Test(unittest.TestCase):
         self.assertEqual(vector_ustring.tobytes([b'abc',b'def']), b'\x00\x00\x00\x02\x00\x00\x00\x03abc\x00\x00\x00\x03def')
         self.assertEqual(vector_ustring.parse(b'\x00\x00\x00\x02\x00\x00\x00\x03abc\x00\x00\x00\x03defab'), ([b'abc',b'def'], 18))
 
+    def testConnectResponse(self):
+        data = '\x00\x00\x00\x1a\x00\x00\x00\x00\x00\x00u0\x00\x00\x00\x00\x01#Eg\x00\x00\x00\x06defghi'
+        r, l = ConnectResponse.parse(data)
+        self.assertEqual(l, len(data))
+        r.zookeeper_type = CONNECT_PACKET
+        r._autosubclass()
+        self.assertEqual(r.sessionId, 0x1234567)
+        self.assertEqual(r.passwd, 'defghi')
+        self.assertFalse(hasattr(r, 'readOnly'))
+        data = '\x00\x00\x00\x1b\x00\x00\x00\x00\x00\x00u0\x00\x00\x00\x00\x01#Eg\x00\x00\x00\x06defghi\x01'
+        r, l = ConnectResponse.parse(data)
+        self.assertEqual(l, len(data))
+        r.zookeeper_type = CONNECT_PACKET
+        r._autosubclass()
+        self.assertEqual(r.sessionId, 0x1234567)
+        self.assertEqual(r.passwd, 'defghi')
+        self.assertTrue(hasattr(r, 'readOnly'))
+        self.assertEqual(r.readOnly, True)
+        
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

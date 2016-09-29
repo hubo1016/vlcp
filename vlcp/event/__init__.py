@@ -10,3 +10,4 @@ except ImportError:
     DefaultPolling = SelectPolling
 from .connection import Client, TcpServer, ConnectionWriteEvent, ConnectionControlEvent
 from .stream import Stream, StreamDataEvent, MemoryStream
+from .future import Future, RoutineFuture
