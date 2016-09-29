@@ -406,7 +406,7 @@ class ICMPResponder(FlowBase):
                 self.app_routine.subroutine(self._init_conn(c))
             if self.app_routine.matcher is conndown:
                 c = self.app_routine.event.connection
-                self.app_routine.subroutine(self._remove_conn)
+                self.app_routine.subroutine(self._remove_conn(c))
 
     def _init_conn(self,conn):
 
