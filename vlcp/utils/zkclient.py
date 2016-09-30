@@ -387,7 +387,7 @@ class ZooKeeperClient(Configurable):
             end_time = start_time + timeout
         def left_time():
             if timeout is None:
-                return None
+                return 1.0
             else:
                 return max(end_time - time(), 0)
         result = {}
