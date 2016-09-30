@@ -397,7 +397,7 @@ class ZooKeeperClient(Configurable):
         watchers = {}
         def requests_callback(request, response):
             watch_type = analysis[request][1]
-            if watch_type is not None:
+            if watch_type is not None and response.err == zk.ZOO_ERR_OK:
                 watchers[request] = RoutineFuture(self.watch_path(request.path, watch_type, container), container)
             if callback is not None:
                 callback(request, response)
