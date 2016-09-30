@@ -199,7 +199,10 @@ class OVSDBManager(Module):
                                                                                connection,
                                                                                connection.connmark,
                                                                                vhost,
-                                                                               bridges[i][3]))
+                                                                               bridges[i][3],
+                                                                               new_datapath_id =
+                                                                                v['new']['datapath_id'] if 'new' in v and 'datapath_id' in v['new']
+                                                                                else None))
                                     del self.managed_conns[(vhost, bridges[i][1])]
                                     del bridges[i]
                                     break
