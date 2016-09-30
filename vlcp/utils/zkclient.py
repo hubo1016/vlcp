@@ -317,7 +317,7 @@ class ZooKeeperClient(Configurable):
                     watch_type = zk.CHANGED_EVENT_DEF
                 elif request.type == zk.ZOO_EXISTS_OP:
                     watch_type = zk.CREATED_EVENT_DEF
-                elif request.type == zk.ZOO_GETCHILDREN_OP or request.type == ZOO_GETCHILDREN2_OP:
+                elif request.type == zk.ZOO_GETCHILDREN_OP or request.type == zk.ZOO_GETCHILDREN2_OP:
                     watch_type = zk.CHILD_EVENT_DEF
         return (request, can_retry, watch_type)
     def watch_path(self, path, watch_type, container):
