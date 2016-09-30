@@ -312,7 +312,6 @@ class Openflow(Protocol):
         if connection.openflow_datapathid is not None:
             for m in connection.waitForSend(OpenflowConnectionStateEvent(connection.openflow_datapathid, connection.openflow_auxiliaryid, OpenflowConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
                 yield m
-            connection.openflow_datapathid = None
     def error(self, connection):
         for m in Protocol.error(self, connection):
             yield m
@@ -321,7 +320,6 @@ class Openflow(Protocol):
         if connection.openflow_datapathid is not None:
             for m in connection.waitForSend(OpenflowConnectionStateEvent(connection.openflow_datapathid, connection.openflow_auxiliaryid, OpenflowConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
                 yield m
-            connection.openflow_datapathid = None
     def _createevent(self, connection, msg):
         if msg.header.type == common.OFPT_ECHO_REQUEST:
             # Direct reply without enqueue
