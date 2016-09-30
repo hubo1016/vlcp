@@ -165,7 +165,8 @@ class ICMPResponderUpdater(FlowUpdater):
                                             and hasattr(o,"router") and o in currentrouterportsinfo
                                             and o.network in currentlognetsinfo
                                             and (hasattr(currentrouterportsinfo[o],"ip_address")
-                                                or hasattr(o,"gateway")))
+                                                or hasattr(o,"gateway"))
+                                            and ( not hasattr(o,"isexternal") or o.isexternal == False))
             self._lastsubnetsinfo = currentsubnetsinfo
 
             ofdef = connection.openflowdef

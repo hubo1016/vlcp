@@ -658,7 +658,7 @@ class RouterUpdater(FlowUpdater):
 
                                 if netid == nid:
                                     self.subroutine(_add_static_host_flow(ip4_addr.formatter(reply_ipaddress),
-                                                                      reply_macaddress,nid,smac))
+                                                                      reply_macaddress,nid,mac_addr(smac)))
                         else:
                             # this is the first arp reply
                             if status == 1 or status == 3:
@@ -884,8 +884,8 @@ class RouterUpdater(FlowUpdater):
                         allocated_ip_address = [None]
 
                         def allocate_ip(keys,values):
-                            start = parse_ip4_address(values[0])
-                            end = parse_ip4_address(values[0])
+                            start = parse_ip4_address(values[0].allocated_start)
+                            end = parse_ip4_address(values[0].allocated_end)
 
                             for ipaddress in range(start,end):
                                 if str(ipaddress) not in values[1].allocated_ips:
@@ -978,20 +978,18 @@ class RouterUpdater(FlowUpdater):
 
             currentstaticroutes = dict()
             for r,routes in staticroutes.items():
-                for e in routes:
-                    prefix,nexthop = e
-                    for v in allrouterinterfaceinfo[r]:
-                        cidr = v[0]
+                for v in allrouterinterfaceinfo[r]:
+                    cidr = v[0]
+                    for e in routes:
+                        prefix,nexthop = e
                         network,mask = parse_ip4_network(cidr)
                         if ip_in_network(parse_ip4_address(nexthop),network,mask):
                             currentstaticroutes.setdefault(r,set()).add((prefix,nexthop,v[6]))
-
-                        # external interface , add default router to static routes
-                        if v[1]:
-                            currentstaticroutes.setdefault(r,set()).add(("0.0.0.0/0",v[5],v[6]))
+                    if v[1]:
+                        currentstaticroutes.setdefault(r, set()).add(("0.0.0.0/0", v[2], v[6]))
 
             self._laststaticroutes = currentstaticroutes
-
+            
             currentnetworkstaticroutesinfo = dict()
             for network in currentnetworkrouterinfo.keys():
                 if network_to_router[network] in currentstaticroutes:
@@ -1460,6 +1458,9 @@ class RouterUpdater(FlowUpdater):
                         # add arp filter discard broadcast arp request to inner host
                         cmds.extend(_createfilterarprequestflow(networkid))
                     else:
+                        # external network, packet will recv from outmac , so add ..
+                        cmds.extend(_createinputflow(outmac,networkid))
+                        
                         # add arp reply flow on outmac >>> l3input
                         cmds.extend(_createarpreplyflow(external_ip,outmac,networkid))
 
@@ -1482,7 +1483,7 @@ class RouterUpdater(FlowUpdater):
                         cmds.extend(_add_router_route(from_network_id,cidr,to_network_id))
 
             arp_request_event = []
-
+            
             for n in currentnetworkstaticroutesinfo:
                 if n not in lastnetworkstaticroutesinfo:
                     for from_network_id,prefix,nexthop,to_network_id in currentnetworkstaticroutesinfo[n]:
