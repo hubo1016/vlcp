@@ -206,7 +206,7 @@ class OVSDBPortManager(Module):
                     nset = set()
                 if 'old' in uo:
                     ov = uo['old']
-                    if 'port' in ov:
+                    if 'ports' in ov:
                         oset = set((p for _,p in ovsdb.getlist(ov['ports'])))
                     else:
                         oset = set()
@@ -481,7 +481,7 @@ class OVSDBPortManager(Module):
         "Return all ports of a specifed datapath"
         for m in self._wait_for_sync():
             yield m
-        self.apiroutine.retvalue = [p for _,p in self.managed_ports.get((vhost, datapathid))]
+        self.apiroutine.retvalue = [p for _,p in self.managed_ports.get((vhost, datapathid), [])]
     def getallports(self, vhost = None):
         "Return all (datapathid, port, vhost) tuples, optionally filterd by vhost"
         for m in self._wait_for_sync():
