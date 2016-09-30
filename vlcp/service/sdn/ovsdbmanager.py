@@ -164,8 +164,7 @@ class OVSDBManager(Module):
             else:
                 # Process initial bridges
                 init_subprocesses = [self._update_bridge(connection, protocol, buuid, vhost)
-                                    for v in self.apiroutine.jsonrpc_result['Open_vSwitch'].values()
-                                    for _, buuid in ovsdb.getlist(v['new']['bridges'])]
+                                    for buuid in self.apiroutine.jsonrpc_result['Bridge'].keys()]
                 def init_process():
                     try:
                         for m in self.apiroutine.executeAll(init_subprocesses, retnames = ()):
