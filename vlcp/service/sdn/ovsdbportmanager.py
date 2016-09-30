@@ -47,11 +47,12 @@ class OVSDBPortManager(Module):
         self.routines.append(self.apiroutine)
         self.managed_ports = {}
         self.managed_ids = {}
-        self.monitor_routines = []
+        self.monitor_routines = set()
         self.ports_uuids = {}
         self.wait_portnos = {}
         self.wait_names = {}
         self.wait_ids = {}
+        self.bridge_datapathid = {}
         self.createAPI(api(self.getports, self.apiroutine),
                        api(self.getallports, self.apiroutine),
                        api(self.getportbyid, self.apiroutine),
@@ -142,7 +143,7 @@ class OVSDBPortManager(Module):
             if not ports:
                 del self.managed_ports[(protocol.vhost, datapath_id)]
         return r
-    def _remove_all_interface(self, connection, protocol, datapath_id, port_uuid):
+    def _remove_all_interface(self, connection, protocol, datapath_id, port_uuid, buuid):
         ports = self.managed_ports.get((protocol.vhost, datapath_id))
         if ports is not None:
             removed_ports = [r for puuid, r in ports if puuid == port_uuid]
@@ -155,6 +156,8 @@ class OVSDBPortManager(Module):
             if not ports:
                 del self.managed_ports[(protocol.vhost, datapath_id)]
             return removed_ports
+        if port_uuid in self.ports_uuids and self.ports_uuids[port_uuid] == buuid:
+            del self.ports_uuids[port_uuid]
         return []
     def _update_interfaces(self, connection, protocol, updateinfo, update = True):
         """
@@ -162,7 +165,7 @@ class OVSDBPortManager(Module):
         
         1. New bridge created (or from initial updateinfo). We should add all the interfaces to the list.
         
-        2. Bridge removed. It is processed by other routines on OVSDBBridgeSetup event, so we ignore them.
+        2. Bridge removed. Remove all the ports.
         
         3. name and datapath_id may be changed. We will consider this as a new bridge created, and an old
            bridge removed.
@@ -185,22 +188,35 @@ class OVSDBPortManager(Module):
         def process_bridge(buuid, uo):
             try:
                 nv = uo['new']
-                for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitbridge', {'connection': connection,
-                                                                'name': nv['name'],
-                                                                'timeout': 5}):
-                    yield m
-                datapath_id = self.apiroutine.retvalue
-                nset = set((p for _,p in ovsdb.getlist(nv['ports'])))
+                if 'datapath_id' in uo['new']:
+                    datapath_id = uo['new']['datapath_id']
+                    self.bridge_datapathid[buuid] = datapath_id
+                elif buuid in self.bridge_datapathid:
+                    datapath_id = self.bridge_datapathid[buuid]
+                else:
+                    # This should not happen, but just in case...
+                    for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitbridge', {'connection': connection,
+                                                                    'name': nv['name'],
+                                                                    'timeout': 5}):
+                        yield m
+                    datapath_id = self.apiroutine.retvalue
+                if 'ports' in nv:
+                    nset = set((p for _,p in ovsdb.getlist(nv['ports'])))
+                else:
+                    nset = set()
                 if 'old' in uo:
                     ov = uo['old']
-                    oset = set((p for _,p in ovsdb.getlist(ov['ports'])))
+                    if 'port' in ov:
+                        oset = set((p for _,p in ovsdb.getlist(ov['ports'])))
+                    else:
+                        oset = set()
                 else:
                     oset = set()
                 # For every deleted port, remove the interfaces with this port _uuid
                 remove = []
                 add_routine = []
                 for puuid in oset - nset:
-                    remove += self._remove_all_interface(connection, protocol, datapath_id, puuid)
+                    remove += self._remove_all_interface(connection, protocol, datapath_id, puuid, buuid)
                 # For every port not changed, check if the interfaces are modified;
                 for puuid in oset.intersection(nset):
                     if puuid in port_update:
@@ -248,12 +264,13 @@ class OVSDBPortManager(Module):
                         self.apiroutine.retvalue = []
                 
                 for puuid in nset - oset:
-                    if puuid in port_update:
-                        if 'new' in port_update[puuid]:
-                            # Add all the interfaces in 'new'
-                            interfaces = ovsdb.getlist(port_update[puuid]['new']['interfaces'])
-                            add_routine += [self._get_interface_info(connection, protocol, datapath_id, iuuid, puuid)
-                                            for _,iuuid in interfaces]
+                    self.ports_uuids[puuid] = buuid
+                    if puuid in port_update and 'new' in port_update[puuid] \
+                            and 'old' not in port_update[puuid]:
+                        # Add all the interfaces in 'new'
+                        interfaces = ovsdb.getlist(port_update[puuid]['new']['interfaces'])
+                        add_routine += [self._get_interface_info(connection, protocol, datapath_id, iuuid, puuid)
+                                        for _,iuuid in interfaces]
                     else:
                         add_routine.append(add_port_interfaces(puuid))
                 # Execute the add_routine
@@ -326,18 +343,20 @@ class OVSDBPortManager(Module):
                     yield m
         for puuid, po in port_update.items():
             if puuid not in ignore_ports:
-                datapath_id = self.ports_uuids.get(puuid)
-                if datapath_id is not None:
-                    # This port is modified
-                    if 'new' in po:
-                        nset = set((iuuid for _, iuuid in ovsdb.getlist(po['new']['interfaces'])))
-                    else:
-                        nset = set()                    
-                    if 'old' in po:
-                        oset = set((iuuid for _, iuuid in ovsdb.getlist(po['old']['interfaces'])))
-                    else:
-                        oset = set()
-                    working_routines.append(process_port(datapath_id, puuid, nset - oset, oset - nset))
+                bridge_id = self.ports_uuids.get(puuid)
+                if bridge_id is not None:
+                    datapath_id = self.bridge_datapathid[bridge_id]
+                    if datapath_id is not None:
+                        # This port is modified
+                        if 'new' in po:
+                            nset = set((iuuid for _, iuuid in ovsdb.getlist(po['new']['interfaces'])))
+                        else:
+                            nset = set()                    
+                        if 'old' in po:
+                            oset = set((iuuid for _, iuuid in ovsdb.getlist(po['old']['interfaces'])))
+                        else:
+                            oset = set()
+                        working_routines.append(process_port(datapath_id, puuid, nset - oset, oset - nset))
         if update:
             for r in working_routines:
                 self.apiroutine.subroutine(r)
@@ -383,12 +402,15 @@ class OVSDBPortManager(Module):
                     self.apiroutine.subroutine(self._update_interfaces(connection, protocol, self.apiroutine.event.params[1], True))
         except JsonRPCProtocolException:
             pass
+        finally:
+            if self.apiroutine.currentroutine in self.monitor_routines:
+                self.monitor_routines.remove(self.apiroutine.currentroutine)
     def _get_existing_ports(self):
         for m in callAPI(self.apiroutine, 'ovsdbmanager', 'getallconnections', {'vhost':None}):
             yield m
         matchers = []
         for c in self.apiroutine.retvalue:
-            self.apiroutine.subroutine(self._get_ports(c, c.protocol))
+            self.monitor_routines.add(self.apiroutine.subroutine(self._get_ports(c, c.protocol)))
             matchers.append(OVSDBConnectionPortsSynchronized.createMatcher(c))
         for m in self.apiroutine.waitForAll(*matchers):
             yield m
@@ -407,16 +429,42 @@ class OVSDBPortManager(Module):
                 yield (connsetup, bridgedown)
                 e = self.apiroutine.event
                 if self.apiroutine.matcher is connsetup:
-                    self.apiroutine.subroutine(self._get_ports(e.connection, e.connection.protocol))
+                    self.monitor_routines.add(self.apiroutine.subroutine(self._get_ports(e.connection, e.connection.protocol)))
                 else:
                     # Remove ports of the bridge
                     ports =  self.managed_ports.get((e.vhost, e.datapathid))
                     if ports is not None:
+                        ports_original = ports
                         ports = [p for _,p in ports]
                         for p in ports:
                             if p['id']:
                                 self._remove_interface_id(e.connection,
                                                           e.connection.protocol, e.datapathid, p)
+                        newdpid = getattr(e, 'new_datapath_id', None)
+                        if newdpid is not None:
+                            # This bridge changes its datapath id
+                            def re_add_interfaces():
+                                for m in self.apiroutine.executeAll(
+                                    [self._get_interface_info(e.connection, e.connection.protocol, newdpid,
+                                                              r['_uuid'], puuid)
+                                     for puuid, r in ports_original]):
+                                    yield m
+                                add = list(itertools.chain(r[0] for r in self.apiroutine.retvalue))
+                                for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(),
+                                                  'update', datapathid = e.datapathid,
+                                                  connection = e.connection,
+                                                  vhost = e.vhost,
+                                                  add = add, remove = [],
+                                                  reason = 'bridgeup'
+                                                  )):
+                                    yield m
+                            self.apiroutine.subroutine(re_add_interfaces())
+                        else:
+                            # The ports are removed
+                            buuid = e.bridgeuuid
+                            for puuid, _ in ports_original:
+                                if puuid in self.ports_uuids[puuid] and self.ports_uuids[puuid] == buuid:
+                                    del self.ports_uuids[puuid]
                         del self.managed_ports[(e.vhost, e.datapathid)]
                         self.scheduler.emergesend(ModuleNotification(self.getServiceName(),
                                                   'update', datapathid = e.datapathid,
@@ -424,9 +472,9 @@ class OVSDBPortManager(Module):
                                                   vhost = e.vhost,
                                                   add = [], remove = ports,
                                                   reason = 'bridgedown'
-                                                  ))
+                                                  ))                            
         finally:
-            for r in self.monitor_routines:
+            for r in list(self.monitor_routines):
                 r.close()
             self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'unsynchronized'))
     def getports(self, datapathid, vhost = ''):
