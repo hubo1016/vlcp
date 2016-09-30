@@ -188,8 +188,8 @@ class OVSDBPortManager(Module):
         def process_bridge(buuid, uo):
             try:
                 nv = uo['new']
-                if 'datapath_id' in uo['new']:
-                    datapath_id = int(uo['new']['datapath_id'], 16)
+                if 'datapath_id' in nv:
+                    datapath_id = int(nv['datapath_id'], 16)
                     self.bridge_datapathid[buuid] = datapath_id
                 elif buuid in self.bridge_datapathid:
                     datapath_id = self.bridge_datapathid[buuid]
@@ -210,13 +210,18 @@ class OVSDBPortManager(Module):
                         oset = set((p for _,p in ovsdb.getlist(ov['ports'])))
                     else:
                         oset = set()
+                    if 'datapath_id' in ov:
+                        old_datapathid = int(ov['datapath_id'], 16)
+                    else:
+                        old_datapathid = datapath_id
                 else:
                     oset = set()
+                    old_datapathid = datapath_id
                 # For every deleted port, remove the interfaces with this port _uuid
                 remove = []
                 add_routine = []
                 for puuid in oset - nset:
-                    remove += self._remove_all_interface(connection, protocol, datapath_id, puuid, buuid)
+                    remove += self._remove_all_interface(connection, protocol, old_datapathid, puuid, buuid)
                 # For every port not changed, check if the interfaces are modified;
                 for puuid in oset.intersection(nset):
                     if puuid in port_update:
