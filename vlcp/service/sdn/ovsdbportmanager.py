@@ -287,13 +287,15 @@ class OVSDBPortManager(Module):
         for buuid, uo in bridge_update.items():
             # Bridge removals are ignored because we process OVSDBBridgeSetup event instead
             if 'old' in uo:
-                oset = set((puuid for _, puuid in ovsdb.getlist(uo['old']['ports'])))
-                ignore_ports.update(oset)
+                if 'ports' in uo['old']:
+                    oset = set((puuid for _, puuid in ovsdb.getlist(uo['old']['ports'])))
+                    ignore_ports.update(oset)
             if 'new' in uo:
                 # If bridge contains this port is updated, we process the port update totally in bridge,
                 # so we ignore it later
-                nset = set((puuid for _, puuid in ovsdb.getlist(uo['new']['ports'])))
-                ignore_ports.update(nset)
+                if 'ports' in uo['new']:
+                    nset = set((puuid for _, puuid in ovsdb.getlist(uo['new']['ports'])))
+                    ignore_ports.update(nset)
                 working_routines.append(process_bridge(buuid, uo))                
         def process_port(datapath_id, port_uuid, interfaces, remove_ids):
             ports = self.managed_ports.get((protocol.vhost, datapath_id))
