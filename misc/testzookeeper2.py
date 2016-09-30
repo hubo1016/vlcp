@@ -35,7 +35,7 @@ class TestModule(Module):
         def _watch(w):
             for m in w.wait(self.apiroutine):
                 yield m
-            print('Watcher returns:', self.apiroutine.retvalue)
+            print('Watcher returns:', dump(self.apiroutine.retvalue))
         def _watchall(watchers):
             for w in watchers:
                 if w is not None:
