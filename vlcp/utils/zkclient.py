@@ -412,7 +412,7 @@ class ZooKeeperClient(Configurable):
         while left_time() > 0 and not lost_responses and retry_requests:
             if self.session_state != ZooKeeperSessionStateChanged.CREATED:
                 def wait_for_connect():
-                    state_change = ZooKeeperSessionStateChanged(None, self)
+                    state_change = ZooKeeperSessionStateChanged.createMatcher(None, self)
                     while True:
                         yield (state_change,)
                         if container.event.state in (ZooKeeperSessionStateChanged.CREATED, ZooKeeperSessionStateChanged.RECONNECTED):
