@@ -144,7 +144,7 @@ class OVSDBManager(Module):
                 self.managed_bridges[connection] = []
                 ep = _get_endpoint(connection)
                 self.endpoint_conns.setdefault((vhost, ep), []).append(connection)
-                method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Open_vSwitch':ovsdb.monitor_request(['bridges'])})
+                method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Bridge':ovsdb.monitor_request(['name', 'datapath_id'])})
                 for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                     yield m
                 if 'error' in self.apiroutine.jsonrpc_result:
@@ -152,7 +152,7 @@ class OVSDBManager(Module):
                     method, params = ovsdb.monitor_cancel('ovsdb_manager_bridges_monitor')
                     for m in protocol.querywithreply(method, params, connection, self.apiroutine, False):
                         yield m
-                    method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Open_vSwitch':ovsdb.monitor_request(['bridges'], True, False, False, True)})
+                    method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_manager_bridges_monitor', {'Bridge':ovsdb.monitor_request(['name', 'datapath_id'])})
                     for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                         yield m
                     if 'error' in self.apiroutine.jsonrpc_result:
@@ -186,18 +186,10 @@ class OVSDBManager(Module):
                 if self.apiroutine.matcher is conn_down:
                     break
                 else:
-                    for v in self.apiroutine.event.params[1]['Open_vSwitch'].values():
-                        if 'old' not in v:
-                            old = set()
-                        else:
-                            old = set((oid for _, oid in ovsdb.getlist(v['old']['bridges'])))
-                        if 'new' not in v:
-                            new = set()
-                        else:
-                            new = set((oid for _, oid in ovsdb.getlist(v['new']['bridges'])))
-                        for buuid in (new - old):
-                            self.apiroutine.subroutine(self._update_bridge(connection, protocol, buuid, vhost))
-                        for buuid in (old - new):
+                    for buuid, v in self.apiroutine.event.params[1]['Bridge'].items():
+                        # If a bridge's name or datapath-id is changed, we remove this bridge and add it again
+                        if 'old' in v:
+                            # A bridge is deleted
                             bridges = self.managed_bridges[connection]
                             for i in range(0, len(bridges)):
                                 if buuid == bridges[i][3]:
@@ -212,6 +204,9 @@ class OVSDBManager(Module):
                                     del self.managed_conns[(vhost, bridges[i][1])]
                                     del bridges[i]
                                     break
+                        if 'new' in v:
+                            # A bridge is added
+                            self.apiroutine.subroutine(self._update_bridge(connection, protocol, buuid, vhost))
         except JsonRPCProtocolException:
             pass
         finally:
