@@ -725,8 +725,8 @@ class RouterUpdater(FlowUpdater):
             except KeyError:
                 pass
             else:
+                save(subnetobj.getkey())
                 if hasattr(subnetobj, "router"):
-                    save(subnetobj.getkey())
                     try:
                         routerport = walk(subnetobj.router.getkey())
                     except KeyError:
