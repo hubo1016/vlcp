@@ -454,7 +454,7 @@ class DHCPUpdater(FlowUpdater):
                 if n in lastlognetinfo:
                     nid = lastlognetinfo[n]
                     cmds.append(_delete_flows(nid))
-            lastnetdict = {n.id:n for n in lastlognetinfo}
+            lastnetdict = dict((n.id,n) for n in lastlognetinfo)
             for serveraddr in lastserveraddresses:
                 if serveraddr not in currentserveraddresses:
                     addr, _, networkid, _ = serveraddr
@@ -481,7 +481,7 @@ class DHCPUpdater(FlowUpdater):
                 if n in currentlognetinfo:
                     nid = currentlognetinfo[n]
                     cmds.append(_create_flows(nid))
-            currnetdict = {n.id:n for n in currentlognetinfo}
+            currnetdict = dict((n.id,n) for n in currentlognetinfo)
             for serveraddr in currentserveraddresses:
                 if serveraddr not in lastserveraddresses:
                     addr, _, networkid, _ = serveraddr

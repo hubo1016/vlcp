@@ -108,6 +108,17 @@ class VRouter(DataObject):
         self.interfaces = DataObjectSet()
         self.routes = list()
 
+
+class DVRouterInfo(DataObject):
+    _prefix = 'viperflow.dvrouterinfo'
+    _indices = ('',)
+
+    def __init__(self,prefix=None,deleted=None):
+        super(DVRouterInfo, self).__init__(prefix=prefix,deleted=deleted)
+        self.dvrinfo = []
+
+VRouter._register_auto_remove('DVRouterInfo',lambda x:[DVRouterInfo.default_key(x.id)])
+
 class VRouterSet(DataObject):
     _prefix = 'viperflow.vrouterset'
 
@@ -115,9 +126,11 @@ class VRouterSet(DataObject):
         super(VRouterSet,self).__init__(prefix=prefix,deleted=deleted)
         self.set = DataObjectSet()
 
+
 class RouterPort(DataObject):
     _prefix = 'viperflow.routerport'
     _indices = ('id',)
+
 
 class VXLANEndpointSet(DataObject):
     _prefix = 'viperflow.vxlanendpointset'
@@ -127,7 +140,9 @@ class VXLANEndpointSet(DataObject):
                 prefix = prefix,deleted = deleted)
         self.endpointlist = []
 
+
 LogicalNetwork._register_auto_remove('VXLANEndpointSet', lambda x: [VXLANEndpointSet.default_key(x.id)])
+
 
 class LogicalPortVXLANInfo(DataObject):
     _prefix = 'viperflow.logicalportvxlaninfo'

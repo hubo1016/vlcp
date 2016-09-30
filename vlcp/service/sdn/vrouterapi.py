@@ -7,7 +7,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.networkmodel import *
 from vlcp.utils.dataobject import watch_context,set_new,dump,ReferenceObject,WeakReferenceObject
 from vlcp.utils.ethernet import ip4_addr
-from vlcp.utils.netutils import format_network_cidr,check_ip_address
+from vlcp.utils.netutils import format_network_cidr,check_ip_address, parse_ip4_network, ip_in_network
 
 import vlcp.service.kvdb.objectdb as objectdb
 
@@ -89,21 +89,24 @@ class VRouterApi(Module):
             newrouters.append(router)
         
         routerkeys = [VRouter.default_key(r['id']) for r in newrouters]
+        dvrouterinfokeys = [DVRouterInfo.default_key(r['id']) for r in newrouters]
         routersetkey = [VRouterSet.default_key()]
 
-        routerobject = [self._createvirtualrouter(**r) for r in newrouters ]
+        routerobjects = [self._createvirtualrouter(**r) for r in newrouters ]
+        dvrouterinfoobjects = [DVRouterInfo.create_instance(r['id']) for r in newrouters ]
 
         def createrouterdb(keys,values):
             routerset = values[0]
 
             for i in range(0,len(routerkeys)):
-                values[i+1] = set_new(values[i+1],routerobject[i])
-                routerset.set.dataset().add(routerobject[i].create_weakreference())
-            
+                values[i+1] = set_new(values[i+1],routerobjects[i])
+                values[i+1+len(routerkeys)] = set_new(values[i+1+len(routerkeys)],dvrouterinfoobjects[i])
+                routerset.set.dataset().add(routerobjects[i].create_weakreference())
+
             return keys,values
         try:
             for m in callAPI(self.app_routine,"objectdb","transact",
-                             {"keys":routersetkey+routerkeys,"updater":createrouterdb}):
+                             {"keys":routersetkey+routerkeys+dvrouterinfokeys,"updater":createrouterdb}):
                 yield m
         except:
             raise
@@ -115,23 +118,18 @@ class VRouterApi(Module):
 
         router = VRouter.create_instance(id)
 
-        # {'routers':[{"ip_prefix":cidr,"nexthop":ip}]}
+        # [(prefix, nexthop),(prefix, nexthop)]
         if 'routes' in kwargs:
-            for r in kwargs['routes']:
-                ip_prefix = r.get('ip_prefix')
-                nexthop = r.get('nexthop')
+            for e in kwargs['routes']:
+                ip_prefix = e[0]
+                nexthop = e[1]
 
                 if ip_prefix and nexthop:
-
-                    # ip_prefix must be cidr
-                    # nexthop must be ip_address
                     ip_prefix = format_network_cidr(ip_prefix)
                     nexthop = check_ip_address(nexthop)
-                    # when create virtual route , there no interface in it
-                    # add static route
                     router.routes.append((ip_prefix,nexthop))
                 else:
-                    raise ValueError("routers format error " + r)
+                    raise ValueError(" routes format error " + e)
 
         for k,v in kwargs.items():
             if k != "routes":
@@ -164,11 +162,11 @@ class VRouterApi(Module):
             # if routers updating ,, check format
             if 'routes' in router:
                 for r in router['routes']:
-                    ip_prefix = r.get('ip_prefix')
-                    nexthop = r.get('nexthop')
+                    ip_prefix = r[0]
+                    nexthop = r[1]
 
                     if ip_prefix and nexthop:
-                        ip_prefix = format_network_cidr(ip_prefix)
+                        ip_prefix = parse_ip4_network(ip_prefix)
                         nexthop = check_ip_address(nexthop)
                     else:
                         raise ValueError("routes format error " + r)
@@ -183,7 +181,7 @@ class VRouterApi(Module):
 
                         if k == 'routes':
                             # update routers accord new static routes
-                            values[i].routes.clear()
+                            values[i].routes = []
                             for pn in v:
                                 values[i].routes.append(pn)
                         else:
@@ -387,6 +385,11 @@ class VRouterApi(Module):
                         # new router port special ip address , we check it in subnetmap
                         if hasattr(newrouterport,"ip_address"):
                             ipaddress = ip4_addr(newrouterport.ip_address)
+
+                            n,p = parse_ip4_network(subnetobj.cidr)
+
+                            if not ip_in_network(ipaddress,n,p):
+                                raise ValueError(" special ip address not in subnet cidr")
 
                             if str(ipaddress) not in subnetmapobj.allocated_ips:
                                 subnetmapobj.allocated_ips[str(ipaddress)] = newrouterport.create_weakreference()
