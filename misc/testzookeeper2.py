@@ -27,13 +27,13 @@ class TestModule(Module):
         self.apiroutine.main = self.main
         self.routines.append(self.apiroutine)
     def watcher(self):
-        watcher = ZooKeeperWatcherEvent.createMatcher(connection = self.client)
+        watcher = ZooKeeperWatcherEvent.createMatcher()
         while True:
             yield (watcher,)
             print('WatcherEvent: %r' % (dump(self.apiroutine.event.message),))
     def main(self):
         def _watch(w):
-            for m in w.wait():
+            for m in w.wait(self.apiroutine):
                 yield m
             print('Watcher returns:', self.apiroutine.retvalue)
         def _watchall(watchers):
