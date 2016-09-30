@@ -43,7 +43,7 @@ class TestModule(Module):
         self.apiroutine.subroutine(self.watcher(), False, daemon = True)
         up = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.CREATED, self.client)
         yield (up,)
-        print('Connection is up: %r' % (self.client,))
+        print('Connection is up: %r' % (self.client.currentserver,))
         for m in self.client.requests([zk.create(b'/vlcptest', b'test'),
                                        zk.getdata(b'/vlcptest', True)], self.apiroutine):
             yield m
