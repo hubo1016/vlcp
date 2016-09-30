@@ -164,14 +164,17 @@ class OVSDBPortManager(Module):
         
         2. Bridge removed. It is processed by other routines on OVSDBBridgeSetup event, so we ignore them.
         
-        3. Bridge ports modification, i.e. add/remove ports.
+        3. name and datapath_id may be changed. We will consider this as a new bridge created, and an old
+           bridge removed.
+        
+        4. Bridge ports modification, i.e. add/remove ports.
            a) Normally a port record is created/deleted together. A port record cannot exist without a
               bridge containing it.
                
            b) It is also possible that a port is removed from one bridge and added to another bridge, in
               this case the ports do not appear in the updateinfo
             
-        4. Port interfaces modification, i.e. add/remove interfaces. The bridge record may not appear in this
+        5. Port interfaces modification, i.e. add/remove interfaces. The bridge record may not appear in this
            situation.
            
         We must consider these situations carefully and process them in correct order.
@@ -346,7 +349,7 @@ class OVSDBPortManager(Module):
         try:
             try:
                 method, params = ovsdb.monitor('Open_vSwitch', 'ovsdb_port_manager_interfaces_monitor', {
-                                                    'Bridge':[ovsdb.monitor_request(["name", "ports"])],
+                                                    'Bridge':[ovsdb.monitor_request(["name", "datapath_id", "ports"])],
                                                     'Port':[ovsdb.monitor_request(["interfaces"])]
                                                 })
                 for m in protocol.querywithreply(method, params, connection, self.apiroutine):
