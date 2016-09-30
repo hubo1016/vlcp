@@ -408,6 +408,7 @@ class ZooKeeperClient(Configurable):
                         r.path = self.unchroot_path(r.path)
             elif hasattr(resp, 'path'):
                 resp.path = self.unchroot_path(resp.path)
+            return resp
         while left_time() > 0 and not lost_responses and retry_requests:
             if self.session_state != ZooKeeperSessionStateChanged.CREATED:
                 def wait_for_connect():
