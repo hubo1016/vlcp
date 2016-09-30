@@ -52,9 +52,9 @@ class ZooKeeperClient(Configurable):
     def __init__(self, container, serverlist = None, chroot = None, protocol = None, readonly = False,
                  restart_session = True):
         if serverlist is not None:
-            self.serverlist = serverlist
+            self.serverlist = list(serverlist)
         else:
-            self.serverlist = self.serverlist
+            self.serverlist = list(self.serverlist)
         shuffle(self.serverlist)
         self.nextptr = 0
         self.current_connection = None
@@ -164,7 +164,7 @@ class ZooKeeperClient(Configurable):
                                     set_watches):
                             yield m
                     except Exception:
-                        self._logger.warning('Handshake failed, try next server', self.currentserver)
+                        self._logger.warning('Handshake failed to %r, try next server', self.currentserver)
                     else:
                         failed = 0
                         conn_resp, auth_resp = self._container.retvalue
