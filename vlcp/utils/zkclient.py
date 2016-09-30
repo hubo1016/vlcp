@@ -380,7 +380,7 @@ class ZooKeeperClient(Configurable):
         '''
         if self._shutdown:
             raise ZooKeeperSessionUnavailable(self.session_state)
-        if self.session_id != session_lock:
+        if session_lock is not None and self.session_id != session_lock:
             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.EXPIRED)
         start_time = time()
         if timeout is not None:
