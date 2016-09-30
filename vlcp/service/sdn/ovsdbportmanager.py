@@ -189,7 +189,7 @@ class OVSDBPortManager(Module):
             try:
                 nv = uo['new']
                 if 'datapath_id' in uo['new']:
-                    datapath_id = uo['new']['datapath_id']
+                    datapath_id = int(uo['new']['datapath_id'], 16)
                     self.bridge_datapathid[buuid] = datapath_id
                 elif buuid in self.bridge_datapathid:
                     datapath_id = self.bridge_datapathid[buuid]
