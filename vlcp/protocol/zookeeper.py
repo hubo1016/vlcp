@@ -226,13 +226,13 @@ class ZooKeeper(Protocol):
         conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
                                                                    connection,
                                                                    connmark)
-        eventdict = {}
+        replydict = {}
         cr = container.currentroutine
         container.scheduler.register(tuple(matchers) + (conn_matcher,), cr)
         ms = len(matchers)
         def matcher_callback(event, matcher):
             container.scheduler.unregister((matcher,), cr)
-            eventdict[matcher] = event
+            replydict[matcher] = event.message
             if callback:
                 try:
                     callback(requests_dict[matcher], event.message)
@@ -269,7 +269,7 @@ class ZooKeeper(Protocol):
             else:
                 matcher_callback(container.event, m2)
                 ms -= 1
-        responses = [eventdict.get(m, None) for m in matchers]
+        responses = [replydict.get(m, None) for m in matchers]
         received_responses = dict((k,v) for k,v in zip(requests, responses) if v is not None)
         if receive_all:
             container.retvalue = (responses, [], [])
