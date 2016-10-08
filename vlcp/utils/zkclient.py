@@ -108,18 +108,18 @@ class ZooKeeperClient(Configurable):
                                                                       conn)
                 conn_nc = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.NOTCONNECTED,
                                                                       conn)
-                conn.start(True)
-                yield (conn_up, conn_nc)
-                if self._container.matcher is conn_nc:
-                    self._logger.warning('Connect to %r failed, try next server', self.currentserver)
-                    if failed > 5:
-                        # Wait for a small amount of time to prevent a busy loop
-                        # Socket may be rejected, it may fail very quick
-                        for m in self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0)):
-                            yield m
-                    failed += 1
-                    continue
+                conn.start()
                 try:
+                    yield (conn_up, conn_nc)
+                    if self._container.matcher is conn_nc:
+                        self._logger.warning('Connect to %r failed, try next server', self.currentserver)
+                        if failed > 5:
+                            # Wait for a small amount of time to prevent a busy loop
+                            # Socket may be rejected, it may fail very quick
+                            for m in self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0)):
+                                yield m
+                        failed += 1
+                        continue
                     try:
                         # Handshake
                         set_watches = []
