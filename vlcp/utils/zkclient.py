@@ -280,8 +280,7 @@ class ZooKeeperClient(Configurable):
                                             )):
                                     yield m                                    
                 finally:
-                    if conn.connected:
-                        conn.subroutine(conn.shutdown(True), False)
+                    conn.subroutine(conn.shutdown(True), False)
                     self.current_connection = None
         finally:
             self._shutdown = True
