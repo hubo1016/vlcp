@@ -156,6 +156,8 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
             while True:
                 try:
                     etup = yield
+                except GeneratorExit:
+                    raise
                 except:
                     #scheduler.unregister(matchers, iterself)
                     lmatchers = matchers
@@ -182,9 +184,15 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
             if asyncStart:
                 re.canignore = True
                 scheduler.ignore(rcMatcher)
+            # iterator.close() can be called in other routines, we should restore the currentroutine variable
             if container is not None:
+                lastcurrentroutine = getattr(container, 'currentroutine', None)
                 container.currentroutine = iterself
+            else:
+                lastcurrentroutine = None
             iterator.close()
+            if container is not None:
+                container.currentroutine = lastcurrentroutine
             scheduler.unregisterall(iterself)
     r = generatorwrapper(run())
     next(r)
