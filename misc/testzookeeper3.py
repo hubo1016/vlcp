@@ -26,6 +26,8 @@ class TestModule(Module):
         self.routines.append(self.apiroutine)
     def main(self):
         clients = [ZooKeeperClient(self.apiroutine, self.serverlist) for _ in range(0,10)]
+        for c in clients:
+            c.start()
         def test_loop(number):
             maindir = ('vlcptest_' + str(number)).encode('utf-8')
             client = clients[number % len(clients)]
@@ -46,6 +48,9 @@ class TestModule(Module):
         for m in self.apiroutine.executeAll([test_loop(i) for i in range(0, 100)]):
             yield m
         print('10000 loops in %r seconds, with %d connections' % (time() - starttime, len(clients)))
+        for c in clients:
+            for m in c.shutdown():
+                yield m
         
 if __name__ == '__main__':
     main()
