@@ -223,42 +223,53 @@ class ZooKeeper(Protocol):
         matchers, routine = self.async_requests(connection, requests, container)
         requests_dict = dict((m,r) for m,r in zip(matchers, requests))
         connmark = connection.connmark
-        def _wait_for_all():
-            eventdict = {}
-            conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
-                                                                       connection,
-                                                                       connmark)
-            container.scheduler.register(matchers, container.currentroutine)
-            try:
-                ms = len(matchers)
-                while ms:
-                    yield (conn_matcher,)
-                    if container.matcher is conn_matcher:
-                        # Connection is down, but we should still receive any results already got
-                        break
-                    container.scheduler.unregister((container.matcher,), container.currentroutine)
-                    ms -= 1
-                    eventdict[container.matcher] = container.event
-                    if callback:
-                        callback(requests_dict[container.matcher], container.event.message)
-            except:
-                container.scheduler.unregister(matchers, container.currentroutine)
-                raise
-            else:
-                container.retvalue = (not ms, [eventdict[m].message if m in eventdict else None for m in matchers])
-        def _sent_all():
-            try:
-                for m in routine:
+        conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
+                                                                   connection,
+                                                                   connmark)
+        eventdict = {}
+        cr = container.currentroutine
+        container.scheduler.register(tuple(matchers) + (conn_matcher,), cr)
+        ms = len(matchers)
+        def matcher_callback(event, matcher):
+            container.scheduler.unregister((matcher,), cr)
+            eventdict[matcher] = event
+            if callback:
+                try:
+                    callback(requests_dict[matcher], event.message)
+                except:
+                    container.scheduler.unregister(tuple(matchers) + (conn_matcher,), cr)
+                    raise
+        receive_all = True
+        try:
+            for m in routine:
+                while True:
                     yield m
-            except ZooKeeperRetryException as exc:
-                container.retvalue = (False, exc.args[0])
+                    m2 = container.matcher
+                    if m2 not in m:
+                        if m2 is conn_matcher:
+                            receive_all = False
+                            ms = 0
+                            container.scheduler.unregister(tuple(matchers) + (conn_matcher,), cr)
+                        else:
+                            matcher_callback(container.event, m2)
+                            ms -= 1
+                    else:
+                        break
+        except ZooKeeperRetryException as exc:
+            sent_events = exc.args[0]
+        else:
+            sent_events = container.retvalue
+        while ms:
+            yield ()
+            m2 = container.matcher
+            if m2 is conn_matcher:
+                ms = 0
+                receive_all = False
+                container.scheduler.unregister(tuple(matchers) + (conn_matcher,), cr)
             else:
-                container.retvalue = (True, container.retvalue)
-        for m in container.executeAll([_wait_for_all(),
-                                       _sent_all()]):
-            yield m
-        # There are three possible results: not sent; sent but response lost; response received
-        (((receive_all, responses),), ((_, sent_events),)) = container.retvalue
+                matcher_callback(container.event, m2)
+                ms -= 1
+        responses = [eventdict.get(m, None) for m in matchers]
         received_responses = dict((k,v) for k,v in zip(requests, responses) if v is not None)
         if receive_all:
             container.retvalue = (responses, [], [])
