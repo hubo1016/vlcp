@@ -893,8 +893,11 @@ class Client(Connection):
     def main(self):
         self.connmark = -1
         try:
-            for m in self.create_socket():
+            matcher = ConnectionControlEvent.createMatcher(self, ConnectionControlEvent.SHUTDOWN, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
+            for m in self.withException(self.create_socket(), matcher):
                 yield m
+        except RoutineException:
+            return
         except IOError:
             self.logger.warning('Connection failed for url: %s', self.rawurl, exc_info = True)
             if self.need_reconnect:
