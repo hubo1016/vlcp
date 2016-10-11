@@ -67,6 +67,9 @@ class Test(unittest.TestCase):
         p.feed(b'*0\r\n')
         self.assertEqual(p.gets(), [])
         self.assertEqual(p.gets(), False)
+        p.feed(b'*-1\r\n')
+        self.assertEqual(p.gets(), None)
+        self.assertEqual(p.gets(), False)
     def testNested(self):
         p = RedisParser()
         p.feed(b'*5\r\n*2\r\n+OK\r\n:3\r\n-ERR test\r\n*2\r\n$20\r\n*2\r\n+OK\r\n$5\r\nabcde\r\n\r\n:-999999\r\n*1\r\n*1\r\n*1\r\n*1\r\n+OK\r\n$-1\r\n')
