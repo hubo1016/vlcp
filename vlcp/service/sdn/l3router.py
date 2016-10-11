@@ -1599,7 +1599,7 @@ class RouterUpdater(FlowUpdater):
                                     )
                                 ]
                             ),
-                            ofdef.ofp_instruction_goto_table(table_id=l3output)
+                            ofdef.ofp_instruction_goto_table(table_id=l2output)
                         ]
                     )
                 ]
