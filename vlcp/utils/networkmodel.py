@@ -119,6 +119,36 @@ class DVRouterInfo(DataObject):
 
 VRouter._register_auto_remove('DVRouterInfo',lambda x:[DVRouterInfo.default_key(x.id)])
 
+class DVRouterForwardSet(DataObject):
+    _prefix = 'viperflow.dvrouterforwardset'
+
+    def __init__(self,prefix=None,deleted=None):
+        super(DVRouterForwardSet,self).__init__(prefix=prefix,deleted=deleted)
+        self.set = DataObjectSet()
+
+class DVRouterForwardInfo(DataObject):
+    _prefix = 'viperflow.dvrouterforwardinfo'
+    _indices = ("from_pynet","to_pynet")
+
+    def __init__(self,prefix=None,deleted=None):
+        super(DVRouterForwardInfo,self).__init__(prefix=prefix,deleted=deleted)
+        self.info = []
+
+class DVRouterForwardSetRef(DataObject):
+    _prefix = 'viperflow.dvroutertransmitset'
+
+    def __init__(self,prefix=None,deleted=None):
+        super(DVRouterForwardSetRef,self).__init__(prefix=prefix,deleted=deleted)
+        self.set = DataObjectSet()
+
+class DVRouterForwardInfoRef(DataObject):
+    _prefix = 'viperflow.dvrouterforwardrefinfo'
+    _indices = ("from_pynet","to_pynet")
+
+    def __init__(self,prefix=None,deleted=None):
+        super(DVRouterForwardInfoRef,self).__init__(prefix=prefix,deleted=deleted)
+        self.info = []
+
 class VRouterSet(DataObject):
     _prefix = 'viperflow.vrouterset'
 

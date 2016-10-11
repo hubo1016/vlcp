@@ -16,12 +16,13 @@ from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.service.sdn import arpresponder
 from vlcp.service.sdn import icmpresponder
-from vlcp.utils.dataobject import ReferenceObject
+from vlcp.utils.dataobject import ReferenceObject, set_new, WeakReferenceObject
 from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes, ip4_addr, arp_packet_l4, mac_addr, ethernet_l4, \
     ethernet_l7
 from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.utils.netutils import parse_ip4_network,get_netmask, parse_ip4_address, ip_in_network
-from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet, SubNetMap, DVRouterInfo
+from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet, SubNetMap, DVRouterInfo, DVRouterForwardInfo, \
+    DVRouterForwardSet, DVRouterForwardInfoRef
 
 
 @withIndices("connection")
@@ -35,6 +36,7 @@ class RouterUpdater(FlowUpdater):
         self._lastlogicalport = dict()
         self._lastlogicalnet = dict()
         self._lastphyport = dict()
+        self._lastphynet = dict()
 
         self._lastrouterinfo = dict()
         self._lastsubnetinfo = dict()
@@ -45,6 +47,8 @@ class RouterUpdater(FlowUpdater):
         self._lastnetworkstaticroutesinfo = dict()
         self._laststaticroutes = dict()
         self._lastallrouterinfo = dict()
+        self._laststoreinfo = dict()
+        self._lastnetworkforwardinfo = dict()
 
         self._original_keys = ()
 
@@ -57,6 +61,7 @@ class RouterUpdater(FlowUpdater):
             self.subroutine(self._router_packetin_handler(), True, "router_packetin_handler")
             self.subroutine(self._arp_cache_handler(),True,"arp_cache_handler")
             self.subroutine(self._time_cycle_handler(),True,"time_cycle_handler")
+            self.subroutine(self._keep_alive_handler(),True,"keep_alive_handler")
             for m in FlowUpdater.main(self):
                 yield m
         finally:
@@ -72,6 +77,9 @@ class RouterUpdater(FlowUpdater):
 
             if hasattr(self,"time_cycle_handler"):
                 self.time_cycle_handler.close()
+
+            if hasattr(self,"keep_alive_handler"):
+                self.keep_alive_handler.close()
 
     def _getinterfaceinfo(self,netid):
 
@@ -120,6 +128,64 @@ class RouterUpdater(FlowUpdater):
                 ret_info.append((e[4],e[6]))
 
         return  ret_info
+
+    def _keep_alive_handler(self):
+        while True:
+            for m in self.waitWithTimeout(self._parent.discover_update_time):
+                yield m
+
+            datapath_id = self._connection.openflow_datapathid
+            vhost = self._connection.protocol.vhost
+            try:
+                for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
+                                                                          'vhost': vhost}):
+                    yield m
+            except Exception:
+                self._logger.warning("OVSDB bridge is not ready", exc_info=True)
+                return
+            else:
+                bridge, system_id, _ = self.retvalue
+
+            forward_keys = [DVRouterForwardInfo.default_key(k[0],k[1]) for k in self._laststoreinfo.keys()]
+            ref_forward_keys = [DVRouterForwardInfoRef.default_key(k[0],k[1]) for k in self._laststoreinfo.keys()]
+            transact_keys = [DVRouterForwardSet.default_key()] + forward_keys + ref_forward_keys
+
+            def updater(keys,values,timestamp):
+                retdict = {}
+                for i in range((len(transact_keys) - 1) // 2):
+                    if values[i + 1]:
+                        values[i + 1].info = [e for e in values[i + 1].info
+                                              if (e[0], e[1], e[2]) != (system_id, bridge, vhost)
+                                              and e[4] > timestamp]
+                        indices = DVRouterForwardInfo._getIndices(keys[i + 1])[1]
+
+                        if (indices[0],indices[1]) in self._laststoreinfo:
+                            e = (system_id,bridge,vhost,list(self._laststoreinfo[(indices[0],indices[1])])[0],
+                                 timestamp + 5 * 1000000)
+                            values[i + 1].info.append(e)
+
+                        if values[i + 1].info:
+                            retdict[keys[i + 1]] = values[i + 1]
+                            refe = [e[3] for e in values[i + 1].info]
+                            if values[i + 1 + (len(transact_keys) - 1) // 2].info != refe:
+                                values[i + 1 + (len(transact_keys) - 1) // 2].info = refe
+                                retdict[keys[i + 1 + (len(transact_keys) - 1) // 2]] = \
+                                    values[i + 1 + (len(transact_keys) - 1) // 2]
+
+                        else:
+                            # there is no info in this struct , drop it from db
+                            retdict[keys[i + 1]] = None
+                            retdict[keys[i + 1 + (len(transact_keys) - 1) // 2]] = None
+                            if WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]) in \
+                                    values[0].set.dataset():
+                                values[0].set.dataset().discard(
+                                    WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]))
+                                retdict[keys[0]] = values[0]
+
+                return retdict.keys(), retdict.values()
+
+            for m in callAPI(self,"objectdb","transact",{"keys":transact_keys,"updater":updater,"withtime":True}):
+                yield m
 
     def _packet_out_message(self,netid,packet,portno):
         l2output_next = self._parent._getnexttable('', 'l2output', self._connection.protocol.vhost)
@@ -521,7 +587,7 @@ class RouterUpdater(FlowUpdater):
                                 )
                             ]
                         ),
-                        ofdef.ofp_instruction_goto_table(table_id=l3output)
+                        ofdef.ofp_instruction_goto_table(table_id=l2output)
                     ]
                 )
             ]):
@@ -658,7 +724,7 @@ class RouterUpdater(FlowUpdater):
 
                                 if netid == nid:
                                     self.subroutine(_add_static_host_flow(ip4_addr.formatter(reply_ipaddress),
-                                                                      reply_macaddress,nid,mac_addr(smac)))
+                                                                      reply_macaddress,nid,smac))
                         else:
                             # this is the first arp reply
                             if status == 1 or status == 3:
@@ -693,7 +759,7 @@ class RouterUpdater(FlowUpdater):
         while True:
             yield (dataobjectchange,)
 
-            self._lastlogicalport, self._lastphyport, self._lastlogicalnet, _ = self.event.current
+            self._lastlogicalport, self._lastphyport, self._lastlogicalnet, self._lastphynet = self.event.current
 
             self._update_walk()
 
@@ -702,15 +768,29 @@ class RouterUpdater(FlowUpdater):
         logicalportkeys = [p.getkey() for p, _ in self._lastlogicalport]
         logicalnetkeys = [n.getkey() for n, _ in self._lastlogicalnet]
         phyportkeys = [p.getkey() for p,_ in self._lastphyport]
+        phynetkeys = [n.getkey() for n,_ in self._lastphynet]
+        dvrforwardinfokeys = [DVRouterForwardSet.default_key()]
 
-        self._initialkeys = logicalportkeys + logicalnetkeys + phyportkeys
-        self._original_keys = logicalportkeys + logicalnetkeys + phyportkeys
+        self._initialkeys = logicalportkeys + logicalnetkeys + phyportkeys + phyportkeys + dvrforwardinfokeys
+        self._original_keys = logicalportkeys + logicalnetkeys + phyportkeys + phyportkeys + dvrforwardinfokeys
 
         self._walkerdict = dict(itertools.chain(((p, self._walk_lgport) for p in logicalportkeys),
                                                 ((n, self._walk_lgnet) for n in logicalnetkeys),
+                                                ((n, self._walk_phynet) for n in phynetkeys),
+                                                ((f, self._walk_dvrforwardinfo) for f in dvrforwardinfokeys),
                                                 ((p, self._walk_phyport) for p in phyportkeys)))
 
         self.subroutine(self.restart_walk(), False)
+
+    def _walk_dvrforwardinfo(self,key,value,walk,save):
+        save(key)
+        for weakref in value.set.dataset():
+            try:
+                weakobj = walk(weakref.getkey())
+            except KeyError:
+                pass
+            else:
+                save(weakobj.getkey())
 
     def _walk_lgport(self, key, value, walk, save):
 
@@ -786,14 +866,20 @@ class RouterUpdater(FlowUpdater):
 
         save(key)
 
+    def _walk_phynet(self,key,value,walk,save):
+        if value is None:
+            return
+        save(key)
+
     def reset_initialkeys(self,keys,values):
 
         subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
         routerportkeys = [k for k,v in zip(keys,values) if v.isinstance(RouterPort)]
         routerkeys = [k for k,v in zip(keys,values) if v.isinstance(VRouter)]
+        forwardinfokeys = [k for k,v in zip(keys,values) if v.isinstance(DVRouterForwardInfoRef)]
 
         self._initialkeys = tuple(itertools.chain(self._original_keys,subnetkeys,
-                                    routerportkeys,routerkeys))
+                                    routerportkeys,routerkeys,forwardinfokeys))
 
     def updateflow(self, connection, addvalues, removevalues, updatedvalues):
 
@@ -809,11 +895,19 @@ class RouterUpdater(FlowUpdater):
             lastnetworkroutertableinfo = self._lastnetworkroutertableinfo
             lastnetworkstaticroutesinfo= self._lastnetworkstaticroutesinfo
             laststaticroutes= self._laststaticroutes
+            laststoreinfo = self._laststoreinfo
+            lastnetworkforwardinfo = self._lastnetworkforwardinfo
 
             allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
 
+            dvrforwardinfo = dict(((f.from_pynet,f.to_pynet),f.info) for f in allobjects
+                                  if f.isinstance(DVRouterForwardInfoRef))
+
+            currentphynetinfo = dict((n,n.id) for n,_ in self._lastphynet if n in allobjects)
+
             # phyport : phynet = 1:1, so we use phynet as key
-            currentphyportinfo = dict((p.physicalnetwork, (p,id)) for p, id in self._lastphyport if p in allobjects)
+            currentphyportinfo = dict((p.physicalnetwork, (p,id)) for p, id in self._lastphyport if p in allobjects
+                                      and p.physicalnetwork in currentphynetinfo)
 
             currentlognetinfo = {}
 
@@ -944,16 +1038,158 @@ class RouterUpdater(FlowUpdater):
 
                         allrouterinterfaceinfo.setdefault(router,[]).append(interface)
 
-            self._lastallrouterinfo = allrouterinterfaceinfo
-            currentrouterstoreinterfaceinfo = dict()
+            #self._lastallrouterinfo = allrouterinterfaceinfo
 
-            for k,v in allrouterinterfaceinfo.items():
+            router_to_phynet = dict()
+            router_to_no_phynet = dict()
+            for k, v in allrouterinterfaceinfo.items():
                 for e in v:
-                    # isexternal, outmac, external_ip, phyport,subnetid,
-                    entry = (e[1],e[4],e[5],e[7],e[8])
-                    currentrouterstoreinterfaceinfo.setdefault(k,[]).append(entry)
+                    if e[7] and e[9].physicalnetwork:
+                        #
+                        # if router interface have same physicalnetwork, physicalport,
+                        # it must be have same outmac
+                        #
+                        router_to_phynet.setdefault(k, set()).add((e[9].physicalnetwork, e[4],e[9],e[0],e[1],e[6]))
+                    else:
+                        router_to_no_phynet.setdefault(k,set()).add((e[9].physicalnetwork, e[4],e[9],e[0],e[1],e[6]))
 
-            self._lastrouterstoreinterfacenetinfo = currentrouterstoreinterfaceinfo
+            currentnetworkforwardinfo = dict()
+            for k,v in router_to_no_phynet.items():
+                if k in router_to_phynet:
+                    for x in v:
+                        for e in router_to_phynet[k]:
+                            if (e[0].id,x[0].id) in dvrforwardinfo:
+                                if dvrforwardinfo[(e[0].id,x[0].id)]:
+                                    if x[4]:
+                                        currentnetworkforwardinfo.setdefault(e[2],set()).\
+                                            add((e[5],x[5],dvrforwardinfo[(e[0].id,x[0].id)][0],"0.0.0.0/0"))
+
+                                    currentnetworkforwardinfo.setdefault(e[2],set()).\
+                                            add((e[5],x[5],dvrforwardinfo[(e[0].id,x[0].id)][0],x[3]))
+
+            self._lastnetworkforwardinfo = currentnetworkforwardinfo
+
+            if self._parent.enable_router_forward:
+                # enable router forward , we should update router forward capacity to db
+
+                currentstoreinfo = dict()
+                for k,v in router_to_phynet.items():
+                    for e in v:
+                        for x in v:
+                            if x != e:
+                                currentstoreinfo.setdefault((e[0].id,x[0].id),set()).add(e[1])
+                                currentstoreinfo.setdefault((x[0].id, e[0].id), set()).add(x[1])
+
+                self._laststoreinfo = currentstoreinfo
+
+                add_store_info = dict()
+                remove_store_info = dict()
+
+                for k in laststoreinfo.keys():
+                    if k not in currentstoreinfo or (k in currentstoreinfo and currentstoreinfo[k] != laststoreinfo[k]):
+                        remove_store_info[k] = laststoreinfo[k]
+
+                for k in currentstoreinfo.keys():
+                    if k not in laststoreinfo or (k in laststoreinfo and laststoreinfo[k] != currentstoreinfo[k]):
+                        add_store_info[k] = currentstoreinfo[k]
+
+                if add_store_info or remove_store_info:
+
+                    forward_keys = list(set([DVRouterForwardInfo.default_key(k[0],k[1]) for k in
+                                             list(add_store_info.keys())+ list(remove_store_info.keys())]))
+
+                    ref_forward_keys = [DVRouterForwardInfoRef.default_key(DVRouterForwardInfo._getIndices(k)[1][0],
+                                                    DVRouterForwardInfo._getIndices(k)[1][1]) for k in forward_keys]
+
+                    transact_keys = [DVRouterForwardSet.default_key()] + forward_keys + ref_forward_keys
+                    try:
+                        for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
+                                                                                  'vhost': vhost}):
+                            yield m
+                    except Exception:
+                        self._logger.warning("OVSDB bridge is not ready", exc_info=True)
+                        return
+                    else:
+                        bridge, system_id, _ = self.retvalue
+
+
+                    def store_transact(keys,values,timestamp):
+
+                        transact_object = dict()
+                        #transact_object[keys[0]] = values[0]
+
+                        for i in range((len(transact_keys) - 1) //2):
+                            if values[i + 1] is None:
+                                # means this phy-> phy info is first
+                                indices = DVRouterForwardInfo._getIndices(keys[i + 1])[1]
+
+                                if (indices[0],indices[1]) in add_store_info:
+                                    obj = DVRouterForwardInfo.create_from_key(keys[i + 1])
+                                    e = (system_id,bridge,vhost,list(add_store_info[(indices[0],indices[1])])[0],
+                                         timestamp + 5 * 1000000)
+                                    obj.info.append(e)
+                                    values[i + 1] = set_new(values[i + 1], obj)
+                                    transact_object[keys[i + 1]] = values[i + 1]
+
+                                    refobj = DVRouterForwardInfoRef.create_from_key(keys[i + 1 +
+                                                                                         (len(transact_keys) - 1)//2])
+                                    refobj.info.append(e[3])
+                                    values[i + 1 + (len(transact_keys) - 1)//2] = set_new(
+                                        values[i + 1 + (len(transact_keys) - 1)//2],refobj)
+
+                                    transact_object[keys[i + 1 + (len(transact_keys) - 1) // 2]] = \
+                                        values[i + 1 + (len(transact_keys) - 1)//2]
+
+                                    values[0].set.dataset().add(refobj.create_weakreference())
+                                    transact_object[keys[0]] = values[0]
+                            else:
+
+                                # DVRouterForwardInfo and DVRouterForwardRefinfo is existed
+                                # and it must be in DVRouterForwardInfoSet
+                                # checkout timeout
+                                values[i+1].info = [e for e in values[i+1].info
+                                                    if (e[0],e[1],e[2]) != (system_id,bridge,vhost)
+                                                    and e[4] > timestamp]
+
+                                indices = DVRouterForwardInfo._getIndices(keys[i + 1])[1]
+
+                                if (indices[0],indices[1]) in add_store_info:
+                                    e = (system_id,bridge,vhost,list(add_store_info[(indices[0],indices[1])])[0],
+                                         timestamp + 5 * 1000000)
+                                    values[i+1].info.append(e)
+
+                                if values[i+1].info:
+                                    transact_object[keys[i+1]] = values[i+1]
+                                    refe = [e[3] for e in values[i + 1].info]
+                                    if values[i + 1 + (len(transact_keys) - 1)//2].info != refe:
+                                        values[i + 1 + (len(transact_keys) - 1)//2].info = refe
+                                        transact_object[keys[i + 1 + (len(transact_keys) - 1)//2]] = \
+                                            values[i + 1 + (len(transact_keys) - 1)//2]
+                                else:
+                                    transact_object[keys[i+1]] = None
+                                    transact_object[keys[i + 1 + (len(transact_keys) - 1) // 2]] = None
+                                    if WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]) in \
+                                            values[0].set.dataset():
+                                        values[0].set.dataset().discard(
+                                            WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]))
+                                        transact_object[keys[0]] = values[0]
+
+
+                        return transact_object.keys(),transact_object.values()
+
+                    for m in callAPI(self,"objectdb","transact",
+                                     {"keys":transact_keys,"updater":store_transact,"withtime":True}):
+                        yield m
+
+            # currentrouterstoreinterfaceinfo = dict()
+            #
+            # for k,v in allrouterinterfaceinfo.items():
+            #     for e in v:
+            #         # isexternal, outmac, external_ip, phyport,subnetid,
+            #         entry = (e[1],e[4],e[5],e[7],e[8])
+            #         currentrouterstoreinterfaceinfo.setdefault(k,[]).append(entry)
+            #
+            # self._lastrouterstoreinterfacenetinfo = currentrouterstoreinterfaceinfo
 
             currentnetworkrouterinfo = dict()
             network_to_router = dict()
@@ -978,6 +1214,18 @@ class RouterUpdater(FlowUpdater):
 
             currentstaticroutes = dict()
             for r,routes in staticroutes.items():
+                # for e in routes:
+                #     prefix,nexthop = e
+                #     for v in allrouterinterfaceinfo[r]:
+                #         cidr = v[0]
+                #         network,mask = parse_ip4_network(cidr)
+                #         if ip_in_network(parse_ip4_address(nexthop),network,mask):
+                #             currentstaticroutes.setdefault(r,set()).add((prefix,nexthop,v[6]))
+                #
+                #         # external interface , add default router to static routes
+                #         if v[1]:
+                #             currentstaticroutes.setdefault(r,set()).add(("0.0.0.0/0",v[5],v[6]))
+
                 for v in allrouterinterfaceinfo[r]:
                     cidr = v[0]
                     for e in routes:
@@ -989,7 +1237,7 @@ class RouterUpdater(FlowUpdater):
                         currentstaticroutes.setdefault(r, set()).add(("0.0.0.0/0", v[2], v[6]))
 
             self._laststaticroutes = currentstaticroutes
-            
+
             currentnetworkstaticroutesinfo = dict()
             for network in currentnetworkrouterinfo.keys():
                 if network_to_router[network] in currentstaticroutes:
@@ -999,53 +1247,53 @@ class RouterUpdater(FlowUpdater):
 
             self._lastnetworkstaticroutesinfo = currentnetworkstaticroutesinfo
 
-            add_transact_router_store = dict()
-            remove_transact_router_store = dict()
-            for o in lastrouterstoreinterfaceinfo:
-                if o not in currentrouterstoreinterfaceinfo:
-                    remove_transact_router_store[o] = lastrouterstoreinterfaceinfo[o]
-
-            for o in currentrouterstoreinterfaceinfo:
-                if o not in lastrouterstoreinterfaceinfo or (o in lastrouterstoreinterfaceinfo
-                                    and lastrouterstoreinterfaceinfo[o] != currentrouterstoreinterfaceinfo[o]):
-                    add_transact_router_store[o] = currentrouterstoreinterfaceinfo[o]
-
-            transact_dvrouter_info_keys = [DVRouterInfo.default_key(r.id)
-                                           for r in list(add_transact_router_store.keys())+
-                                           list(remove_transact_router_store.keys())]
-
-            if transact_dvrouter_info_keys:
-                try:
-                    for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
-                                                                              'vhost': vhost}):
-                        yield m
-                except Exception:
-                    self._logger.warning("OVSDB bridge is not ready", exc_info=True)
-                    return
-                else:
-                    bridge, system_id, _ = self.retvalue
-
-                def transact_store__dvr_info(keys,values,timestamp):
-                    for i in range(0,len(transact_dvrouter_info_keys)):
-                        v = [e for e in values[i].dvrinfo
-                                if (e[0],e[1],[2]) != (system_id,vhost,bridge) and e[8] > timestamp]
-                        values[i].dvrinfo = v
-
-                        if keys[i] in [DVRouterInfo.default_key(r.id) for r in list(add_transact_router_store.keys())]:
-                            k = DVRouterInfo._getIndices(keys[i])[1][0]
-                            info = add_transact_router_store[ReferenceObject(VRouter.default_key(k))]
-                            for x in info:
-                                e = (system_id,vhost,bridge,x[0],x[1],x[2],x[3],x[4],
-                                    timestamp + 5 * 1000000)
-                                values[i].dvrinfo.append(e)
-
-                    return keys,values
-
-
-                for m in callAPI(self,"objectdb","transact",
-                                 {"keys":transact_dvrouter_info_keys,"updater":transact_store__dvr_info,
-                                  "withtime":True}):
-                    yield m
+            # add_transact_router_store = dict()
+            # remove_transact_router_store = dict()
+            # for o in lastrouterstoreinterfaceinfo:
+            #     if o not in currentrouterstoreinterfaceinfo:
+            #         remove_transact_router_store[o] = lastrouterstoreinterfaceinfo[o]
+            #
+            # for o in currentrouterstoreinterfaceinfo:
+            #     if o not in lastrouterstoreinterfaceinfo or (o in lastrouterstoreinterfaceinfo
+            #                         and lastrouterstoreinterfaceinfo[o] != currentrouterstoreinterfaceinfo[o]):
+            #         add_transact_router_store[o] = currentrouterstoreinterfaceinfo[o]
+            #
+            # transact_dvrouter_info_keys = [DVRouterInfo.default_key(r.id)
+            #                                for r in list(add_transact_router_store.keys())+
+            #                                list(remove_transact_router_store.keys())]
+            #
+            # if transact_dvrouter_info_keys:
+            #     try:
+            #         for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
+            #                                                                   'vhost': vhost}):
+            #             yield m
+            #     except Exception:
+            #         self._logger.warning("OVSDB bridge is not ready", exc_info=True)
+            #         return
+            #     else:
+            #         bridge, system_id, _ = self.retvalue
+            #
+            #     def transact_store__dvr_info(keys,values,timestamp):
+            #         for i in range(0,len(transact_dvrouter_info_keys)):
+            #             v = [e for e in values[i].dvrinfo
+            #                     if (e[0],e[1],[2]) != (system_id,vhost,bridge) and e[8] > timestamp]
+            #             values[i].dvrinfo = v
+            #
+            #             if keys[i] in [DVRouterInfo.default_key(r.id) for r in list(add_transact_router_store.keys())]:
+            #                 k = DVRouterInfo._getIndices(keys[i])[1][0]
+            #                 info = add_transact_router_store[ReferenceObject(VRouter.default_key(k))]
+            #                 for x in info:
+            #                     e = (system_id,vhost,bridge,x[0],x[1],x[2],x[3],x[4],
+            #                         timestamp + 5 * 1000000)
+            #                     values[i].dvrinfo.append(e)
+            #
+            #         return keys,values
+            #
+            #
+            #     for m in callAPI(self,"objectdb","transact",
+            #                      {"keys":transact_dvrouter_info_keys,"updater":transact_store__dvr_info,
+            #                       "withtime":True}):
+            #         yield m
 
             cmds = []
 
@@ -1355,6 +1603,56 @@ class RouterUpdater(FlowUpdater):
                         ]
                     )
                 ]
+
+            def _add_forward_route(from_net_id,cidr,outmac):
+                network,prefix = parse_ip4_network(cidr)
+                return [
+                    ofdef.ofp_flow_mod(
+                        table_id = l3router,
+                        command = ofdef.OFPFC_ADD,
+                        priority = ofdef.OFP_DEFAULT_PRIORITY + 33 + prefix,
+                        buffer_id = ofdef.OFP_NO_BUFFER,
+                        out_port = ofdef.OFPP_ANY,
+                        out_group = ofdef.OFPG_ANY,
+                        match = ofdef.ofp_match_oxm(
+                            oxm_fields = [
+                                match_network(from_net_id),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
+                                ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST_W,network,get_netmask(prefix))
+                            ]
+                        ),
+                        instructions = [
+                            ofdef.ofp_instruction_actions(
+                                actions=[
+                                    ofdef.ofp_action_set_field(
+                                        field=ofdef.create_oxm(ofdef.OXM_OF_ETH_DST, mac_addr(outmac))
+                                    )
+                                ]
+                            ),
+                            ofdef.ofp_instruction_goto_table(table_id=l2output)
+                        ]
+                    )
+                ]
+            def _delete_forward_route(from_net_id,cidr,outmac):
+                network,prefix = parse_ip4_network(cidr)
+                return [
+                    ofdef.ofp_flow_mod(
+                        table_id = l3router,
+                        command = ofdef.OFPFC_DELETE_STRICT,
+                        priority = ofdef.OFP_DEFAULT_PRIORITY + 33 + prefix,
+                        buffer_id = ofdef.OFP_NO_BUFFER,
+                        out_port = ofdef.OFPP_ANY,
+                        out_group = ofdef.OFPG_ANY,
+                        match = ofdef.ofp_match_oxm(
+                            oxm_fields = [
+                                match_network(from_net_id),
+                                ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE,ofdef.ETHERTYPE_IP),
+                                ofdef.create_oxm(ofdef.OXM_OF_IPV4_DST_W,network,get_netmask(prefix))
+                            ]
+                        )
+                    )
+                ]
+
             for n in lastnetworkrouterinfo:
                 if n not in currentnetworkrouterinfo or (n in currentnetworkrouterinfo
                         and currentnetworkrouterinfo[n] != lastnetworkrouterinfo[n]):
@@ -1364,12 +1662,17 @@ class RouterUpdater(FlowUpdater):
                         # remove flow innermac + ip >>> l3input
                         cmds.extend(_deleteinputflow(inmac,networkid))
 
+                        cmds.extend(_deleteinputflow(outmac,networkid))
+
                         # remove arp reply flow on outmac >>> l3input
                         cmds.extend(_deletearpreplyflow(gateway,outmac,networkid))
 
                         # remove arp filter discard broadcast arp request to inner host
                         cmds.extend(_deletefilterarprequestflow(networkid))
                     else:
+
+                        cmds.extend(_deleteinputflow(outmac,networkid))
+
                         # remove arp reply flow on outmac >>> l3input
                         cmds.extend(_deletearpreplyflow(external_ip,outmac,networkid))
 
@@ -1439,6 +1742,17 @@ class RouterUpdater(FlowUpdater):
                                                     'arpentries': [(ipaddress,macaddrss,netkey,False)]}):
                         yield m
 
+            for n in lastnetworkforwardinfo:
+                if n not in currentnetworkforwardinfo or (n in currentnetworkforwardinfo
+                        and currentnetworkforwardinfo[n] != lastnetworkforwardinfo[n]):
+
+                    for x in lastnetworkforwardinfo[n]:
+                        from_network_id = x[0]
+                        outmac = x[2]
+                        cidr = x[3]
+                        cmds.extend(_delete_forward_route(from_network_id,cidr,outmac))
+
+
             for m in self.execute_commands(connection, cmds):
                 yield m
 
@@ -1452,6 +1766,8 @@ class RouterUpdater(FlowUpdater):
                         # add flow innermac + ip >>> l3input
                         cmds.extend(_createinputflow(inmac,networkid))
 
+                        cmds.extend(_createinputflow(outmac, networkid))
+
                         # add arp reply flow on outmac >>> l3input
                         cmds.extend(_createarpreplyflow(gateway,outmac,networkid))
 
@@ -1459,8 +1775,8 @@ class RouterUpdater(FlowUpdater):
                         cmds.extend(_createfilterarprequestflow(networkid))
                     else:
                         # external network, packet will recv from outmac , so add ..
-                        cmds.extend(_createinputflow(outmac,networkid))
-                        
+                        cmds.extend(_createinputflow(outmac, networkid))
+
                         # add arp reply flow on outmac >>> l3input
                         cmds.extend(_createarpreplyflow(external_ip,outmac,networkid))
 
@@ -1483,7 +1799,7 @@ class RouterUpdater(FlowUpdater):
                         cmds.extend(_add_router_route(from_network_id,cidr,to_network_id))
 
             arp_request_event = []
-            
+
             for n in currentnetworkstaticroutesinfo:
                 if n not in lastnetworkstaticroutesinfo:
                     for from_network_id,prefix,nexthop,to_network_id in currentnetworkstaticroutesinfo[n]:
@@ -1540,6 +1856,15 @@ class RouterUpdater(FlowUpdater):
                                            cidr=prefix)
                             arp_request_event.append(e)
 
+            for n in currentnetworkforwardinfo:
+                if n not in lastnetworkforwardinfo or (n in currentnetworkforwardinfo
+                        and currentnetworkforwardinfo[n] != lastnetworkforwardinfo[n]):
+
+                    for x in currentnetworkforwardinfo[n]:
+                        from_network_id = x[0]
+                        outmac = x[2]
+                        cidr = x[3]
+                        cmds.extend(_add_forward_route(from_network_id,cidr,outmac))
 
             for p in currentlgportinfo:
                 if p not in lastlgportinfo or (p in lastlgportinfo
@@ -1558,6 +1883,10 @@ class RouterUpdater(FlowUpdater):
                 for e in arp_request_event:
                     self.subroutine(self.waitForSend(e))
                 del arp_request_event[:]
+
+            # because function '_getinterfaceinfobynetid' use self._lastallrouterinfo above
+            # so change to new in last
+            self._lastallrouterinfo = allrouterinterfaceinfo
 
             for m in self.execute_commands(connection, cmds):
                 yield m
@@ -1587,6 +1916,10 @@ class L3Router(FlowBase):
     _default_buffer_packet_timeout = 30
 
     _default_static_host_arp_refresh_interval = 60
+
+    _default_enable_router_forward = True
+
+    _default_discover_update_time = 300
 
     def __init__(self, server):
         super(L3Router, self).__init__(server)
