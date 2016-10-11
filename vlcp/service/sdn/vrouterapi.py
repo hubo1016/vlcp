@@ -600,12 +600,15 @@ class VRouterApi(Module):
 
     def load(self,container):
 
-        initkeys = [VRouterSet.default_key()]
+        initkeys = [VRouterSet.default_key(),DVRouterForwardSet.default_key()]
 
         def init(keys,values):
             
             if values[0] is None:
                 values[0] = VRouterSet()
+
+            if values[1] is None:
+                values[1] = DVRouterForwardSet()
             
             return keys,values
 

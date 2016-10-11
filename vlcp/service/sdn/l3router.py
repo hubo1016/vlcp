@@ -724,7 +724,7 @@ class RouterUpdater(FlowUpdater):
 
                                 if netid == nid:
                                     self.subroutine(_add_static_host_flow(ip4_addr.formatter(reply_ipaddress),
-                                                                      reply_macaddress,nid,smac))
+                                                                      reply_macaddress,nid,mac_addr(smac)))
                         else:
                             # this is the first arp reply
                             if status == 1 or status == 3:
@@ -1076,7 +1076,7 @@ class RouterUpdater(FlowUpdater):
                 for k,v in router_to_phynet.items():
                     for e in v:
                         for x in v:
-                            if x != e:
+                            if x[0].id != e[0].id:
                                 currentstoreinfo.setdefault((e[0].id,x[0].id),set()).add(e[1])
                                 currentstoreinfo.setdefault((x[0].id, e[0].id), set()).add(x[1])
 
