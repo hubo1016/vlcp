@@ -157,6 +157,8 @@ class Request(object):
         if not self.host:
             raise ValueError('Invalid URL: ' + self.url)
         self.path = urlunsplit(('', '', quote(s.path), quote(s.query,'/&='), ''))
+        if not self.path:
+            self.path = '/'
         self.data = data
         if method is None:
             if self.data is None:
