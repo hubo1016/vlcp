@@ -394,6 +394,11 @@ class RedisDB(TcpServerBase):
                 if keys_deleted:
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
+            if not set_commands:
+                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                    yield m
+                self.apiroutine.retvalue = values
+                return
             for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
                                                             (('EXEC',),))):
@@ -448,6 +453,11 @@ class RedisDB(TcpServerBase):
                 if keys_deleted:
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
+            if not set_commands:
+                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                    yield m
+                self.apiroutine.retvalue = values
+                return
             for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
                                                             (('EXEC',),))):
@@ -507,6 +517,11 @@ class RedisDB(TcpServerBase):
                 if keys_deleted:
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
+            if not set_commands:
+                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                    yield m
+                self.apiroutine.retvalue = values
+                return
             for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
                                                             (('EXEC',),))):
