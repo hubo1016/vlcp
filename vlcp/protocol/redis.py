@@ -145,21 +145,24 @@ class RedisParser(object):
                     except ValueError as exc:
                         raise RedisProtocolException(str(exc))
                     startpos = le + 2
-                    array = []
-                    if arraysize:
-                        p = self._parser_gen(startpos)
-                        try:
-                            while arraysize:
-                                nv = next(p)
-                                if nv is not False:
-                                    array.append(nv)
-                                    arraysize -= 1
-                                else:
-                                    yield False
-                        finally:
-                            p.close()
-                            startpos = self._lastpos
-                    yield array
+                    if arraysize < 0:
+                        yield None
+                    else:
+                        array = []
+                        if arraysize:
+                            p = self._parser_gen(startpos)
+                            try:
+                                while arraysize:
+                                    nv = next(p)
+                                    if nv is not False:
+                                        array.append(nv)
+                                        arraysize -= 1
+                                    else:
+                                        yield False
+                            finally:
+                                p.close()
+                                startpos = self._lastpos
+                        yield array
                 else:
                     raise RedisProtocolException(repr(c) + ' is not a valid RESP type')
         finally:
