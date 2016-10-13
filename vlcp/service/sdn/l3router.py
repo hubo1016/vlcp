@@ -1592,7 +1592,7 @@ class RouterUpdater(FlowUpdater):
                 return [
                     ofdef.ofp_flow_mod(
                         table_id=l3router,
-                        command=ofdef.OFPFC_DELETE,
+                        command=ofdef.OFPFC_DELETE_STRICT,
                         priority=ofdef.OFP_DEFAULT_PRIORITY + prefix,
                         buffer_id=ofdef.OFP_NO_BUFFER,
                         out_port=ofdef.OFPP_ANY,
