@@ -134,12 +134,6 @@ class DVRouterForwardInfo(DataObject):
         super(DVRouterForwardInfo,self).__init__(prefix=prefix,deleted=deleted)
         self.info = []
 
-class DVRouterForwardSetRef(DataObject):
-    _prefix = 'viperflow.dvroutertransmitset'
-
-    def __init__(self,prefix=None,deleted=None):
-        super(DVRouterForwardSetRef,self).__init__(prefix=prefix,deleted=deleted)
-        self.set = DataObjectSet()
 
 class DVRouterForwardInfoRef(DataObject):
     _prefix = 'viperflow.dvrouterforwardrefinfo'
@@ -147,6 +141,14 @@ class DVRouterForwardInfoRef(DataObject):
 
     def __init__(self,prefix=None,deleted=None):
         super(DVRouterForwardInfoRef,self).__init__(prefix=prefix,deleted=deleted)
+        self.info = []
+
+
+class DVRouterExternalAddressInfo(DataObject):
+    _prefix = 'viperflow.dvrouterexternaladdressinfo'
+
+    def __init__(self, prefix=None,deleted=None):
+        super(DVRouterExternalAddressInfo,self).__init__(prefix=prefix,deleted=deleted)
         self.info = []
 
 class VRouterSet(DataObject):

@@ -600,7 +600,8 @@ class VRouterApi(Module):
 
     def load(self,container):
 
-        initkeys = [VRouterSet.default_key(),DVRouterForwardSet.default_key()]
+        initkeys = [VRouterSet.default_key(),DVRouterForwardSet.default_key(),
+                    DVRouterExternalAddressInfo.default_key()]
 
         def init(keys,values):
             
@@ -609,6 +610,9 @@ class VRouterApi(Module):
 
             if values[1] is None:
                 values[1] = DVRouterForwardSet()
+
+            if values[2] is None:
+                values[2] = DVRouterExternalAddressInfo()
             
             return keys,values
 
