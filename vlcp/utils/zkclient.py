@@ -77,6 +77,9 @@ class ZooKeeperClient(Configurable):
         self.session_id = 0
         self.session_state = ZooKeeperSessionStateChanged.EXPIRED
         self._shutdown = False
+        self.key = None
+        self.certificate = None
+        self.ca_certs = None
     def start(self, asyncstart = False):
         self._connmanage_routine = self._container.subroutine(self._connection_manage(), asyncstart)
     def reset(self):
@@ -102,7 +105,8 @@ class ZooKeeperClient(Configurable):
                 if np >= len(self.serverlist):
                     np = 0
                 self.nextptr = np
-                conn = Client(self.currentserver, self.protocol, self._container.scheduler)
+                conn = Client(self.currentserver, self.protocol, self._container.scheduler,
+                              self.key, self.certificate, self.ca_certs)
                 self.current_connection = conn
                 conn_up = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.UP,
                                                                       conn)

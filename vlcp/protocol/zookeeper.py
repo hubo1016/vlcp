@@ -269,6 +269,7 @@ class ZooKeeper(Protocol):
             else:
                 matcher_callback(container.event, m2)
                 ms -= 1
+        container.scheduler.unregister((conn_matcher,), cr)
         responses = [replydict.get(m, None) for m in matchers]
         received_responses = dict((k,v) for k,v in zip(requests, responses) if v is not None)
         if receive_all:
