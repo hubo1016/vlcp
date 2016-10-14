@@ -199,7 +199,7 @@ class ZooKeeperDB(TcpServerBase):
         def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):
             # URL should like: zk://<server1>[:port1],<server2>[:port2],.../chrootpath
             r = urlsplit(url, 'tcp')
-            server_list = [urlunsplit((r.schema, l.strip(), '/', '', '')) for l in r.netloc.split(',') if l.strip()]
+            server_list = [urlunsplit((r.scheme, l.strip(), '/', '', '')) for l in r.netloc.split(',') if l.strip()]
             client = ZooKeeperClient(self.apiroutine, server_list, r.path)
             if key:
                 client.key = key
