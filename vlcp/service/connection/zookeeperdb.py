@@ -215,7 +215,7 @@ class ZooKeeperDB(TcpServerBase):
         return (self._zookeeper_clients.get(vhost), self._encode, self._decode)
     def get(self, key, timeout = None, vhost = ''):
         "Get value from key"
-        for m in self.mget((key,), timeout, vhost):
+        for m in self.mget((key,), vhost = vhost):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
     def set(self, key, value, timeout = None, vhost = ''):
