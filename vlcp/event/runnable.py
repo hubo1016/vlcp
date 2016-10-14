@@ -497,7 +497,7 @@ class RoutineContainer(object):
             # Directly run the process to improve performance
             for m in subprocesses[0]:
                 yield m
-            self.retvalue = tuple(getattr(self, n, None) for n in retnames)
+            self.retvalue = [tuple(getattr(self, n, None) for n in retnames)]
             return
         if container is None:
             container = self
