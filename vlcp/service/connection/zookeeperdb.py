@@ -171,7 +171,7 @@ class ZooKeeperDB(TcpServerBase):
                                           zk.create(b'/vlcp/tmp/timer', b'')],
                                          self.apiroutine):
                     yield m
-                result = self.apiroutine.retvalue[1]
+                result = self.apiroutine.retvalue
                 if not result[1] and not result[2]:
                     break
         allow_vhosts = self.kvdbvhosts
