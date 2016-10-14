@@ -36,7 +36,10 @@ import vlcp.utils.zookeeper as zk
 from uuid import uuid1
 
 def _tobytes(k):
-    return k.encode('utf-8')
+    if not isinstance(k, bytes):
+        return k.encode('utf-8')
+    else:
+        return k
 
 def _escape_path(key):
     '''
@@ -546,10 +549,10 @@ class ZooKeeperDB(TcpServerBase):
             
             barrier_dict = dict(zip(escaped_keys, barrier_list))
             # pre-create the new keys parent node
-            for m in _pre_create_keys(delete_other_keys + set_other_keys, session_lock):
+            for m in _pre_create_keys(delete_other_keys + [k for k,_ in set_other_keys], session_lock):
                 yield m
             # register them to be recycled later
-            self._recycle_list[vhost].update((b'/vlcp/kvdb/' + k for k in (delete_other_keys + set_other_keys)))
+            self._recycle_list[vhost].update((b'/vlcp/kvdb/' + k for k in (delete_other_keys + [k for k,_ in set_other_keys])))
             # We must create/delete all the keys in a single transaction
             # Should understand that this means the total write data must be limited to less than 4MB
             # Compress may help, but do not expect too much
