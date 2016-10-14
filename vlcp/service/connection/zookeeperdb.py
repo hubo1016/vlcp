@@ -697,7 +697,7 @@ class ZooKeeperDB(TcpServerBase):
             else:
                 self.apiroutine.retvalue = False
         recycle_all_freq = 10
-        recycle_all_counter = 0
+        recycle_all_counter = 8
         while True:
             if not _recycle_list:
                 if len(self._recycle_list[vhost]) < 800:
