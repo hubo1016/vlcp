@@ -217,7 +217,7 @@ class ZooKeeperDB(TcpServerBase):
         "Get value from key"
         for m in self.mget((key,), timeout, vhost):
             yield m
-        return self.apiroutine.retvalue[0]
+        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
     def set(self, key, value, timeout = None, vhost = ''):
         "Set value to key, with an optional timeout"
         # These interfaces are just for compatibility. Inefficiency is OK.
