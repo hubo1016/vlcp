@@ -650,9 +650,9 @@ class ZooKeeperDB(TcpServerBase):
                     continue
                 can_recycle_parent = (completes[0].stat.mtime < time_limit)
                 recycle_parent_version = completes[0].stat.version
-                children = [(name.rpartition(b'-')[2], name) for name in completes[0].children if name.startswith(b'data')]
+                children = [name for name in completes[0].children if name.startswith(b'data')]
                 other_children = completes[0].stat.numChildren - len(children)
-                children.sort()
+                children.sort(key = lambda x: (x.rpartition(b'-')[2], name))
                 # Use a binary search to find the boundary for deletion
                 # We recycle a version if:
                 # 1. It has been created for more than 2 minutes; and
