@@ -59,13 +59,10 @@ def _to32bitport(portno):
 
 class IOFlowUpdater(FlowUpdater):
     def __init__(self, connection, systemid, bridgename, parent):
-        FlowUpdater.__init__(self, connection, (LogicalPortSet.default_key(),
-                                                PhysicalPortSet.default_key()),
+        FlowUpdater.__init__(self, connection, (PhysicalPortSet.default_key(),),
                                             ('ioprocessing', connection),
                                             parent._logger)
-        self._walkerdict = {LogicalPortSet.default_key(): self._logicalport_walker,
-                            PhysicalPortSet.default_key(): self._physicalport_walker
-                            }
+        self._walkerdict = {PhysicalPortSet.default_key(): self._physicalport_walker}
         self._systemid = systemid
         self._bridgename = bridgename
         self._portnames = {}
@@ -88,75 +85,76 @@ class IOFlowUpdater(FlowUpdater):
         self._portnames.update((p['name'], _to32bitport(p['ofport'])) for p in ovsdb_ports)
         self._portids.clear()
         self._portids.update((p['id'], _to32bitport(p['ofport'])) for p in ovsdb_ports if p['id'])
+
+        logicalportkeys = [LogicalPort.default_key(id) for id in self._portids]
+
+        self._initialkeys = logicalportkeys + [PhysicalPort.default_key()]
+
+        self._walkerdict = dict(itertools.chain(
+            ((PhysicalPortSet.default_key(),self._physicalport_walker),),
+            ((lgportkey,self._logicalport_walker) for lgportkey in logicalportkeys)
+        ))
+
         for m in self.restart_walk():
             yield m
+
     def _logicalport_walker(self, key, value, walk, save):
         save(key)
         if value is None:
             return
-        logset = value.set
-        for id in self._portids:
-            logports = logset.find(LogicalPort, id)
-            for p in logports:
-                try:
-                    logp = walk(p.getkey())
-                except KeyError:
-                    pass
-                else:
-                    save(logp.getkey())
+        try:
+            lognet = walk(value.network.getkey())
+        except KeyError:
+            pass
+        else:
+            save(lognet.getkey())
+            try:
+                phynet = walk(lognet.physicalnetwork.getkey())
+            except KeyError:
+                pass
+            else:
+                save(phynet.getkey())
+        if hasattr(value,"subnet"):
+            try:
+                subnet = walk(value.subnet.getkey())
+            except KeyError:
+                pass
+            else:
+                save(subnet.getkey())
+                if hasattr(subnet,"router"):
                     try:
-                        lognet = walk(logp.network.getkey())
+                        routerport = walk(subnet.router.getkey())
                     except KeyError:
                         pass
                     else:
-                        save(lognet.getkey())
-                        try:
-                            phynet = walk(lognet.physicalnetwork.getkey())
-                        except KeyError:
-                            pass
-                        else:
-                            save(phynet.getkey())
-                    if hasattr(logp,"subnet"):
-                        try:
-                            subnet = walk(logp.subnet.getkey())
-                        except KeyError:
-                            pass
-                        else:
-                            save(subnet.getkey())
-                            if hasattr(subnet,"router"):
-                                try:
-                                    routerport = walk(subnet.router.getkey())
-                                except KeyError:
-                                    pass
-                                else:
-                                    save(routerport.getkey())
-                                    if hasattr(routerport,"router"):
+                        save(routerport.getkey())
+                        if hasattr(routerport,"router"):
+                            try:
+                                router = walk(routerport.router.getkey())
+                            except KeyError:
+                                pass
+                            else:
+                                save(router.getkey())
+                                if router.interfaces.dataset():
+                                    for weakobj in router.interfaces.dataset():
                                         try:
-                                            router = walk(routerport.router.getkey())
+                                            weakrouterport = walk(weakobj.getkey())
                                         except KeyError:
                                             pass
                                         else:
-                                            save(router.getkey())
-                                            if router.interfaces.dataset():
-                                                for weakobj in router.interfaces.dataset():
-                                                    try:
-                                                        weakrouterport = walk(weakobj.getkey())
-                                                    except KeyError:
-                                                        pass
-                                                    else:
-                                                        save(weakrouterport.getkey())
-                                                        try:
-                                                            s = walk(weakrouterport.subnet.getkey())
-                                                        except KeyError:
-                                                            pass
-                                                        else:
-                                                            save(s.getkey())
-                                                            try:
-                                                                lgnet = walk(s.network.getkey())
-                                                            except KeyError:
-                                                                pass
-                                                            else:
-                                                                save(lgnet.getkey())
+                                            save(weakrouterport.getkey())
+                                            try:
+                                                s = walk(weakrouterport.subnet.getkey())
+                                            except KeyError:
+                                                pass
+                                            else:
+                                                save(s.getkey())
+                                                try:
+                                                    lgnet = walk(s.network.getkey())
+                                                except KeyError:
+                                                    pass
+                                                else:
+                                                    save(lgnet.getkey())
     def _physicalport_walker(self, key, value, walk, save):
         save(key)
         if value is None:
