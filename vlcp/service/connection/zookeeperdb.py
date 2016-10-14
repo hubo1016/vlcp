@@ -562,8 +562,8 @@ class ZooKeeperDB(TcpServerBase):
                          for k,data in set_other_keys))
             multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + b'/data-' + barrier_dict[k].rpartition(b'-')[2], b'')
                          for k in delete_barrier_keys))
-            multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + b'/data-' + barrier_dict[k].rpartition(b'-')[2], b'')
-                         for k in set_barrier_keys))
+            multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + b'/data-' + barrier_dict[k].rpartition(b'-')[2], data)
+                         for k,data in set_barrier_keys))
             multi_op.extend((zk.multi_delete(k) for k in barrier_list))
             if multi_op:
                 while True:
