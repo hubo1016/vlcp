@@ -224,7 +224,7 @@ class ZooKeeperDB(TcpServerBase):
     def set(self, key, value, timeout = None, vhost = ''):
         "Set value to key, with an optional timeout"
         # These interfaces are just for compatibility. Inefficiency is OK.
-        for m in self.mset((key, value), timeout, vhost):
+        for m in self.mset(((key, value),), timeout, vhost):
             yield m
         self.apiroutine.retvalue = None
     def delete(self, key, vhost = ''):
