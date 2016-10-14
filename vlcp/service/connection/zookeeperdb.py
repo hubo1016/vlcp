@@ -454,7 +454,7 @@ class ZooKeeperDB(TcpServerBase):
                     self._check_completes(completes)
                     self.apiroutine.retvalue = [r.data if r.data else None for r in completes]
                 def _wait_value(key, children):
-                    for name in children:
+                    for seq, name in children:
                         if name.startswith(b'barrier'):
                             while True:
                                 for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name, True)],
@@ -476,7 +476,6 @@ class ZooKeeperDB(TcpServerBase):
                                 else:
                                     break
                             # Done or roll back, let's check
-                            seq = name.rpartition(b'-')[2]
                             for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/data-' + seq)],
                                                 self.apiroutine, 60, session_lock):
                                 yield m
