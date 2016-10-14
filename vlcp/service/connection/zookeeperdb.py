@@ -266,7 +266,7 @@ class ZooKeeperDB(TcpServerBase):
                         self.apiroutine.retvalue = None
                     return
             self.apiroutine.retvalue = None
-        for m in self.apiroutine.executeAll([retrieve_version(r, b'/vlcp/kvdb/' + k + '/', zxid_limit)
+        for m in self.apiroutine.executeAll([retrieve_version(r, b'/vlcp/kvdb/' + k + b'/', zxid_limit)
                                              for r,k in izip(completes, escaped_keys)]):
             yield m
         self.apiroutine.retvalue = [self._decode(r[0]) for r in self.apiroutine.retvalue]
