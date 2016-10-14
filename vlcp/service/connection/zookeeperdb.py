@@ -259,7 +259,7 @@ class ZooKeeperDB(TcpServerBase):
                 if losts or retries:
                     # Should not happend but in case...
                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
-                if completes[0].mzxid <= zxid_limit:
+                if completes[0].stat.mzxid <= zxid_limit:
                     if completes[0].data:
                         self.apiroutine.retvalue = completes[0].data
                     else:
@@ -410,7 +410,7 @@ class ZooKeeperDB(TcpServerBase):
                 if losts or retries:
                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)                
                 self._check_completes(completes)
-                server_time = completes[0].mtime * 1000
+                server_time = completes[0].stat.mtime * 1000
                 # Retrieve values
                 for m in client.requests([zk.getchildren(b'/vlcp/kvdb/' + k)
                                      for k in escaped_keys],
@@ -525,7 +525,7 @@ class ZooKeeperDB(TcpServerBase):
                     if not losts and not retries:
                         break
                 self._check_completes(completes)
-                server_time = completes[1].mtime * 1000
+                server_time = completes[1].stat.mtime * 1000
                 session_lock = client.session_id
                 values = []
             try:
@@ -633,7 +633,7 @@ class ZooKeeperDB(TcpServerBase):
                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                 self._check_completes(completes)
                 # time limit is 2 minutes ago
-                time_limit = completes[1].mtime - 120000
+                time_limit = completes[1].stat.mtime - 120000
                 # Get the children list
                 for m in client.requests([zk.getchildren2(recycle_key)],
                                          self.apiroutine, 60):
@@ -644,10 +644,10 @@ class ZooKeeperDB(TcpServerBase):
                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                 if completes[0].err == zk.ZOO_ERR_NONODE:
                     continue
-                can_recycle_parent = (completes[0].mtime < time_limit)
-                recycle_parent_version = completes[0].version
+                can_recycle_parent = (completes[0].stat.mtime < time_limit)
+                recycle_parent_version = completes[0].stat.version
                 children = [(name.rpartition(b'-')[2], name) for name in completes[0].children if name.startswith(b'data')]
-                other_children = completes[0].numChildren - len(children)
+                other_children = completes[0].stat.numChildren - len(children)
                 children.sort()
                 # Use a binary search to find the boundary for deletion
                 # We recycle a version if:
@@ -670,8 +670,8 @@ class ZooKeeperDB(TcpServerBase):
                         # Might already be recycled
                         recycle_key = None
                         break
-                    if completes[0].ctime < time_limit:
-                        is_empty = (completes[0].dataLength <= 0)
+                    if completes[0].stat.ctime < time_limit:
+                        is_empty = (completes[0].stat.dataLength <= 0)
                         begin = middle + 1
                     else:
                         end = middle
