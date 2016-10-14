@@ -515,6 +515,7 @@ class ZooKeeperDB(TcpServerBase):
                         values.append(next(normal_result_iterator))
             else:
                 barrier_list = []
+                escaped_keys = []
                 # We still need a timestamp, use /vlcp/tmp/timer
                 while True:
                     for m in client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
