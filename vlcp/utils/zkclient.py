@@ -46,7 +46,7 @@ class ZooKeeperClient(Configurable):
     _default_serverlist = []
     _default_chroot = '/'
     _default_auth = []
-    _default_sessiontimeout = 30
+    _default_sessiontimeout = 20
     _default_rebalancetime = 3600
     _logger = logging.getLogger(__name__ + '.ZooKeeperClient')
     def __init__(self, container, serverlist = None, chroot = None, protocol = None, readonly = False,

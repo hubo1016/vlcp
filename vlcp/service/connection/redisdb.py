@@ -455,7 +455,7 @@ class RedisDB(TcpServerBase):
             r = self.apiroutine.retvalue[-1]
             if r is not None:
                 # Succeeded
-                self.apiroutine.retvalue = values
+                self.apiroutine.retvalue = (new_keys, new_values)
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
@@ -514,7 +514,7 @@ class RedisDB(TcpServerBase):
             r = self.apiroutine.retvalue[-1]
             if r is not None:
                 # Succeeded
-                self.apiroutine.retvalue = values
+                self.apiroutine.retvalue = (new_keys, new_values)
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))

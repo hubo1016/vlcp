@@ -452,7 +452,7 @@ class RoutineContainer(object):
                 e.canignore = True
                 for m in container.waitForSend(e):
                     yield m
-                raise
+                raise val
             else:
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine,
                                         result = tuple(getattr(container, n, None) for n in retnames))
@@ -490,6 +490,15 @@ class RoutineContainer(object):
         :returns: a list of tuples, one for each subprocess, with value of retnames inside:
         [('retvalue1',),('retvalue2',),...]
         '''
+        if not subprocesses:
+            self.retvalue = []
+            return
+        if len(subprocesses) == 1 and (container is None or container is self) and forceclose:
+            # Directly run the process to improve performance
+            for m in subprocesses[0]:
+                yield m
+            self.retvalue = tuple(getattr(self, n, None) for n in retnames)
+            return
         if container is None:
             container = self
         delegates = [self.beginDelegateOther(p, container, retnames) for p in subprocesses]

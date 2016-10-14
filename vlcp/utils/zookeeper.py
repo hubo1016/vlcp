@@ -928,3 +928,6 @@ def getacl(path):
 def setacl(path, acl, version = -1):
     return SetACLRequest(path = path, acl = acl, version = version)
 
+def sync(path):
+    return SyncRequest(path = path)
+
