@@ -229,7 +229,7 @@ class ZooKeeperDB(TcpServerBase):
         self.apiroutine.retvalue = None
     def delete(self, key, vhost = ''):
         def updater(keys, values, server_time):
-            return (keys, (None,))
+            return ((key,), (None,))
         for m in self.updateallwithtime((), updater, None, vhost):
             yield m
         self.apiroutine.retvalue = None
