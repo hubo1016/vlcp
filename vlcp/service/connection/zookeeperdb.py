@@ -13,7 +13,7 @@ from vlcp.utils.zkclient import ZooKeeperClient, ZooKeeperSessionUnavailable,\
         ZooKeeperSessionStateChanged
 from vlcp.protocol.zookeeper import ZooKeeper
 from namedstruct.namedstruct import dump
-from random import randrange
+from random import randrange, shuffle, sample
 try:
     import cPickle
 except ImportError:
@@ -616,29 +616,46 @@ class ZooKeeperDB(TcpServerBase):
             yield m
         _recycle_list = set(self._recycle_list[vhost])
         self._recycle_list[vhost].clear()
-        while True:
-            if not _recycle_list:
-                if len(self._recycle_list[vhost]) < 800:
-                    for m in self.apiroutine.waitWithTimeout(180 - len(self._recycle_list[vhost]) / 5.0):
-                        yield m
-                _recycle_list.update(self._recycle_list[vhost])
-                self._recycle_list[vhost].clear()
-                continue            
-            recycle_key = _recycle_list.pop()
-            try:
-                # Retrieve server time
-                for m in client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
-                                     zk.exists(b'/vlcp/tmp/timer')],
-                                    self.apiroutine, 60):
-                    yield m
-                completes, losts, retries, _ = self.apiroutine.retvalue
-                if losts or retries:
-                    raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
-                self._check_completes(completes)
-                # time limit is 2 minutes ago
-                time_limit = completes[1].stat.mtime - 120000
-                # Get the children list
-                for m in client.requests([zk.getchildren2(recycle_key)],
+        def _recycle_key(recycle_key):
+            # Retrieve server time
+            for m in client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
+                                 zk.exists(b'/vlcp/tmp/timer')],
+                                self.apiroutine, 60):
+                yield m
+            completes, losts, retries, _ = self.apiroutine.retvalue
+            if losts or retries:
+                raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+            self._check_completes(completes)
+            # time limit is 2 minutes ago
+            time_limit = completes[1].stat.mtime - 120000
+            # Get the children list
+            for m in client.requests([zk.getchildren2(recycle_key)],
+                                     self.apiroutine, 60):
+                yield m
+            completes, losts, retries, _ = self.apiroutine.retvalue
+            if losts or retries:
+                raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+            self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
+            if completes[0].err == zk.ZOO_ERR_NONODE:
+                self.apiroutine.retvalue = False
+                return
+            can_recycle_parent = (completes[0].stat.mtime < time_limit)
+            recycle_parent_version = completes[0].stat.version
+            children = [name for name in completes[0].children if name.startswith(b'data')]
+            other_children = completes[0].stat.numChildren - len(children)
+            children.sort(key = lambda x: (x.rpartition(b'-')[2], x))
+            # Use a binary search to find the boundary for deletion
+            # We recycle a version if:
+            # 1. It has been created for more than 2 minutes; and
+            # 2. It is not the latest version in all versions that matches (1), unless it is empty
+            # We leave the latest value because mget() from other clients to other ZooKeeper servers
+            # might need the old version of data to keep mget() to get the same version for all keys
+            begin = 0
+            end = len(children)
+            is_empty = False
+            while begin < end:
+                middle = (begin + end) // 2
+                for m in client.requests([zk.exists(recycle_key + b'/' + children[middle])],
                                          self.apiroutine, 60):
                     yield m
                 completes, losts, retries, _ = self.apiroutine.retvalue
@@ -646,59 +663,110 @@ class ZooKeeperDB(TcpServerBase):
                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                 if completes[0].err == zk.ZOO_ERR_NONODE:
-                    continue
-                can_recycle_parent = (completes[0].stat.mtime < time_limit)
-                recycle_parent_version = completes[0].stat.version
-                children = [name for name in completes[0].children if name.startswith(b'data')]
-                other_children = completes[0].stat.numChildren - len(children)
-                children.sort(key = lambda x: (x.rpartition(b'-')[2], x))
-                # Use a binary search to find the boundary for deletion
-                # We recycle a version if:
-                # 1. It has been created for more than 2 minutes; and
-                # 2. It is not the latest version in all versions that matches (1), unless it is empty
-                # We leave the latest value because mget() from other clients to other ZooKeeper servers
-                # might need the old version of data to keep mget() to get the same version for all keys
-                begin = 0
-                end = len(children)
-                is_empty = False
-                while begin < end:
-                    middle = (begin + end) // 2
-                    for m in client.requests([zk.exists(recycle_key + b'/' + children[middle])],
-                                             self.apiroutine, 60):
-                        yield m
-                    completes, losts, retries, _ = self.apiroutine.retvalue
-                    if losts or retries:
-                        raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
-                    self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
-                    if completes[0].err == zk.ZOO_ERR_NONODE:
-                        # Might already be recycled
-                        recycle_key = None
-                        break
-                    if completes[0].stat.ctime < time_limit:
-                        is_empty = (completes[0].stat.dataLength <= 0)
-                        begin = middle + 1
-                    else:
-                        end = middle
-                if not recycle_key:
-                    continue
-                if not is_empty:
-                    # Leave an extra node
-                    begin -= 1
-                operations = [zk.delete(recycle_key + b'/' + name)
-                                for name in children[:begin]]
-                if begin == len(children) and not other_children and can_recycle_parent:
-                    # Try to remove the whole key. We check the version, so that
-                    # if recycling happens before updateallwithtime() precreating the key,
-                    # the precreating procedure will create it again;
-                    # if recycling happens after updateallwithtime() precreating, the
-                    # version should already be changed so the delete fails
-                    operations.append(zk.delete(recycle_key, recycle_parent_version))
+                    # Might already be recycled
+                    recycle_key = None
+                    break
+                if completes[0].stat.ctime < time_limit:
+                    is_empty = (completes[0].stat.dataLength <= 0)
+                    begin = middle + 1
+                else:
+                    end = middle
+            if not recycle_key:
+                self.apiroutine.retvalue = False
+                return
+            if not is_empty:
+                # Leave an extra node
+                begin -= 1
+            operations = [zk.delete(recycle_key + b'/' + name)
+                            for name in children[:begin]]
+            if begin == len(children) and not other_children and can_recycle_parent:
+                # Try to remove the whole key. We check the version, so that
+                # if recycling happens before updateallwithtime() precreating the key,
+                # the precreating procedure will create it again;
+                # if recycling happens after updateallwithtime() precreating, the
+                # version should already be changed so the delete fails
+                operations.append(zk.delete(recycle_key, recycle_parent_version))
+            if operations:
                 while operations:
                     for m in client.requests(operations, self.apiroutine, 60):
                         yield m
                     completes, losts, retries, _ = self.apiroutine.retvalue
                     operations = losts + retries
                     # It is not necessary to check the return value; any result is acceptable.
+                self.apiroutine.retvalue = True
+            else:
+                self.apiroutine.retvalue = False
+        recycle_all_freq = 10
+        recycle_all_counter = 0
+        while True:
+            if not _recycle_list:
+                if len(self._recycle_list[vhost]) < 800:
+                    for m in self.apiroutine.waitWithTimeout(180 - len(self._recycle_list[vhost]) / 5.0):
+                        yield m
+                    recycle_all_counter += 1
+                _recycle_list.update(self._recycle_list[vhost])
+                self._recycle_list[vhost].clear()
+                if recycle_all_counter >= recycle_all_freq:
+                    recycle_all_counter = 0
+                    # Do a full recycling to all keys
+                    # We want to keep the unrecycled nodes under 25%
+                    # which means when we random select 4N keys,
+                    # the expectation of recycled keys are less than N
+                    try:
+                        for m in client.requests([zk.getchildren(b'/vlcp/kvdb')]):
+                            yield m
+                        completes, losts, retries, _ = self.apiroutine.retvalue
+                        if losts or retries:
+                            raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+                        all_path = [b'/vlcp/kvdb/' + p for p in completes[0].children]
+                        if len(all_path) > 2000:
+                            all_path = sample(all_path, 2000)
+                        else:
+                            shuffle(all_path)
+                        _total_try = 0
+                        _total_succ = 0
+                        for i in range(0, len(all_path), 20):
+                            step_succ = 0
+                            for p in all_path[i:i+20]:
+                                for m in _recycle_key(p):
+                                    yield m
+                                _total_try += 1
+                                if self.apiroutine.retvalue:
+                                    step_succ += 1
+                                    _total_succ += 1
+                            if step_succ < 5:
+                                break
+                        last_req = recycle_all_freq
+                        if len(all_path) <= 100:
+                            recycle_all_freq = 40
+                        else:
+                            if _total_try < 20:
+                                recycle_all_freq = 40
+                            else:
+                                estimate_p = float(_total_succ) / float(_total_try)
+                                if estimate_p < 0.01:
+                                    estimate_p = 0.01
+                                recycle_all_freq = int(recycle_all_freq * 0.25 / estimate_p)
+                                if recycle_all_freq <= 1:
+                                    recycle_all_freq = 1
+                                elif recycle_all_freq >= 100:
+                                    recycle_all_freq = 100
+                        if last_req * 2 <= recycle_all_freq:
+                            # Redistribute the recycling time
+                            recycle_all_counter = randrange(0, recycle_all_freq)
+                    except ZooKeeperSessionUnavailable:
+                        for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
+                            yield m
+                    except Exception:
+                        self._logger.warning('Full recycle exception occurs, vhost = %r', vhost,
+                                             exc_info = True)
+                        for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
+                            yield m
+                continue
+            recycle_key = _recycle_list.pop()
+            try:
+                for m in _recycle_key(recycle_key):
+                    yield m
             except ZooKeeperSessionUnavailable:
                 self._recycle_list[vhost].add(recycle_key)
                 for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
