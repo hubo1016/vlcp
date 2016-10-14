@@ -664,7 +664,8 @@ class ZooKeeperDB(TcpServerBase):
                 is_empty = False
                 while begin < end:
                     middle = (begin + end) // 2
-                    for m in client.requests([zk.exists(recycle_key + b'/' + children[middle])]):
+                    for m in client.requests([zk.exists(recycle_key + b'/' + children[middle])],
+                                             self.apiroutine, 60):
                         yield m
                     completes, losts, retries, _ = self.apiroutine.retvalue
                     if losts or retries:
