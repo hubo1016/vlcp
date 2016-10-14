@@ -503,7 +503,7 @@ class ZooKeeperDB(TcpServerBase):
                 for m in self.apiroutine.executeAll([_normal_get_value()] + \
                                 [_wait_value(vp[1], vp[2])
                                  for vp in value_path
-                                 if vp[0]]):
+                                 if vp and vp[0]]):
                     yield m
                 results = self.apiroutine.retvalue
                 values = []
