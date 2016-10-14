@@ -12,13 +12,10 @@ from vlcp.event.event import Event, withIndices
 from vlcp.event.runnable import RoutineContainer, RoutineException
 from vlcp.config.config import defaultconfig
 from vlcp.service.sdn.ofpmanager import FlowInitialize
-from vlcp.utils.networkmodel import PhysicalPort, LogicalPort, PhysicalPortSet, LogicalPortSet, LogicalNetwork, PhysicalNetwork,SubNet,RouterPort,VRouter
+from vlcp.utils.networkmodel import PhysicalPort, LogicalPort, PhysicalPortSet, LogicalPortSet, LogicalNetwork, \
+    PhysicalNetwork,SubNet,RouterPort,VRouter, \
+    PhysicalNetworkMap
 from vlcp.utils.flowupdater import FlowUpdater
-from vlcp.event.connection import ConnectionResetException
-from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent,\
-    OpenflowErrorResultException
-from pprint import pformat
-from namedstruct import dump
 
 import itertools
 
@@ -193,6 +190,20 @@ class IOFlowUpdater(FlowUpdater):
                         pass
                     else:
                         save(phynet.getkey())
+                        if self._parent.enable_router_forward:
+                            try:
+                                phynetmap = walk(PhysicalNetworkMap.default_key(phynet.id))
+                            except KeyError:
+                                pass
+                            else:
+                                save(phynetmap)
+                                for weak_lgnet in  phynetmap.logicnetworks.dataset():
+                                    try:
+                                        lgnet = walk(weak_lgnet.getkey())
+                                    except KeyError:
+                                        pass
+                                    else:
+                                        save(lgnet.getkey())
 
     def reset_initialkeys(self,keys,values):
 
@@ -886,6 +897,9 @@ class IOProcessing(FlowBase):
     _tablerequest = (("ingress", (), ''),
                      ("egress", ("ingress",),''))
     _default_vhostmap = {}
+
+    _default_enable_router_forward = False
+
     def __init__(self, server):
         FlowBase.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)

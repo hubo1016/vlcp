@@ -16,13 +16,13 @@ from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.service.sdn import arpresponder
 from vlcp.service.sdn import icmpresponder
-from vlcp.utils.dataobject import ReferenceObject, set_new, WeakReferenceObject
+from vlcp.utils.dataobject import set_new, WeakReferenceObject
 from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes, ip4_addr, arp_packet_l4, mac_addr, ethernet_l4, \
     ethernet_l7
 from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.utils.netutils import parse_ip4_network,get_netmask, parse_ip4_address, ip_in_network
-from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet, SubNetMap, DVRouterInfo, DVRouterForwardInfo, \
-    DVRouterForwardSet, DVRouterForwardInfoRef, DVRouterExternalAddressInfo
+from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet, SubNetMap,DVRouterForwardInfo, \
+    DVRouterForwardSet, DVRouterForwardInfoRef, DVRouterExternalAddressInfo, LogicalNetworkMap, LogicalNetwork
 
 
 @withIndices("connection")
@@ -836,59 +836,6 @@ class RouterUpdater(FlowUpdater):
             return
         save(key)
 
-        # lgport --> subnet --> routerport --> router --> routerport --->> subnet --->> logicalnet
-        if hasattr(value, "subnet"):
-            try:
-                subnetobj = walk(value.subnet.getkey())
-            except KeyError:
-                pass
-            else:
-                save(subnetobj.getkey())
-                if hasattr(subnetobj, "router"):
-                    try:
-                        routerport = walk(subnetobj.router.getkey())
-                    except KeyError:
-                        pass
-                    else:
-                        save(routerport.getkey())
-
-                        if hasattr(routerport, "router"):
-                            try:
-                                router = walk(routerport.router.getkey())
-                            except KeyError:
-                                pass
-                            else:
-                                save(router.getkey())
-
-                                if router.interfaces.dataset():
-
-                                    for weakobj in router.interfaces.dataset():
-                                        routerport_weakkey = weakobj.getkey()
-
-                                        # we walk from this key , so except
-                                        if routerport_weakkey != routerport.getkey():
-                                            try:
-                                                weakrouterport = walk(routerport_weakkey)
-                                            except KeyError:
-                                                pass
-                                            else:
-                                                save(routerport_weakkey)
-
-                                                if hasattr(weakrouterport, "subnet"):
-                                                    try:
-                                                        weaksubnet = walk(weakrouterport.subnet.getkey())
-                                                    except KeyError:
-                                                        pass
-                                                    else:
-                                                        save(weaksubnet.getkey())
-
-                                                        if hasattr(weaksubnet, "network"):
-                                                            try:
-                                                                logicalnetwork = walk(weaksubnet.network.getkey())
-                                                            except KeyError:
-                                                                pass
-                                                            else:
-                                                                save(logicalnetwork.getkey())
 
     def _walk_lgnet(self, key, value, walk, save):
 
@@ -896,6 +843,69 @@ class RouterUpdater(FlowUpdater):
             return
 
         save(key)
+
+        lgnetmapkey = LogicalNetworkMap.default_key(LogicalNetwork._getIndices(key)[1][0])
+
+        try:
+            lgnetmap = walk(lgnetmapkey)
+        except KeyError:
+            pass
+        else:
+            save(lgnetmap.getkey())
+
+            for subnet_weak in lgnetmap.subnets.dataset():
+                try:
+                    subnetobj = walk(subnet_weak.getkey())
+                except KeyError:
+                    pass
+                else:
+                    save(subnetobj.getkey())
+                    if hasattr(subnetobj, "router"):
+                        try:
+                            routerport = walk(subnetobj.router.getkey())
+                        except KeyError:
+                            pass
+                        else:
+                            save(routerport.getkey())
+
+                            if hasattr(routerport, "router"):
+                                try:
+                                    router = walk(routerport.router.getkey())
+                                except KeyError:
+                                    pass
+                                else:
+                                    save(router.getkey())
+
+                                    if router.interfaces.dataset():
+
+                                        for weakobj in router.interfaces.dataset():
+                                            routerport_weakkey = weakobj.getkey()
+
+                                            # we walk from this key , so except
+                                            if routerport_weakkey != routerport.getkey():
+                                                try:
+                                                    weakrouterport = walk(routerport_weakkey)
+                                                except KeyError:
+                                                    pass
+                                                else:
+                                                    save(routerport_weakkey)
+
+                                                    if hasattr(weakrouterport, "subnet"):
+                                                        try:
+                                                            weaksubnet = walk(weakrouterport.subnet.getkey())
+                                                        except KeyError:
+                                                            pass
+                                                        else:
+                                                            save(weaksubnet.getkey())
+
+                                                            if hasattr(weaksubnet, "network"):
+                                                                try:
+                                                                    logicalnetwork = walk(weaksubnet.network.getkey())
+                                                                except KeyError:
+                                                                    pass
+                                                                else:
+                                                                    save(logicalnetwork.getkey())
+
 
     def _walk_phyport(self, key, value, walk, save):
 
