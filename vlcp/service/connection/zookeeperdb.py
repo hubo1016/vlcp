@@ -713,7 +713,8 @@ class ZooKeeperDB(TcpServerBase):
                     # which means when we random select 4N keys,
                     # the expectation of recycled keys are less than N
                     try:
-                        for m in client.requests([zk.getchildren(b'/vlcp/kvdb')]):
+                        for m in client.requests([zk.getchildren(b'/vlcp/kvdb')],
+                                                 self.apiroutine, 60):
                             yield m
                         completes, losts, retries, _ = self.apiroutine.retvalue
                         if losts or retries:
