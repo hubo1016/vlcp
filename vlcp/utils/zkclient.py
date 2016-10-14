@@ -12,7 +12,10 @@ from vlcp.event.connection import Client
 from vlcp.event.event import Event, withIndices
 import logging
 import vlcp.utils.zookeeper as zk
-from itertools import izip_longest
+try:
+    from itertools import izip_longest
+except Exception:
+    izip_longest = zip
 from time import time
 from vlcp.event.future import RoutineFuture
 
