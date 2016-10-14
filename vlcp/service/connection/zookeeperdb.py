@@ -253,7 +253,7 @@ class ZooKeeperDB(TcpServerBase):
                     raise ZooKeeperResultException('Unexpected error code is received: ' + str(ls2_result.err))
                 self.apiroutine.retvalue = None
                 return
-            children = [(name.rpartition(b'-'), name) for name in ls2_result.children if name.startswith('data-')]
+            children = [(name.rpartition(b'-'), name) for name in ls2_result.children if name.startswith(b'data-')]
             children.sort(reverse = True)
             for _, name in children:
                 for m in client.requests([zk.getdata(rootdir + name)], self.apiroutine, 60):
@@ -435,7 +435,7 @@ class ZooKeeperDB(TcpServerBase):
                         value_path.append(None)
                     else:
                         name = maxitem[1]
-                        if name.startswith('barrier'):
+                        if name.startswith(b'barrier'):
                             # There is a pending operation, it may be done, or cancelled
                             # We must wait for it
                             value_path.append((True, k, sorted((item for item in
@@ -455,7 +455,7 @@ class ZooKeeperDB(TcpServerBase):
                     self.apiroutine.retvalue = [r.data if r.data else None for r in completes]
                 def _wait_value(key, children):
                     for name in children:
-                        if name.startswith('barrier'):
+                        if name.startswith(b'barrier'):
                             while True:
                                 for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name, True)],
                                                     self.apiroutine, 60, session_lock):
@@ -556,13 +556,13 @@ class ZooKeeperDB(TcpServerBase):
             # We must create/delete all the keys in a single transaction
             # Should understand that this means the total write data must be limited to less than 4MB
             # Compress may help, but do not expect too much
-            multi_op = [zk.multi_create(b'/vlcp/kvdb/' + k + '/data-', b'', False, True)
+            multi_op = [zk.multi_create(b'/vlcp/kvdb/' + k + b'/data-', b'', False, True)
                          for k in delete_other_keys]
-            multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + '/data-', data, False, True)
+            multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + b'/data-', data, False, True)
                          for k,data in set_other_keys))
-            multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + '/data-' + barrier_dict[k].rpartition(b'-')[2], b'')
+            multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + b'/data-' + barrier_dict[k].rpartition(b'-')[2], b'')
                          for k in delete_barrier_keys))
-            multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + '/data-' + barrier_dict[k].rpartition(b'-')[2], b'')
+            multi_op.extend((zk.multi_create(b'/vlcp/kvdb/' + k + b'/data-' + barrier_dict[k].rpartition(b'-')[2], b'')
                          for k in set_barrier_keys))
             multi_op.extend((zk.multi_delete(k) for k in barrier_list))
             if multi_op:
