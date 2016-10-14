@@ -70,9 +70,11 @@ class ZooKeeperClient(Configurable):
             self.chroot = chroot
         else:
             self.chroot = self.chroot
-        if self.chroot is None or self.chroot == '/':
-            self.chroot = ''
-        self.chroot = self.chroot.rstrip('/')
+        if not isinstance(self.chroot, bytes):
+            self.chroot = self.chroot.encode('utf-8')
+        if self.chroot is None or self.chroot == b'/':
+            self.chroot = b''
+        self.chroot = self.chroot.rstrip(b'/')
         self._container = container
         self.readonly = readonly
         self.auth_set = set(self.auth)
