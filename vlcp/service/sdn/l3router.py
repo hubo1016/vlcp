@@ -22,7 +22,8 @@ from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes, ip4_addr, arp_pa
 from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.utils.netutils import parse_ip4_network,get_netmask, parse_ip4_address, ip_in_network
 from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet, SubNetMap,DVRouterForwardInfo, \
-    DVRouterForwardSet, DVRouterForwardInfoRef, DVRouterExternalAddressInfo, LogicalNetworkMap, LogicalNetwork
+    DVRouterForwardSet, DVRouterForwardInfoRef, DVRouterExternalAddressInfo, LogicalNetworkMap, LogicalNetwork, \
+    LogicalPort
 
 
 @withIndices("connection")
@@ -41,6 +42,7 @@ class RouterUpdater(FlowUpdater):
         self._lastrouterinfo = dict()
         self._lastsubnetinfo = dict()
         self._lastlgportinfo = dict()
+        self._lastexternallgportinfo = dict()
         self._lastrouterstoreinterfacenetinfo = dict()
         self._lastnetworkrouterinfo = dict()
         self._lastnetworkroutertableinfo = dict()
@@ -843,7 +845,6 @@ class RouterUpdater(FlowUpdater):
             return
 
         save(key)
-
         lgnetmapkey = LogicalNetworkMap.default_key(LogicalNetwork._getIndices(key)[1][0])
 
         try:
@@ -852,6 +853,15 @@ class RouterUpdater(FlowUpdater):
             pass
         else:
             save(lgnetmap.getkey())
+
+            if self._parent.prepush:
+                for lgport_weak in lgnetmap.ports.dataset():
+                    try:
+                        lgport = walk(lgport_weak.getkey())
+                    except KeyError:
+                        pass
+                    else:
+                        save(lgport.getkey())
 
             for subnet_weak in lgnetmap.subnets.dataset():
                 try:
@@ -945,6 +955,7 @@ class RouterUpdater(FlowUpdater):
             laststaticroutes= self._laststaticroutes
             laststoreinfo = self._laststoreinfo
             lastnetworkforwardinfo = self._lastnetworkforwardinfo
+            lastexternallgportinfo = self._lastexternallgportinfo
 
             allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
 
@@ -989,7 +1000,16 @@ class RouterUpdater(FlowUpdater):
                                         and hasattr(p,"mac_address")
                                         and p.network in currentlognetinfo)
 
+            currentexternallgportinfo = dict((p,(p.ip_address,p.mac_address,currentlognetinfo[p.network][0],
+                                                 currentlognetinfo[p.network][1]))
+                                             for p in allobjects if p.isinstance(LogicalPort)
+                                             and hasattr(p,"ip_address")
+                                             and hasattr(p,"mac_address")
+                                             and p.network in currentlognetinfo
+                                             and p not in currentlgportinfo)
+
             self._lastlgportinfo = currentlgportinfo
+            self._lastexternallgportinfo = currentexternallgportinfo
 
             subnet_to_routerport = dict((p.subnet,p) for p in allobjects if p.isinstance(RouterPort))
             router_to_routerport = dict((p.router,p) for p in allobjects if p.isinstance(RouterPort))
@@ -1018,6 +1038,8 @@ class RouterUpdater(FlowUpdater):
                 for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
                                                                           'vhost': vhost}):
                     yield m
+
+
             except Exception:
                 self._logger.warning("OVSDB bridge is not ready", exc_info=True)
                 return
@@ -1656,7 +1678,7 @@ class RouterUpdater(FlowUpdater):
                 return [
                     ofdef.ofp_flow_mod(
                         table_id=l3output,
-                        command=ofdef.OFPFC_DELETE,
+                        command=ofdef.OFPFC_DELETE + 1,
                         priority=ofdef.OFP_DEFAULT_PRIORITY,
                         buffer_id=ofdef.OFP_NO_BUFFER,
                         out_port=ofdef.OFPP_ANY,
@@ -1850,6 +1872,12 @@ class RouterUpdater(FlowUpdater):
                                                     'arpentries': [(ipaddress,macaddrss,netkey,False)]}):
                         yield m
 
+            for p in lastexternallgportinfo:
+                if p not in currentexternallgportinfo or\
+                        (p in currentexternallgportinfo and currentexternallgportinfo[p] != lastexternallgportinfo[p]):
+                    ipaddress,macaddrss,netid,outmac = lastexternallgportinfo[p]
+                    cmds.extend(_remove_host_flow(ipaddress,macaddrss,netid,outmac))
+
             for n in lastnetworkforwardinfo:
                 if n not in currentnetworkforwardinfo or (n in currentnetworkforwardinfo
                         and currentnetworkforwardinfo[n] != lastnetworkforwardinfo[n]):
@@ -1987,6 +2015,12 @@ class RouterUpdater(FlowUpdater):
                     #add host learn
                     cmds.extend(_add_host_flow(ipaddress,macaddrss,netid,self._parent.inroutermac))
 
+            for p in currentexternallgportinfo:
+                if p not in lastexternallgportinfo or\
+                        (p in lastexternallgportinfo and currentexternallgportinfo[p] != lastexternallgportinfo[p]):
+                    ipaddress,macaddrss,netid,outmac = currentexternallgportinfo[p]
+                    cmds.extend(_add_host_flow(ipaddress,macaddrss,netid,outmac))
+
             if arp_request_event:
                 for e in arp_request_event:
                     self.subroutine(self.waitForSend(e))
@@ -2014,6 +2048,7 @@ class L3Router(FlowBase):
     _default_inroutermac = '1a:23:67:59:63:33'
     _default_outroutermacmask = '0a:00:00:00:00:00'
     _default_arp_cycle_time = 5
+    _default_prepush = True
 
     # if arp entry have no reply ,  it will send in arp cycle until timeout
     # but if new packet request arp ,, it will flush this timeout in arp entry
