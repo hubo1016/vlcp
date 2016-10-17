@@ -210,7 +210,7 @@ class IOFlowUpdater(FlowUpdater):
         portkeys = [k for k,v in zip(keys,values) if v.isinstance(VRouter)]
         
         self._initialkeys = tuple(itertools.chain(subnetkeys,routerportkeys,
-                                    portkeys,[LogicalPortSet.default_key(),PhysicalPortSet.default_key()]))
+                                    portkeys,[PhysicalPortSet.default_key()]))
 
     def walkcomplete(self, keys, values):
         conn = self._connection
