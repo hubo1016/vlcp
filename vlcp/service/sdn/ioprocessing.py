@@ -194,7 +194,7 @@ class IOFlowUpdater(FlowUpdater):
                             except KeyError:
                                 pass
                             else:
-                                save(phynetmap)
+                                save(phynetmap.getkey())
                                 for weak_lgnet in  phynetmap.logicnetworks.dataset():
                                     try:
                                         lgnet = walk(weak_lgnet.getkey())
