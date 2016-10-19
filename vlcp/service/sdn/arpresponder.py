@@ -50,7 +50,7 @@ class ARPUpdater(FlowUpdater):
             yield (dataobjectchanged,)
             self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
             self._update_walk()
-            self.updateobjects(self._lastlogports)
+            self.updateobjects((p for p,_ in self._lastlogports))
     def _walk_logport(self, key, value, walk, save):
         if value is not None:
             save(key)

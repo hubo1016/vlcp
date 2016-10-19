@@ -803,6 +803,8 @@ class RouterUpdater(FlowUpdater):
 
             self._update_walk()
 
+            self.updateobjects((p for p,_ in self._lastlogicalport))
+
     def _update_walk(self):
 
         logicalportkeys = [p.getkey() for p, _ in self._lastlogicalport]
