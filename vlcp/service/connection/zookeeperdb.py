@@ -329,8 +329,9 @@ class _Notifier(RoutineContainer):
             detect_path = b'/vlcp/notifier/all'
             recycle_path = [b'/vlcp/notifier/all']
         else:
-            reqs = [zk.create(b'/vlcp/notifier/bykey/' + k, b''),
-                    zk.multi(
+            reqs = [zk.create(b'/vlcp/notifier/bykey/' + k, b'')
+                    for k in merged_keys] +
+                    [zk.multi(
                         *[zk.multi_create(b'/vlcp/notifier/bykey/' + k + b'/notify-' + transactid + b'-',
                              msg, False, True)
                         for k in merged_keys])]
