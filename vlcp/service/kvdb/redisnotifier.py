@@ -278,8 +278,6 @@ class _Notifier(RoutineContainer):
         except (IOError, ConnectionResetException):
             self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
             self._publish_wait.update(merged_keys)
-        else:
-            self._publish_wait.clear()
     def notification_matcher(self, fromself = None):
         if fromself is None:
             return UpdateNotification.createMatcher(self)
