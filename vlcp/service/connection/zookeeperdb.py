@@ -299,11 +299,15 @@ class _Notifier(RoutineContainer):
         for k in keys:
             if k not in self._poll_routines:
                 self._create_poller(k)
+        if False:
+            yield
     def remove_listen(self, *keys):        
         keys = [_bytes(k) for k in keys]
         for k in keys:
             if k in self._poll_routines:
                 self._poll_routines.pop(k).close()
+        if False:
+            yield
     @_delegate
     def publish(self, keys = (), extrainfo = None):
         keys = [_bytes(k) for k in keys]
