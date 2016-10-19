@@ -200,7 +200,7 @@ class _Notifier(RoutineContainer):
                             self._remove_barrier(key, last_zxid)
                             raise
                         else:
-                            self._remove_barrier(key, last_zxid, result)
+                            self._remove_barrier(key, last_zxid, *result)
                             self.retvalue = None
                     for m in self.executeAll([_watcher_update(watchers[0]),
                                               _get_transacts(last_zxid, new_children)]):
