@@ -5,7 +5,7 @@ Created on 2016/10/9
 '''
 from vlcp.config import defaultconfig
 from vlcp.service.connection.tcpserver import TcpServerBase
-from vlcp.server.module import api, ModuleLoadStateChanged
+from vlcp.server.module import api, ModuleLoadStateChanged, callAPI
 from vlcp.event.lock import Lock
 from zlib import compress, decompress, error as zlib_error
 import pickle
@@ -14,6 +14,10 @@ from vlcp.utils.zkclient import ZooKeeperClient, ZooKeeperSessionUnavailable,\
 from vlcp.protocol.zookeeper import ZooKeeper
 from namedstruct.namedstruct import dump
 from random import randrange, shuffle, sample
+import logging
+from vlcp.event.runnable import RoutineContainer, MultipleException
+from vlcp.event.event import withIndices, Event
+import functools
 try:
     import cPickle
 except ImportError:
@@ -34,6 +38,7 @@ except Exception:
     from urlparse import urlsplit, urlunsplit
 import vlcp.utils.zookeeper as zk
 from uuid import uuid1
+from vlcp.utils.indexedheap import IndexedHeap
 
 def _tobytes(k):
     if not isinstance(k, bytes):
@@ -52,6 +57,327 @@ def _unescape_path(key):
 
 class ZooKeeperResultException(Exception):
     pass
+
+
+@withIndices('notifier', 'transactid', 'keys', 'reason', 'fromself')
+class UpdateNotification(Event):
+    UPDATED = 'updated'
+    RESTORED = 'restored'
+
+def _delegate(func):
+    @functools.wraps(func)
+    def f(self, *args, **kwargs):
+        for m in self.delegate(func(self, *args, **kwargs)):
+            yield m
+    return f
+
+def _bytes(s):
+    if isinstance(s, bytes):
+        return s
+    else:
+        return s.encode('utf-8')
+
+def _str(s):
+    if isinstance(s, str):
+        return s
+    else:
+        return s.decode('utf-8')
+
+class _Notifier(RoutineContainer):
+    _logger = logging.getLogger(__name__ + '.Notifier')
+    def __init__(self, vhostbind, scheduler=None, daemon=False, singlecastlimit = 256, deflate = False):
+        RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
+        self.vhostbind = vhostbind
+        self._poll_routines = {}
+        self._publishkey = uuid1().hex
+        self._publishno = 1
+        self._publish_wait = set()
+        self._singlecastlimit = singlecastlimit
+        self._deflate = deflate
+        self._heap = IndexedHeap()
+        self._transacts = {}
+        self._timestamp = ''
+        self._transactno = 0
+        self._client = None
+        self._decoder = None
+    def _check_completes(self, completes, err_allows = (), err_expects = ()):
+        for result in completes:
+            if result.err != zk.ZOO_ERR_OK and result.err not in err_allows:
+                if result.err not in err_expects:
+                    self._logger.warning('Unexpected err result received: %r', dump(result))
+                raise ZooKeeperResultException('Error result received: ' + str(result.err))
+    def _insert_barrier(self, key, zxid):
+        self._heap.push((False, key, zxid), (zxid, 0))
+    def _remove_barrier(self, key, zxid, *new_transacts):
+        self._heap.remove((False, key, zxid))
+        # Insert new transactions
+        for trans, zxid in new_transacts:
+            trans_id = trans['id']
+            if trans_id not in self._heap:
+                self._transacts[trans_id] = trans
+                self._heap.push((True, trans_id), (zxid, 1))
+        while self._heap.top()[0]:
+            _, trans_id = self._heap.pop()
+            transact = self._transacts.pop(trans_id)
+            pubkey, sep, _ = trans_id.partition('-')
+            local_transid = '%s%016x' % (self._timestamp, self._transactno)
+            self._transactno += 1
+            self.scheduler.emergesend(
+                UpdateNotification(self, local_transid, tuple(_bytes(k) for k in transact['keys']),
+                                   UpdateNotification.UPDATED,
+                                   (sep and pubkey == self._publishkey),
+                                   extrainfo = transact.get('extrainfo')))
+    def _poller(self, client, key, decoder):
+        if not client:
+            return
+        last_children = None
+        last_zxid = 0
+        try:
+            while True:
+                try:
+                    for m in client.requests([zk.getchildren(key, True)],
+                                             self):
+                        yield m
+                    completes, lost, retries, watchers = self.retvalue
+                    if lost or retries:
+                        continue
+                    if completes[0].err == zk.ZOO_ERR_NONODE:
+                        last_zxid = completes[0].zxid
+                        # Insert a barrier in case there are updates
+                        self._insert_barrier(key, last_zxid)
+                        for m in client.requests([zk.create(key, b'')],
+                                                 self):
+                            yield m
+                        completes, lost, retries, _ = self.retvalue
+                        if lost or retries:
+                            continue
+                        self._check_completes(completes, (zk.ZOO_ERR_NODEEXISTS,))
+                        last_children = set()
+                        continue
+                    self._check_completes(completes)
+                    current_children = set(completes[0].children)
+                    if last_children is not None:
+                        new_children = current_children.difference(last_children)
+                    else:
+                        new_children = set()
+                    last_children = current_children
+                    def _watcher_update(watcher):
+                        try:
+                            for m in watcher.wait(self):
+                                yield m
+                        except ZooKeeperSessionUnavailable:
+                            self.retvalue = -1
+                        else:
+                            watcher_event = self.retvalue
+                            # Insert a barrier
+                            self._insert_barrier(key, watcher_event.zxid)
+                            self.retvalue = watcher_event.zxid
+                    def _get_transacts(last_zxid, new_children):
+                        try:
+                            new_children = sorted(new_children)
+                            reqs = [zk.getdata(key + b'/' + c)
+                                                      for c in new_children]
+                            completes = []
+                            while reqs:
+                                try:
+                                    for m in client.requests(reqs, self):
+                                        yield m
+                                except ZooKeeperSessionUnavailable:
+                                    break
+                                completes2, lost, retries = self.retvalue
+                                completes.extend(completes2)
+                                reqs = lost + retries
+                            completes = [c for c in completes if c.err != zk.ZOO_ERR_NONODE]
+                            self._check_completes(completes)
+                            result = []
+                            for c in completes:
+                                try:
+                                    result.append((decoder(c.data), c.stat.mzxid))
+                                except Exception:
+                                    self._logger.warning('Error while decoding data: %r, will ignore. key = %r',
+                                                         c.data, key, exc_info = True)
+                        except Exception:
+                            self._remove_barrier(key, last_zxid)
+                            raise
+                        else:
+                            self._remove_barrier(key, last_zxid, result)
+                            self.retvalue = None
+                    for m in self.executeAll([_watcher_update(watchers[0]),
+                                              _get_transacts(last_zxid, new_children)]):
+                        yield m
+                    ((last_zxid,), _) = self.retvalue
+                except Exception:
+                    if client._shutdown:
+                        break
+                    else:
+                        self._logger.warning('Unexpected exception occurs', exc_info = True)
+                        for m in self.waitWithTimeout(1):
+                            yield m
+        finally:
+            self._remove_barrier(key, last_zxid)
+    def _create_poller(self, key):
+        self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + key, self._decoder))
+    def main(self):
+        try:
+            self._timestamp = '%012x' % (int(time() * 1000),) + '-'
+            self._transactno = 1
+            for m in callAPI(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind}):
+                yield m
+            client, encoder, decoder = self.retvalue
+            if self._deflate:
+                oldencoder = encoder
+                olddecoder = decoder
+                def encoder(x):
+                    return compress(oldencoder(x))
+                def decoder(x):
+                    try:
+                        return olddecoder(decompress(x))
+                    except zlib_error:
+                        return olddecoder(x)
+            self._client = client
+            self._decoder = decoder
+            def _recreate_pollers():
+                for k in self._poll_routines:
+                    if k:
+                        self._poll_routines[k].close()
+                        self._create_poller(k)
+                if b'' in self._poll_routines:
+                    self._poll_routines[b''].close()
+                self._poll_routines[b''] = self.subroutine(self._poller(client, b'/vlcp/notifier/all', decoder))
+            _recreate_pollers()
+            connection_down = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.EXPIRED,
+                                                                         client)
+            connection_up = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.CREATED,
+                                                                       client)
+            module_loaded = ModuleLoadStateChanged.createMatcher(state = ModuleLoadStateChanged.LOADED,
+                                                 _ismatch = lambda x: x._instance.getServiceName() == 'zookeeperdb')
+            while True:
+                yield (connection_down,)
+                # Connection is down, wait for restore
+                # The module may be reloaded
+                while client.session_state == ZooKeeperSessionStateChanged.EXPIRED:
+                    yield (connection_up, module_loaded)
+                    if self.matcher is module_loaded:
+                        # recreate pollers
+                        for m in callAPI(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind}):
+                            yield m
+                        client, encoder, decoder = self.retvalue
+                        if self._deflate:
+                            oldencoder = encoder
+                            olddecoder = decoder
+                            def encoder(x):
+                                return compress(oldencoder(x))
+                            def decoder(x):
+                                try:
+                                    return olddecoder(decompress(x))
+                                except zlib_error:
+                                    return olddecoder(x)
+                        self._client = client
+                        self._decoder = decoder
+                        connection_down = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.EXPIRED,
+                                                                                     client)
+                        connection_up = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.CREATED,
+                                                                                   client)
+                        _recreate_pollers()
+                if self._publish_wait:
+                    self.subroutine(self.publish())
+                local_transid = '%s%016x' % (self._timestamp, self._transactno)
+                self._transactno += 1
+                self.scheduler.emergesend(
+                    UpdateNotification(self, local_transid, tuple(_bytes(k) for k in self._poll_routines if k),
+                                       UpdateNotification.RESTORED,
+                                       False,
+                                       extrainfo = None))
+        finally:
+            for k in self._poll_routines:
+                self._poll_routines[k].close()
+    def add_listen(self, *keys):
+        keys = [_bytes(k) for k in keys]
+        for k in keys:
+            if k not in self._poll_routines:
+                self._create_poller(k)
+    def remove_listen(self, *keys):        
+        keys = [_bytes(k) for k in keys]
+        for k in keys:
+            if k in self._poll_routines:
+                self._poll_routines.pop(k).close()
+    @_delegate
+    def publish(self, keys = (), extrainfo = None):
+        keys = [_bytes(k) for k in keys]
+        if self._publish_wait:
+            merged_keys = list(self._publish_wait.union(keys))
+            self._publish_wait.clear()
+        else:
+            merged_keys = list(keys)
+        if not merged_keys:
+            return
+        for m in callAPI(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind}):
+            yield m
+        client, encoder, _ = self.retvalue
+        transactid = _tobytes('%s-%016x' % (self._publishkey, self._publishno))
+        self._publishno += 1
+        msg = encoder({'id':transactid, 'keys':[_str(k) for k in merged_keys], 'extrainfo': extrainfo})
+        if len(merged_keys) > self._singlecastlimit:
+            reqs = [zk.create(b'/vlcp/notifier/all/notify-' + transactid + b'-', msg, False, True)]
+            detect_path = b'/vlcp/notifier/all'
+            recycle_path = [b'/vlcp/notifier/all']
+        else:
+            reqs = [zk.create(b'/vlcp/notifier/bykey/' + k, b''),
+                    zk.multi(
+                        *[zk.multi_create(b'/vlcp/notifier/bykey/' + k + b'/notify-' + transactid + b'-',
+                             msg, False, True)
+                        for k in merged_keys])]
+            detect_path = b'/vlcp/notifier/bykey/' + merged_keys[0]
+            recycle_path = [b'/vlcp/notifier/bykey/' + k for k in merged_keys]
+        while True:
+            try:
+                for m in client.requests(reqs, self, 30):
+                    yield m
+            except ZooKeeperSessionUnavailable:
+                self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
+                self._publish_wait.update(merged_keys)
+                break
+            else:
+                completes, lost, retries = self.retvalue
+                if retries:
+                    continue
+                elif lost:
+                    # At least the last request is lost, we must detect whether it is completed
+                    try:
+                        for m in client.requests([zk.getchildren(detect_path)],
+                                                 self, 30):
+                            yield m
+                    except ZooKeeperSessionUnavailable:
+                        self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
+                        self._publish_wait.update(merged_keys)
+                        break
+                    else:
+                        completes, lost, retries = self.retvalue
+                        self._check_completes(completes)
+                        if lost or retries:
+                            self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
+                            self._publish_wait.update(merged_keys)
+                        else:
+                            trans_prefix = b'notify-' + transactid + b'-'
+                            if any((k.startswith(trans_prefix) for k in completes.children)):
+                                # Succeeded
+                                break
+                            else:
+                                # Failed
+                                continue
+                else:
+                    self._check_completes(completes[-1:])
+                    break
+        for m in callAPI(self, 'zookeeperdb', 'recycle', {'vhost':self.vhostbind,
+                                                          'keys': recycle_path}):
+            yield m
+                            
+    def notification_matcher(self, fromself = None):
+        if fromself is None:
+            return UpdateNotification.createMatcher(self)
+        else:
+            return UpdateNotification.createMatcher(notifier = self, fromself = fromself)
+
 
 @defaultconfig
 class ZooKeeperDB(TcpServerBase):
@@ -144,7 +470,9 @@ class ZooKeeperDB(TcpServerBase):
                        api(self.update, self.apiroutine),
                        api(self.mupdate, self.apiroutine),
                        api(self.updateall, self.apiroutine),
-                       api(self.updateallwithtime, self.apiroutine))
+                       api(self.updateallwithtime, self.apiroutine),
+                       api(self.recycle),
+                       api(self.createnotifier))
         self.apiroutine.main = self._main
         self.routines.append(self.apiroutine)
         self._recycle_list = {}
@@ -499,11 +827,14 @@ class ZooKeeperDB(TcpServerBase):
                             self.apiroutine.retvalue = completes[0].data if completes[0].data else None
                             return
                     self.apiroutine.retvalue = None
-                for m in self.apiroutine.executeAll([_normal_get_value()] + \
-                                [_wait_value(vp[1], vp[2])
-                                 for vp in value_path
-                                 if vp and vp[0]]):
-                    yield m
+                try:
+                    for m in self.apiroutine.executeAll([_normal_get_value()] + \
+                                    [_wait_value(vp[1], vp[2])
+                                     for vp in value_path
+                                     if vp and vp[0]]):
+                        yield m
+                except MultipleException as exc:
+                    raise exc.args[0]
                 results = self.apiroutine.retvalue
                 values = []
                 normal_result_iterator = iter(results[0][0])
@@ -617,6 +948,7 @@ class ZooKeeperDB(TcpServerBase):
         _recycle_list = set(self._recycle_list[vhost])
         self._recycle_list[vhost].clear()
         def _recycle_key(recycle_key):
+            is_notifier = recycle_key.startswith(b'/vlcp/notifier/bykey/')
             # Retrieve server time
             for m in client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
                                  zk.exists(b'/vlcp/tmp/timer')],
@@ -674,7 +1006,7 @@ class ZooKeeperDB(TcpServerBase):
             if not recycle_key:
                 self.apiroutine.retvalue = False
                 return
-            if not is_empty:
+            if not is_notifier and not is_empty:
                 # Leave an extra node
                 begin -= 1
             operations = [zk.delete(recycle_key + b'/' + name)
@@ -777,3 +1109,14 @@ class ZooKeeperDB(TcpServerBase):
                                      exc_info = True)
                 for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
                     yield m
+    def recycle(self, keys, vhost = ''):
+        '''
+        Recycle extra versions from the specified keys.
+        '''
+        self._recycle_list[vhost].update(_tobytes(k) for k in keys)
+    def createnotifier(self):
+        "Create a new notifier object"
+        n = _Notifier(self.vhostbind, self.prefix, self.scheduler, self.singlecastlimit, self.deflate)
+        n.start()
+        return n
+

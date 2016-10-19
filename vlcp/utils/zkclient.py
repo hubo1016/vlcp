@@ -85,6 +85,7 @@ class ZooKeeperClient(Configurable):
         self.key = None
         self.certificate = None
         self.ca_certs = None
+        self._last_zxid = 0
     def start(self, asyncstart = False):
         self._connmanage_routine = self._container.subroutine(self._connection_manage(), asyncstart)
     def reset(self):
@@ -101,7 +102,7 @@ class ZooKeeperClient(Configurable):
     def _connection_manage(self):
         try:
             failed = 0
-            last_zxid = 0
+            self._last_zxid = last_zxid = 0
             session_id = 0
             passwd = b'\x00' * 16
             while True:
@@ -280,7 +281,7 @@ class ZooKeeperClient(Configurable):
                                     self._logger.warning('Connection lost to %r, try next server', self.currentserver)
                                 else:
                                     self._logger.info('Rebalance to next server')
-                                last_zxid = conn.zookeeper_lastzxid
+                                self._last_zxid = last_zxid = conn.zookeeper_lastzxid
                                 self.session_state = ZooKeeperSessionStateChanged.DISCONNECTED
                                 for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
                                                 ZooKeeperSessionStateChanged.DISCONNECTED,
@@ -470,3 +471,11 @@ class ZooKeeperClient(Configurable):
                               lost_responses,
                               retry_requests,
                               [watchers.get(r, None) for r in requests])
+    def get_last_zxid(self):
+        '''
+        Return the latest zxid seen from servers
+        '''
+        if not self.current_connection:
+            return self._last_zxid
+        else:
+            return getattr(self.current_connection, 'zookeeper_lastzxid', self._last_zxid)
