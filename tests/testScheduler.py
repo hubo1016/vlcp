@@ -9,6 +9,7 @@ from vlcp.event.runnable import RoutineContainer, RoutineControlEvent
 from vlcp.event.event import Event, withIndices
 from vlcp.event.connection import Client, TcpServer
 import logging
+from time import time
 
 @withIndices('producer')
 class TestConsumerEvent(Event):
@@ -97,6 +98,23 @@ class Test(unittest.TestCase):
         rA.subroutine(mainC())
         scheduler.main()
         self.assertEqual(output, b'AAAAACBABABABABABBBBB')
+    def testTimer(self):
+        scheduler = Scheduler()
+        rA = RoutineContainer(scheduler)
+        output = bytearray()
+        def wait(timeout, append):
+            for m in rA.waitWithTimeout(timeout):
+                yield m
+            output.extend(append)
+        rA.subroutine(wait(0.1, b'B'))
+        rA.subroutine(wait(0.5, b'D'))
+        rA.subroutine(wait(0, b'A'))
+        rA.subroutine(wait(0.2, b'C'))
+        curr_time = time()
+        scheduler.main()
+        end_time = time()
+        self.assertEqual(output, b'ABCD')
+        self.assertTrue(0.4 < end_time - curr_time < 0.6)
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testConsumer']
