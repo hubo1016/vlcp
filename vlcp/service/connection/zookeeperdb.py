@@ -346,7 +346,7 @@ class _Notifier(RoutineContainer):
                 self._publish_wait.update(merged_keys)
                 break
             else:
-                completes, lost, retries = self.retvalue
+                completes, lost, retries, _ = self.retvalue
                 if retries:
                     continue
                 elif lost:
@@ -360,7 +360,7 @@ class _Notifier(RoutineContainer):
                         self._publish_wait.update(merged_keys)
                         break
                     else:
-                        completes, lost, retries = self.retvalue
+                        completes, lost, retries, _ = self.retvalue
                         self._check_completes(completes)
                         if lost or retries:
                             self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
