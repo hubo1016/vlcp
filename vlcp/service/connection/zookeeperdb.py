@@ -321,9 +321,10 @@ class _Notifier(RoutineContainer):
         for m in callAPI(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind}):
             yield m
         client, encoder, _ = self.retvalue
-        transactid = _tobytes('%s-%016x' % (self._publishkey, self._publishno))
+        transactid = '%s-%016x' % (self._publishkey, self._publishno)
         self._publishno += 1
         msg = encoder({'id':transactid, 'keys':[_str(k) for k in merged_keys], 'extrainfo': extrainfo})
+        transactid = _tobytes(transactid)
         if len(merged_keys) > self._singlecastlimit:
             reqs = [zk.create(b'/vlcp/notifier/all/notify-' + transactid + b'-', msg, False, True)]
             detect_path = b'/vlcp/notifier/all'
