@@ -1678,8 +1678,8 @@ class RouterUpdater(FlowUpdater):
                 return [
                     ofdef.ofp_flow_mod(
                         table_id=l3output,
-                        command=ofdef.OFPFC_DELETE + 1,
-                        priority=ofdef.OFP_DEFAULT_PRIORITY,
+                        command=ofdef.OFPFC_DELETE,
+                        priority=ofdef.OFP_DEFAULT_PRIORITY + 1,
                         buffer_id=ofdef.OFP_NO_BUFFER,
                         out_port=ofdef.OFPP_ANY,
                         out_group=ofdef.OFPG_ANY,
@@ -2048,7 +2048,7 @@ class L3Router(FlowBase):
     _default_inroutermac = '1a:23:67:59:63:33'
     _default_outroutermacmask = '0a:00:00:00:00:00'
     _default_arp_cycle_time = 5
-    _default_prepush = True
+    _default_prepush = False
 
     # if arp entry have no reply ,  it will send in arp cycle until timeout
     # but if new packet request arp ,, it will flush this timeout in arp entry
@@ -2060,7 +2060,7 @@ class L3Router(FlowBase):
 
     _default_static_host_arp_refresh_interval = 60
 
-    _default_enable_router_forward = True
+    _default_enable_router_forward = False
 
     _default_discover_update_time = 300
 
