@@ -473,6 +473,7 @@ class NetworkLocalDriver(Module):
                 
                 values[0].set.dataset().discard(lgnet.create_weakreference())
                 #del phymap.network_allocation[str(lgnet.sid)]
+                phymap.logicnetworks.dataset().discard(lgnet.create_weakreference())
             
             return keys,[values[0]]+[None]*len(networks)*2+phynetmapvalues
         return deletelgnetworks
