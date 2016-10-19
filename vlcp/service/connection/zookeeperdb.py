@@ -18,6 +18,7 @@ import logging
 from vlcp.event.runnable import RoutineContainer, MultipleException
 from vlcp.event.event import withIndices, Event
 import functools
+from vlcp.event.core import QuitException
 try:
     import cPickle
 except ImportError:
@@ -206,6 +207,8 @@ class _Notifier(RoutineContainer):
                                               _get_transacts(last_zxid, new_children)]):
                         yield m
                     ((last_zxid,), _) = self.retvalue
+                except QuitException:
+                    raise
                 except Exception:
                     if client._shutdown:
                         break
