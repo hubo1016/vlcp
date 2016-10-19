@@ -185,7 +185,7 @@ class _Notifier(RoutineContainer):
                                         yield m
                                 except ZooKeeperSessionUnavailable:
                                     break
-                                completes2, lost, retries = self.retvalue
+                                completes2, lost, retries, _ = self.retvalue
                                 completes.extend(completes2)
                                 reqs = lost + retries
                             completes = [c for c in completes if c.err != zk.ZOO_ERR_NONODE]
