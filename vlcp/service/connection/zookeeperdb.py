@@ -85,8 +85,8 @@ def _str(s):
 
 class _Notifier(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.Notifier')
-    def __init__(self, vhostbind, scheduler=None, daemon=False, singlecastlimit = 256, deflate = False):
-        RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
+    def __init__(self, vhostbind, scheduler=None, singlecastlimit = 256, deflate = False):
+        RoutineContainer.__init__(self, scheduler=scheduler, daemon=False)
         self.vhostbind = vhostbind
         self._poll_routines = {}
         self._publishkey = uuid1().hex
@@ -392,6 +392,7 @@ class ZooKeeperDB(TcpServerBase):
     _default_autosuccess = False
     _default_kvdbvhosts = None
     _default_timeout = 60
+    _default_notifierbind = ''
     client = True
     def __init__(self, server):
         self._zookeeper_clients = {}
@@ -1114,9 +1115,11 @@ class ZooKeeperDB(TcpServerBase):
         Recycle extra versions from the specified keys.
         '''
         self._recycle_list[vhost].update(_tobytes(k) for k in keys)
-    def createnotifier(self):
+    def createnotifier(self, vhost = None):
         "Create a new notifier object"
-        n = _Notifier(self.vhostbind, self.prefix, self.scheduler, self.singlecastlimit, self.deflate)
+        if vhost is None:
+            vhost = self.notifierbind
+        n = _Notifier(vhost, self.scheduler, self.singlecastlimit, self.deflate)
         n.start()
         return n
 
