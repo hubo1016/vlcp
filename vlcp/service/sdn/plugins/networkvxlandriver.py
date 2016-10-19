@@ -439,6 +439,7 @@ class NetworkVxlanDriver(Module):
                     raise ValueError("there ports on logicnet remove it before")
                 
                 values[0].set.dataset().discard(lgnet.create_weakreference())
+                phymap.logicnetworks.dataset().discard(lgnet.create_weakreference())
                 del phymap.network_allocation[str(lgnet.vni)]
             
             return keys,[values[0]]+[None]*len(networks)*2+phynetmapvalues
