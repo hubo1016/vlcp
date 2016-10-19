@@ -393,6 +393,8 @@ class ZooKeeperDB(TcpServerBase):
     _default_kvdbvhosts = None
     _default_timeout = 60
     _default_notifierbind = ''
+    _default_singlecastlimit = 256
+    _default_notifierdeflate = False
     client = True
     def __init__(self, server):
         self._zookeeper_clients = {}
@@ -1119,7 +1121,7 @@ class ZooKeeperDB(TcpServerBase):
         "Create a new notifier object"
         if vhost is None:
             vhost = self.notifierbind
-        n = _Notifier(vhost, self.scheduler, self.singlecastlimit, self.deflate)
+        n = _Notifier(vhost, self.scheduler, self.singlecastlimit, not self.deflate and self.notifierdeflate)
         n.start()
         return n
 
