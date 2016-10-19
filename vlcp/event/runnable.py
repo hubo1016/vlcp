@@ -493,6 +493,7 @@ class RoutineContainer(object):
         if not subprocesses:
             self.retvalue = []
             return
+        subprocesses = list(subprocesses)
         if len(subprocesses) == 1 and (container is None or container is self) and forceclose:
             # Directly run the process to improve performance
             for m in subprocesses[0]:
