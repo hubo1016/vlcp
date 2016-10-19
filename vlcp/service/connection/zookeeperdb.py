@@ -116,7 +116,7 @@ class _Notifier(RoutineContainer):
             if trans_id not in self._heap:
                 self._transacts[trans_id] = trans
                 self._heap.push((True, trans_id), (zxid, 1))
-        while self._heap.top()[0]:
+        while self._heap and self._heap.top()[0]:
             _, trans_id = self._heap.pop()
             transact = self._transacts.pop(trans_id)
             pubkey, sep, _ = trans_id.partition('-')
