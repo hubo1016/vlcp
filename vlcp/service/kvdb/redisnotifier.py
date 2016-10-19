@@ -50,8 +50,8 @@ def _str(s):
 
 class _Notifier(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.Notifier')
-    def __init__(self, vhostbind, prefix, scheduler=None, daemon=False, singlecastlimit = 256, deflate = False):
-        RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
+    def __init__(self, vhostbind, prefix, scheduler=None, singlecastlimit = 256, deflate = False):
+        RoutineContainer.__init__(self, scheduler=scheduler, daemon=False)
         self.vhostbind = vhostbind
         self.prefix = _bytes(prefix)
         self._matchers = {}
