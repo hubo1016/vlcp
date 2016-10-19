@@ -1846,8 +1846,8 @@ class RouterUpdater(FlowUpdater):
                     new_router_routes_set = currentstaticroutes[r]
 
                     for prefix,nexthop,netid in last_router_routes_set.difference(new_router_routes_set):
-                        if (ip4_addr(nexthop),netid) in self._arp_cache:
-                            del self._arp_cache[(ip4_addr(nexthop),netid)]
+                        if (netid,ip4_addr(nexthop)) in self._arp_cache:
+                            del self._arp_cache[(netid,ip4_addr(nexthop))]
 
                         # delete all network routes from this prefix
                         for mac,nid in self._getallinterfaceinfobynetid(netid):
