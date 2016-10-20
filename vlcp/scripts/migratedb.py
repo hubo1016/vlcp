@@ -74,7 +74,7 @@ class MigrateDB(ScriptModule):
                     except ValueError:
                         print('Key %r is not valid, it cannot be loaded. Ignore this key.' % (key,))
                     else:
-                        for m in callAPI(self.apiroutine, dst_service, 'mset', {'kvpairs': (key, self.apiroutine.retvalue[0]),
+                        for m in callAPI(self.apiroutine, dst_service, 'mset', {'kvpairs': ((key, self.apiroutine.retvalue[0]),),
                                                                                 'vhost': dst_vhost}):
                             yield m
                 for m in self.apiroutine.executeAll([move_key(k) for k in move_keys], retnames = ()):
