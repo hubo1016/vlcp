@@ -46,7 +46,7 @@ class MigrateDB(ScriptModule):
                 yield m
             (src_keys,), (dst_keys,) = self.apiroutine.retvalue
         else:
-            for m in callAPI(src_service, 'listallkeys', {'vhost': src_vhost}):
+            for m in callAPI(self.apiroutine, src_service, 'listallkeys', {'vhost': src_vhost}):
                 yield m
             src_keys = self.apiroutine.retvalue
             dst_keys = []
