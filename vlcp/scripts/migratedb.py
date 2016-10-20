@@ -59,13 +59,30 @@ class MigrateDB(ScriptModule):
             yield m
         for i in range(0, len(src_keys), 100):
             move_keys = tuple(src_keys[i:i+100])
-            for m in callAPI(self.apiroutine, src_service, 'mget', {'keys': move_keys,
-                                                                    'vhost': src_vhost}):
-                yield m
-            values = self.apiroutine.retvalue
-            for m in callAPI(self.apiroutine, dst_service, 'mset', {'kvpairs': tuple(zip(move_keys, values)),
-                                                                    'vhost': dst_vhost}):
-                yield m
+            try:
+                for m in callAPI(self.apiroutine, src_service, 'mget', {'keys': move_keys,
+                                                                        'vhost': src_vhost}):
+                    yield m
+                values = self.apiroutine.retvalue
+            except ValueError:
+                # There might be illegal keys, try them one by one
+                def move_key(key):
+                    try:
+                        for m in callAPI(self.apiroutine, src_service, 'mget', {'keys': (key,),
+                                                                                'vhost': src_vhost}):
+                            yield m
+                    except ValueError:
+                        print('Key %r is not valid, it cannot be loaded. Ignore this key.' % (key,))
+                    else:
+                        for m in callAPI(self.apiroutine, dst_service, 'mset', {'kvpairs': (key, self.apiroutine.retvalue[0]),
+                                                                                'vhost': dst_vhost}):
+                            yield m
+                for m in self.apiroutine.executeAll([move_key(k) for k in move_keys], retnames = ()):
+                    yield m
+            else:
+                for m in callAPI(self.apiroutine, dst_service, 'mset', {'kvpairs': tuple(zip(move_keys, values)),
+                                                                        'vhost': dst_vhost}):
+                    yield m
             print('%d keys moved' % (i,))
         print('Deleting old keys...')
         if delete_keys:
