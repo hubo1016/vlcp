@@ -38,8 +38,8 @@ class MigrateDB(ScriptModule):
         for m in self.apiroutine.executeAll([self.server.moduleloader.loadByPath(m) for m in load_modules], self.server.moduleloader,
                                             ()):
             yield m
-        src_service = findModule(self.knownmodules.get(src_module, src_module))[0]._instance.getServiceName()
-        dst_service = findModule(self.knownmodules.get(dst_module, dst_module))[0]._instance.getServiceName()
+        src_service = findModule(self.knownmodules.get(src_module, src_module))[1]._instance.getServiceName()
+        dst_service = findModule(self.knownmodules.get(dst_module, dst_module))[1]._instance.getServiceName()
         if clean:
             for m in self.apiroutine.executeAll([callAPI(self.apiroutine, src_service, 'listallkeys', {'vhost': src_vhost}),
                                                  callAPI(self.apiroutine, dst_service, 'listallkeys', {'vhost': dst_vhost})]):
