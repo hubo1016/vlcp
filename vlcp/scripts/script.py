@@ -74,4 +74,4 @@ class ScriptModule(Module):
             from vlcp.config import manager
             manager['main.args'] = args
             manager['main.kwargs'] = opt_dict
-            server_main(configfile, ())
+            server_main(configfile, ('__main__.' + cls.__name__,))
