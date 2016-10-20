@@ -31,6 +31,8 @@ class ScriptModule(Module):
         self.routines.append(self.apiroutine)
     def run(self, *argv, **kwargs):
         print('Running script...')
+        if False:
+            yield
     @classmethod
     def main(cls):
         short_opts = 'f:hH?'
