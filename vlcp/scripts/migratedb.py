@@ -26,7 +26,7 @@ class MigrateDB(ScriptModule):
     _default_knownmodules = {'redisdb': 'vlcp.service.connection.redisdb.RedisDB',
                              'zookeeperdb': 'vlcp.service.connection.zookeeperdb.ZooKeeperDB',
                              'defaultdb': 'vlcp.service.kvdb.storage.KVStorage'}
-    options = ('clean', None, False)
+    options = (('clean', None, False),)
     def run(self, src, dst, clean = None):
         if clean is not None:
             clean = True
