@@ -35,7 +35,7 @@ class MigrateDB(ScriptModule):
         src_module, sep, src_vhost = src.partition(':')
         dst_module, sep, dst_vhost = dst.partition(':')
         load_modules = [self.knownmodules.get(m, m) for m in set((src_module, dst_module))]
-        for m in self.apiroutine.executeAll([self.server.moduleloader.loadByPath], self.server.moduleloader,
+        for m in self.apiroutine.executeAll([self.server.moduleloader.loadByPath(m) for m in load_modules], self.server.moduleloader,
                                             ()):
             yield m
         src_service = findModule(self.knownmodules.get(src_module, src_module))[0]._instance.getServiceName()
