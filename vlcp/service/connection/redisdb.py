@@ -135,7 +135,8 @@ class RedisDB(TcpServerBase):
                        api(self.update, self.apiroutine),
                        api(self.mupdate, self.apiroutine),
                        api(self.updateall, self.apiroutine),
-                       api(self.updateallwithtime, self.apiroutine))
+                       api(self.updateallwithtime, self.apiroutine),
+                       api(self.listallkeys, self.apiroutine))
     def _client_class(self, config, protocol, vhost):
         db = getattr(config, 'db', None)
         def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):
@@ -520,3 +521,13 @@ class RedisDB(TcpServerBase):
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
         for m in self._retry_write(_process, vhost):
             yield m
+    def listallkeys(self, vhost = ''):
+        '''
+        Return all keys in the KVDB. For management purpose.
+        '''
+        c = self._redis_clients.get(vhost)
+        if c is None:
+            raise ValueError('vhost ' + repr(vhost) + ' is not defined')
+        for m in c.execute_command(self.apiroutine, 'KEYS', '*'):
+            yield m
+

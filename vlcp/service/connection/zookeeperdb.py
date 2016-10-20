@@ -484,7 +484,8 @@ class ZooKeeperDB(TcpServerBase):
                        api(self.updateall, self.apiroutine),
                        api(self.updateallwithtime, self.apiroutine),
                        api(self.recycle),
-                       api(self.createnotifier))
+                       api(self.createnotifier),
+                       api(self.listallkeys, self.apiroutine))
         self.apiroutine.main = self._main
         self.routines.append(self.apiroutine)
         self._recycle_list = {}
@@ -579,6 +580,8 @@ class ZooKeeperDB(TcpServerBase):
             self.apiroutine.retvalue = []
             return
         client = self._zookeeper_clients.get(vhost)
+        if client is None:
+            raise ValueError('vhost ' + repr(vhost) + ' is not defined')
         escaped_keys = [_escape_path(k) for k in keys]
         for m in client.requests([zk.getchildren2(b'/vlcp/kvdb/' + k) for k in escaped_keys], self.apiroutine, 60):
             yield m
@@ -659,6 +662,8 @@ class ZooKeeperDB(TcpServerBase):
     def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place, with a function updater(keys, values, timestamp) which returns (updated_keys, updated_values). Either all success or all fail. Timestamp is a integer standing for current time in microseconds."
         client = self._zookeeper_clients.get(vhost)
+        if client is None:
+            raise ValueError('vhost ' + repr(vhost) + ' is not defined')
         barrier_list = []
         def _pre_create_keys(escaped_keys, session_lock = None):
             if escaped_keys:
@@ -1057,13 +1062,16 @@ class ZooKeeperDB(TcpServerBase):
                     # which means when we random select 4N keys,
                     # the expectation of recycled keys are less than N
                     try:
-                        for m in client.requests([zk.getchildren(b'/vlcp/kvdb')],
+                        for m in client.requests([zk.getchildren(b'/vlcp/kvdb'),
+                                                  zk.getchildren(b'/vlcp/notifier/bykey')],
                                                  self.apiroutine, 60):
                             yield m
                         completes, losts, retries, _ = self.apiroutine.retvalue
                         if losts or retries:
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
-                        all_path = [b'/vlcp/kvdb/' + p for p in completes[0].children]
+                        all_path = [b'/vlcp/kvdb/' + p for p in completes[0].children] + \
+                                    [b'/vlcp/notifier/bykey/' + p for p in completes[1].children] + \
+                                    [b'/vlcp/notifier/all']
                         if len(all_path) > 2000:
                             all_path = sample(all_path, 2000)
                         else:
@@ -1133,4 +1141,18 @@ class ZooKeeperDB(TcpServerBase):
         n = _Notifier(vhost, self.scheduler, self.singlecastlimit, not self.deflate and self.notifierdeflate)
         n.start()
         return n
-
+    def listallkeys(self, vhost = ''):
+        '''
+        Return all keys in the KVDB. For management purpose.
+        '''
+        client = self._zookeeper_clients.get(vhost)
+        if client is None:
+            raise ValueError('vhost ' + repr(vhost) + ' is not defined')
+        for m in client.requests([zk.getchildren(b'/vlcp/kvdb')],
+                                 self.apiroutine, 60):
+            yield m
+        completes, lost, retries, _ = self.apiroutine.retvalue
+        if lost or retries:
+            raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+        self._check_completes(completes)
+        self.apiroutine.retvalue = [_str(k) for k in completes[0].children]
