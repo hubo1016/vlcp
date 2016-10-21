@@ -899,20 +899,20 @@ class ViperFlow(Module):
                     phyport = walk(phyportkey)
                 except:
                     pass
-
-                if not physicalnetwork:
-                    if all(getattr(phyport,k,None) == v for k,v in args.items()):
-                        save(phyportkey)
                 else:
-
-                    try:
-                        phynet = walk(phyport.physicalnetwork.getkey())
-                    except:
-                        pass
+                    if not physicalnetwork:
+                        if all(getattr(phyport,k,None) == v for k,v in args.items()):
+                            save(phyportkey)
                     else:
-                        if phynet.id == physicalnetwork:
-                            if all(getattr(phyport,k,None) == v for k,v in args.items()):
-                                save(phyportkey)
+    
+                        try:
+                            phynet = walk(phyport.physicalnetwork.getkey())
+                        except:
+                            pass
+                        else:
+                            if phynet.id == physicalnetwork:
+                                if all(getattr(phyport,k,None) == v for k,v in args.items()):
+                                    save(phyportkey)
 
         def walker_func(set_func):
 
