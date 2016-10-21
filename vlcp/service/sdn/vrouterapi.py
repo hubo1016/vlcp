@@ -5,7 +5,7 @@ from uuid import uuid1
 from vlcp.server.module import Module,depend,api,callAPI
 from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.networkmodel import *
-from vlcp.utils.dataobject import watch_context,set_new,dump,ReferenceObject,WeakReferenceObject
+from vlcp.utils.dataobject import watch_context,set_new,dump,ReferenceObject
 from vlcp.utils.ethernet import ip4_addr
 from vlcp.utils.netutils import format_network_cidr,check_ip_address, parse_ip4_network, ip_in_network
 
@@ -89,24 +89,21 @@ class VRouterApi(Module):
             newrouters.append(router)
         
         routerkeys = [VRouter.default_key(r['id']) for r in newrouters]
-        dvrouterinfokeys = [DVRouterInfo.default_key(r['id']) for r in newrouters]
         routersetkey = [VRouterSet.default_key()]
 
         routerobjects = [self._createvirtualrouter(**r) for r in newrouters ]
-        dvrouterinfoobjects = [DVRouterInfo.create_instance(r['id']) for r in newrouters ]
 
         def createrouterdb(keys,values):
             routerset = values[0]
 
             for i in range(0,len(routerkeys)):
                 values[i+1] = set_new(values[i+1],routerobjects[i])
-                values[i+1+len(routerkeys)] = set_new(values[i+1+len(routerkeys)],dvrouterinfoobjects[i])
                 routerset.set.dataset().add(routerobjects[i].create_weakreference())
 
             return keys,values
         try:
             for m in callAPI(self.app_routine,"objectdb","transact",
-                             {"keys":routersetkey+routerkeys+dvrouterinfokeys,"updater":createrouterdb}):
+                             {"keys":routersetkey+routerkeys,"updater":createrouterdb}):
                 yield m
         except:
             raise

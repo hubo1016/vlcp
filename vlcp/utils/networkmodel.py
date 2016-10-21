@@ -109,16 +109,6 @@ class VRouter(DataObject):
         self.routes = list()
 
 
-class DVRouterInfo(DataObject):
-    _prefix = 'viperflow.dvrouterinfo'
-    _indices = ('',)
-
-    def __init__(self,prefix=None,deleted=None):
-        super(DVRouterInfo, self).__init__(prefix=prefix,deleted=deleted)
-        self.dvrinfo = []
-
-VRouter._register_auto_remove('DVRouterInfo',lambda x:[DVRouterInfo.default_key(x.id)])
-
 class DVRouterForwardSet(DataObject):
     _prefix = 'viperflow.dvrouterforwardset'
 
