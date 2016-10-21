@@ -23,5 +23,5 @@ setup(name='vlcp',
       keywords=['SDN', 'VLCP', 'Openflow'],
       test_suite = 'tests',
       use_2to3=False,
-      install_requires = ["nstruct>=1.0.10"],
+      install_requires = ["nstruct>=1.1.1"],
       packages=find_packages(exclude=("tests","tests.*","misc","misc.*")))
