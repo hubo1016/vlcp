@@ -88,7 +88,7 @@ class IOFlowUpdater(FlowUpdater):
 
         logicalportkeys = [LogicalPort.default_key(id) for id in self._portids]
 
-        self._initialkeys = logicalportkeys + [PhysicalPort.default_key()]
+        self._initialkeys = logicalportkeys + [PhysicalPortSet.default_key()]
 
         self._walkerdict = dict(itertools.chain(
             ((PhysicalPortSet.default_key(),self._physicalport_walker),),
@@ -208,10 +208,10 @@ class IOFlowUpdater(FlowUpdater):
         subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
         routerportkeys = [k for k,v in zip(keys,values) if v.isinstance(RouterPort)]
         portkeys = [k for k,v in zip(keys,values) if v.isinstance(VRouter)]
-        logicalportkeys = [LogicalPort.default_key(id) for id in self._portids]
+        logicalportkeys = [k for k,v in zip(keys,values) if v.isinstance(LogicalPort)]
         
         self._initialkeys = tuple(itertools.chain(subnetkeys,routerportkeys,
-                                    portkeys,logicalportkeys,[PhysicalPortSet.default_key()]))
+                                        portkeys,logicalportkeys,[PhysicalPortSet.default_key()]))
 
     def walkcomplete(self, keys, values):
         conn = self._connection
