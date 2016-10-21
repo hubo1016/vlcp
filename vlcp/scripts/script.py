@@ -44,12 +44,12 @@ class ScriptModule(Module):
                 if len(opt) > 1 and opt[1]:
                     short_opts += opt[1] + ':'
                     short_dict[opt[1]] = opt[0]
-                long_opts += opt[0] + '='
+                long_opts.append(opt[0] + '=')
             else:
                 if len(opt) > 1 and opt[1]:
                     short_opts += opt[1]
                     short_dict[opt[1]] = opt[0]
-                long_opts += opt[0]
+                long_opts.append(opt[0])
         try:
             options, args = getopt.gnu_getopt(sys.argv[1:], short_opts, long_opts)
         except Exception as exc:
