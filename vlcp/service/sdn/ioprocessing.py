@@ -88,7 +88,7 @@ class IOFlowUpdater(FlowUpdater):
 
         logicalportkeys = [LogicalPort.default_key(id) for id in self._portids]
 
-        self._initialkeys = logicalportkeys + [PhysicalPort.default_key()]
+        self._initialkeys = logicalportkeys + [PhysicalPortSet.default_key()]
 
         self._walkerdict = dict(itertools.chain(
             ((PhysicalPortSet.default_key(),self._physicalport_walker),),
