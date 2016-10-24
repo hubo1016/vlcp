@@ -174,6 +174,8 @@ class _Notifier(RoutineContainer):
                             # Insert a barrier
                             self._insert_barrier(key, watcher_event.zxid)
                             self.retvalue = watcher_event.zxid
+                        finally:
+                            watcher.close()
                     def _get_transacts(last_zxid, new_children):
                         try:
                             new_children = sorted(new_children)
