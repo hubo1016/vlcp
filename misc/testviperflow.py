@@ -126,6 +126,7 @@ class MainModule(Module):
                 endtime = time.time()
                 logger.info("\033[1;31;40m test 6 createphysicalnetworks 1000 failed used %r\033[0m",endtime - begintime)
                 self.scheduler.quit()
+                return
             else:
                 endtime = time.time()
                 logger.info("\033[1;31;40m test 6 createphysicalnetworks 1000 success used %r \033[0m",endtime - begintime)
@@ -509,6 +510,7 @@ class MainModule(Module):
             logger.info(e)
             logger.info("\033[1;31;40m test 26 createphysicalport 1000 failed \033[0m")
             self.scheduler.quit()
+            return
         else:
             results = self.app_routine.retvalue
             endtime = time.time()
@@ -520,6 +522,7 @@ class MainModule(Module):
             except Exception:
                 logger.info("\033[1;31;40m test 26 createphysicalport 1000 failed used %r \033[0m",endtime-begintime)
                 self.scheduler.quit()
+                return
             else:
                 logger.info("\033[1;31;40m test 26 createphysicalport 1000 success used %r \033[0m",endtime-begintime)
         
@@ -642,6 +645,7 @@ class MainModule(Module):
             logger.info(e)
             logger.info("\033[1;31;40m test 33 createlogicalnetwork 100 failed \033[0m")
             self.scheduler.quit()
+            return
         else:
             endtime = time.time()
             results = self.app_routine.retvalue
