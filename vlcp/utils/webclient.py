@@ -362,7 +362,8 @@ class WebClient(Configurable):
                         
         '''
         with closing(container.delegateOther(self._open(container, request, ignorewebexception, timeout, datagen, cafile, key, certificate,
-                                                    followredirect, autodecompress, allowcookies))) as g:
+                                                    followredirect, autodecompress, allowcookies),
+                                             container)) as g:
             for m in g:
                 yield m
     def _open(self, container, request, ignorewebexception = False, timeout = None, datagen = None, cafile = None, key = None, certificate = None,
