@@ -65,11 +65,12 @@ class ZooKeeper(Protocol):
     _default_defaultport = 2181     
     _default_createqueue = True
     _default_buffersize = 4194304
-    _default_messagequeuesize = 128
+    _default_messagequeuesize = 1024
     _default_keepalivetime = 3
     _default_keepalivetimeout = 3
     _default_connect_timeout = 5
     _default_tcp_nodelay = True
+    _default_writequeuesize = 8192
     _logger = logging.getLogger(__name__ + '.ZooKeeper')
     def init(self, connection):
         for m in Protocol.init(self, connection):
