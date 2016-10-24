@@ -59,7 +59,7 @@ class BaseStream(object):
             if self.pos >= len(self.data):
                 for m in self.prepareRead(container):
                     yield m
-            if size is None or size - retsize > len(self.data) - self.pos:
+            if size is None or size - retsize >= len(self.data) - self.pos:
                 t = self.data[self.pos:]
                 ret.append(t)
                 retsize += len(t)
@@ -111,7 +111,7 @@ class BaseStream(object):
             if self.pos >= len(self.data):
                 for m in self.prepareRead(container):
                     yield m
-            if size is None or size - retsize > len(self.data) - self.pos:
+            if size is None or size - retsize >= len(self.data) - self.pos:
                 t = self.data[self.pos:]
                 if self.isunicode:
                     p = t.find(u'\n')
@@ -120,12 +120,12 @@ class BaseStream(object):
                 if p >= 0:
                     t = t[0: p + 1]
                     ret.append(t)
-                    self.retsize += len(t)
+                    retsize += len(t)
                     self.pos += len(t)
                     break
                 else:
                     ret.append(t)
-                    self.retsize += len(t)
+                    retsize += len(t)
                     self.pos += len(t)
                     if self.dataeof:
                         self.eof = True
@@ -151,7 +151,7 @@ class BaseStream(object):
             container.data = b''.join(ret)
         if self.errored:
             raise IOError('Stream is broken before EOF')
-    def copyTo(self, dest, container):
+    def copyTo(self, dest, container, buffering = True):
         if self.eof:
             for m in dest.write(u'' if self.isunicode else b'', True):
                 yield m
@@ -165,7 +165,7 @@ class BaseStream(object):
                         yield m
                     data = self.readonce()
                     try:
-                        for m in dest.write(data, container, self.eof):
+                        for m in dest.write(data, container, self.eof, buffering = buffering):
                             yield m
                     except IOError:
                         break

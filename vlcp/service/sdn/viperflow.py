@@ -649,14 +649,12 @@ class ViperFlow(Module):
 
         fphysicalportvalues = self.app_routine.retvalue
 
-        if None in fphysicalportvalues:
-            with watch_context(fphysicalportkeys,fphysicalportvalues,reqid,self.app_routine):
-                pass
-            raise ValueError(" physical ports is not existed "+ fphysicalportkeys[fphysicalportvalues.index(None)])
-
-        physicalportdict = dict(zip(fphysicalportkeys,fphysicalportvalues))
-
-        try:
+        with watch_context(fphysicalportkeys,fphysicalportvalues,reqid,self.app_routine):
+            if None in fphysicalportvalues:
+                raise ValueError(" physical ports is not existed "+ fphysicalportkeys[fphysicalportvalues.index(None)])
+    
+            physicalportdict = dict(zip(fphysicalportkeys,fphysicalportvalues))
+    
             while True:
                 for port in newports:
                     portobj = physicalportdict[PhysicalPort.default_key(port['vhost'],port['systemid'],
@@ -724,19 +722,11 @@ class ViperFlow(Module):
                     else:
                         logger.info(" cause UpdateConflict Exception try once")
                         continue
-                except:
-                    raise
                 else:
-                    break
-
-        except:
-            raise
-        else:
+                    break    
             for m in self._dumpkeys(keys):
                 yield m
-        finally:
-            with watch_context(fphysicalportkeys,fphysicalportvalues,reqid,self.app_routine):
-                pass
+
     def deletephysicalport(self,name,vhost='',systemid='%',bridge='%'):
         "delete physicalport that id, return status OK"
         if not name:

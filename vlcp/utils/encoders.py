@@ -9,11 +9,23 @@ import codecs
 from .gzipheader import header, tail
 import time
 
-def unicode_encoder(encoding):
-    return codecs.getincrementalencoder(encoding).encode
+def unicode_encoder(encoding, errors = 'strict'):
+    return codecs.getincrementalencoder(encoding)(errors).encode
 
-def unicode_decoder(encoding):
-    return codecs.getincrementaldecoder(encoding).decode
+def unicode_decoder(encoding, errors = 'strict'):
+    return codecs.getincrementaldecoder(encoding)(errors).decode
+
+def donothing_encoder(x, iseof):
+    return x
+
+if str is bytes:
+    def str_encoder(encoding, errors = 'strict'):
+        return donothing_encoder
+    def str_decoder(encoding, errors = 'strict'):
+        return donothing_encoder
+else:
+    str_encoder = unicode_encoder
+    str_decoder = unicode_decoder
 
 def deflate_encoder(level = None):
     if level is None:
@@ -39,18 +51,24 @@ def deflate_decoder(wbits = None):
         return ret
     return enc
 
+def _tobytes(s, encoding = 'utf-8'):
+    if s is bytes:
+        return s
+    else:
+        return s.encode(encoding)
+
 class GzipEncoder(object):
     def __init__(self, fname = 'tmp', level = 9):
         self.crc = 0
         self.size = 0
-        self.fname = fname
+        self.fname = _tobytes(fname)
         self.level = level
         self.writeheader = False
     def enc(self, data, final):
         buf = []
         if not self.writeheader:
             h = header.new()
-            h.mtime = time.time()
+            h.mtime = int(time.time())
             h.fname = self.fname
             buf.append(header.tobytes(h))
             self.compobj = zlib.compressobj(self.level, zlib.DEFLATED, -zlib.MAX_WBITS, zlib.DEF_MEM_LEVEL)

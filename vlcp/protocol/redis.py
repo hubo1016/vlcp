@@ -338,6 +338,11 @@ class Redis(Protocol):
         :param *cmds: commands to send. Each command is a tuple/list of bytes/str.
         :returns: list of reply event matchers (from container.retvalue)
         '''
+        for m in container.delegateOther(self._send_batch(connection, container, *cmds),
+                                         container, forceclose = True):
+            yield m
+    def _send_batch(self, connection, container, *cmds):
+        "Use delegate to ensure it always ends"
         if not cmds:
             raise RedisProtocolException('No commands')
         l = Lock(connection.redis_locker, connection.scheduler)

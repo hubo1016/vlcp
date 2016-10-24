@@ -17,6 +17,7 @@ import vlcp.utils.ovsdb as ovsdb
 from vlcp.protocol.jsonrpc import JsonRPCErrorResultException,\
     JsonRPCNotificationEvent, JsonRPCProtocolException
 import itertools
+from contextlib import closing
 
 def _bytes(s):
     return s.encode('ascii')
@@ -380,8 +381,9 @@ class OVSDBPortManager(Module):
                 self.apiroutine.subroutine(r)
         else:
             try:
-                for m in self.apiroutine.executeAll(working_routines, None, ()):
-                    yield m
+                with closing(self.apiroutine.executeAll(working_routines, None, ())) as g:
+                    for m in g:
+                        yield m
             finally:
                 self.scheduler.emergesend(OVSDBConnectionPortsSynchronized(connection))
     def _get_ports(self, connection, protocol):

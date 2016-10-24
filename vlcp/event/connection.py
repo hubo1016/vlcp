@@ -20,6 +20,7 @@ import itertools
 import signal
 from vlcp.event.core import POLLING_OUT
 import traceback
+from contextlib import closing
 import os
 
 if sys.version_info[0] >= 3:
@@ -873,8 +874,9 @@ class Client(Connection):
             for m in self.waitWithTimeout(timewait):
                 yield m
             try:
-                for m in self.create_socket():
-                    yield m
+                with closing(self.create_socket()) as cs:
+                    for m in cs:
+                        yield m
                 break
             except IOError as exc:
                 timeretry += 1
@@ -884,8 +886,9 @@ class Client(Connection):
         matcher = ConnectionControlEvent.createMatcher(self, ConnectionControlEvent.SHUTDOWN, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
         try:
             self.connected = False
-            for m in self.withException(self._reconnect_internal(), matcher):
-                yield m
+            with closing(self.withException(self._reconnect_internal(), matcher)) as g:
+                for m in g:
+                    yield m
             self.connected = True
         except RoutineException:
             self.need_reconnect = False
@@ -894,15 +897,17 @@ class Client(Connection):
         self.connmark = -1
         try:
             matcher = ConnectionControlEvent.createMatcher(self, ConnectionControlEvent.SHUTDOWN, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
-            for m in self.withException(self.create_socket(), matcher):
-                yield m
+            with closing(self.withException(self.create_socket(), matcher)) as g:
+                for m in g:
+                    yield m
         except RoutineException:
             return
         except IOError:
             self.logger.warning('Connection failed for url: %s', self.rawurl, exc_info = True)
             if self.need_reconnect:
-                for m in self._reconnect():
-                    yield m
+                with closing(self._reconnect()) as g:
+                    for m in g:
+                        yield m
                 if not self.connected:
                     for m in self.protocol.notconnected(self):
                         yield m
@@ -910,8 +915,9 @@ class Client(Connection):
                 for m in self.protocol.notconnected(self):
                     yield m
         if self.socket:
-            for m in Connection.main(self):
-                yield m
+            with closing(Connection.main(self)) as g:
+                for m in g:
+                    yield m
     def __repr__(self, *args, **kwargs):
         return Connection.__repr__(self, *args, **kwargs) + '(url=' + self.rawurl + ')'
 
@@ -1103,8 +1109,9 @@ class TcpServer(RoutineContainer):
                 self.connmark += 1
                 self.accepts = 0
                 try:
-                    for m in self.withException(self._server(), matcher, matcher2):
-                        yield m
+                    with closing(self.withException(self._server(), matcher, matcher2)) as g:
+                        for m in g:
+                            yield m
                 except RoutineException:
                     if self.matcher is matcher:
                         retry = False

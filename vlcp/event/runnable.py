@@ -7,6 +7,7 @@ from __future__ import print_function, absolute_import, division
 import sys
 from .core import QuitException, TimerEvent, SystemControlEvent
 from .event import Event, withIndices
+from contextlib import closing
 
 class EventHandler(object):
     '''
@@ -110,13 +111,25 @@ class generatorwrapper(object):
     def __iter__(self):
         return self.run
     def next(self):
-        return next(self.run)
+        try:
+            return next(self.run)
+        except StopIteration:
+            raise StopIteration
     def __next__(self):
-        return next(self.run)
+        try:
+            return next(self.run)
+        except StopIteration:
+            raise StopIteration
     def send(self, arg):
-        return self.run.send(arg)
+        try:
+            return self.run.send(arg)
+        except StopIteration:
+            raise StopIteration
     def throw(self, typ, val = None, tb = None):
-        return self.run.throw(typ, val, tb)
+        try:
+            return self.run.throw(typ, val, tb)
+        except StopIteration:
+            raise StopIteration
     def __repr__(self, *args, **kwargs):
         try:
             iterator = self.run.gi_frame.f_locals[self.name]
@@ -496,8 +509,9 @@ class RoutineContainer(object):
         subprocesses = list(subprocesses)
         if len(subprocesses) == 1 and (container is None or container is self) and forceclose:
             # Directly run the process to improve performance
-            for m in subprocesses[0]:
-                yield m
+            with closing(subprocesses[0]) as sp:
+                for m in sp:
+                    yield m
             self.retvalue = [tuple(getattr(self, n, None) for n in retnames)]
             return
         if container is None:

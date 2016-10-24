@@ -29,7 +29,7 @@ class Test(unittest.TestCase):
         self.assertEqual(vector_ustring.parse(b'\x00\x00\x00\x02\x00\x00\x00\x03abc\x00\x00\x00\x03defab'), ([b'abc',b'def'], 18))
 
     def testConnectResponse(self):
-        data = '\x00\x00\x00\x1a\x00\x00\x00\x00\x00\x00u0\x00\x00\x00\x00\x01#Eg\x00\x00\x00\x06defghi'
+        data = b'\x00\x00\x00\x1a\x00\x00\x00\x00\x00\x00u0\x00\x00\x00\x00\x01#Eg\x00\x00\x00\x06defghi'
         r, l = ConnectResponse.parse(data)
         self.assertEqual(l, len(data))
         r.zookeeper_type = CONNECT_PACKET
@@ -37,7 +37,7 @@ class Test(unittest.TestCase):
         self.assertEqual(r.sessionId, 0x1234567)
         self.assertEqual(r.passwd, 'defghi')
         self.assertFalse(hasattr(r, 'readOnly'))
-        data = '\x00\x00\x00\x1b\x00\x00\x00\x00\x00\x00u0\x00\x00\x00\x00\x01#Eg\x00\x00\x00\x06defghi\x01'
+        data = b'\x00\x00\x00\x1b\x00\x00\x00\x00\x00\x00u0\x00\x00\x00\x00\x01#Eg\x00\x00\x00\x06defghi\x01'
         r, l = ConnectResponse.parse(data)
         self.assertEqual(l, len(data))
         r.zookeeper_type = CONNECT_PACKET
