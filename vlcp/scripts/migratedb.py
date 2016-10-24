@@ -6,6 +6,7 @@ Created on 2016/10/20
 from __future__ import print_function
 
 import vlcp.utils.jsonencoder
+from contextlib import closing
 
 def decode_object(obj):
     return obj
@@ -35,15 +36,17 @@ class MigrateDB(ScriptModule):
         src_module, sep, src_vhost = src.partition(':')
         dst_module, sep, dst_vhost = dst.partition(':')
         load_modules = [self.knownmodules.get(m, m) for m in set((src_module, dst_module))]
-        for m in self.apiroutine.executeAll([self.server.moduleloader.loadByPath(m) for m in load_modules], self.server.moduleloader,
-                                            ()):
-            yield m
+        with closing(self.apiroutine.executeAll([self.server.moduleloader.loadByPath(m) for m in load_modules], self.server.moduleloader,
+                                            ())) as g:
+            for m in g:
+                yield m
         src_service = findModule(self.knownmodules.get(src_module, src_module))[1]._instance.getServiceName()
         dst_service = findModule(self.knownmodules.get(dst_module, dst_module))[1]._instance.getServiceName()
         if clean:
-            for m in self.apiroutine.executeAll([callAPI(self.apiroutine, src_service, 'listallkeys', {'vhost': src_vhost}),
-                                                 callAPI(self.apiroutine, dst_service, 'listallkeys', {'vhost': dst_vhost})]):
-                yield m
+            with closing(self.apiroutine.executeAll([callAPI(self.apiroutine, src_service, 'listallkeys', {'vhost': src_vhost}),
+                                                 callAPI(self.apiroutine, dst_service, 'listallkeys', {'vhost': dst_vhost})])) as g:
+                for m in g:
+                    yield m
             (src_keys,), (dst_keys,) = self.apiroutine.retvalue
         else:
             for m in callAPI(self.apiroutine, src_service, 'listallkeys', {'vhost': src_vhost}):
@@ -77,8 +80,9 @@ class MigrateDB(ScriptModule):
                         for m in callAPI(self.apiroutine, dst_service, 'mset', {'kvpairs': ((key, self.apiroutine.retvalue[0]),),
                                                                                 'vhost': dst_vhost}):
                             yield m
-                for m in self.apiroutine.executeAll([move_key(k) for k in move_keys], retnames = ()):
-                    yield m
+                with closing(self.apiroutine.executeAll([move_key(k) for k in move_keys], retnames = ())) as g:
+                    for m in g:
+                        yield m
             else:
                 for m in callAPI(self.apiroutine, dst_service, 'mset', {'kvpairs': tuple(zip(move_keys, values)),
                                                                         'vhost': dst_vhost}):

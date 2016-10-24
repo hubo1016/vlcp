@@ -12,6 +12,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.event.lock import Lock
 from zlib import compress, decompress, error as zlib_error
 import pickle
+from contextlib import closing
 try:
     import cPickle
 except ImportError:
@@ -356,8 +357,9 @@ class RedisDB(TcpServerBase):
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: key=' + repr(key))
-        for m in self._retry_write(_process, vhost):
-            yield m
+        with closing(self._retry_write(_process, vhost)) as g:
+            for m in g:
+                yield m
     def mupdate(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place with a custom function, see update. Either all success, or all fail."
         if not keys:
@@ -411,8 +413,9 @@ class RedisDB(TcpServerBase):
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        for m in self._retry_write(_process, vhost):
-            yield m
+        with closing(self._retry_write(_process, vhost)) as g:
+            for m in g:
+                yield m
     def updateall(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place, with a function updater(keys, values) which returns (updated_keys, updated_values). Either all success or all fail"
         def _process(newconn):
@@ -470,8 +473,9 @@ class RedisDB(TcpServerBase):
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        for m in self._retry_write(_process, vhost):
-            yield m
+        with closing(self._retry_write(_process, vhost)) as g:
+            for m in g:
+                yield m
     def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place, with a function updater(keys, values, timestamp) which returns (updated_keys, updated_values). Either all success or all fail. Timestamp is a integer standing for current time in microseconds."
         def _process(newconn):
@@ -534,8 +538,9 @@ class RedisDB(TcpServerBase):
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        for m in self._retry_write(_process, vhost):
-            yield m
+        with closing(self._retry_write(_process, vhost)) as g:
+            for m in g:
+                yield m
     def listallkeys(self, vhost = ''):
         '''
         Return all keys in the KVDB. For management purpose.

@@ -16,6 +16,7 @@ from vlcp.event.connection import ConnectionResetException, ResolveRequestEvent,
 from vlcp.event.event import Event, withIndices
 from vlcp.utils import ovsdb
 import socket
+from contextlib import closing
 
 @withIndices('systemid', 'connection', 'connmark', 'vhost')
 class OVSDBConnectionSetup(Event):
@@ -167,8 +168,9 @@ class OVSDBManager(Module):
                                     for buuid in self.apiroutine.jsonrpc_result['Bridge'].keys()]
                 def init_process():
                     try:
-                        for m in self.apiroutine.executeAll(init_subprocesses, retnames = ()):
-                            yield m
+                        with closing(self.apiroutine.executeAll(init_subprocesses, retnames = ())) as g:
+                            for m in g:
+                                yield m
                     except Exception:
                         for m in self.apiroutine.waitForSend(OVSDBConnectionSetup(system_id, connection, connection.connmark, vhost)):
                             yield m

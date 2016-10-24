@@ -19,6 +19,7 @@ from vlcp.event.runnable import RoutineContainer, MultipleException
 from vlcp.event.event import withIndices, Event
 import functools
 from vlcp.event.core import QuitException
+from contextlib import closing
 try:
     import cPickle
 except ImportError:
@@ -203,9 +204,10 @@ class _Notifier(RoutineContainer):
                         else:
                             self._remove_barrier(key, last_zxid, *result)
                             self.retvalue = None
-                    for m in self.executeAll([_watcher_update(watchers[0]),
-                                              _get_transacts(last_zxid, new_children)]):
-                        yield m
+                    with closing(self.executeAll([_watcher_update(watchers[0]),
+                                              _get_transacts(last_zxid, new_children)])) as g:
+                        for m in g:
+                            yield m
                     ((last_zxid,), _) = self.retvalue
                 except QuitException:
                     raise
@@ -524,8 +526,9 @@ class ZooKeeperDB(TcpServerBase):
         else:
             routines = [initialize_zookeeper(client, vh) for vh, client in self._zookeeper_clients.items() if vh in allow_vhosts]
         try:
-            for m in self.apiroutine.executeAll(routines, retnames = ()):
-                yield m
+            with closing(self.apiroutine.executeAll(routines, retnames = ())) as g:
+                for m in g:
+                    yield m
         except Exception as exc:
             for m in self.changestate(ModuleLoadStateChanged.FAILED, self.apiroutine):
                 yield m
@@ -537,8 +540,9 @@ class ZooKeeperDB(TcpServerBase):
                 recycle_routines = [self._recycle_routine(client, vh) for vh, client in self._zookeeper_clients.items()]
             else:
                 recycle_routines = [self._recycle_routine(client, vh) for vh, client in self._zookeeper_clients.items() if vh in allow_vhosts]
-            for m in self.apiroutine.executeAll(recycle_routines, retnames = ()):
-                yield m
+            with closing(self.apiroutine.executeAll(recycle_routines, retnames = ())) as g:
+                for m in g:
+                    yield m
     def _client_class(self, config, protocol, vhost):
         def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):
             # URL should like: zk://<server1>[:port1],<server2>[:port2],.../chrootpath
@@ -612,9 +616,10 @@ class ZooKeeperDB(TcpServerBase):
                         self.apiroutine.retvalue = None
                     return
             self.apiroutine.retvalue = None
-        for m in self.apiroutine.executeAll([retrieve_version(r, b'/vlcp/kvdb/' + k + b'/', zxid_limit)
-                                             for r,k in izip(completes, escaped_keys)]):
-            yield m
+        with closing(self.apiroutine.executeAll([retrieve_version(r, b'/vlcp/kvdb/' + k + b'/', zxid_limit)
+                                             for r,k in izip(completes, escaped_keys)])) as g:
+            for m in g:
+                yield m
         self.apiroutine.retvalue = [self._decode(r[0]) for r in self.apiroutine.retvalue]
     def mset(self, kvpairs, timeout = None, vhost = ''):
         "Set multiple values on multiple keys"
@@ -845,11 +850,12 @@ class ZooKeeperDB(TcpServerBase):
                             return
                     self.apiroutine.retvalue = None
                 try:
-                    for m in self.apiroutine.executeAll([_normal_get_value()] + \
+                    with closing(self.apiroutine.executeAll([_normal_get_value()] + \
                                     [_wait_value(vp[1], vp[2])
                                      for vp in value_path
-                                     if vp and vp[0]]):
-                        yield m
+                                     if vp and vp[0]])) as g:
+                        for m in g:
+                            yield m
                 except MultipleException as exc:
                     raise exc.args[0]
                 results = self.apiroutine.retvalue

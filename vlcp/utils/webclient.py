@@ -12,6 +12,7 @@ from vlcp.event.event import Event, withIndices
 from vlcp.event.connection import Client
 from vlcp.event.core import TimerEvent
 from vlcp.config.config import Configurable
+from contextlib import closing
 
 try:
     from Cookie import Morsel
@@ -360,6 +361,12 @@ class WebClient(Configurable):
         :param cafile: provide a CA file for SSL certification check. Notice that the http host
                         
         '''
+        with closing(container.delegateOther(self._open(container, request, ignorewebexception, timeout, datagen, cafile, key, certificate,
+                                                    followredirect, autodecompress, allowcookies))) as g:
+            for m in g:
+                yield m
+    def _open(self, container, request, ignorewebexception = False, timeout = None, datagen = None, cafile = None, key = None, certificate = None,
+             followredirect = True, autodecompress = False, allowcookies = None):
         if cafile is None:
             cafile = self.cafile
         if allowcookies is None:
@@ -393,8 +400,7 @@ class WebClient(Configurable):
                 if container.timeout:
                     if datagen_routine:
                         container.terminate(datagen_routine)
-                    for m in self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True):
-                        yield m
+                    container.subroutine(self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True), False)
                     raise WebException('HTTP request timeout')
                 finalresp = container.http_finalresponse
                 resp = Response(request.get_full_url(), finalresp, container.scheduler)
@@ -411,15 +417,13 @@ class WebClient(Configurable):
                             container.terminate(datagen_routine)
                         for m in resp.shutdown():
                             yield m
-                        for m in self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True):
-                            yield m
+                        container.subroutine(self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True), False)
                         raise exc
                     finally:
                         resp.close()
                 else:
                     try:
-                        for m in self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', False, finalresp):
-                            yield m
+                        container.subroutine(self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', False, finalresp), False)
                         if followredirect and resp.status in (300, 301, 302, 303, 307, 308):
                             request.redirect(resp, ignorewebexception = ignorewebexception, timeout = timeout, cafile = cafile, key = key,
                                              certificate = certificate, followredirect = followredirect,
@@ -447,6 +451,10 @@ class WebClient(Configurable):
                     if datagen_routine:
                         container.terminate(datagen_routine)
                     raise
+            except Exception as exc:
+                for m in self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True):
+                    yield m
+                raise exc
             break
     def _releaseconnection(self, connection, host, path, https = False, forceclose = False, respevent = None):
         if not host:

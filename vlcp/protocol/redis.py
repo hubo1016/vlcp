@@ -10,6 +10,7 @@ from vlcp.event import Event, withIndices, ConnectionWriteEvent
 import logging
 import itertools
 from vlcp.event.lock import Lock
+from contextlib import closing
 try:
     import hiredis
     hiredis_available = True
@@ -319,6 +320,11 @@ class Redis(Protocol):
         :param *args: command paramters, begin with command name, e.g. 'SET','key','value'
         :returns: Event matcher to wait for reply. The value is returned from container.retvalue
         '''
+        with closing(container.delegateOther(self._send_command(connection, container, *args),
+                                             container, forceclose = True)) as g:
+            for m in g:
+                yield m
+    def _send_command(self, connection, container, *args):
         if not args:
             raise RedisProtocolException('No command name')
         l = Lock(connection.redis_locker, connection.scheduler)
@@ -338,9 +344,10 @@ class Redis(Protocol):
         :param *cmds: commands to send. Each command is a tuple/list of bytes/str.
         :returns: list of reply event matchers (from container.retvalue)
         '''
-        for m in container.delegateOther(self._send_batch(connection, container, *cmds),
-                                         container, forceclose = True):
-            yield m
+        with closing(container.delegateOther(self._send_batch(connection, container, *cmds),
+                                         container, forceclose = True)) as g:
+            for m in g:
+                yield m
     def _send_batch(self, connection, container, *cmds):
         "Use delegate to ensure it always ends"
         if not cmds:

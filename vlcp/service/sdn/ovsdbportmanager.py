@@ -265,9 +265,10 @@ class OVSDBPortManager(Module):
                             raise JsonRPCErrorResultException('Error when query interfaces from port ' + repr(puuid) + ': ' + r['error'])
                         if r['rows']:
                             interfaces = ovsdb.getlist(r['rows'][0]['interfaces'])
-                            for m in self.apiroutine.executeAll([self._get_interface_info(connection, protocol, buuid, iuuid, puuid)
-                                                                 for _,iuuid in interfaces]):
-                                yield m
+                            with closing(self.apiroutine.executeAll([self._get_interface_info(connection, protocol, buuid, iuuid, puuid)
+                                                                 for _,iuuid in interfaces])) as g:
+                                for m in g:
+                                    yield m
                             self.apiroutine.retvalue = list(itertools.chain(r[0] for r in self.apiroutine.retvalue))
                         else:
                             self.apiroutine.retvalue = []
@@ -288,8 +289,9 @@ class OVSDBPortManager(Module):
                         add_routine.append(add_port_interfaces(puuid))
                 # Execute the add_routine
                 try:
-                    for m in self.apiroutine.executeAll(add_routine):
-                        yield m
+                    with closing(self.apiroutine.executeAll(add_routine)) as g:
+                        for m in g:
+                            yield m
                 except:
                     add = []
                     raise
@@ -343,9 +345,10 @@ class OVSDBPortManager(Module):
                 del ports[len(not_remove):]
             if interfaces:
                 try:
-                    for m in self.apiroutine.executeAll([self._get_interface_info(connection, protocol, buuid, iuuid, port_uuid)
-                                                         for iuuid in interfaces]):
-                        yield m
+                    with closing(self.apiroutine.executeAll([self._get_interface_info(connection, protocol, buuid, iuuid, port_uuid)
+                                                         for iuuid in interfaces])) as g:
+                        for m in g:
+                            yield m
                     add = list(itertools.chain((r[0] for r in self.apiroutine.retvalue if r[0])))
                 except Exception:
                     self._logger.warning("Cannot get new port information", exc_info = True)
@@ -467,11 +470,12 @@ class OVSDBPortManager(Module):
                             if buuid in self.bridge_datapathid and self.bridge_datapathid[buuid] == e.datapathid:
                                 self.bridge_datapathid[buuid] = newdpid
                             def re_add_interfaces():
-                                for m in self.apiroutine.executeAll(
+                                with closing(self.apiroutine.executeAll(
                                     [self._get_interface_info(e.connection, e.connection.protocol, buuid,
                                                               r['_uuid'], puuid)
-                                     for puuid, r in ports_original]):
-                                    yield m
+                                     for puuid, r in ports_original])) as g:
+                                    for m in g:
+                                        yield m
                                 add = list(itertools.chain(r[0] for r in self.apiroutine.retvalue))
                                 for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(),
                                                   'update', datapathid = e.datapathid,
