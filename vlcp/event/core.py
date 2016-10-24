@@ -43,7 +43,7 @@ class SystemControlLowPriorityEvent(Event):
     LOOP = 'loop'
 
     
-class QuitException(Exception):
+class QuitException(BaseException):
     pass
 
 @withIndices('handle')

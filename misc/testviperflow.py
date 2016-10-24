@@ -45,7 +45,7 @@ class MainModule(Module):
             try:
                 assert len(result) == 1
                 assert result[0].get('vlanrange') == [[100,200]]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 2 special vlanrange [[100,200]] createphysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 2 special vlanrange [[100,200]] createphysicalnetwork success \033[0m")
@@ -62,7 +62,7 @@ class MainModule(Module):
             try:
                 assert len(result) == 1
                 assert result[0].get('vlanrange') == [[100,200],[200,201]]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 3 special vlanrange [[100,200],[200,201]] createphysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 3 special vlanrange [[100,200],[200,201]] createphysicalnetwork success \033[0m")
@@ -79,7 +79,7 @@ class MainModule(Module):
             try:
                 assert len(result) == 1
                 assert result[0].get('vlanrange') == [[100,200],[201,4094]]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 4 special vlanrange [[100,200],[201,4094]] createphysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 4 special vlanrange [[100,200],[201,4094]] createphysicalnetwork success \033[0m")
@@ -96,7 +96,7 @@ class MainModule(Module):
             try:
                 assert len(result) == 1
                 assert result[0].get('vlanrange') == [[100,200],[201,4096]]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 5 special vlanrange [[100,200],[201,4096]] createphysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 5 special vlanrange [[100,200],[201,4096]] createphysicalnetwork success \033[0m")
@@ -122,7 +122,7 @@ class MainModule(Module):
                 for result in results:
                     assert result.get('vlanrange') == [[100,200]]
                     assert result.get('id') in ids
-            except:
+            except Exception:
                 endtime = time.time()
                 logger.info("\033[1;31;40m test 6 createphysicalnetworks 1000 failed used %r\033[0m",endtime - begintime)
                 raise SystemExit
@@ -144,7 +144,7 @@ class MainModule(Module):
                 for result in results:
                     assert result.get('vlanrange')
                     assert result.get('id')
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 7 listphysicalnetworks failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 7 listphysicalnetworks success \033[0m")
@@ -163,7 +163,7 @@ class MainModule(Module):
                 for result in results:
                     assert result.get('vlanrange')
                     assert result.get('id') == ids[999]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 8 listphysicalnetwork one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 8 listphysicalnetwork one success \033[0m")
@@ -183,7 +183,7 @@ class MainModule(Module):
                     assert result.get('vlanrange')
                     assert result.get('id') == ids[999]
                     assert result.get('name') == "one"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 9 updatephysicalnetwork one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 9 updatephysicalnetwork one success \033[0m")
@@ -209,7 +209,7 @@ class MainModule(Module):
             result = self.app_routine.retvalue
             try:
                 assert result.get('status') == 'OK'
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 11 deletephysicalnetwork one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 11 deletephysicalnetwork one success \033[0m")
@@ -225,7 +225,7 @@ class MainModule(Module):
             results = self.app_routine.retvalue
             try:
                 assert len(results) == 0
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 12 listphysicalnetwork one not existed failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 12 listphysicalnetwork one not existed success \033[0m")
@@ -260,7 +260,7 @@ class MainModule(Module):
                     assert result.get('vlanrange')
                     assert result.get('id') in ids
                     assert result.get('name') == "one"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 14 updatephysicalnetwork 999 failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 14 updatephysicalnetwork 999 success used %r \033[0m",endtime - begintime)
@@ -280,7 +280,7 @@ class MainModule(Module):
                     assert result.get('vlanrange')
                     assert result.get('id')
                     assert result.get('name') == 'one'
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 15 listphysicalnetworks name = 'one' failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 15 listphysicalnetworks name = 'one' success \033[0m")
@@ -299,7 +299,7 @@ class MainModule(Module):
             endtime = time.time()
             try:
                 assert result.get('status') == 'OK'
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 16 deletephysicalnetworks 999 failed used %r\033[0m",endtime-begintime)
             else:
                 logger.info("\033[1;31;40m test 16 deletephysicalnetworks 999 success used %r\033[0m",endtime-begintime)
@@ -335,7 +335,7 @@ class MainModule(Module):
                 assert len(result) == 1
                 assert result[0].get("name") == "eth0"
                 assert result[0].get("physicalnetwork").get("id") == physicalnetworkids[0][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 17 createphysicalport one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 17 createphysicalport one success \033[0m")
@@ -369,7 +369,7 @@ class MainModule(Module):
                 assert result[0].get("systemid") == "1234"
                 assert result[0].get("bridge") == "br0"
                 assert result[0].get("physicalnetwork").get("id") == physicalnetworkids[0][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 19 createphysicalport one full name failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 19 createphysicalport one full name success \033[0m")
@@ -391,7 +391,7 @@ class MainModule(Module):
                     assert result.get("systemid") == "1234" or result.get("systemid") =="%"
                     assert result.get("bridge") == "br0" or result.get("bridge") == "%"
                     assert result.get("physicalnetwork").get("id") == physicalnetworkids[0][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 20 listphysicalport failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 20 listphysicalport success \033[0m")
@@ -412,7 +412,7 @@ class MainModule(Module):
                     assert result.get("systemid") =="%"
                     assert result.get("bridge") == "%"
                     assert result.get("physicalnetwork").get("id") == physicalnetworkids[0][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 21 listphysicalport one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 21 listphysicalport one success \033[0m")
@@ -434,7 +434,7 @@ class MainModule(Module):
                     assert result.get("systemid") =="1234"
                     assert result.get("bridge") == "br0"
                     assert result.get("physicalnetwork").get("id") == physicalnetworkids[0][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 22 listphysicalport one full failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 22 listphysicalport one full success \033[0m")
@@ -457,7 +457,7 @@ class MainModule(Module):
                     assert result.get("bridge") == "br0"
                     assert result.get("mac") == "0123456789"
                     assert result.get("physicalnetwork").get("id") == physicalnetworkids[0][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 23 updatephysicalport one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 23 updatephysicalport one success \033[0m")
@@ -474,7 +474,7 @@ class MainModule(Module):
             results = self.app_routine.retvalue
             try:
                 assert len(results) == 0
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 24 listphysicalport one where failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 24 listphysicalport one where success \033[0m")    
@@ -491,7 +491,7 @@ class MainModule(Module):
             result = self.app_routine.retvalue
             try:
                 assert result.get("status") == "OK"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 25 deletephysicalport one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 25 deletephysicalport one success \033[0m")    
@@ -517,7 +517,7 @@ class MainModule(Module):
                 for result in results:
                     assert result.get("physicalnetwork").get("id") == physicalnetworkids[0][0] or \
                            result.get("physicalnetwork").get("id") == physicalnetworkids[1][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 26 createphysicalport 1000 failed used %r \033[0m",endtime-begintime)
                 raise SystemExit
             else:
@@ -541,7 +541,7 @@ class MainModule(Module):
                 for result in results:
                     assert 0 <= int(result.get("mac")) <= 500
                     assert result.get("physicalnetwork").get("id") == physicalnetworkids[0][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 27 updatephysicalport 500 failed used %r \033[0m",endtime-begintime)
             else:
                 logger.info("\033[1;31;40m test 27 updatephysicalport 500 success used %r \033[0m",endtime-begintime)
@@ -559,7 +559,7 @@ class MainModule(Module):
                 assert len(results) == 500
                 for result in results:
                     assert result.get("physicalnetwork").get("id") == physicalnetworkids[1][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 28 listphysicalport phynetwork = xxx failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 28 listphysicalport phynetwork = xxx success \033[0m")    
@@ -579,7 +579,7 @@ class MainModule(Module):
             result = self.app_routine.retvalue
             try:
                 assert result.get("status") == "OK"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 29 deletephysicalports 1000 failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 29 deletephysicalports 1000 success used %r \033[0m",endtime - begintime)    
@@ -611,7 +611,7 @@ class MainModule(Module):
                 assert result[0].get("id")
                 assert result[0].get("vlanid") == 100
                 assert result[0].get("physicalnetwork").get("id") == physicalnetworkids[0][0]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 31 createlogicalnetwork one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 31 createlogicalnetwork one success \033[0m")
@@ -650,7 +650,7 @@ class MainModule(Module):
                 for result in results:
                     assert result.get("id")
                     assert result.get("physicalnetwork").get("id") == pyid
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 33 createlogicalnetwork 1000 failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 33 createlogicalnetwork 1000 success %r \033[0m",endtime - begintime)   
@@ -673,7 +673,7 @@ class MainModule(Module):
                     assert result.get("id")
                     assert result.get("name") == "two"
                     assert result.get("physicalnetwork").get("id") == pyid
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 34 updatelogicalnetwork 1000 failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 34 updatelogicalnetwork 1000 success %r \033[0m",endtime - begintime)   
@@ -691,7 +691,7 @@ class MainModule(Module):
             results = self.app_routine.retvalue
             try:
                 assert len(results) >= 1000
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 35 listlogicalnetwork all failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 35 listlogicalnetwork all success\033[0m")        
@@ -710,7 +710,7 @@ class MainModule(Module):
                 assert len(results) == 1000
                 for result in results:
                     assert result.get("name") == "two"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 36 listlogicalnetwork name = 'two' failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 36 listlogicalnetwork name = 'two' success \033[0m")   
@@ -729,7 +729,7 @@ class MainModule(Module):
                 assert len(results) >= 1000 
                 for result in results:
                     assert result.get("physicalnetwork").get("id") == pyid
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 37 listlogicalnetwork phynetwork == xxx failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 37 listlogicalnetwork phynetwork == xxx success \033[0m")  
@@ -750,7 +750,7 @@ class MainModule(Module):
                 for result in results:
                     assert result.get("name") == "two"
                     assert result.get("physicalnetwork").get("id") == pyid
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 38 listlogicalnetwork phynetwork == xxx name = two failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 38 listlogicalnetwork phynetwork == xxx name = two success \033[0m")  
@@ -770,7 +770,7 @@ class MainModule(Module):
             result = self.app_routine.retvalue
             try:
                 assert result.get("status") == "OK"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 39 deletelogicalnetworks 1000 failed used %r\033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 39 deletelogicalnetworks 1000 success used %r\033[0m",endtime - begintime)  
@@ -806,7 +806,7 @@ class MainModule(Module):
                 assert result[2].get("physicalnetwork").get("id") == pyid
 
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 40 createlogicalnetworks allocate vlanid failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 40 createlogicalnetworks allocate vlanid success \033[0m")
@@ -834,7 +834,7 @@ class MainModule(Module):
                 assert results[2].get("id") == lgid[2]
                 assert results[2].get("vlanid") == 101
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 41 updatelogicalnetwork exchange vlanid falied \033[0m")
             else:
                 logger.info("\033[1;31;40m test 41 updatelogicalnetwork exchange vlanid success \033[0m")   
@@ -853,7 +853,7 @@ class MainModule(Module):
             result = self.app_routine.retvalue
             try:
                 assert result.get("status") == "OK"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 42 deletelogicalnetwork one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 42 deletelogicalnetwork one success \033[0m")  
@@ -874,7 +874,7 @@ class MainModule(Module):
                 assert result[0].get("id")
                 assert result[0].get("network").get("id") == lgid[0]
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 43 createlogicalport one failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 43 createlogicalport one success \033[0m")   
@@ -894,7 +894,7 @@ class MainModule(Module):
                 assert result[0].get("id") == pid
                 assert result[0].get("network").get("id") == lgid[0]
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 44 createlogicalport one id failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 44 createlogicalport one id success \033[0m")   
@@ -914,7 +914,7 @@ class MainModule(Module):
                 assert result[0].get("name") == "three"
                 assert result[0].get("network").get("id") == lgid[0]
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 45 updatelogicalport one id failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 45 updatelogicalport one id success \033[0m")   
@@ -932,7 +932,7 @@ class MainModule(Module):
                 assert len(result) == 2
                 assert result[0].get("network").get("id") == lgid[0]
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 46 listlogicalport all failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 46 listlogicalport all success \033[0m")   
@@ -950,7 +950,7 @@ class MainModule(Module):
                 assert len(result) == 2
                 assert result[0].get("network").get("id") == lgid[0]
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 47 listlogicalport logicalnetwork = xxx failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 47 listlogicalport logcialnetwork = xxx success \033[0m")   
@@ -967,7 +967,7 @@ class MainModule(Module):
             try:
                 assert result.get("status") == "OK" 
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 48 deletelogicalport failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 48 deletelogicalport success \033[0m")   
@@ -989,7 +989,7 @@ class MainModule(Module):
                 assert len(results) == 1000
                 for result in results:
                     assert result.get("network").get("id") == lgid[1]
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 49 createlogicalports failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 49 createlogicalports success used %r \033[0m",endtime - begintime)   
@@ -1012,7 +1012,7 @@ class MainModule(Module):
                 for result in results:
                     assert result.get("network").get("id") == lgid[1]
                     assert result.get("name") == "ppp"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 50 updatelogicalports failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 50 updatelogicalports success used %r \033[0m",endtime - begintime)  
@@ -1041,7 +1041,7 @@ class MainModule(Module):
             endtime = time.time()
             try:
                 assert result.get("status") == "OK"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 52 deletelogicalports 1000 failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 52 deletelogicalports 1000 success used %r \033[0m",endtime - begintime) 
@@ -1076,7 +1076,7 @@ class MainModule(Module):
                     if result.get('id') == physicalnetworkid3:
                         assert result.get('vlanrange') == [[100,200]]
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 52 vxlan vlan createphysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 52 vxlan vlan createphysicalnetwork success \033[0m")
@@ -1105,7 +1105,7 @@ class MainModule(Module):
                     if result.get('id') == physicalnetworkid3:
                         assert result.get("name") == "C"
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 53 vxlan vlan updatephysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 53 vxlan vlan updatephysicalnetwork success \033[0m")
@@ -1125,7 +1125,7 @@ class MainModule(Module):
             result = self.app_routine.retvalue
             try:
                 assert result.get('status') == "OK"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 54 vxlan vlan deletephysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 54 vxlan vlan deletephysicalnetwork success \033[0m")
@@ -1156,7 +1156,7 @@ class MainModule(Module):
                 assert result[1].get("vni") == 1000
                 assert result[1].get("physicalnetwork").get("id") == physicalnetworkid1
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 55 createlogicalnetworks failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 55 createlogicalnetworks success \033[0m")
@@ -1183,7 +1183,7 @@ class MainModule(Module):
                 assert result[1].get("vni") == 1001
                 assert result[1].get("physicalnetwork").get("id") == physicalnetworkid1
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 56 updatelogicalnetworks failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 56 updatelogicalnetworks success \033[0m")
@@ -1206,7 +1206,7 @@ class MainModule(Module):
                 
                 assert results[0].get("id") == nativePhysicalNetworkid
                 assert results[0].get("type") == 'native'
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 57 native createphysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 57 native vlan createphysicalnetwork success \033[0m")
@@ -1247,7 +1247,7 @@ class MainModule(Module):
                 assert result[0].get("physicalnetwork").get("id") == nativePhysicalNetworkid
 
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 59 createlogicalnetworks failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 59 createlogicalnetworks success \033[0m")
@@ -1282,7 +1282,7 @@ class MainModule(Module):
                 assert result[0].get("id")
                 assert result[0].get("name") == "AAA"
                 assert result[0].get("physicalnetwork").get("id") == nativePhysicalNetworkid
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 61 updatelogicalnetworks failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 61 updatelogicalnetworks success \033[0m")
@@ -1299,7 +1299,7 @@ class MainModule(Module):
             result = self.app_routine.retvalue
             try:
                 assert result.get('status') == "OK"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 62 deletelogicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 62 deletelogicalnetwork success \033[0m")
@@ -1322,7 +1322,7 @@ class MainModule(Module):
                 
                 assert results[0].get("id") == localPhysicalNetworkid
                 assert results[0].get("type") == 'local'
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 63 local createphysicalnetwork failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 63 local vlan createphysicalnetwork success \033[0m")
@@ -1357,7 +1357,7 @@ class MainModule(Module):
                 assert result[0].get("physicalnetwork").get("id") == localPhysicalNetworkid
 
 
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 65 createlogicalnetworks failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 65 createlogicalnetworks success \033[0m")
@@ -1381,7 +1381,7 @@ class MainModule(Module):
                 for result in results:
                     assert str(result.get("id")) in logicalnetworkids
                     assert result.get("physicalnetwork").get("id") == localPhysicalNetworkid
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 66 createlogicalnetworks 10000 failed used %r\033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 66 createlogicalnetworks 10000 success %r\033[0m",endtime - begintime)
@@ -1402,7 +1402,7 @@ class MainModule(Module):
                 assert result[0].get("id")
                 assert result[0].get("name") == "AAA"
                 assert result[0].get("physicalnetwork").get("id") == localPhysicalNetworkid
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 67 updatelogicalnetworks failed \033[0m")
             else:
                 logger.info("\033[1;31;40m test 67 updatelogicalnetworks success \033[0m")
@@ -1423,7 +1423,7 @@ class MainModule(Module):
             endtime = time.time()
             try:
                 assert result.get('status') == "OK"
-            except:
+            except Exception:
                 logger.info("\033[1;31;40m test 68 deletelogicalnetworks 10000 failed used %r \033[0m",endtime - begintime)
             else:
                 logger.info("\033[1;31;40m test 68 deletelogicalnetworks 10000 success used %r \033[0m",endtime - begintime)
