@@ -10,7 +10,6 @@ from vlcp.protocol.openflow import Openflow, OpenflowConnectionStateEvent, Openf
 from vlcp.protocol.openflow import common
 import sys
 import logging
-from vlcp.utils.namedstruct import NamedStruct
 
 of_proto = Openflow((common.OFP13_VERSION,))
 
