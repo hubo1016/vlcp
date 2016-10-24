@@ -193,6 +193,7 @@ class ZooKeeper(Protocol):
             matchers.append(resp_matcher)
         def _sendall():
             sent_requests = []
+            count = 0
             for r in requests:
                 try:
                     for m in self._send(connection, r, container):
@@ -200,6 +201,11 @@ class ZooKeeper(Protocol):
                     sent_requests.append(container.retvalue)
                 except ZooKeeperRetryException:
                     raise ZooKeeperRetryException(sent_requests)
+                count += 1
+                if count >= 1024:
+                    count = 0
+                    for m in container.doEvents():
+                        yield m
             container.retvalue = sent_requests
         return (matchers, _sendall())
     def requests(self, connection, requests, container, callback = None):
