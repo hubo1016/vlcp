@@ -428,7 +428,7 @@ class ZooKeeperClient(Configurable):
                             break
                         elif self._shutdown:
                             raise ZooKeeperSessionUnavailable(self.session_state)
-                        elif session_lock is not None and (container.event.session_id != session_lock or \
+                        elif session_lock is not None and (container.event.sessionid != session_lock or \
                                                            container.event.state == ZooKeeperSessionStateChanged.EXPIRED):
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.EXPIRED)
                 try:
