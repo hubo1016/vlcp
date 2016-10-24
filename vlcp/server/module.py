@@ -332,6 +332,35 @@ def findModule(path, autoimport = True):
         module = getattr(p, classname)
     return (p, module)
 
+class _ProxyMetaClass(type):
+    '''
+    Metaclass for delayed depend
+    '''
+    @property
+    def depends(self):
+        if not hasattr(self, '_depends'):
+            self._depends = []
+            path = manager.get('proxy.' + self.__name__.lower())
+            if path is not None:
+                try:
+                    _, module = findModule(path, True)
+                except KeyError as exc:
+                    raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc) + 'is not defined in the package')
+                except Exception as exc:
+                    raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc))
+                if module is None:
+                    raise ModuleLoadException('Cannot find module: ' + repr(path))
+            else:
+                module = self._default
+                if module is None:
+                    raise ModuleLoadException('Cannot find module: proxy.' + self.__name__ + ' is not specified')
+            self._proxytarget = module
+            self.depends.append(module)
+            if not hasattr(module, 'referencedBy'):
+                module.referencedBy = []
+            module.referencedBy.append(self)
+        return self._depends
+        
 class _ProxyModule(Module):
     '''
     A proxy to create dependencies on configurable module
@@ -357,21 +386,8 @@ class _ProxyModule(Module):
         scheduler.emergesend(ModuleAPICall(event.handle, self._targetname, event.name, params = event.params))        
 
 def proxy(name, default = None):
-    path = manager.get('proxy.' + name.lower())
-    if path is not None:
-        try:
-            p, module = findModule(path, True)
-        except KeyError as exc:
-            raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc) + 'is not defined in the package')
-        except Exception as exc:
-            raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc))
-        if module is None:
-            raise ModuleLoadException('Cannot find module: ' + repr(path))
-    else:
-        module = default
-    proxymodule = type(name, (_ProxyModule,), {'_proxytarget': module})
+    proxymodule = _ProxyMetaClass(name, (_ProxyModule,), {'_default': default})
     proxymodule.__module__ = sys._getframe(1).f_globals.get('__name__')
-    depend(module)(proxymodule)
     return proxymodule
 
 class ModuleLoader(RoutineContainer):
