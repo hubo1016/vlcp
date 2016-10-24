@@ -35,7 +35,7 @@ class Test(unittest.TestCase):
         r.zookeeper_type = CONNECT_PACKET
         r._autosubclass()
         self.assertEqual(r.sessionId, 0x1234567)
-        self.assertEqual(r.passwd, b'bdefghi')
+        self.assertEqual(r.passwd, b'defghi')
         self.assertFalse(hasattr(r, 'readOnly'))
         data = b'\x00\x00\x00\x1b\x00\x00\x00\x00\x00\x00u0\x00\x00\x00\x00\x01#Eg\x00\x00\x00\x06defghi\x01'
         r, l = ConnectResponse.parse(data)
