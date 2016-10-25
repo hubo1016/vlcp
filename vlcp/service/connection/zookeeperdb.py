@@ -189,7 +189,7 @@ class _Notifier(RoutineContainer):
                                 except ZooKeeperSessionUnavailable:
                                     break
                                 completes2, lost, retries, _ = self.retvalue
-                                completes.extend(completes2)
+                                completes.extend(completes2[:len(reqs) - len(lost) - len(retries)])
                                 reqs = lost + retries
                             completes = [c for c in completes if c.err != zk.ZOO_ERR_NONODE]
                             self._check_completes(completes)
@@ -372,7 +372,7 @@ class _Notifier(RoutineContainer):
                             self._publish_wait.update(merged_keys)
                         else:
                             trans_prefix = b'notify-' + transactid + b'-'
-                            if any((k.startswith(trans_prefix) for k in completes.children)):
+                            if any((k.startswith(trans_prefix) for k in completes[0].children)):
                                 # Succeeded
                                 break
                             else:
@@ -731,7 +731,7 @@ class ZooKeeperDB(TcpServerBase):
                         if losts or retries:
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                         self._check_completes(completes)
-                        created_identifier = [child for child in completes[0].children if child.startswith(identifier)]
+                        created_identifier = [child for child in completes[1].children if child.startswith(identifier)]
                         if created_identifier:
                             # Succeeded, retrieve other created names
                             barrier_list = [b'/vlcp/kvdb/' + escaped_keys[0] + b'/' + created_identifier[0]]
@@ -747,7 +747,7 @@ class ZooKeeperDB(TcpServerBase):
                                 self._check_completes(completes)
                                 rollback = False
                                 for k,r in izip(escaped_keys[1:], completes):
-                                    created_identifier = [child for child in completes[0].children if child.startswith(identifier)]
+                                    created_identifier = [child for child in completes[1].children if child.startswith(identifier)]
                                     if not created_identifier:
                                         # Should not happen, but if that happens, it will cause a dead lock
                                         self._logger.warning('Created barriers are missing, roll back other barriers. key = %r', k)
@@ -940,7 +940,7 @@ class ZooKeeperDB(TcpServerBase):
                                 raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                             else:
                                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,),)
-                                if completes[0].err == zk.ZOO_ERR_NONODE:
+                                if completes[1].err == zk.ZOO_ERR_NONODE:
                                     # Already deleted, so the transaction is succeeded
                                     break
                                 # Retry the transaction else wise
