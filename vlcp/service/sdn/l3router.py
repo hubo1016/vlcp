@@ -933,9 +933,12 @@ class RouterUpdater(FlowUpdater):
 
     def reset_initialkeys(self,keys,values):
 
-        subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
-        routerportkeys = [k for k,v in zip(keys,values) if v.isinstance(RouterPort)]
-        routerkeys = [k for k,v in zip(keys,values) if v.isinstance(VRouter)]
+        subnetkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                      v.isinstance(SubNet)]
+        routerportkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                          v.isinstance(RouterPort)]
+        routerkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                      v.isinstance(VRouter)]
         forwardinfokeys = [k for k,v in zip(keys,values) if v.isinstance(DVRouterForwardInfoRef)]
 
         self._initialkeys = tuple(itertools.chain(self._original_keys,subnetkeys,

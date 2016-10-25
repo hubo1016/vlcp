@@ -205,9 +205,12 @@ class IOFlowUpdater(FlowUpdater):
 
     def reset_initialkeys(self,keys,values):
 
-        subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
-        routerportkeys = [k for k,v in zip(keys,values) if v.isinstance(RouterPort)]
-        portkeys = [k for k,v in zip(keys,values) if v.isinstance(VRouter)]
+        subnetkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                      v.isinstance(SubNet)]
+        routerportkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                          v.isinstance(RouterPort)]
+        portkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                    v.isinstance(VRouter)]
         keys_set = set(keys)
         logicalportkeys = [k for k in [LogicalPort.default_key(id) for id in self._portids] if k in keys_set]
         
