@@ -1738,11 +1738,17 @@ class RouterUpdater(FlowUpdater):
 
             def _add_forward_route(from_net_id,cidr,outmac):
                 network,prefix = parse_ip4_network(cidr)
+                if network:
+                    priority = ofdef.OFP_DEFAULT_PRIORITY + 33 + prefix
+                else:
+                    # add default forward route , keep priority as small
+                    priority = ofdef.OFP_DEFAULT_PRIORITY + prefix
+
                 return [
                     ofdef.ofp_flow_mod(
                         table_id = l3router,
                         command = ofdef.OFPFC_ADD,
-                        priority = ofdef.OFP_DEFAULT_PRIORITY + 33 + prefix,
+                        priority = priority,
                         buffer_id = ofdef.OFP_NO_BUFFER,
                         out_port = ofdef.OFPP_ANY,
                         out_group = ofdef.OFPG_ANY,
@@ -1767,11 +1773,16 @@ class RouterUpdater(FlowUpdater):
                 ]
             def _delete_forward_route(from_net_id,cidr,outmac):
                 network,prefix = parse_ip4_network(cidr)
+                if network:
+                    priority = ofdef.OFP_DEFAULT_PRIORITY + 33 + prefix
+                else:
+                    # add default forward route , keep priority as small
+                    priority = ofdef.OFP_DEFAULT_PRIORITY + prefix
                 return [
                     ofdef.ofp_flow_mod(
                         table_id = l3router,
                         command = ofdef.OFPFC_DELETE_STRICT,
-                        priority = ofdef.OFP_DEFAULT_PRIORITY + 33 + prefix,
+                        priority = priority,
                         buffer_id = ofdef.OFP_NO_BUFFER,
                         out_port = ofdef.OFPP_ANY,
                         out_group = ofdef.OFPG_ANY,
