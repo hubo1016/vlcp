@@ -396,9 +396,12 @@ class ZooKeeperClient(Configurable):
             end_time = start_time + timeout
         def left_time():
             if timeout is None:
-                return 1.0
+                return None
             else:
                 return max(end_time - time(), 0)
+        def has_time_left():
+            t = left_time()
+            return t is None or t > 0
         result = {}
         lost_responses = []
         analysis = dict((v[0], (v[1], v[2])) for v in (self._analyze(r) for r in requests))
@@ -418,7 +421,7 @@ class ZooKeeperClient(Configurable):
             elif hasattr(resp, 'path'):
                 resp.path = self.unchroot_path(resp.path)
             return resp
-        while left_time() > 0 and not lost_responses and retry_requests:
+        while has_time_left() and not lost_responses and retry_requests:
             if self.session_state != ZooKeeperSessionStateChanged.CREATED:
                 def wait_for_connect():
                     state_change = ZooKeeperSessionStateChanged.createMatcher(None, self)
