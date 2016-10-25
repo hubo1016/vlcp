@@ -722,7 +722,7 @@ class ZooKeeperDB(TcpServerBase):
                             # so if we create the nodes and immediately lost connection
                             # and reconnect to another server, the nodes may not be ready.
                             # Send a sync to solve this problem.
-                            for m in client.requests([zk.sync(b'/vlcp/kvdb/' + escaped_keys[0])],
+                            for m in client.requests([zk.sync(b'/vlcp/kvdb')],
                                                      self.apiroutine, 60):
                                 yield m
                             continue
