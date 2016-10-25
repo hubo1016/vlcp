@@ -66,8 +66,8 @@ class ZooKeeper(Protocol):
     _default_createqueue = True
     _default_buffersize = 4194304
     _default_messagequeuesize = 1024
-    _default_keepalivetime = 3
-    _default_keepalivetimeout = 3
+    _default_keepalivetime = 5
+    _default_keepalivetimeout = 10
     _default_connect_timeout = 5
     _default_tcp_nodelay = True
     _default_writequeuesize = 8192
