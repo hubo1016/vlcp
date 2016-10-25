@@ -142,10 +142,8 @@ class ZooKeeper(Protocol):
             events.append(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
         return (events, len(data) - start)
     def _send(self, connection, request, container):
-        data = request._tobytes()
-        if len(data) >= 0xfffff:
-            # This is the default limit of ZooKeeper, reject this request
-            raise ZooKeeperRequestTooLargeException('The request is %d bytes which is too large for ZooKeeper' % len(data))
+        return self._senddata(connection, request._tobytes(), container)
+    def _senddata(self, connection, data, container):
         connwrite = ConnectionWriteEvent(connection, connection.connmark, data = data)
         connwrite._zookeeper_sent = False
         try:
@@ -154,14 +152,16 @@ class ZooKeeper(Protocol):
         except ConnectionResetException:
             raise ZooKeeperRetryException
         container.retvalue = connwrite
-    def _assign_xid(self, connection, request):
+    def _pre_assign_xid(self, connection, request):
         if hasattr(request, 'xid') and request.xid >= 0:
             connection.xid += 1
             if connection.xid > 0x7fffffff:
                 connection.xid = 1
             request.xid = connection.xid
-            connection.zookeeper_requests[request.xid] = request.type
         return request.xid
+    def _register_xid(self, connection, request):
+        if hasattr(request, 'xid') and request.xid >= 0:
+            connection.zookeeper_requests[request.xid] = request.type
     def handshake(self, connection, connrequest, container, extrapackets = []):
         connmark = connection.connmark
         handshake_matcher = ZooKeeperHandshakeEvent.createMatcher(connection, connection.connmark)
@@ -198,15 +198,24 @@ class ZooKeeper(Protocol):
         '''
         matchers = []
         for r in requests:
-            xid = self._assign_xid(connection, r)
+            xid = self._pre_assign_xid(connection, r)
             resp_matcher = ZooKeeperResponseEvent.createMatcher(connection, connection.connmark, None, xid)
             matchers.append(resp_matcher)
+        alldata = []
+        for r in requests:
+            data = r._tobytes()
+            if len(data) >= 0xfffff:
+                # This is the default limit of ZooKeeper, reject this request
+                raise ZooKeeperRequestTooLargeException('The request is %d bytes which is too large for ZooKeeper' % len(data))
+            alldata.append(data)
+        for r in requests:
+            self._register_xid(connection, r)
         def _sendall():
             sent_requests = []
             count = 0
-            for r in requests:
+            for data in alldata:
                 try:
-                    for m in self._send(connection, r, container):
+                    for m in self._senddata(connection, data, container):
                         yield m
                     sent_requests.append(container.retvalue)
                 except ZooKeeperRetryException:
