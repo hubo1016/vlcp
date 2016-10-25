@@ -686,7 +686,8 @@ class ZooKeeperDB(TcpServerBase):
                 while True:
                     for m in client.requests(create_requests, self.apiroutine, 60, session_lock):
                         yield m
-                    _, losts, retries, _ = self.apiroutine.retvalue
+                    completes, losts, retries, _ = self.apiroutine.retvalue
+                    self._check_completes(completes, (zk.ZOO_ERR_NONODE, zk.ZOO_ERR_NODEEXISTS))
                     if losts or retries:
                         create_requests = losts + retries
                     else:
