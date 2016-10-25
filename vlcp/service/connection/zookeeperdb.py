@@ -706,6 +706,7 @@ class ZooKeeperDB(TcpServerBase):
                     yield m
                 # Register these keys for a future recycling
                 self._recycle_list[vhost].update((b'/vlcp/kvdb/' + k for k in escaped_keys))
+                sync_limit = 4
                 while True:
                     for m in client.requests([zk.multi(
                                             *[zk.multi_create(b'/vlcp/kvdb/' + k + b'/' + identifier,
@@ -722,6 +723,9 @@ class ZooKeeperDB(TcpServerBase):
                             # so if we create the nodes and immediately lost connection
                             # and reconnect to another server, the nodes may not be ready.
                             # Send a sync to solve this problem.
+                            if sync_limit <= 0:
+                                raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+                            sync_limit -= 1
                             for m in client.requests([zk.sync(b'/vlcp/kvdb')],
                                                      self.apiroutine, 60):
                                 yield m
@@ -731,6 +735,7 @@ class ZooKeeperDB(TcpServerBase):
                         session_lock = client.session_id
                         break
                     if losts:
+                        self._logger.warning('Barrier create result lost, check the result, identifier = %r', identifier)
                         # Response is lost, we must check the result
                         for m in client.requests([zk.sync(b'/vlcp/kvdb/' + escaped_keys[0]),
                                              zk.getchildren(b'/vlcp/kvdb/' + escaped_keys[0])],
@@ -939,6 +944,7 @@ class ZooKeeperDB(TcpServerBase):
                         raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                     elif losts:
                         if barrier_list:
+                            self._logger.warning('Write response is lost, check the result')
                             # Check whether the transaction is succeeded
                             for m in client.requests([zk.sync(barrier_list[0]),
                                                  zk.exists(barrier_list[0])],
