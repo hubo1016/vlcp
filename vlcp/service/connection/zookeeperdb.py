@@ -717,6 +717,15 @@ class ZooKeeperDB(TcpServerBase):
                     if not losts and not retries:
                         self._check_completes(completes)
                         multi_resp = completes[0].responses[:len(escaped_keys)]
+                        if any(r.err == zk.ZOO_ERR_NONODE for r in multi_resp):
+                            # The atomic broadcast only reach half of the servers,
+                            # so if we create the nodes and immediately lost connection
+                            # and reconnect to another server, the nodes may not be ready.
+                            # Send a sync to solve this problem.
+                            for m in client.requests([zk.sync(b'/vlcp/kvdb/' + escaped_keys[0])],
+                                                     self.apiroutine, 60):
+                                yield m
+                            continue
                         self._check_completes(multi_resp)
                         barrier_list = [r.path for r in multi_resp]
                         session_lock = client.session_id
