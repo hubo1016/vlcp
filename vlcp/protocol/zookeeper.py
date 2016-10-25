@@ -56,6 +56,12 @@ class ZooKeeperResponseLostException(ZooKeeperException):
     '''
     pass
 
+class ZooKeeperRequestTooLargeException(ZooKeeperException):
+    '''
+    Request is too large, which may break every thing, so we reject it
+    '''
+    pass
+
 @defaultconfig
 class ZooKeeper(Protocol):
     '''
@@ -136,7 +142,11 @@ class ZooKeeper(Protocol):
             events.append(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
         return (events, len(data) - start)
     def _send(self, connection, request, container):
-        connwrite = ConnectionWriteEvent(connection, connection.connmark, data = request._tobytes())
+        data = request._tobytes()
+        if len(data) >= 0xfffff:
+            # This is the default limit of ZooKeeper, reject this request
+            raise ZooKeeperRequestTooLargeException('The request is %d bytes which is too large for ZooKeeper' % len(data))
+        connwrite = ConnectionWriteEvent(connection, connection.connmark, data = data)
         connwrite._zookeeper_sent = False
         try:
             for m in connection.write(connwrite, False):
