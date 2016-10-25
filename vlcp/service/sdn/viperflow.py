@@ -771,14 +771,12 @@ class ViperFlow(Module):
 
         fphysicalportvalues = self.app_routine.retvalue
 
-        if None in fphysicalportvalues:
-            with watch_context(fphysicalportkeys,fphysicalportvalues,reqid,self.app_routine):
-                pass
-            raise ValueError(" physical ports is not existed "+ fphysicalportkeys[fphysicalportvalues.index(None)])
+        with watch_context(fphysicalportkeys, fphysicalportvalues, reqid, self.app_routine):
+            if None in fphysicalportvalues:
+                raise ValueError(" physical ports is not existed "+ fphysicalportkeys[fphysicalportvalues.index(None)])
 
-        physicalportdict = dict(zip(fphysicalportkeys,fphysicalportvalues))
+            physicalportdict = dict(zip(fphysicalportkeys,fphysicalportvalues))
 
-        try:
             while True:
                 for port in newports:
                     portobj = physicalportdict[PhysicalPort.default_key(port['vhost'],port['systemid'],
@@ -793,16 +791,9 @@ class ViperFlow(Module):
                         typeport.get(porttype).get("ports").append(port)
 
                 for k,v in typeport.items():
-                    try:
-                        for m in callAPI(self.app_routine,"public","deletephysicalports",
-                                {"phynettype":k,"ports":v.get("ports")},timeout = 1):
-                            yield m
-
-                    except:
-                        with watch_context(fphysicalportkeys,fphysicalportvalues,reqid,self.app_routine):
-                            pass
-                        raise
-
+                    for m in callAPI(self.app_routine,"public","deletephysicalports",
+                            {"phynettype":k,"ports":v.get("ports")},timeout = 1):
+                        yield m
                     updater = self.app_routine.retvalue
 
                     portkeys = [PhysicalPort.default_key(p.get('vhost'),p.get('systemid'),
@@ -863,18 +854,9 @@ class ViperFlow(Module):
                     else:
                         logger.info(" cause UpdateConflict Exception try once")
                         continue
-                except:
-                    raise
                 else:
                     break
-
-        except:
-            raise
-        else:
             self.app_routine.retvalue = {"status":'OK'}
-        finally:
-            with watch_context(fphysicalportkeys,fphysicalportvalues,reqid,self.app_routine):
-                pass
 
     def listphysicalports(self,name = None,physicalnetwork = None,vhost='',
             systemid='%',bridge='%',**args):
@@ -1107,12 +1089,12 @@ class ViperFlow(Module):
             yield m
 
         flgnetworkvalues = self.app_routine.retvalue
-        if None in flgnetworkvalues:
-            raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
 
-        lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
+        with watch_context(flgnetworkkeys, flgnetworkvalues, reqid, self.app_routine):
+            if None in flgnetworkvalues:
+                raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
 
-        try:
+            lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
 
             while True:
                 typenetwork = dict()
@@ -1129,12 +1111,9 @@ class ViperFlow(Module):
                         typenetwork[lgnetworkobj.physicalnetwork.type]['phynetkey'].append(lgnetworkobj.physicalnetwork.getkey())
 
                 for k,v in typenetwork.items():
-                    try:
-                        for m in callAPI(self.app_routine,'public','updatelogicalnetworks',
-                            {'phynettype':k,'networks':v.get('networks')},timeout=1):
-                            yield m
-                    except:
-                        raise
+                    for m in callAPI(self.app_routine,'public','updatelogicalnetworks',
+                        {'phynettype':k,'networks':v.get('networks')},timeout=1):
+                        yield m
 
                     updater = self.app_routine.retvalue
 
@@ -1171,16 +1150,14 @@ class ViperFlow(Module):
                         if [n.physicalnetwork.getkey() if n is not None else None for n in values[start:start+objlen]] !=\
                                 [n.physicalnetwork.getkey() for n in typesortvalues[index:index + objlen]]:
                             raise UpdateConflictException
-                        try:
-                            typeretkeys,typeretvalues = v['updater'](keys[start:start+typekeylen],
-                                    values[start:start+typekeylen])
-                        except:
-                            raise
-                        else:
-                            retkeys.extend(typeretkeys)
-                            retvalues.extend(typeretvalues)
-                            start = start + typekeylen
-                            index = index + objlen
+
+                        typeretkeys,typeretvalues = v['updater'](keys[start:start+typekeylen],
+                                values[start:start+typekeylen])
+
+                        retkeys.extend(typeretkeys)
+                        retvalues.extend(typeretvalues)
+                        start = start + typekeylen
+                        index = index + objlen
                     return retkeys,retvalues
 
 
@@ -1195,24 +1172,15 @@ class ViperFlow(Module):
                     else:
                         logger.info(" cause UpdateConflict Exception try once")
                         continue
-                except:
-                    raise
                 else:
                     break
 
-        except:
-            raise
-        else:
             dumpkeys = []
             for _,v in typenetwork.items():
                 dumpkeys.extend(v.get("lgnetworkkeys"))
 
             for m in self._dumpkeys(dumpkeys):
                 yield m
-
-        finally:
-            with watch_context(flgnetworkkeys,flgnetworkvalues,reqid,self.app_routine):
-                pass
 
     def deletelogicalnetwork(self,id):
         "delete logicalnetwork that id,return status OK"
@@ -1249,12 +1217,13 @@ class ViperFlow(Module):
             yield m
 
         flgnetworkvalues = self.app_routine.retvalue
-        if None in flgnetworkvalues:
-            raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
 
-        lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
+        with watch_context(flgnetworkkeys, flgnetworkvalues, reqid, self.app_routine):
+            if None in flgnetworkvalues:
+                raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
 
-        try:
+            lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
+
             while True:
                 typenetwork = dict()
                 for network in newnetworks:
@@ -1272,12 +1241,10 @@ class ViperFlow(Module):
                         typenetwork[lgnetworkobj.physicalnetwork.type]['phynetkey'].append(lgnetworkobj.physicalnetwork.getkey())
 
                 for k,v in typenetwork.items():
-                    try:
-                        for m in callAPI(self.app_routine,'public','deletelogicalnetworks',
-                            {'phynettype':k,'networks':v.get('networks')},timeout=1):
-                            yield m
-                    except:
-                        raise
+
+                    for m in callAPI(self.app_routine,'public','deletelogicalnetworks',
+                        {'phynettype':k,'networks':v.get('networks')},timeout=1):
+                        yield m
 
                     updater = self.app_routine.retvalue
 
@@ -1318,17 +1285,15 @@ class ViperFlow(Module):
                         if [n.physicalnetwork.getkey() if n is not None else None for n in values[start:start+objlen]] !=\
                                 [n.physicalnetwork.getkey() for n in typesortvalues[index:index+objlen]]:
                             raise UpdateConflictException
-                        try:
-                            typeretkeys,typeretvalues = v['updater'](keys[0:1]+keys[start:start+typekeylen],
-                                    [lgnetset]+values[start:start+typekeylen])
-                        except:
-                            raise
-                        else:
-                            retkeys.extend(typeretkeys[1:])
-                            retvalues.extend(typeretvalues[1:])
-                            lgnetset = typeretvalues[0]
-                            start = start + typekeylen
-                            index = index + objlen
+
+                        typeretkeys,typeretvalues = v['updater'](keys[0:1]+keys[start:start+typekeylen],
+                                [lgnetset]+values[start:start+typekeylen])
+
+                        retkeys.extend(typeretkeys[1:])
+                        retvalues.extend(typeretvalues[1:])
+                        lgnetset = typeretvalues[0]
+                        start = start + typekeylen
+                        index = index + objlen
                     retvalues[0] = lgnetset
                     return retkeys,retvalues
 
@@ -1344,18 +1309,10 @@ class ViperFlow(Module):
                     else:
                         logger.info(" cause UpdateConflict Exception try once")
                         continue
-                except:
-                    raise
                 else:
                     break
 
-        except:
-            raise
-        else:
             self.app_routine.retvalue = {"status":'OK'}
-        finally:
-             with watch_context(flgnetworkkeys,flgnetworkvalues,reqid,self.app_routine):
-                pass
 
     def listlogicalnetworks(self,id = None,physicalnetwork = None,**args):
         "list logcialnetworks infos"
@@ -1719,13 +1676,13 @@ class ViperFlow(Module):
 
         flgportvalues = self.app_routine.retvalue
 
-        if None in flgportvalues:
-            raise ValueError("logicalport is not existed "+\
-                    LogicalPort._getIndices(lgportkeys[flgportvalues.index(None)])[1][0])
+        with watch_context(lgportkeys, flgportvalues, reqid, self.app_routine):
+            if None in flgportvalues:
+                raise ValueError("logicalport is not existed "+\
+                        LogicalPort._getIndices(lgportkeys[flgportvalues.index(None)])[1][0])
 
-        lgportdict = dict(zip(lgportkeys,flgportvalues))
+            lgportdict = dict(zip(lgportkeys,flgportvalues))
 
-        try:
             while True:
                 newports = []
                 for port in ports:
@@ -1765,7 +1722,7 @@ class ViperFlow(Module):
                     lgportdict = dict(zip(lgportkeys,lgportvalues))
                     lgnetmapdict = dict(zip(lgmapkeys,lgmapvalues))
                     subnetdict = dict(zip(snmapkeys,snmapvalues))
-                    
+
                     for port in newports:
                         lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
                         if 'subnetid' in port:
@@ -1794,17 +1751,10 @@ class ViperFlow(Module):
                     else:
                         logger.info(" cause UpdateConflict Exception try once")
                         continue
-                except:
-                    raise
                 else:
                     break
-        except:
-            raise
-        else:
+
             self.app_routine.retvalue = {"status":'OK'}
-        finally:
-            with watch_context(lgportkeys,flgportvalues,reqid,self.app_routine):
-                pass
 
     def listlogicalports(self,id = None,logicalnetwork = None,**kwargs):
         "list logicalports infos"
@@ -2097,12 +2047,13 @@ class ViperFlow(Module):
             yield m
 
         fsubnetobjs = self.app_routine.retvalue
-        if None in fsubnetobjs:
-            raise ValueError(" subnet not existed " + SubNet._getIndices(subnetkeys[fsubnetobjs.index(None)])[1][0])
 
-        subnetdict = dict(zip(subnetkeys,fsubnetobjs))
+        with watch_context(subnetkeys, fsubnetobjs, reqid, self.app_routine):
+            if None in fsubnetobjs:
+                raise ValueError(" subnet not existed " + SubNet._getIndices(subnetkeys[fsubnetobjs.index(None)])[1][0])
 
-        try:
+            subnetdict = dict(zip(subnetkeys,fsubnetobjs))
+
             while True:
                 newsubnets = []
                 for subnet in subnets:
@@ -2120,7 +2071,7 @@ class ViperFlow(Module):
                                  for key in lognetkeys]
 
                 keys = itertools.chain([SubNetSet.default_key()],subnetkeys,subnetmapkeys,lognetkeys,lognetmapkeys)
-                
+
                 def subnetupdate(keys,values):
                     subset = values[0]
                     subnetlen = len(subnetkeys)
@@ -2131,20 +2082,20 @@ class ViperFlow(Module):
 
                     smk = keys[1+subnetlen:1 + subnetlen + subnetlen]
                     subnetmapobjs = values[1+subnetlen:1 + subnetlen + subnetlen]
-                    
+
                     lgnetkeys = keys[1 + subnetlen * 2:1 + subnetlen *2 + lognetlen]
                     lgnetobjs = values[1 + subnetlen * 2:1 + subnetlen *2 + lognetlen]
 
                     lgnetmapkeys = keys[1 + subnetlen *2 + lognetlen:]
                     lgnetmapobjs = values[1 + subnetlen *2 + lognetlen:]
-                    
+
                     if [v.network.getkey() if v is not None else None for v in subnetobjs] !=\
                             [v.network.getkey() for v in fsubnetobjs]:
                         raise UpdateConflictException
 
                     subnetsdict = dict(zip(sk,zip(subnetobjs,subnetmapobjs)))
                     lgnetdict = dict(zip(lgnetkeys,zip(lgnetobjs,lgnetmapobjs)))
-                    
+
                     for subnet in newsubnets:
                         k = SubNet.default_key(subnet['id'])
                         nk = LogicalNetwork.default_key(subnet['logicalnetwork'])
@@ -2159,7 +2110,7 @@ class ViperFlow(Module):
                         _,lgnetmap = lgnetdict.get(nk)
                         lgnetmap.subnets.dataset().discard(snobj.create_weakreference())
                         subset.set.dataset().discard(snobj.create_weakreference())
-                    
+
                     return tuple(itertools.chain([keys[0]],sk,smk,lgnetmapkeys)),\
                             tuple(itertools.chain([subset],[None]*subnetlen,[None]*subnetlen,lgnetmapobjs))
 
@@ -2174,18 +2125,9 @@ class ViperFlow(Module):
                     else:
                         logger.info(" cause UpdateConflict Exception try once")
                         continue
-                except:
-                    raise
                 else:
                     break
-
-        except:
-            raise
-        else:
             self.app_routine.retvalue = {"status":'OK'}
-        finally:
-            with watch_context(subnetkeys,fsubnetobjs,reqid,self.app_routine):
-                pass
 
     def listsubnets(self,id = None,logicalnetwork=None,**kwargs):
         "list subnets infos"
