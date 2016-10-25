@@ -724,8 +724,20 @@ class ZooKeeperDB(TcpServerBase):
                             # so if we create the nodes and immediately lost connection
                             # and reconnect to another server, the nodes may not be ready.
                             # Send a sync to solve this problem.
+                            # But isn't it a ZooKeeper bug? And when sync is not solving the
+                            # problem, tries pre-create again.
                             if sync_limit <= 0:
-                                raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+                                self._logger.warning('Inconsist result detected, first 10 keys = %r', escaped_keys[:10])
+                                first_err = next(num for num,r in enumerate(multi_resp) if r.err != zk.ZOO_ERR_OK)
+                                self._logger.warning('The first non-OK result is: %r (No. %d)', escaped_keys[first_err], first_err)
+                                if first_err == 0:
+                                    self._logger.warning('Not retrying to prevent a dead loop')
+                                    raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+                                else:
+                                    self._logger.warning('Retry create the keys')
+                                for m in _pre_create_keys(escaped_keys[first_err:]):
+                                    yield m
+                                sync_limit = 4
                             sync_limit -= 1
                             for m in client.requests([zk.sync(b'/vlcp/kvdb')],
                                                      self.apiroutine, 60):
