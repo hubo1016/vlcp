@@ -758,7 +758,12 @@ class ZooKeeperDB(TcpServerBase):
                         if losts or retries:
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                         self._check_completes(completes)
-                        created_identifier = [child for child in completes[1].children if child.startswith(identifier)]
+                        created_identifier = [child for child in
+                                                    sorted(completes[1].children,
+                                                           key = lambda x: x.rpartition(b'-')[2], reverse = True)
+                                             if child.startswith(identifier)]
+                        if len(created_identifier) > 1:
+                            self._logger.warning('Replicated barriers are created')
                         if created_identifier:
                             # Succeeded, retrieve other created names
                             barrier_list = [b'/vlcp/kvdb/' + escaped_keys[0] + b'/' + created_identifier[0]]
@@ -774,7 +779,8 @@ class ZooKeeperDB(TcpServerBase):
                                 self._check_completes(completes)
                                 rollback = False
                                 for k,r in izip(escaped_keys[1:], completes):
-                                    created_identifier = [child for child in completes[1].children if child.startswith(identifier)]
+                                    created_identifier = [child for child in sorted(completes[1].children,
+                                                           key = lambda x: x.rpartition(b'-')[2], reverse = True) if child.startswith(identifier)]
                                     if not created_identifier:
                                         # Should not happen, but if that happens, it will cause a dead lock
                                         self._logger.warning('Created barriers are missing, roll back other barriers. key = %r', k)
@@ -833,6 +839,21 @@ class ZooKeeperDB(TcpServerBase):
                     self._check_completes(completes)
                     self.apiroutine.retvalue = [r.data if r.data else None for r in completes]
                 def _wait_value(key, children):
+                    dup_names = [name for _,name in children if name.startswith(identifier)]
+                    if dup_names:
+                        self._logger.warning('There are duplicated barriers. Removing...')
+                        delete_requests = [zk.delete(b'/vlcp/kvdb/' + key + b'/' + name)
+                                                 for name in dup_names]
+                        while delete_requests:
+                            for m in client.requests(delete_requests,
+                                                     self.apiroutine, 60, session_lock):
+                                yield m
+                            completes, lost, retries, _ = self.apiroutine.retvalue
+                            self._check_completes(completes[:len(completes) - len(lost) - len(retries)],
+                                                  (zk.ZOO_ERR_NONODE,))
+                            if lost or retries:
+                                delete_requests = lost + retries
+                        children = [child for child in children if not child[1].startswith(identifier)]
                     for seq, name in children:
                         if name.startswith(b'barrier'):
                             while True:
@@ -845,13 +866,25 @@ class ZooKeeperDB(TcpServerBase):
                                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                                 if completes[0].err == zk.ZOO_ERR_OK:
                                     # wait for the barrier to be removed
-                                    for m in waiters[0].wait(self.apiroutine):
-                                        yield m
-                                    if self.apiroutine.retvalue.type != zk.DELETED_EVENT_DEF:
-                                        # Should not happen
-                                        continue
-                                    else:
-                                        break
+                                    try:
+                                        for m in self.apiroutine.executeWithTimeout(90, waiters[0].wait(self.apiroutine)):
+                                            yield m
+                                        if self.apiroutine.timeout:
+                                            self._logger.warning('Wait too long on a barrier, possible deadlock, key = %r, name = %r', key, name)
+                                            self._logger.warning('Try to remove it to solve the problem. THIS IS NOT NORMAL.')
+                                            for m in client.requests([zk.delete(b'/vlcp/kvdb/' + key + b'/' + name)],
+                                                                     self.apiroutine, 60, session_lock):
+                                                yield m
+                                            completes, lost, retries, _ = self.apiroutine.retvalue
+                                            self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
+                                        else:
+                                            if self.apiroutine.retvalue.type != zk.DELETED_EVENT_DEF:
+                                                # Should not happen
+                                                continue
+                                            else:
+                                                break
+                                    finally:
+                                        waiters[0].close()
                                 else:
                                     break
                             # Done or roll back, let's check
