@@ -147,7 +147,8 @@ class ICMPResponderUpdater(FlowUpdater):
         # we get subnet object, add keys to initialkeys, 
         # when subnet update, it will restart walk ,, after we will get new routerport
         
-        subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
+        subnetkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                      v.isinstance(SubNet)]
 
         self._initialkeys = tuple(itertools.chain(self._orig_initialkeys,subnetkeys))
     
