@@ -208,7 +208,8 @@ class IOFlowUpdater(FlowUpdater):
         subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
         routerportkeys = [k for k,v in zip(keys,values) if v.isinstance(RouterPort)]
         portkeys = [k for k,v in zip(keys,values) if v.isinstance(VRouter)]
-        logicalportkeys = [LogicalPort.default_key(id) for id in self._portids]
+        keys_set = set(keys)
+        logicalportkeys = [k for k in [LogicalPort.default_key(id) for id in self._portids] if k in keys_set]
         
         self._initialkeys = tuple(itertools.chain(subnetkeys,routerportkeys,
                                     portkeys,logicalportkeys,[PhysicalPortSet.default_key()]))
@@ -221,21 +222,21 @@ class IOFlowUpdater(FlowUpdater):
         _currentportnames = dict(self._portnames)
         updated_data = {}
         current_data = {}
-        for cls, name, idg, assigner in ((LogicalPort, '_logicalportkeys', lambda x: _currentportids[x.id], None),
-                                 (PhysicalPort, '_physicalportkeys', lambda x: _currentportnames[x.name], None),
+        for cls, name, idg, assigner in ((LogicalPort, '_logicalportkeys', lambda x: _currentportids.get(x.id), None),
+                                 (PhysicalPort, '_physicalportkeys', lambda x: _currentportnames.get(x.name), None),
                                  (LogicalNetwork, '_logicalnetworkkeys', lambda x: self._networkids.assign(x.getkey()), self._networkids),
                                  (PhysicalNetwork, '_physicalnetworkkeys', lambda x: self._phynetworkids.assign(x.getkey()), self._phynetworkids),
                                  ):
             objs = [v for v in values if v is not None and not v.isdeleted() and v.isinstance(cls)]
-            objkeys = set([v.getkey() for v in objs])
+            cv = [(o, oid) for o,oid in ((o, idg(o)) for o in objs) if oid is not None]
+            objkeys = set([v.getkey() for v,_ in cv])
             oldkeys = getattr(self, name)
+            current_data[cls] = cv
             if objkeys != oldkeys:
                 if assigner is not None:
                     assigner.unassign(oldkeys.difference(objkeys))
                 setattr(self, name, objkeys)
                 updated_data[cls] = True
-            cv = [(o, idg(o)) for o in objs]
-            current_data[cls] = cv
         if updated_data:
             for m in self.waitForSend(DataObjectChanged(dpid, vhost, conn, LogicalPort in updated_data,
                                                                             PhysicalPort in updated_data,
