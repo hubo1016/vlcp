@@ -1,8 +1,7 @@
-
 from vlcp.scripts.script import ScriptModule
 from vlcp.server.module import depend, callAPI
 from vlcp.service.kvdb import objectdb
-from vlcp.utils.networkmodel import LogicalNetworkSet, LogicalNetwork, PhysicalNetworkMap
+from vlcp.utils.networkmodel import PhysicalNetworkMap, PhysicalNetworkSet
 
 
 @depend(objectdb.ObjectDB)
@@ -14,95 +13,81 @@ class RepairPhyMapDB(ScriptModule):
     """
     def run(self):
 
-        def walk_lgnet(key,value,walk,save):
-            save(key)
+        saved_lgnet_keys = []
+        saved_phymap_keys = []
+        saved_physicalnetworkmap_to_logicalnetwork = {}
 
-            for weak_lgnet in value.set.dataset():
+        def walk_phynetset(key,value,walk,save):
+            for weak_phynet in value.set.dataset():
                 try:
-                    obj = walk(weak_lgnet)
+                    phynetobj = walk(weak_phynet.getkey())
                 except KeyError:
                     pass
                 else:
-                    save(obj.getkey())
-
+                    phynetmapkey = PhysicalNetworkMap.default_key(phynetobj.id)
                     try:
-                        phynetobj = walk(obj.physicalnetwork.getkey())
+                        phynetmapobj = walk(phynetmapkey)
                     except KeyError:
                         pass
                     else:
-                        save(phynetobj.getkey())
-                        phymapkey = PhysicalNetworkMap.default_key(phynetobj.id)
+                        save(phynetmapobj.getkey())
+                        saved_phymap_keys.append(phynetmapobj.getkey())
+                        saved_physicalnetworkmap_to_logicalnetwork[phynetmapobj.getkey()] = []
+                        for lgnet in phynetmapobj.logicnetworks.dataset():
+                            try:
+                                lgnetobj = walk(lgnet.getkey())
+                            except KeyError:
+                                pass
+                            else:
+                                if not lgnetobj:
+                                    save(lgnet.getkey())
+                                    saved_lgnet_keys.append(lgnet.getkey())
+                                    saved_physicalnetworkmap_to_logicalnetwork[phynetmapobj.getkey()]\
+                                        .append(lgnet.getkey())
 
-                        try:
-                            phymapobj = walk(phymapkey)
-                        except KeyError:
-                            pass
-                        else:
-                            save(phymapobj.getkey())
-
-        for m in callAPI(self.apiroutine,"objectdb","walk",{"keys":[LogicalNetworkSet.default_key()],
-                                                            "walkerdict":{LogicalNetworkSet.default_key():walk_lgnet},
-                                                            "requestid":1}):
+        for m in callAPI(self.apiroutine,"objectdb","walk",
+                    {"keys":[PhysicalNetworkSet.default_key()],
+                    "walkerdict":{PhysicalNetworkSet.default_key():walk_phynetset},
+                    "requestid":1}):
             yield m
 
-        logicalnetwork = [v for k,v in zip(self.apiroutine.retvalue[0],self.apiroutine.retvalue[1])
-                          if v.isinstance(LogicalNetwork)]
+        saved_lgnet_keys = list(set(saved_lgnet_keys))
+        saved_phymap_keys = list(set(saved_phymap_keys))
 
-        physicalnetworkkeys = list(set([k for k,v in zip(self.apiroutine.retvalue[0],self.apiroutine.retvalue[1])
-                               if v.isinstance(PhysicalNetworkMap)]))
+        print("we have find all physicalnetworkmap %s" % saved_phymap_keys)
 
-        physicalnetworkmap_to_logicalnetwork = {}
-
-        for key in physicalnetworkkeys:
-            physicalnetworkmap_to_logicalnetwork[key] = []
-            for lgnet in logicalnetwork:
-                if PhysicalNetworkMap.default_key(lgnet.physicalnetwork.id) == key:
-                    physicalnetworkmap_to_logicalnetwork[key].append(lgnet.getkey())
-
-        update_physical_network_map = {}
-
-        def walk_phynetmap(key,value,walk,save):
-            save(key)
-
-            for lgnet in value.logicnetworks.dataset():
-                try:
-                    lgnet_obj = walk(lgnet.getkey())
-                except KeyError:
-                    pass
-                else:
-                    if lgnet_obj:
-                        save(lgnet_obj.getkey())
-
-                    if not lgnet_obj and lgnet.getkey() not in physicalnetworkmap_to_logicalnetwork[key]:
-                        #print(" we have found invaild lgnet key %s in phymap %s" % (lgnet.getkey(),key))
-                        update_physical_network_map.setdefault(key,[]).append(lgnet.getkey())
-
-        for m in callAPI(self.apiroutine,"objectdb","walk",{"keys":physicalnetworkkeys,
-                                                            "walkerdict":dict((key,walk_phynetmap) for key in physicalnetworkkeys),
-                                                            "requestid":2}):
-            yield m
-
-        print("we have find all physicalnetworkmap %s" % list(update_physical_network_map.keys()))
-
-        for k,v in update_physical_network_map.items():
+        for k in saved_phymap_keys:
             print("# # begin to repair physicalnetwork %s" % k)
-            print("# # # # remove invaild lgnet %s" % v)
+            print("# # # # remove invaild lgnet %s" % saved_physicalnetworkmap_to_logicalnetwork[k])
 
         def updater(keys,values):
-            for i in range(len(keys)):
-                if keys[i] in update_physical_network_map:
-                    removed_key = update_physical_network_map[keys[i]]
 
-                    for weak_obj in list(values[i].logicnetworks.dataset()):
-                        if weak_obj.getkey() in removed_key:
-                            print(" discard %s from %s" % (weak_obj.getkey(),keys[i]))
-                            values[i].logicnetworks.dataset().discard(weak_obj)
+            start = 0
+            for i in range(len(saved_phymap_keys)):
 
+                lgnet_keys = keys[1+start:start+1+len(saved_physicalnetworkmap_to_logicalnetwork[keys[start]])]
+                lgnet = values[1+start:start+1+len(saved_physicalnetworkmap_to_logicalnetwork[keys[start]])]
+
+                lgnet_dict = dict(zip(lgnet_keys,lgnet))
+
+                for n in list(values[start].logicnetworks.dataset()):
+                    if n.getkey() in lgnet_dict and lgnet_dict[n.getkey()] is None:
+                        print("remove %s from %s" % (n.getkey(),keys[start]))
+                        values[start].logicnetworks.dataset().discard(n)
+
+                start = len(saved_physicalnetworkmap_to_logicalnetwork[keys[start]]) + 1
 
             return keys,values
 
-        if update_physical_network_map.keys():
-            for m in callAPI(self.apiroutine,"objectdb","transact",{"keys":update_physical_network_map.keys(),
+        transact_keys = []
+
+        for k in saved_phymap_keys:
+            transact_keys.append(k)
+            for key in saved_physicalnetworkmap_to_logicalnetwork[k]:
+                transact_keys.append(key)
+
+        if transact_keys:
+            for m in callAPI(self.apiroutine,"objectdb","transact",{"keys":transact_keys,
                                                                 "updater":updater}):
                 yield m
 
