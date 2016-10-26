@@ -101,6 +101,9 @@ class IOFlowUpdater(FlowUpdater):
             yield m
 
     def _logicalport_walker(self, key, value, walk, save):
+        _, (id,) = LogicalPort._getIndices(key)
+        if id not in self._portids:
+            return
         save(key)
         if value is None:
             return
