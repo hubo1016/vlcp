@@ -518,7 +518,7 @@ class RouterUpdater(FlowUpdater):
                             ofdef.ofp_flow_mod(
                                 table_id=l3output,
                                 command=ofdef.OFPFC_ADD,
-                                priority=ofdef.OFP_DEFAULT_PRIORITY,
+                                priority=ofdef.OFP_DEFAULT_PRIORITY + 1,
                                 buffer_id=ofdef.OFP_NO_BUFFER,
                                 hard_timeout = self._parent.arp_complete_timeout,
                                 out_port=ofdef.OFPP_ANY,
