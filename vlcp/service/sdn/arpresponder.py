@@ -315,10 +315,10 @@ class ARPUpdater(FlowUpdater):
                             nid, _ = currentlognetinfo[lognet]
                             if islocal and port == p:
                                 cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast))
-            phynetdict = {}
-            for n in current_arps:
-                phynet = n.physicalnetwork
-                phynetdict.setdefault(phynet, []).append(n)
+            # phynetdict = {}
+            # for n in current_arps:
+            #     phynet = n.physicalnetwork
+            #     phynetdict.setdefault(phynet, []).append(n)
             #===================================================================
             # for p in currentphyportinfo:
             #     if p not in lastphyportinfo or lastphyportinfo[p] != currentphyportinfo[p]:
