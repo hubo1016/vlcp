@@ -92,7 +92,9 @@ class _Notifier(RoutineContainer):
         self.vhostbind = vhostbind
         self._poll_routines = {}
         self._publishkey = uuid1().hex
+        self._subscribekey = uuid1().hex
         self._publishno = 1
+        self._subscribeno = 1
         self._publish_wait = set()
         self._singlecastlimit = singlecastlimit
         self._deflate = deflate
@@ -135,6 +137,19 @@ class _Notifier(RoutineContainer):
         last_children = None
         last_zxid = 0
         try:
+            sub_id = '%s-%016x' % (self._subscribekey, self._subscribeno)
+            self._subscribeno += 1
+            watch_key = key + b'/' + b'watcher' + _bytes(sub_id)
+            while True:
+                for m in client.requests([zk.setdata(key, b''),
+                                          zk.create(key, b''),
+                                          zk.create(watch_key, b'', True)]):
+                    yield m
+                completes, lost, retries, _ = self.retvalue
+                if lost or retries:
+                    continue
+                self._check_completes(completes, (zk.ZOO_ERR_NODEEXISS,))
+                break
             while True:
                 try:
                     for m in client.requests([zk.getchildren(key, True)],
@@ -142,19 +157,6 @@ class _Notifier(RoutineContainer):
                         yield m
                     completes, lost, retries, watchers = self.retvalue
                     if lost or retries:
-                        continue
-                    if completes[0].err == zk.ZOO_ERR_NONODE:
-                        last_zxid = completes[0].zxid
-                        # Insert a barrier in case there are updates
-                        self._insert_barrier(key, last_zxid)
-                        for m in client.requests([zk.create(key, b'')],
-                                                 self):
-                            yield m
-                        completes, lost, retries, _ = self.retvalue
-                        if lost or retries:
-                            continue
-                        self._check_completes(completes, (zk.ZOO_ERR_NODEEXISTS,))
-                        last_children = set()
                         continue
                     self._check_completes(completes)
                     current_children = set(completes[0].children)
@@ -222,8 +224,20 @@ class _Notifier(RoutineContainer):
                             yield m
         finally:
             self._remove_barrier(key, last_zxid)
+            def clearup():
+                try:
+                    while True:
+                        for m in client.requests([zk.delete(watch_key)],
+                                                 self, None, client.session_id):
+                            yield m
+                        completes, lost, retries, _ = self.retvalue
+                        if lost or retries:
+                            continue
+                except ZooKeeperSessionUnavailable:
+                    pass
+            self.subroutine(clearup())
     def _create_poller(self, key):
-        self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + key, self._decoder))
+        self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + _escape_path(key), self._decoder))
     def main(self):
         try:
             self._timestamp = '%012x' % (int(time() * 1000),) + '-'
@@ -322,6 +336,7 @@ class _Notifier(RoutineContainer):
             merged_keys = list(keys)
         if not merged_keys:
             return
+        merged_keys = [_escape_path(k) for k in merged_keys]
         for m in callAPI(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind}):
             yield m
         client, encoder, _ = self.retvalue
@@ -334,7 +349,9 @@ class _Notifier(RoutineContainer):
             detect_path = b'/vlcp/notifier/all'
             recycle_path = [b'/vlcp/notifier/all']
         else:
-            reqs = [zk.create(b'/vlcp/notifier/bykey/' + k, b'')
+            reqs = [zk.setdata(b'/vlcp/notifier/bykey/' + k, b'')
+                    for k in merged_keys] + \
+                   [zk.create(b'/vlcp/notifier/bykey/' + k, b'')
                     for k in merged_keys] + \
                     [zk.multi(
                         *[zk.multi_create(b'/vlcp/notifier/bykey/' + k + b'/notify-' + transactid + b'-',
