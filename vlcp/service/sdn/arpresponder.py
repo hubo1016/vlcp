@@ -184,27 +184,53 @@ class ARPUpdater(FlowUpdater):
                 if n not in current_arps:
                     if n in lastlognetinfo:
                         nid, _ = lastlognetinfo[n]
-                        cmds.append(ofdef.ofp_flow_mod(table_id = arp,
-                                                       command = ofdef.OFPFC_DELETE,
-                                                       buffer_id = ofdef.OFP_NO_BUFFER,
-                                                       out_port = ofdef.OFPP_ANY,
-                                                       out_group = ofdef.OFPG_ANY,
-                                                       match = ofdef.ofp_match_oxm(
-                                                                    oxm_fields = [match_network(nid)]
-                                                                )
-                                                       ))
+                        for ip,_,islocal,_,_ in last_arps[n]:
+                            cmds.append(ofdef.ofp_flow_mod(table_id = arp,
+                                                           cookie = 0x1 | (0x2 if islocal else 0),
+                                                           cookie_mask = 0x3,
+                                                           command = ofdef.OFPFC_DELETE,
+                                                           buffer_id = ofdef.OFP_NO_BUFFER,
+                                                           out_port = ofdef.OFPP_ANY,
+                                                           out_group = ofdef.OFPG_ANY,
+                                                           match = ofdef.ofp_match_oxm(
+                                                                        oxm_fields = [match_network(nid),
+                                                                                      ofdef.create_oxm(
+                                                                                          ofdef.OXM_OF_ETH_TYPE,
+                                                                                          ofdef.ETHERTYPE_ARP),
+                                                                                      ofdef.create_oxm(
+                                                                                          ofdef.OXM_OF_ARP_TPA,
+                                                                                          ofdef.ip4_addr(ip)),
+                                                                                      ofdef.create_oxm(
+                                                                                          ofdef.OXM_OF_ARP_OP,
+                                                                                          ofdef.ARPOP_REQUEST)
+                                                                                      ]
+                                                                    )
+                                                           ))
                 else:
                     if n in lastlognetinfo and n in currentlognetinfo and currentlognetinfo[n] != lastlognetinfo[n]:
                         nid, _ = lastlognetinfo[n]
-                        cmds.append(ofdef.ofp_flow_mod(table_id = arp,
-                                                       command = ofdef.OFPFC_DELETE,
-                                                       buffer_id = ofdef.OFP_NO_BUFFER,
-                                                       out_port = ofdef.OFPP_ANY,
-                                                       out_group = ofdef.OFPG_ANY,
-                                                       match = ofdef.ofp_match_oxm(
-                                                                    oxm_fields = [match_network(nid)]
-                                                                )
-                                                       ))
+                        for ip,_,islocal,_,_ in last_arps[n]:
+                            cmds.append(ofdef.ofp_flow_mod(table_id = arp,
+                                                           cookie = 0x1 | (0x2 if islocal else 0),
+                                                           cookie_mask = 0x3,
+                                                           command = ofdef.OFPFC_DELETE,
+                                                           buffer_id = ofdef.OFP_NO_BUFFER,
+                                                           out_port = ofdef.OFPP_ANY,
+                                                           out_group = ofdef.OFPG_ANY,
+                                                           match = ofdef.ofp_match_oxm(
+                                                                        oxm_fields = [match_network(nid),
+                                                                                      ofdef.create_oxm(
+                                                                                          ofdef.OXM_OF_ETH_TYPE,
+                                                                                          ofdef.ETHERTYPE_ARP),
+                                                                                      ofdef.create_oxm(
+                                                                                          ofdef.OXM_OF_ARP_TPA,
+                                                                                          ofdef.ip4_addr(ip)),
+                                                                                      ofdef.create_oxm(
+                                                                                          ofdef.OXM_OF_ARP_OP,
+                                                                                          ofdef.ARPOP_REQUEST)
+                                                                                      ]
+                                                                    )
+                                                           ))
                     else:
                         if n in currentlognetinfo:
                             nid, _ = currentlognetinfo[n]
