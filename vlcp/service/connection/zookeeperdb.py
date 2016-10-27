@@ -149,7 +149,7 @@ class _Notifier(RoutineContainer):
                 completes, lost, retries, _ = self.retvalue
                 if lost or retries:
                     continue
-                self._check_completes(completes, (zk.ZOO_ERR_NODEEXISS,))
+                self._check_completes(completes, (zk.ZOO_ERR_NODEEXISTS,))
                 break
             while True:
                 try:
