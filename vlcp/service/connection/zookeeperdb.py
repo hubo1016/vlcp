@@ -1086,9 +1086,9 @@ class ZooKeeperDB(TcpServerBase):
                     break
                 if completes[0].stat.ctime < time_limit:
                     is_empty = (completes[0].stat.dataLength <= 0)
-                    begin = middle + 1
-                else:
                     end = middle
+                else:
+                    begin = middle + 1
             if not recycle_key:
                 self.apiroutine.retvalue = False
                 return
