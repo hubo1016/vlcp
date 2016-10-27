@@ -143,7 +143,8 @@ class _Notifier(RoutineContainer):
             while True:
                 for m in client.requests([zk.setdata(key, b''),
                                           zk.create(key, b''),
-                                          zk.create(watch_key, b'', True)]):
+                                          zk.create(watch_key, b'', True)],
+                                         self):
                     yield m
                 completes, lost, retries, _ = self.retvalue
                 if lost or retries:
