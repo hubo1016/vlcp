@@ -181,7 +181,7 @@ class _Notifier(RoutineContainer):
                             watcher.close()
                     def _get_transacts(last_zxid, new_children):
                         try:
-                            new_children = sorted(new_children)
+                            new_children = sorted(c for c in new_children if c.startswith(b'notify'))
                             reqs = [zk.getdata(key + b'/' + c)
                                                       for c in new_children]
                             completes = []
