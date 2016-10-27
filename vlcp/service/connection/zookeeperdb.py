@@ -1070,7 +1070,7 @@ class ZooKeeperDB(TcpServerBase):
             # might need the old version of data to keep mget() to get the same version for all keys
             begin = 0
             end = len(children)
-            is_empty = False
+            is_empty = True
             while begin < end:
                 middle = (begin + end) // 2
                 for m in client.requests([zk.exists(recycle_key + b'/' + children[middle])],
@@ -1092,7 +1092,7 @@ class ZooKeeperDB(TcpServerBase):
             if not recycle_key:
                 self.apiroutine.retvalue = False
                 return
-            if not is_notifier and not is_empty:
+            if not is_notifier and not is_empty and begin >= 0:
                 # Leave an extra node
                 begin -= 1
             operations = [zk.delete(recycle_key + b'/' + name)
