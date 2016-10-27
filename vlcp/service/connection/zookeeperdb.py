@@ -1119,12 +1119,15 @@ class ZooKeeperDB(TcpServerBase):
         while True:
             if not _recycle_list:
                 if len(self._recycle_list[vhost]) < 800:
-                    self._logger.info('Recycling pended to wait for more keys, recycle_all_counter = %d, vhost = %r', recycle_all_counter, vhost)
+                    self._logger.info('Recycling pended to wait for keys expiration, recycle_all_counter = %d, vhost = %r', recycle_all_counter, vhost)
+                    _recycle_list.update(self._recycle_list[vhost])
+                    self._recycle_list[vhost].clear()
                     for m in self.apiroutine.waitWithTimeout(180 - len(self._recycle_list[vhost]) / 5.0):
                         yield m
                     recycle_all_counter += 1
-                _recycle_list.update(self._recycle_list[vhost])
-                self._recycle_list[vhost].clear()
+                else:
+                    _recycle_list.update(self._recycle_list[vhost])
+                    self._recycle_list[vhost].clear()
                 self._logger.info('Recycling %d keys, vhost = %r', len(_recycle_list), vhost)
                 if recycle_all_counter >= recycle_all_freq:
                     recycle_all_counter = 0
