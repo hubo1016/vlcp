@@ -1119,13 +1119,16 @@ class ZooKeeperDB(TcpServerBase):
         while True:
             if not _recycle_list:
                 if len(self._recycle_list[vhost]) < 800:
+                    self._logger.info('Recycling pended to wait for more keys, recycle_all_counter = %d, vhost = %r', recycle_all_counter, vhost)
                     for m in self.apiroutine.waitWithTimeout(180 - len(self._recycle_list[vhost]) / 5.0):
                         yield m
                     recycle_all_counter += 1
                 _recycle_list.update(self._recycle_list[vhost])
                 self._recycle_list[vhost].clear()
+                self._logger.info('Recycling %d keys, vhost = %r', len(_recycle_list), vhost)
                 if recycle_all_counter >= recycle_all_freq:
                     recycle_all_counter = 0
+                    self._logger.info('Starting full recycling, vhost = %r', vhost)
                     # Do a full recycling to all keys
                     # We want to keep the unrecycled nodes under 25%
                     # which means when we random select 4N keys,
@@ -1145,6 +1148,7 @@ class ZooKeeperDB(TcpServerBase):
                             all_path = sample(all_path, 2000)
                         else:
                             shuffle(all_path)
+                        self._logger.info('Full recycling started on %d keys, vhost = %r', len(all_path), vhost)
                         _total_try = 0
                         _total_succ = 0
                         for i in range(0, len(all_path), 20):
@@ -1156,8 +1160,9 @@ class ZooKeeperDB(TcpServerBase):
                                 if self.apiroutine.retvalue:
                                     step_succ += 1
                                     _total_succ += 1
-                            if step_succ < 5:
+                            if step_succ < 3:
                                 break
+                        self._logger.info('Stop full recycling, total tried %d keys, recycled %d keys, vhost = %r', _total_try, _total_succ, vhost)
                         last_req = recycle_all_freq
                         if len(all_path) <= 100:
                             recycle_all_freq = 40
@@ -1173,10 +1178,13 @@ class ZooKeeperDB(TcpServerBase):
                                     recycle_all_freq = 1
                                 elif recycle_all_freq >= 100:
                                     recycle_all_freq = 100
+                        self._logger.info('Next full recycling starts in %d turns, vhost = %r', recycle_all_freq, vhost)
                         if last_req * 2 <= recycle_all_freq:
                             # Redistribute the recycling time
                             recycle_all_counter = randrange(0, recycle_all_freq)
+                            self._logger.info('Redistribute recycling counter to %d', recycle_all_counter)
                     except ZooKeeperSessionUnavailable:
+                        self._logger.info('Full recycling cancelled because we are disconnected from ZooKeeper server')
                         for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
                             yield m
                     except Exception:
