@@ -1059,7 +1059,7 @@ class ZooKeeperDB(TcpServerBase):
                 return
             can_recycle_parent = (completes[0].stat.mtime < time_limit)
             recycle_parent_version = completes[0].stat.version
-            children = [name for name in completes[0].children if name.startswith(b'data')]
+            children = [name for name in completes[0].children if name.startswith(b'data') or name.startswith(b'notify')]
             other_children = completes[0].stat.numChildren - len(children)
             children.sort(key = lambda x: (x.rpartition(b'-')[2], x))
             # Use a binary search to find the boundary for deletion
