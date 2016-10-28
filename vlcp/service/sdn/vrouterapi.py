@@ -415,7 +415,7 @@ class VRouterApi(Module):
                         subnetobj.router = newrouterport.create_weakreference()
                         routerobj.interfaces.dataset().add(newrouterport.create_weakreference())
                     else:
-                        raise ValueError(" subnet " + subnet + " have router port " + subnetobj.router.id)
+                        raise ValueError(" subnet " + subnet + " have router port " + subnetobj.router.getkey())
                 else:
                     raise ValueError(" routerobj " + router + "or subnetobj " + subnet + " not existed ")
 
@@ -435,122 +435,125 @@ class VRouterApi(Module):
         routerport.router = ReferenceObject(VRouter.default_key(router))
         routerport.subnet = ReferenceObject(SubNet.default_key(subnet))
 
-        #routerport.router = WeakReferenceObject(VRouter.default_key(router))
-        #routerport.subnet = WeakReferenceObject(SubNet.default_key(subnet))
-
         for k,v in kwargs.items():
             setattr(routerport,k,v)
 
         return routerport
 
-    def removerouterinterface(self,id):
+    def removerouterinterface(self,router,subnet):
         "remvoe interface from router"
-        if not id:
-            raise ValueError("must special interface id")
+        if not router:
+            raise ValueError("must special router id")
 
-        interface = {"id":id}
+        if not subnet:
+            raise ValueError("must special subnet id")
+
+        interface = {"router":router,"subnet":subnet}
 
         for m in self.removerouterinterfaces([interface]):
             yield m
 
     def removerouterinterfaces(self,interfaces):
-        "remvoe interfaces from routers"
+        """remove interfaces from router"""
+
+        # idset use to check repeat subnet!
         idset = set()
-        deleteinterfaces = list()
+        delete_interfaces = []
 
         for interface in interfaces:
             interface = copy.deepcopy(interface)
-            if 'id' not in interface:
-                raise ValueError(" must special id")
+            if "router" not in interface:
+                raise ValueError(" must special router=id")
+            if "subnet" not in interface:
+                raise ValueError(" must special subnet=id")
             else:
-                if interface['id'] in idset:
-                    raise ValueError(" id repeat " + interface['id'])
+                if interface["subnet"] in idset:
+                    raise ValueError(" special repeat subnet id " + interface["subnet"])
                 else:
-                    idset.add(interface['id'])
-            deleteinterfaces.append(interface)
+                    idset.add(interface["subnet"])
 
-        routerportkeys = [RouterPort.default_key(interface['id']) for interface in deleteinterfaces]
+            delete_interfaces.append(interface)
 
-        for m in self._getkeys(routerportkeys):
+        subnetkeys = [SubNet.default_key(interface["subnet"]) for interface in delete_interfaces]
+        subnetmapkeys = [SubNetMap.default_key(interface["subnet"]) for interface in delete_interfaces]
+        for m in self._getkeys(subnetkeys):
             yield m
 
-        routerportobjs = self.app_routine.retvalue
+        subnetobjs = self.app_routine.retvalue
 
-        if None in routerportobjs:
-            raise ValueError(" interface object not existed " +\
-                             RouterPort._getIndices(routerportkeys[routerportobjs.index(None)])[1][0])
+        if None in subnetobjs:
+            raise ValueError(" subnet object not existed " +\
+                             SubNet._getIndices(subnetkeys[subnetobjs.index(None)])[1][0])
 
-        routerportdict = dict(zip(routerportkeys,routerportobjs))
+        sndict = dict(zip(subnetkeys,subnetobjs))
 
-        for interface in deleteinterfaces:
-            routerportobj = routerportdict[RouterPort.default_key(interface['id'])]
-            interface['router'] = RouterPort._getIndices(routerportobj.router.getkey())[1][0]
-            interface['subnet'] = SubNet._getIndices(routerportobj.subnet.getkey())[1][0]
+        for interface in delete_interfaces:
+            if SubNet.default_key(interface['subnet']) in sndict:
+                snobj = sndict[SubNet.default_key(interface["subnet"])]
+                if hasattr(snobj,"router"):
+                    routerportid = RouterPort._getIndices(snobj.router.getkey())[1][0]
+                    interface['routerport'] = routerportid
+                else:
+                    raise ValueError("subnet " + interface["subnet"] + " not plugin into router" )
 
-        routerkeys = list(set([VRouter.default_key(interface['router']) for interface in deleteinterfaces]))
 
-        # subnet only have one router (router port), so subnetkey is not repeat, set() it anyway
-        subnetkeys = list(set(SubNet.default_key(interface['subnet']) for interface in deleteinterfaces))
+        routerportkeys = [s.router.getkey() for s in subnetobjs]
 
-        subnetmapkeys = [SubNetMap.default_key(SubNet._getIndices(key)[1][0]) for key in subnetkeys]
-        keys = routerkeys + subnetkeys + subnetmapkeys + routerportkeys
+        routerkeys = [VRouter.default_key(interface["router"]) for interface in delete_interfaces]
 
-        def removerouterinterface(keys,values):
+        def delete_interface(keys,values):
             rkeys = keys[0:len(routerkeys)]
             robjs = values[0:len(routerkeys)]
-
 
             snkeys = keys[len(routerkeys):len(routerkeys) + len(subnetkeys)]
             snobjs = values[len(routerkeys):len(routerkeys) + len(subnetkeys)]
 
             snmkeys = keys[len(routerkeys) + len(subnetkeys):len(routerkeys) + len(subnetkeys) + len(subnetmapkeys)]
-            snmobjs = values[len(routerkeys) + len(subnetkeys):len(routerkeys) + len(subnetmapkeys) + len(subnetmapkeys)]
+            snmobjs = values[len(routerkeys) + len(subnetkeys):len(routerkeys) + len(subnetkeys) + len(subnetmapkeys)]
 
-            rportkeys = keys[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys):]
-            rportobjs = values[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys):]
+            rpkeys = keys[-len(routerportkeys):]
+            rpobjs = values[-len(routerportkeys):]
 
-            # we get (routerkeys,routerobjs) on begin to get (router , subnet) attr
-            # this is second get (routerkeys,routerobjs) , if (router,subnet) is different from last, Nothing can do!
-            if [r.router.getkey() for r in routerportobjs] !=\
-                    [r.router.getkey() if r is not None else None for r in rportobjs] and\
-                [r.subnet.getkey() for r in routerportobjs] !=\
-                    [r.subnet.getkey() if r is not None else None for r in  rportobjs]:
-                raise ValueError(" conflict error, try again!")
- 
             rdict = dict(zip(rkeys,robjs))
-            sndict = dict(zip(snkeys,zip(snobjs,snmobjs)))
+            sndict = dict(zip(snkeys,snobjs))
+            snmdict = dict(zip(snmkeys,snmobjs))
+            rpdict = dict(zip(rpkeys,rpobjs))
 
-            rportdict = dict(zip(rportkeys,rportobjs))
-            
+            for interface in delete_interfaces:
+                r = rdict.get(VRouter.default_key(interface["router"]),None)
+                sn = sndict.get(SubNet.default_key(interface["subnet"]),None)
+                snm = snmdict.get(SubNetMap.default_key(interface["subnet"]),None)
+                rp = rpdict.get(RouterPort.default_key(interface["routerport"]),None)
 
-            for interface in deleteinterfaces:
-                routerobj = rdict[VRouter.default_key(interface['router'])]
-                subnetobj,subnetmapobj = sndict[SubNet.default_key(interface['subnet'])]
-                rportobj = rportdict[RouterPort.default_key(interface['id'])]
-
-                if routerobj and subnetobj and subnetmapobj:
-
+                if r and sn and snm and rp:
                     # has not attr ip_address, means router port use subnet gateway as ip_address
-                    if hasattr(rportobj,'ip_address'):
+                    if hasattr(rp,'ip_address'):
                         # it means have allocated ip address in subnetmap, delete it
-                        ipaddress = ip4_addr(rportobj.ip_address)
-                        del subnetmapobj.allocated_ips[str(ipaddress)]
+                        ipaddress = ip4_addr(rp.ip_address)
+                        del snm.allocated_ips[str(ipaddress)]
 
                     # one subnet only have one router , so del this attr
-                    if hasattr(subnetobj,'router'):
-                        delattr(subnetobj,'router')
+                    if hasattr(sn,'router'):
+                        delattr(sn,'router')
 
-                    routerobj.interfaces.dataset().discard(rportobj.create_weakreference())
+                    if rp.create_weakreference() in r.interfaces.dataset():
+                        r.interfaces.dataset().discard(r.create_weakreference())
+                    else:
+                        raise ValueError("router " + interface["router"] + " have no router port " +
+                                         interface["routerport"])
                 else:
-                    raise ValueError(" interface router " + interface['router']\
-                                     + "or subnet " + interface['subnet'] + "not existed")
+                    raise ValueError("route " + interface["router"] + " subnet " + interface["subnet"] +
+                                     " routerport " + interface["routerport"] + " not existed!")
 
-            return keys,robjs + snobjs + snmobjs + [None] * len(routerportkeys)
-        for m in callAPI(self.app_routine,'objectdb','transact',
-                         {'keys':keys,'updater':removerouterinterface}):
+            return keys,robjs + snobjs + snmobjs + [None]*len(routerportkeys)
+
+        transact_keys = routerkeys + subnetkeys + subnetmapkeys + routerportkeys
+
+        for m in callAPI(self.app_routine,"objectdb","transact",{"keys":transact_keys,
+                                                                 "updater":delete_interface}):
             yield m
 
-        self.app_routine.retvalue = {'status':'OK'}
+        self.app_routine.retvalue = {'status': 'OK'}
 
     def listrouterinterfaces(self,id,**kwargs):
         "list interfaces info plugin in router"
