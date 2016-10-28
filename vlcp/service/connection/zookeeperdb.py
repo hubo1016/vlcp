@@ -234,6 +234,8 @@ class _Notifier(RoutineContainer):
                         completes, lost, retries, _ = self.retvalue
                         if lost or retries:
                             continue
+                        else:
+                            break
                 except ZooKeeperSessionUnavailable:
                     pass
             self.subroutine(clearup())
