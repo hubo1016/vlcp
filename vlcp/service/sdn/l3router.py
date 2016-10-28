@@ -64,7 +64,8 @@ class RouterUpdater(FlowUpdater):
             self.subroutine(self._router_packetin_handler(), True, "router_packetin_handler")
             self.subroutine(self._arp_cache_handler(),True,"arp_cache_handler")
             self.subroutine(self._time_cycle_handler(),True,"time_cycle_handler")
-            self.subroutine(self._keep_alive_handler(),True,"keep_alive_handler")
+            self.subroutine(self._keep_forwardinfo_alive_handler(),True,"keep_forwardinfo_alive_handler")
+            self.subroutine(self._keep_addressinfo_alive_handler(),True,"keep_addressinfo_alive_handler")
             for m in FlowUpdater.main(self):
                 yield m
         finally:
@@ -81,8 +82,11 @@ class RouterUpdater(FlowUpdater):
             if hasattr(self,"time_cycle_handler"):
                 self.time_cycle_handler.close()
 
-            if hasattr(self,"keep_alive_handler"):
-                self.keep_alive_handler.close()
+            if hasattr(self,"keep_forwardinfo_alive_handler"):
+                self.keep_forwardinfo_alive_handler.close()
+
+            if hasattr(self,"keep_addressinfo_alive_handler"):
+                self.keep_addressinfo_alive_handler.close()
 
     def _getinterfaceinfo(self,netid):
 
@@ -132,9 +136,9 @@ class RouterUpdater(FlowUpdater):
 
         return  ret_info
 
-    def _keep_alive_handler(self):
+    def _keep_forwardinfo_alive_handler(self):
         while True:
-            for m in self.waitWithTimeout(self._parent.discover_update_time):
+            for m in self.waitWithTimeout(self._parent.forwardinfo_discover_update_time):
                 yield m
 
             datapath_id = self._connection.openflow_datapathid
@@ -164,7 +168,7 @@ class RouterUpdater(FlowUpdater):
 
                         if (indices[0],indices[1]) in self._laststoreinfo:
                             e = (system_id,bridge,vhost,list(self._laststoreinfo[(indices[0],indices[1])])[0],
-                                 timestamp + self._parent.discover_update_time * 1000000)
+                                 timestamp + self._parent.forwardinfo_discover_update_time * 2 * 1000000)
                             values[i + 1].info.append(e)
 
                         if values[i + 1].info:
@@ -190,6 +194,23 @@ class RouterUpdater(FlowUpdater):
             for m in callAPI(self,"objectdb","transact",{"keys":transact_keys,"updater":updater,"withtime":True}):
                 yield m
 
+    def _keep_addressinfo_alive_handler(self):
+        while True:
+            for m in self.waitWithTimeout(self._parent.addressinfo_discover_update_time):
+                yield m
+
+            datapath_id = self._connection.openflow_datapathid
+            vhost = self._connection.protocol.vhost
+            try:
+                for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
+                                                                          'vhost': vhost}):
+                    yield m
+            except Exception:
+                self._logger.warning("OVSDB bridge is not ready", exc_info=True)
+                return
+            else:
+                bridge, system_id, _ = self.retvalue
+
             for k,v in self._lastsubnetinfo.items():
                 if v[1]:
                     allocated_ip_address = v[5]
@@ -197,19 +218,13 @@ class RouterUpdater(FlowUpdater):
                     DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
 
                     def updater(keys,values,timestamp):
-                        # ipaddress = parse_ip4_address(allocated_ip_address)
-                        #
-                        # if str(ipaddress) in values[0].allocated_ips:
-                        #     del values[0].allocated_ips[str(ipaddress)]
 
-                        # values[0].info = [e for e in values[0].info if e[5] > timestamp and
-                        #                   (e[0],e[1],e[2],e[3]) !=(system_id,bridge,vhost,values[1].id)]
                         newlist = []
                         for e in values[0].info:
                             # remove self , add new timestamp after
                             if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
                                 x = (system_id, bridge, vhost, values[1].id, allocated_ip_address,
-                                     timestamp + self._parent.discover_update_time * 1000000)
+                                     timestamp + self._parent.addressinfo_discover_update_time * 2 * 1000000)
                                 newlist.append(x)
                             elif e[5] < timestamp and e[3] == values[1].id:
                                 ipaddress = parse_ip4_address(e[4])
@@ -1088,7 +1103,7 @@ class RouterUpdater(FlowUpdater):
                                         values[0].info.remove(e)
 
                                 values[0].info.append((system_id,bridge,vhost,values[1].id,allocated_ip_address[0],
-                                                       timestamp + self._parent.discover_update_time * 1000000))
+                                            timestamp + self._parent.addressinfo_discover_update_time * 2  * 1000000))
 
                             else:
                                 for ipaddress in range(start,end):
@@ -1100,7 +1115,7 @@ class RouterUpdater(FlowUpdater):
                                     raise ValueError("allocate external subnet ipaddress error!")
 
                                 values[0].info.append((system_id,bridge,vhost,values[1].id,allocated_ip_address[0],
-                                                       timestamp + self._parent.discover_update_time * 1000000))
+                                            timestamp + self._parent.addressinfo_discover_update_time * 2 * 1000000))
 
                             return tuple([keys[0],keys[2]]),tuple([values[0],values[2]])
 
@@ -1261,7 +1276,7 @@ class RouterUpdater(FlowUpdater):
                                 if (indices[0],indices[1]) in add_store_info:
                                     obj = DVRouterForwardInfo.create_from_key(keys[i + 1])
                                     e = (system_id,bridge,vhost,list(add_store_info[(indices[0],indices[1])])[0],
-                                         timestamp + self._parent.discover_update_time * 1000000)
+                                         timestamp + self._parent.forwardinfo_discover_update_time * 2 * 1000000)
                                     obj.info.append(e)
                                     values[i + 1] = set_new(values[i + 1], obj)
                                     transact_object[keys[i + 1]] = values[i + 1]
@@ -1290,7 +1305,7 @@ class RouterUpdater(FlowUpdater):
 
                                 if (indices[0],indices[1]) in add_store_info:
                                     e = (system_id,bridge,vhost,list(add_store_info[(indices[0],indices[1])])[0],
-                                         timestamp + 5 * 1000000)
+                                         timestamp + self._parent.forwardinfo_discover_update_time * 2 * 1000000)
                                     values[i+1].info.append(e)
 
                                 if values[i+1].info:
@@ -2078,7 +2093,9 @@ class L3Router(FlowBase):
 
     _default_enable_router_forward = False
 
-    _default_discover_update_time = 300
+    _default_addressinfo_discover_update_time = 150
+
+    _default_forwardinfo_discover_update_time = 15
 
     def __init__(self, server):
         super(L3Router, self).__init__(server)
