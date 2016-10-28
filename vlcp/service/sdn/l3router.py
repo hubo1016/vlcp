@@ -153,8 +153,8 @@ class RouterUpdater(FlowUpdater):
             else:
                 bridge, system_id, _ = self.retvalue
 
-            forward_keys = [DVRouterForwardInfo.default_key(k[0],k[1]) for k in self._lastdvrforwardinfo.keys()]
-            ref_forward_keys = [DVRouterForwardInfoRef.default_key(k[0],k[1]) for k in self._lastdvrforwardinfo.keys()]
+            forward_keys = [DVRouterForwardInfo.default_key(k[0],k[1]) for k in self._laststoreinfo.keys()]
+            ref_forward_keys = [DVRouterForwardInfoRef.default_key(k[0],k[1]) for k in self._laststoreinfo.keys()]
             transact_keys = [DVRouterForwardSet.default_key()] + forward_keys + ref_forward_keys
 
             def updater(keys,values,timestamp):
@@ -166,10 +166,10 @@ class RouterUpdater(FlowUpdater):
                                               and e[4] > timestamp]
                         indices = DVRouterForwardInfo._getIndices(keys[i + 1])[1]
 
-                        if (indices[0],indices[1]) in self._laststoreinfo:
-                            e = (system_id,bridge,vhost,list(self._laststoreinfo[(indices[0],indices[1])])[0],
+
+                        e = (system_id,bridge,vhost,list(self._laststoreinfo[(indices[0],indices[1])])[0],
                                  timestamp + self._parent.forwardinfo_discover_update_time * 2 * 1000000)
-                            values[i + 1].info.append(e)
+                        values[i + 1].info.append(e)
 
                         if values[i + 1].info:
                             retdict[keys[i + 1]] = values[i + 1]
@@ -179,20 +179,21 @@ class RouterUpdater(FlowUpdater):
                                 retdict[keys[i + 1 + (len(transact_keys) - 1) // 2]] = \
                                     values[i + 1 + (len(transact_keys) - 1) // 2]
 
-                        else:
-                            # there is no info in this struct , drop it from db
-                            retdict[keys[i + 1]] = None
-                            retdict[keys[i + 1 + (len(transact_keys) - 1) // 2]] = None
-                            if WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]) in \
-                                    values[0].set.dataset():
-                                values[0].set.dataset().discard(
-                                    WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]))
-                                retdict[keys[0]] = values[0]
+                        # else:
+                        #     # there is no info in this struct , drop it from db
+                        #     retdict[keys[i + 1]] = None
+                        #     retdict[keys[i + 1 + (len(transact_keys) - 1) // 2]] = None
+                        #     if WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]) in \
+                        #             values[0].set.dataset():
+                        #         values[0].set.dataset().discard(
+                        #             WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]))
+                        #         retdict[keys[0]] = values[0]
 
                 return retdict.keys(), retdict.values()
 
-            for m in callAPI(self,"objectdb","transact",{"keys":transact_keys,"updater":updater,"withtime":True}):
-                yield m
+            if forward_keys + ref_forward_keys:
+                for m in callAPI(self,"objectdb","transact",{"keys":transact_keys,"updater":updater,"withtime":True}):
+                    yield m
 
     def _keep_addressinfo_alive_handler(self):
         while True:
