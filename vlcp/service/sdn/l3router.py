@@ -64,8 +64,9 @@ class RouterUpdater(FlowUpdater):
             self.subroutine(self._router_packetin_handler(), True, "router_packetin_handler")
             self.subroutine(self._arp_cache_handler(),True,"arp_cache_handler")
             self.subroutine(self._time_cycle_handler(),True,"time_cycle_handler")
-            self.subroutine(self._keep_forwardinfo_alive_handler(),True,"keep_forwardinfo_alive_handler")
-            self.subroutine(self._keep_addressinfo_alive_handler(),True,"keep_addressinfo_alive_handler")
+            if self._parent.enable_router_forward:
+                self.subroutine(self._keep_forwardinfo_alive_handler(),True,"keep_forwardinfo_alive_handler")
+                self.subroutine(self._keep_addressinfo_alive_handler(),True,"keep_addressinfo_alive_handler")
             for m in FlowUpdater.main(self):
                 yield m
         finally:
@@ -82,11 +83,12 @@ class RouterUpdater(FlowUpdater):
             if hasattr(self,"time_cycle_handler"):
                 self.time_cycle_handler.close()
 
-            if hasattr(self,"keep_forwardinfo_alive_handler"):
-                self.keep_forwardinfo_alive_handler.close()
+            if self._parent.enable_router_forward:
+                if hasattr(self,"keep_forwardinfo_alive_handler"):
+                    self.keep_forwardinfo_alive_handler.close()
 
-            if hasattr(self,"keep_addressinfo_alive_handler"):
-                self.keep_addressinfo_alive_handler.close()
+                if hasattr(self,"keep_addressinfo_alive_handler"):
+                    self.keep_addressinfo_alive_handler.close()
 
     def _getinterfaceinfo(self,netid):
 
@@ -1069,114 +1071,115 @@ class RouterUpdater(FlowUpdater):
             else:
                 bridge, system_id, _ = self.retvalue
 
-            update_external_subnet = dict()
-            for k, v in currentsubnetinfo.items():
-                if v[1] and v[7]:
-                    # this subnet is external , we should allocate ip from cidr
-                    if k in lastsubnetinfo and lastsubnetinfo[k][1]:
-                        #this subnet have allocated ip in last
-                        allocated_ip_address = lastsubnetinfo[k][5]
+            if self._parent.enable_router_forward:
+                update_external_subnet = dict()
+                for k, v in currentsubnetinfo.items():
+                    if v[1] and v[7]:
+                        # this subnet is external , we should allocate ip from cidr
+                        if k in lastsubnetinfo and lastsubnetinfo[k][1]:
+                            #this subnet have allocated ip in last
+                            allocated_ip_address = lastsubnetinfo[k][5]
 
-                    else:
-                        subnetkey = SubNet.default_key(k.id)
-                        subnetmapkey = SubNetMap.default_key(k.id)
-                        DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
-                        allocated_ip_address = [None]
+                        else:
+                            subnetkey = SubNet.default_key(k.id)
+                            subnetmapkey = SubNetMap.default_key(k.id)
+                            DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
+                            allocated_ip_address = [None]
 
-                        def allocate_ip(keys,values,timestamp):
-                            start = parse_ip4_address(values[1].allocated_start)
-                            end = parse_ip4_address(values[1].allocated_end)
+                            def allocate_ip(keys,values,timestamp):
+                                start = parse_ip4_address(values[1].allocated_start)
+                                end = parse_ip4_address(values[1].allocated_end)
 
-                            #values[0].info = [e for e in values[0].info if e[5] > timestamp]
+                                #values[0].info = [e for e in values[0].info if e[5] > timestamp]
 
-                            # filter timeout info,
-                            # only discard info has some subnet id , so we can release ip address to subnet
-                            for e in values[0].info:
-                                if e[5] < timestamp and values[2].id == e[3]:
-                                    ipaddress = parse_ip4_address(e[4])
-                                    if str(ipaddress) in values[2].allocated_ips:
-                                        del values[2].allocated_ips[str(ipaddress)]
-
-                                    values[0].info.remove(e)
-
-                            if (system_id,bridge,vhost,values[1].id) in [(e[0],e[1],e[2],e[3]) for e in values[0].info]:
+                                # filter timeout info,
+                                # only discard info has some subnet id , so we can release ip address to subnet
                                 for e in values[0].info:
-                                    if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
-                                        allocated_ip_address[0] = e[4]
+                                    if e[5] < timestamp and values[2].id == e[3]:
+                                        ipaddress = parse_ip4_address(e[4])
+                                        if str(ipaddress) in values[2].allocated_ips:
+                                            del values[2].allocated_ips[str(ipaddress)]
+
                                         values[0].info.remove(e)
 
-                                values[0].info.append((system_id,bridge,vhost,values[1].id,allocated_ip_address[0],
-                                            timestamp + self._parent.addressinfo_discover_update_time * 2  * 1000000))
+                                if (system_id,bridge,vhost,values[1].id) in [(e[0],e[1],e[2],e[3]) for e in values[0].info]:
+                                    for e in values[0].info:
+                                        if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
+                                            allocated_ip_address[0] = e[4]
+                                            values[0].info.remove(e)
 
-                            else:
-                                for ipaddress in range(start,end):
-                                    if str(ipaddress) not in values[2].allocated_ips:
-                                        allocated_ip_address[0] = ip4_addr.formatter(ipaddress)
-                                        values[2].allocated_ips[str(ipaddress)] = (system_id,bridge,vhost)
-                                        break
+                                    values[0].info.append((system_id,bridge,vhost,values[1].id,allocated_ip_address[0],
+                                                timestamp + self._parent.addressinfo_discover_update_time * 2  * 1000000))
+
                                 else:
-                                    raise ValueError("allocate external subnet ipaddress error!")
+                                    for ipaddress in range(start,end):
+                                        if str(ipaddress) not in values[2].allocated_ips:
+                                            allocated_ip_address[0] = ip4_addr.formatter(ipaddress)
+                                            values[2].allocated_ips[str(ipaddress)] = (system_id,bridge,vhost)
+                                            break
+                                    else:
+                                        raise ValueError("allocate external subnet ipaddress error!")
 
-                                values[0].info.append((system_id,bridge,vhost,values[1].id,allocated_ip_address[0],
-                                            timestamp + self._parent.addressinfo_discover_update_time * 2 * 1000000))
+                                    values[0].info.append((system_id,bridge,vhost,values[1].id,allocated_ip_address[0],
+                                                timestamp + self._parent.addressinfo_discover_update_time * 2 * 1000000))
 
-                            return tuple([keys[0],keys[2]]),tuple([values[0],values[2]])
+                                return tuple([keys[0],keys[2]]),tuple([values[0],values[2]])
 
-                        for m in callAPI(self,"objectdb","transact",
-                                         {"keys":[DVRouterExternalAddressInfokey,subnetkey, subnetmapkey],
-                                          "updater":allocate_ip,"withtime":True}):
-                            yield m
+                            for m in callAPI(self,"objectdb","transact",
+                                             {"keys":[DVRouterExternalAddressInfokey,subnetkey, subnetmapkey],
+                                              "updater":allocate_ip,"withtime":True}):
+                                yield m
 
-                        allocated_ip_address = allocated_ip_address[0]
+                            allocated_ip_address = allocated_ip_address[0]
 
-                    nv = list(v)
-                    nv[5] = allocated_ip_address
-                    update_external_subnet[k] = tuple(nv)
+                        nv = list(v)
+                        nv[5] = allocated_ip_address
+                        update_external_subnet[k] = tuple(nv)
 
-            currentsubnetinfo.update(update_external_subnet)
+                currentsubnetinfo.update(update_external_subnet)
 
-            for k,v in lastsubnetinfo.items():
-                if v[1] and v[7]:
-                    if k not in currentsubnetinfo or (k in currentsubnetinfo
-                                                      and not currentsubnetinfo[k][1]
-                                                      ):
-                        # this external subnet off line , release ip address to subnet
-                        allocated_ip_address = v[5]
-                        subnetmapkey = SubNetMap.default_key(k.id)
-                        DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
+                for k,v in lastsubnetinfo.items():
+                    if v[1] and v[7]:
+                        if k not in currentsubnetinfo or (k in currentsubnetinfo
+                                                          and not currentsubnetinfo[k][1]
+                                                          ):
+                            # this external subnet off line , release ip address to subnet
+                            allocated_ip_address = v[5]
+                            subnetmapkey = SubNetMap.default_key(k.id)
+                            DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
 
-                        def release_ip(keys,values,timestamp):
+                            def release_ip(keys,values,timestamp):
 
-                            # ipaddress = parse_ip4_address(allocated_ip_address)
-                            #
-                            # if str(ipaddress) in values[0].allocated_ips:
-                            #     del values[0].allocated_ips[str(ipaddress)]
-                            #
-                            # values[0].info = [e for e in values[0].info if e[5] > timestamp and
-                            #                   (e[0],e[1],e[2],e[3]) !=(system_id,bridge,vhost,values[1].id)]
-                            new_list = []
-                            for e in values[0].info:
-                                if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
-                                    ipaddress = parse_ip4_address(allocated_ip_address)
+                                # ipaddress = parse_ip4_address(allocated_ip_address)
+                                #
+                                # if str(ipaddress) in values[0].allocated_ips:
+                                #     del values[0].allocated_ips[str(ipaddress)]
+                                #
+                                # values[0].info = [e for e in values[0].info if e[5] > timestamp and
+                                #                   (e[0],e[1],e[2],e[3]) !=(system_id,bridge,vhost,values[1].id)]
+                                new_list = []
+                                for e in values[0].info:
+                                    if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
+                                        ipaddress = parse_ip4_address(allocated_ip_address)
 
-                                    if str(ipaddress) in values[1].allocated_ips:
-                                        del values[1].allocated_ips[str(ipaddress)]
-                                elif e[5] < timestamp and e[3] == values[1].id:
-                                    ipaddress = parse_ip4_address(e[4])
+                                        if str(ipaddress) in values[1].allocated_ips:
+                                            del values[1].allocated_ips[str(ipaddress)]
+                                    elif e[5] < timestamp and e[3] == values[1].id:
+                                        ipaddress = parse_ip4_address(e[4])
 
-                                    if str(ipaddress) in values[1].allocated_ips:
-                                        del values[1].allocated_ips[str(ipaddress)]
-                                else:
-                                    new_list.append(e)
+                                        if str(ipaddress) in values[1].allocated_ips:
+                                            del values[1].allocated_ips[str(ipaddress)]
+                                    else:
+                                        new_list.append(e)
 
-                            values[0].info = new_list
+                                values[0].info = new_list
 
-                            return keys,values
+                                return keys,values
 
-                        for m in callAPI(self,"objectdb","transact",
-                                         {"keys":[DVRouterExternalAddressInfokey,subnetmapkey],
-                                          "updater":release_ip,"withtime":True}):
-                            yield m
+                            for m in callAPI(self,"objectdb","transact",
+                                             {"keys":[DVRouterExternalAddressInfokey,subnetmapkey],
+                                              "updater":release_ip,"withtime":True}):
+                                yield m
 
             self._lastsubnetinfo = currentsubnetinfo
 
@@ -1337,16 +1340,6 @@ class RouterUpdater(FlowUpdater):
                     for m in callAPI(self,"objectdb","transact",
                                      {"keys":transact_keys,"updater":store_transact,"withtime":True}):
                         yield m
-
-            # currentrouterstoreinterfaceinfo = dict()
-            #
-            # for k,v in allrouterinterfaceinfo.items():
-            #     for e in v:
-            #         # isexternal, outmac, external_ip, phyport,subnetid,
-            #         entry = (e[1],e[4],e[5],e[7],e[8])
-            #         currentrouterstoreinterfaceinfo.setdefault(k,[]).append(entry)
-            #
-            # self._lastrouterstoreinterfacenetinfo = currentrouterstoreinterfaceinfo
 
             currentnetworkrouterinfo = dict()
             network_to_router = dict()
