@@ -215,7 +215,7 @@ class RouterUpdater(FlowUpdater):
                 bridge, system_id, _ = self.retvalue
 
             for k,v in self._lastsubnetinfo.items():
-                if v[1]:
+                if v[1] and v[7]:
                     allocated_ip_address = v[5]
                     subnetmapkey = SubNetMap.default_key(k.id)
                     DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
@@ -1071,9 +1071,9 @@ class RouterUpdater(FlowUpdater):
 
             update_external_subnet = dict()
             for k, v in currentsubnetinfo.items():
-                if v[1]:
+                if v[1] and v[7]:
                     # this subnet is external , we should allocate ip from cidr
-                    if k in lastsubnetinfo:
+                    if k in lastsubnetinfo and lastsubnetinfo[k][1]:
                         #this subnet have allocated ip in last
                         allocated_ip_address = lastsubnetinfo[k][5]
 
@@ -1136,8 +1136,10 @@ class RouterUpdater(FlowUpdater):
             currentsubnetinfo.update(update_external_subnet)
 
             for k,v in lastsubnetinfo.items():
-                if v[1]:
-                    if k not in currentsubnetinfo:
+                if v[1] and v[7]:
+                    if k not in currentsubnetinfo or (k in currentsubnetinfo
+                                                      and not currentsubnetinfo[k][1]
+                                                      ):
                         # this external subnet off line , release ip address to subnet
                         allocated_ip_address = v[5]
                         subnetmapkey = SubNetMap.default_key(k.id)
@@ -1946,16 +1948,18 @@ class RouterUpdater(FlowUpdater):
                         # add arp filter discard broadcast arp request to inner host
                         cmds.extend(_createfilterarprequestflow(networkid))
                     else:
-                        # external network, packet will recv from outmac , so add ..
-                        cmds.extend(_createinputflow(outmac, networkid))
+                        # external_ip is None means, this external subnet has no phyport
+                        if external_ip:
+                            # external network, packet will recv from outmac , so add ..
+                            cmds.extend(_createinputflow(outmac, networkid))
 
-                        # add arp reply flow on outmac >>> l3input
-                        cmds.extend(_createarpreplyflow(external_ip,outmac,networkid))
+                            # add arp reply flow on outmac >>> l3input
+                            cmds.extend(_createarpreplyflow(external_ip,outmac,networkid))
 
-                        #add arp proxy for external ip
-                        for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
-                                                        'arpentries': [(external_ip,outmac,n.id,False)]}):
-                            yield m
+                            #add arp proxy for external ip
+                            for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
+                                                            'arpentries': [(external_ip,outmac,n.id,False)]}):
+                                yield m
 
             for n in currentnetworkroutertableinfo:
                 if n not in lastnetworkroutertableinfo:
