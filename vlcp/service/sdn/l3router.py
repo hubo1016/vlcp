@@ -171,6 +171,8 @@ class RouterUpdater(FlowUpdater):
                                  timestamp + self._parent.forwardinfo_discover_update_time * 2 * 1000000)
                         values[i + 1].info.append(e)
 
+                        values[i + 1].info = sorted(values[i + 1].info,key=lambda x: x[3])
+
                         if values[i + 1].info:
                             retdict[keys[i + 1]] = values[i + 1]
                             refe = [e[3] for e in values[i + 1].info]
@@ -1308,6 +1310,8 @@ class RouterUpdater(FlowUpdater):
                                     e = (system_id,bridge,vhost,list(add_store_info[(indices[0],indices[1])])[0],
                                          timestamp + self._parent.forwardinfo_discover_update_time * 2 * 1000000)
                                     values[i+1].info.append(e)
+
+                                values[i+1].info = sorted(values[i+1].info,key=lambda x: x[3])
 
                                 if values[i+1].info:
                                     transact_object[keys[i+1]] = values[i+1]
