@@ -959,7 +959,8 @@ class RouterUpdater(FlowUpdater):
                           v.isinstance(RouterPort)]
         routerkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
                       v.isinstance(VRouter)]
-        forwardinfokeys = [k for k,v in zip(keys,values) if v.isinstance(DVRouterForwardInfoRef)]
+        forwardinfokeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                           v.isinstance(DVRouterForwardInfoRef)]
 
         self._initialkeys = tuple(itertools.chain(self._original_keys,subnetkeys,
                                     routerportkeys,routerkeys,forwardinfokeys))
