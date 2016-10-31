@@ -14,6 +14,7 @@ from vlcp.event.connection import ConnectionResetException
 from vlcp.protocol.openflow.openflow import OpenflowProtocolException,\
     OpenflowAsyncMessageEvent
 from vlcp.event.event import Event, withIndices
+from contextlib import closing
 
 def _bytes(s):
     return s.encode('ascii')
@@ -94,8 +95,9 @@ class OpenflowPortManager(Module):
     def _get_existing_ports(self):
         for m in callAPI(self.apiroutine, 'openflowmanager', 'getallconnections', {'vhost':None}):
             yield m
-        for m in self.apiroutine.executeAll([self._get_ports(c, c.protocol, False, False) for c in self.apiroutine.retvalue if c.openflow_auxiliaryid == 0]):
-            yield m
+        with closing(self.apiroutine.executeAll([self._get_ports(c, c.protocol, False, False) for c in self.apiroutine.retvalue if c.openflow_auxiliaryid == 0])) as g:
+            for m in g:
+                yield m
         self._synchronized = True
         for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):
             yield m

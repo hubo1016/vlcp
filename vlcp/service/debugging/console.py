@@ -520,5 +520,7 @@ console_help()
 
 if __name__ == '__main__':
     from vlcp.server import main
+    import sys
     manager['module.console.startinconsole'] = True
-    main(None, ())
+    modules = list(sys.argv[1:]) + ['__main__.Console']
+    main(None, modules)

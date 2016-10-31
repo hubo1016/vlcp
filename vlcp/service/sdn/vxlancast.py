@@ -446,7 +446,7 @@ class VXLANUpdater(FlowUpdater):
                             v.endpointlist = [ep for ep in v.endpointlist
                                               if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge)
                                               and ep[4] >= timestamp]
-                            if n.physicalnetwork in unique_phyports:
+                            if n is not None and not n.isdeleted() and n.physicalnetwork in unique_phyports:
                                 phyport = unique_phyports[n.physicalnetwork]
                                 if phyport in currentphyportinfo:
                                     v.endpointlist.append([currentphyportinfo[phyport][2],
@@ -578,6 +578,26 @@ class VXLANUpdater(FlowUpdater):
                                         for ipaddress in allips
                                         ]
                                 ))
+                    else:
+                        created_groups[netid] = None
+                        group_cmds.append(
+                            ofdef.ofp_group_mod(
+                                  command = ofdef.OFPGC_MODIFY
+                                            if netid in self._current_groups
+                                            else ofdef.OFPGC_ADD,
+                                  type = ofdef.OFPGT_ALL,
+                                  group_id = (netid & 0xffff) | 0x10000,
+                                  buckets = []
+                            ))
+                        group_cmds.append(
+                            ofdef.ofp_group_mod(
+                                  command = ofdef.OFPGC_MODIFY
+                                            if netid in self._current_groups
+                                            else ofdef.OFPGC_ADD,
+                                  type = ofdef.OFPGT_ALL,
+                                  group_id = (netid & 0xffff) | 0x20000,
+                                  buckets = []
+                            ))                        
         if group_cmds:
             def group_mod():
                 try:
@@ -588,6 +608,16 @@ class VXLANUpdater(FlowUpdater):
                                                  "Details:\n%s", conn,
                                                  "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (pformat(dump(k)), pformat(dump(v)))
                                                            for k,v in self.openflow_replydict.items()))
+                # Some groups are not modified, but the physical port may change, we should also send VXLANGroupChanged
+                for lognet in currentlognetinfo:
+                    phynet, netid = currentlognetinfo[lognet]
+                    if netid in self._current_groups and netid not in created_groups:
+                        if phynet in unique_phyports:
+                            phyport = unique_phyports[phynet]
+                            if phyport in currentphyportinfo:
+                                _, portid, _ = currentphyportinfo[phyport]
+                                if portid != self._current_groups[netid]:
+                                    created_groups[netid] = portid
                 self._current_groups.update(created_groups)
                 for g in deleted_groups:
                     for m in self.waitForSend(VXLANGroupChanged(conn, g, VXLANGroupChanged.DELETED)):
@@ -1062,7 +1092,11 @@ class VXLANCast(FlowBase):
                                         [],
                                         [],
                                         [])
-        elif group_portid == physicalportid:
+        # We are removing this because the physical port may change. If there are more than one physical port
+        # in the physical network, the packets may be sent more than once,
+        # but the solution is simple: DON'T DO THAT
+        # elif group_portid == physicalportid:
+        else:
             self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
                                         [],
                                         [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
@@ -1072,13 +1106,15 @@ class VXLANCast(FlowBase):
                                         [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
                                          ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x20000)],
                                         )
-        else:
-            self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
-                                        [],
-                                        [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
-                                         ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
-                                        [],
-                                        [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
-                                        ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)]
-                                        )
-#
+        #=======================================================================
+        # else:
+        #     self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
+        #                                 [],
+        #                                 [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
+        #                                  ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
+        #                                 [],
+        #                                 [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
+        #                                 ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)]
+        #                                 )
+        #=======================================================================
+

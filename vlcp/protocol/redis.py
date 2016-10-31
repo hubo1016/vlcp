@@ -10,6 +10,7 @@ from vlcp.event import Event, withIndices, ConnectionWriteEvent
 import logging
 import itertools
 from vlcp.event.lock import Lock
+from contextlib import closing
 try:
     import hiredis
     hiredis_available = True
@@ -178,14 +179,14 @@ class Redis(Protocol):
     _default_createqueue = True
     _default_messagequeuesize = 4096
     # Default limit Redis bulk string to 64MB
-    _default_bulklimit = 68719476736
+    _default_bulklimit = 67108864
     # Default limit Redis array level to 128 levels
     _default_levellimit = 128
     _default_encoding = 'utf-8'
     # Use hiredis if possible
     _default_hiredis = True
     _default_keepalivetime = 10
-    _default_keepalivetimeout = 3
+    _default_keepalivetimeout = 5
     _default_connect_timeout = 5
     _default_tcp_nodelay = True
     _logger = logging.getLogger(__name__ + '.Redis')
@@ -319,6 +320,11 @@ class Redis(Protocol):
         :param *args: command paramters, begin with command name, e.g. 'SET','key','value'
         :returns: Event matcher to wait for reply. The value is returned from container.retvalue
         '''
+        with closing(container.delegateOther(self._send_command(connection, container, *args),
+                                             container, forceclose = True)) as g:
+            for m in g:
+                yield m
+    def _send_command(self, connection, container, *args):
         if not args:
             raise RedisProtocolException('No command name')
         l = Lock(connection.redis_locker, connection.scheduler)
@@ -338,6 +344,12 @@ class Redis(Protocol):
         :param *cmds: commands to send. Each command is a tuple/list of bytes/str.
         :returns: list of reply event matchers (from container.retvalue)
         '''
+        with closing(container.delegateOther(self._send_batch(connection, container, *cmds),
+                                         container, forceclose = True)) as g:
+            for m in g:
+                yield m
+    def _send_batch(self, connection, container, *cmds):
+        "Use delegate to ensure it always ends"
         if not cmds:
             raise RedisProtocolException('No commands')
         l = Lock(connection.redis_locker, connection.scheduler)

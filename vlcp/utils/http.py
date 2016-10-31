@@ -13,6 +13,7 @@ import base64
 import uuid
 import json
 from vlcp.event.core import QuitException
+from contextlib import closing
 try:
     from Cookie import SimpleCookie, Morsel
     from urlparse import parse_qs, urlunsplit, urljoin, urlsplit
@@ -540,8 +541,9 @@ def _handler(container, event, func):
                 raise HttpInputException('Bad request')
             r = func(env)
             if r:
-                for m in env.container.executeWithTimeout(getattr(env.protocol, 'processtimeout', None), r):
-                    yield m
+                with closing(env.container.executeWithTimeout(getattr(env.protocol, 'processtimeout', None), r)) as g:
+                    for m in g:
+                        yield m
                 if env.container.timeout:
                     if container and hasattr(container, 'logger'):
                         container.logger.warning('Timeout in HTTP processing, env=%r:', env)

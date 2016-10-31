@@ -7,7 +7,7 @@ from vlcp.config.config import Configurable, config
 from vlcp.event.connection import Client
 from vlcp.protocol.redis import Redis, RedisConnectionStateEvent, RedisSubscribeMessageEvent,\
     RedisReplyException
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 
 def _str(b, encoding = 'ascii'):
     if isinstance(b, str):
@@ -286,14 +286,21 @@ class RedisClient(RedisClientBase):
                     yield m
                 return
             elif cmd in ('BLPOP', 'BRPOP', 'BRPOPLPUSH'):
-                for m in self.get_connection(container):
-                    yield m
-                c = container.retvalue
-                with c.context(container):
-                    for m in c.execute_command(container, *args):
+                def _blocked_command():
+                    for m in self.get_connection(container):
                         yield m
-                    r = container.retvalue
-                container.retvalue = r
+                    c = container.retvalue
+                    with c.context(container):
+                        try:
+                            for m in c.execute_command(container, *args):
+                                yield m
+                        except BaseException as exc:
+                            for m in c.shutdown(container):
+                                yield m
+                            raise exc
+                with closing(container.delegateOther(_blocked_command(), container, forceclose = True)) as g:
+                    for m in g:
+                        yield m
                 return
         for m in RedisClientBase.execute_command(self, container, *args):
             yield m

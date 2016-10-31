@@ -12,6 +12,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.event.lock import Lock
 from zlib import compress, decompress, error as zlib_error
 import pickle
+from contextlib import closing
 try:
     import cPickle
 except ImportError:
@@ -135,7 +136,8 @@ class RedisDB(TcpServerBase):
                        api(self.update, self.apiroutine),
                        api(self.mupdate, self.apiroutine),
                        api(self.updateall, self.apiroutine),
-                       api(self.updateallwithtime, self.apiroutine))
+                       api(self.updateallwithtime, self.apiroutine),
+                       api(self.listallkeys, self.apiroutine))
     def _client_class(self, config, protocol, vhost):
         db = getattr(config, 'db', None)
         def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):
@@ -355,8 +357,9 @@ class RedisDB(TcpServerBase):
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: key=' + repr(key))
-        for m in self._retry_write(_process, vhost):
-            yield m
+        with closing(self._retry_write(_process, vhost)) as g:
+            for m in g:
+                yield m
     def mupdate(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place with a custom function, see update. Either all success, or all fail."
         if not keys:
@@ -394,6 +397,11 @@ class RedisDB(TcpServerBase):
                 if keys_deleted:
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
+            if not set_commands:
+                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                    yield m
+                self.apiroutine.retvalue = values
+                return
             for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
                                                             (('EXEC',),))):
@@ -405,8 +413,9 @@ class RedisDB(TcpServerBase):
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        for m in self._retry_write(_process, vhost):
-            yield m
+        with closing(self._retry_write(_process, vhost)) as g:
+            for m in g:
+                yield m
     def updateall(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place, with a function updater(keys, values) which returns (updated_keys, updated_values). Either all success or all fail"
         def _process(newconn):
@@ -448,6 +457,11 @@ class RedisDB(TcpServerBase):
                 if keys_deleted:
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
+            if not set_commands:
+                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                    yield m
+                self.apiroutine.retvalue = values
+                return
             for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
                                                             (('EXEC',),))):
@@ -455,12 +469,13 @@ class RedisDB(TcpServerBase):
             r = self.apiroutine.retvalue[-1]
             if r is not None:
                 # Succeeded
-                self.apiroutine.retvalue = values
+                self.apiroutine.retvalue = (new_keys, new_values)
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        for m in self._retry_write(_process, vhost):
-            yield m
+        with closing(self._retry_write(_process, vhost)) as g:
+            for m in g:
+                yield m
     def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place, with a function updater(keys, values, timestamp) which returns (updated_keys, updated_values). Either all success or all fail. Timestamp is a integer standing for current time in microseconds."
         def _process(newconn):
@@ -507,6 +522,11 @@ class RedisDB(TcpServerBase):
                 if keys_deleted:
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
+            if not set_commands:
+                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
+                    yield m
+                self.apiroutine.retvalue = values
+                return
             for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
                                                             (('EXEC',),))):
@@ -514,9 +534,20 @@ class RedisDB(TcpServerBase):
             r = self.apiroutine.retvalue[-1]
             if r is not None:
                 # Succeeded
-                self.apiroutine.retvalue = values
+                self.apiroutine.retvalue = (new_keys, new_values)
                 return
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        for m in self._retry_write(_process, vhost):
+        with closing(self._retry_write(_process, vhost)) as g:
+            for m in g:
+                yield m
+    def listallkeys(self, vhost = ''):
+        '''
+        Return all keys in the KVDB. For management purpose.
+        '''
+        c = self._redis_clients.get(vhost)
+        if c is None:
+            raise ValueError('vhost ' + repr(vhost) + ' is not defined')
+        for m in c.execute_command(self.apiroutine, 'KEYS', '*'):
             yield m
+

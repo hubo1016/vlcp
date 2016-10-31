@@ -7,6 +7,7 @@ from __future__ import print_function, absolute_import, division
 import sys
 from .core import QuitException, TimerEvent, SystemControlEvent
 from .event import Event, withIndices
+from contextlib import closing
 
 class EventHandler(object):
     '''
@@ -110,13 +111,25 @@ class generatorwrapper(object):
     def __iter__(self):
         return self.run
     def next(self):
-        return next(self.run)
+        try:
+            return next(self.run)
+        except StopIteration:
+            raise StopIteration
     def __next__(self):
-        return next(self.run)
+        try:
+            return next(self.run)
+        except StopIteration:
+            raise StopIteration
     def send(self, arg):
-        return self.run.send(arg)
+        try:
+            return self.run.send(arg)
+        except StopIteration:
+            raise StopIteration
     def throw(self, typ, val = None, tb = None):
-        return self.run.throw(typ, val, tb)
+        try:
+            return self.run.throw(typ, val, tb)
+        except StopIteration:
+            raise StopIteration
     def __repr__(self, *args, **kwargs):
         try:
             iterator = self.run.gi_frame.f_locals[self.name]
@@ -156,6 +169,8 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
             while True:
                 try:
                     etup = yield
+                except GeneratorExit:
+                    raise
                 except:
                     #scheduler.unregister(matchers, iterself)
                     lmatchers = matchers
@@ -182,9 +197,15 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
             if asyncStart:
                 re.canignore = True
                 scheduler.ignore(rcMatcher)
+            # iterator.close() can be called in other routines, we should restore the currentroutine variable
             if container is not None:
+                lastcurrentroutine = getattr(container, 'currentroutine', None)
                 container.currentroutine = iterself
+            else:
+                lastcurrentroutine = None
             iterator.close()
+            if container is not None:
+                container.currentroutine = lastcurrentroutine
             scheduler.unregisterall(iterself)
     r = generatorwrapper(run())
     next(r)
@@ -391,7 +412,7 @@ class RoutineContainer(object):
             raise self.event.exception[1]
         else:
             self.retvalue = self.event.retvalue
-    def delegate(self, subprocess):
+    def delegate(self, subprocess, forceclose = False):
         '''
         Run a subprocess without container support
         Many subprocess assume itself running in a specified container, it uses container reference
@@ -418,8 +439,12 @@ class RoutineContainer(object):
                     yield m
         r = self.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
         finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
-        # As long as we do not use self.event to read the event, we are safe to receive them from other contaiers
-        yield (finish,)
+        # As long as we do not use self.event to read the event, we are safe to receive them from other containers
+        try:
+            yield (finish,)
+        finally:
+            if forceclose:
+                r.close()
     def beginDelegateOther(self, subprocess, container, retnames = ('retvalue',)):
         '''
         Start the delegate routine, but do not wait for result, instead returns a matcher in self.retvalue.
@@ -440,7 +465,7 @@ class RoutineContainer(object):
                 e.canignore = True
                 for m in container.waitForSend(e):
                     yield m
-                raise
+                raise val
             else:
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine,
                                         result = tuple(getattr(container, n, None) for n in retnames))
@@ -449,7 +474,7 @@ class RoutineContainer(object):
                     yield m
         r = container.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
         return (RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r), r)
-    def delegateOther(self, subprocess, container, retnames = ('retvalue',)):
+    def delegateOther(self, subprocess, container, retnames = ('retvalue',), forceclose = False):
         '''
         Another format of delegate allows delegate a subprocess in another container, and get some returning values
         the subprocess is actually running in 'container'.
@@ -457,12 +482,16 @@ class RoutineContainer(object):
             yield m
         ret = self.retvalue
         '''
-        finish, _ = self.beginDelegateOther(subprocess, container, retnames)
-        yield (finish,)
-        if hasattr(self.event, 'exception'):
-            raise self.event.exception
-        for n, v in zip(retnames, self.event.result):
-            setattr(self, n, v)
+        finish, r = self.beginDelegateOther(subprocess, container, retnames)
+        try:
+            yield (finish,)
+            if hasattr(self.event, 'exception'):
+                raise self.event.exception
+            for n, v in zip(retnames, self.event.result):
+                setattr(self, n, v)
+        finally:
+            if forceclose:
+                r.close()
     def executeAll(self, subprocesses, container = None, retnames = ('retvalue',), forceclose = True):
         '''
         Execute all subprocesses and get the return values. Return values are in self.retvalue.
@@ -474,6 +503,17 @@ class RoutineContainer(object):
         :returns: a list of tuples, one for each subprocess, with value of retnames inside:
         [('retvalue1',),('retvalue2',),...]
         '''
+        if not subprocesses:
+            self.retvalue = []
+            return
+        subprocesses = list(subprocesses)
+        if len(subprocesses) == 1 and (container is None or container is self) and forceclose:
+            # Directly run the process to improve performance
+            with closing(subprocesses[0]) as sp:
+                for m in sp:
+                    yield m
+            self.retvalue = [tuple(getattr(self, n, None) for n in retnames)]
+            return
         if container is None:
             container = self
         delegates = [self.beginDelegateOther(p, container, retnames) for p in subprocesses]

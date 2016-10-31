@@ -147,7 +147,8 @@ class ICMPResponderUpdater(FlowUpdater):
         # we get subnet object, add keys to initialkeys, 
         # when subnet update, it will restart walk ,, after we will get new routerport
         
-        subnetkeys = [k for k,v in zip(keys,values) if v.isinstance(SubNet)]
+        subnetkeys = [k for k,v in zip(keys,values) if v is not None and not v.isdeleted() and
+                      v.isinstance(SubNet)]
 
         self._initialkeys = tuple(itertools.chain(self._orig_initialkeys,subnetkeys))
     
@@ -159,13 +160,14 @@ class ICMPResponderUpdater(FlowUpdater):
             currentlognetsinfo = dict((n,id) for n,id in self._lastlognets if n in allobjects)
             currentrouterportsinfo = dict((o.subnet,o) for o in allobjects
                                             if o.isinstance(RouterPort))
-            currentsubnetsinfo = dict((o,(getattr(currentrouterportsinfo[o],"ip_address",o.gateway),
+            currentsubnetsinfo = dict((o,(getattr(currentrouterportsinfo[o],"ip_address",getattr(o,"gateway",None)),
                                           self.parent.inroutermac,o.network.id,currentlognetsinfo[o.network]))
                                         for o in allobjects if o.isinstance(SubNet)
                                             and hasattr(o,"router") and o in currentrouterportsinfo
                                             and o.network in currentlognetsinfo
                                             and (hasattr(currentrouterportsinfo[o],"ip_address")
-                                                or hasattr(o,"gateway")))
+                                                or hasattr(o,"gateway"))
+                                            and ( not hasattr(o,"isexternal") or o.isexternal == False))
             self._lastsubnetsinfo = currentsubnetsinfo
 
             ofdef = connection.openflowdef
@@ -406,7 +408,7 @@ class ICMPResponder(FlowBase):
                 self.app_routine.subroutine(self._init_conn(c))
             if self.app_routine.matcher is conndown:
                 c = self.app_routine.event.connection
-                self.app_routine.subroutine(self._remove_conn)
+                self.app_routine.subroutine(self._remove_conn(c))
 
     def _init_conn(self,conn):
 
