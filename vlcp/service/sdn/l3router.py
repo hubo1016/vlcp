@@ -1094,7 +1094,7 @@ class RouterUpdater(FlowUpdater):
 
                                 # filter timeout info,
                                 # only discard info has some subnet id , so we can release ip address to subnet
-                                for e in values[0].info:
+                                for e in list(values[0].info):
                                     if e[5] < timestamp and values[2].id == e[3]:
                                         ipaddress = parse_ip4_address(e[4])
                                         if str(ipaddress) in values[2].allocated_ips:
@@ -1103,7 +1103,7 @@ class RouterUpdater(FlowUpdater):
                                         values[0].info.remove(e)
 
                                 if (system_id,bridge,vhost,values[1].id) in [(e[0],e[1],e[2],e[3]) for e in values[0].info]:
-                                    for e in values[0].info:
+                                    for e in list(values[0].info):
                                         if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
                                             allocated_ip_address[0] = e[4]
                                             values[0].info.remove(e)
