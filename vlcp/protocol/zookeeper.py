@@ -185,8 +185,12 @@ class ZooKeeper(Protocol):
                 conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
                                                                            connection,
                                                                            connmark)
-                yield (handshake_matcher, conn_matcher)
-                if container.matcher is conn_matcher:
+                for m in container.waitWithTimeout(10, handshake_matcher, conn_matcher):
+                    yield m
+                if container.timeout:
+                    self._logger.warning('Handshake timeout, connection = %r', connection)
+                    raise ZooKeeperRetryException
+                elif container.matcher is conn_matcher:
                     raise ZooKeeperRetryException
                 else:
                     handshake_received[0] = container.event.message
