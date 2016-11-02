@@ -681,7 +681,7 @@ class Http(Protocol):
         headers = self._createResponseheaders(connection, xid, headers, status)
         return self._HttpResponse(status, headers, outputstream)
     def createErrorResponse(self, connection, xid, status):
-        status = self._createstatus(status)
+        status = _createstatus(status)
         content = b'<h1>' + escape_b(status) + b'</h1>'
         content_length = len(content)
         return self.createResponse(connection, xid, status, [(b'Content-Length', str(content_length).encode('ascii'))], MemoryStream(content))
