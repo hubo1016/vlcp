@@ -1832,16 +1832,16 @@ class RouterUpdater(FlowUpdater):
                         # remove arp filter discard broadcast arp request to inner host
                         cmds.extend(_deletefilterarprequestflow(networkid))
                     else:
+                        if external_ip:
+                            cmds.extend(_deleteinputflow(outmac,networkid))
 
-                        cmds.extend(_deleteinputflow(outmac,networkid))
+                            # remove arp reply flow on outmac >>> l3input
+                            cmds.extend(_deletearpreplyflow(external_ip,outmac,networkid))
 
-                        # remove arp reply flow on outmac >>> l3input
-                        cmds.extend(_deletearpreplyflow(external_ip,outmac,networkid))
-
-                        #remove arp proxy for external ip
-                        for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
-                                                        'arpentries': [(external_ip,outmac,n.id,False)]}):
-                            yield m
+                            # remove arp proxy for external ip
+                            for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
+                                                            'arpentries': [(external_ip,outmac,n.id,False)]}):
+                                yield m
 
             for n in lastnetworkroutertableinfo:
                 if n not in currentnetworkroutertableinfo:
