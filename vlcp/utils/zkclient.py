@@ -18,6 +18,7 @@ except Exception:
     izip_longest = zip
 from time import time
 from vlcp.event.future import RoutineFuture
+from contextlib import closing
 
 @withIndices('state', 'client', 'sessionid')
 class ZooKeeperSessionStateChanged(Event):
@@ -163,16 +164,20 @@ class ZooKeeperClient(Configurable):
                                         or current_set_watches.childWatches:
                                     set_watches.append(current_set_watches)
                         auth_list = list(self.auth_set)
-                        for m in self.protocol.handshake(conn,
-                                    zk.ConnectRequest(lastZxidSeen = last_zxid,
-                                                      timeOut = int(self.sessiontimeout * 1000.0),
-                                                      sessionId = session_id,
-                                                      passwd = passwd,
-                                                      readOnly = self.readonly),
-                                     self._container,
-                                    [zk.AuthPacket(scheme = a[0], auth = a[1]) for a in auth_list] +
-                                    set_watches):
-                            yield m
+                        with closing(self._container.executeWithTimeout(10,
+                                    self.protocol.handshake(conn,
+                                        zk.ConnectRequest(lastZxidSeen = last_zxid,
+                                                          timeOut = int(self.sessiontimeout * 1000.0),
+                                                          sessionId = session_id,
+                                                          passwd = passwd,
+                                                          readOnly = self.readonly),
+                                         self._container,
+                                        [zk.AuthPacket(scheme = a[0], auth = a[1]) for a in auth_list] +
+                                        set_watches))) as g:
+                            for m in g:
+                                yield m
+                        if self._container.timeout:
+                            raise IOError
                     except Exception:
                         self._logger.warning('Handshake failed to %r, try next server', self.currentserver)
                     else:

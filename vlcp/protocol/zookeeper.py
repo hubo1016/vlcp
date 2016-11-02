@@ -14,6 +14,7 @@ import vlcp.utils.zookeeper as zk
 import logging
 import os
 from vlcp.event.connection import ConnectionResetException
+from contextlib import closing
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class ZooKeeperConnectionStateEvent(Event):
@@ -171,8 +172,14 @@ class ZooKeeper(Protocol):
         if extrapackets:
             def callback(event, matcher):
                 handshake_received[0] = event.message
-            for m in container.withCallback(self.requests(connection, extrapackets, container), callback, handshake_matcher):
-                yield m
+            with closing(container.executeWithTimeout(10,
+                            container.withCallback(
+                                self.requests(connection, extrapackets, container),
+                                callback, handshake_matcher))) as g:
+                for m in g:
+                    yield m
+            if container.timeout:
+                raise ZooKeeperRetryException
             receive, lost, retry = container.retvalue
             if lost or retry:
                 raise ZooKeeperRetryException
