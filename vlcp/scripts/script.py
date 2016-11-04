@@ -35,7 +35,7 @@ class ScriptModule(Module):
             yield
     @classmethod
     def main(cls):
-        short_opts = 'f:hH?'
+        short_opts = 'f:h?'
         long_opts = ['help']
         short_dict = {}
         for opt in cls.options:
