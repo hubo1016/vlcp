@@ -46,14 +46,13 @@ class ZooKeeperException(Exception):
 
 class ZooKeeperRetryException(ZooKeeperException):
     '''
-    Connection lost before request sent, it is safe to retry the request when reconnected.
+    Connection lost or not connected on handshake
     '''
     pass
 
-class ZooKeeperResponseLostException(ZooKeeperException):
+class ZooKeeperSessionExpiredException(ZooKeeperException):
     '''
-    Connection lost after request sent. The request may or may not be executed, sender should
-    take care of this situation and design some way to determine the result.
+    Handshake reports the session is expired
     '''
     pass
 
@@ -182,6 +181,11 @@ class ZooKeeper(Protocol):
                 raise ZooKeeperRetryException
             receive, lost, retry = container.retvalue
             if lost or retry:
+                if handshake_received[0] is not None:
+                    # We have received the handshake packet, but not the extra responses
+                    # Maybe the session is expired
+                    if handshake_received[0].timeOut <= 0:
+                        raise ZooKeeperSessionExpiredException
                 raise ZooKeeperRetryException
         else:
             receive = []
@@ -201,6 +205,8 @@ class ZooKeeper(Protocol):
                     raise ZooKeeperRetryException
                 else:
                     handshake_received[0] = container.event.message
+                    if handshake_received[0].timeOut <= 0:
+                        raise ZooKeeperSessionExpiredException
         container.retvalue = (handshake_received[0], receive)
     def async_requests(self, connection, requests, container):
         '''

@@ -5,8 +5,9 @@ Created on 2016/9/22
 '''
 
 from vlcp.config import Configurable, config
-from vlcp.protocol.zookeeper import ZooKeeper, ZooKeeperResponseLostException, ZooKeeperRetryException,\
-    ZooKeeperConnectionStateEvent, ZooKeeperResponseEvent, ZooKeeperWatcherEvent
+from vlcp.protocol.zookeeper import ZooKeeper, ZooKeeperRetryException,\
+    ZooKeeperConnectionStateEvent, ZooKeeperResponseEvent, ZooKeeperWatcherEvent,\
+    ZooKeeperSessionExpiredException
 from random import shuffle, random, randrange
 from vlcp.event.connection import Client
 from vlcp.event.event import Event, withIndices
@@ -178,13 +179,37 @@ class ZooKeeperClient(Configurable):
                                 yield m
                         if self._container.timeout:
                             raise IOError
+                    except ZooKeeperSessionExpiredException:
+                        self._logger.warning('Session expired.')
+                        # Session expired
+                        self.session_state = ZooKeeperSessionStateChanged.EXPIRED
+                        for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
+                                    ZooKeeperSessionStateChanged.EXPIRED,
+                                    self,
+                                    session_id)):
+                            yield m
+                        if self.restart_session:
+                            failed = 0
+                            last_zxid = 0
+                            session_id = 0
+                            passwd = b'\x00' * 16
+                            continue
+                        else:
+                            break                        
                     except Exception:
                         self._logger.warning('Handshake failed to %r, try next server', self.currentserver)
+                        if failed > 5:
+                            # Wait for a small amount of time to prevent a busy loop
+                            for m in self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0)):
+                                yield m
+                        failed += 1
                     else:
                         failed = 0
                         conn_resp, auth_resp = self._container.retvalue
                         if conn_resp.timeOut <= 0:
                             # Session expired
+                            # Currently should not happen because handshake() should raise an exception
+                            self._logger.warning('Session expired detected from handshake packet')
                             self.session_state = ZooKeeperSessionStateChanged.EXPIRED
                             for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
                                         ZooKeeperSessionStateChanged.EXPIRED,
