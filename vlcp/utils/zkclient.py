@@ -107,6 +107,7 @@ class ZooKeeperClient(Configurable):
             self._last_zxid = last_zxid = 0
             session_id = 0
             passwd = b'\x00' * 16
+            last_conn_time = None
             while True:
                 self.currentserver = self.serverlist[self.nextptr]
                 np = self.nextptr + 1
@@ -193,15 +194,39 @@ class ZooKeeperClient(Configurable):
                             last_zxid = 0
                             session_id = 0
                             passwd = b'\x00' * 16
+                            last_conn_time = None
                             continue
                         else:
                             break                        
                     except Exception:
                         self._logger.warning('Handshake failed to %r, try next server', self.currentserver)
                         if failed > 5:
-                            # Wait for a small amount of time to prevent a busy loop
-                            for m in self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0)):
-                                yield m
+                            # There is a bug ZOOKEEPER-1159 that ZooKeeper server does not respond
+                            # for session expiration, but directly close the connection.
+                            # This is a workaround: we store the time that we disconnected from the server,
+                            # if we have exceeded the session expiration time, we declare the session is expired
+                            if last_conn_time is not None and last_conn_time + self.sessiontimeout < time():
+                                self._logger.warning('Session expired detected from client time.')
+                                # Session expired
+                                self.session_state = ZooKeeperSessionStateChanged.EXPIRED
+                                for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
+                                            ZooKeeperSessionStateChanged.EXPIRED,
+                                            self,
+                                            session_id)):
+                                    yield m
+                                if self.restart_session:
+                                    failed = 0
+                                    last_zxid = 0
+                                    session_id = 0
+                                    passwd = b'\x00' * 16
+                                    last_conn_time = None
+                                    continue
+                                else:
+                                    break                        
+                            else:
+                                # Wait for a small amount of time to prevent a busy loop
+                                for m in self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0)):
+                                    yield m
                         failed += 1
                     else:
                         failed = 0
@@ -219,6 +244,7 @@ class ZooKeeperClient(Configurable):
                             if self.restart_session:
                                 failed = 0
                                 last_zxid = 0
+                                last_conn_time = None
                                 session_id = 0
                                 passwd = b'\x00' * 16
                                 continue
@@ -312,6 +338,7 @@ class ZooKeeperClient(Configurable):
                                 else:
                                     self._logger.info('Rebalance to next server')
                                 self._last_zxid = last_zxid = conn.zookeeper_lastzxid
+                                last_conn_time = time()
                                 self.session_state = ZooKeeperSessionStateChanged.DISCONNECTED
                                 for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
                                                 ZooKeeperSessionStateChanged.DISCONNECTED,
