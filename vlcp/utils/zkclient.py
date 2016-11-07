@@ -205,7 +205,7 @@ class ZooKeeperClient(Configurable):
                             # for session expiration, but directly close the connection.
                             # This is a workaround: we store the time that we disconnected from the server,
                             # if we have exceeded the session expiration time, we declare the session is expired
-                            if last_conn_time is not None and last_conn_time + self.sessiontimeout < time():
+                            if last_conn_time is not None and last_conn_time + self.sessiontimeout * 2 < time():
                                 self._logger.warning('Session expired detected from client time.')
                                 # Session expired
                                 self.session_state = ZooKeeperSessionStateChanged.EXPIRED
