@@ -142,7 +142,8 @@ class ManualRedirectRequired(IOError):
         self.request = request
         self.kwargs = kwargs
 class Request(object):
-    def __init__(self, url, data = None, method = None, headers = {}, origin_req_host = None, unverifiable = False):
+    def __init__(self, url, data = None, method = None, headers = {}, origin_req_host = None, unverifiable = False,
+                 rawurl = False):
         '''
         :param url: request url
         :param data: request data, can be a str/bytes, or a stream(vlcp.event.stream.XXXStream)
@@ -157,7 +158,10 @@ class Request(object):
         self.host = s.netloc
         if not self.host:
             raise ValueError('Invalid URL: ' + self.url)
-        self.path = urlunsplit(('', '', quote(s.path), quote(s.query,'/&='), ''))
+        if rawurl:
+            self.path = urlunsplit(('', '', s.path, s.query, ''))
+        else:
+            self.path = urlunsplit(('', '', quote(s.path), quote(s.query,'/&='), ''))
         if not self.path:
             self.path = '/'
         self.data = data
@@ -345,6 +349,7 @@ class WebClient(Configurable):
              followredirect = True, autodecompress = False, allowcookies = None):
         '''
         Open http request with a Request object
+        
         :param container: a routine container hosting this routine
         :param request: vlcp.utils.webclient.Request object
         :param ignorewebexception: Do not raise exception on Web errors (4xx, 5xx), return a response normally
@@ -356,10 +361,16 @@ class WebClient(Configurable):
                connect to redirected host: (2s)
                wait for response: (2s)
                ...
+               
         :param datagen: if the request use a stream as the data parameter, you may provide a routine to generate
                         data for the stream. If the request failed early, this routine is automatically terminated.
-        :param cafile: provide a CA file for SSL certification check. Notice that the http host
                         
+        :param cafile: provide a CA file for SSL certification check. If not provided, the SSL connection is NOT verified.
+        :param key: provide a key file, for client certification (usually not necessary)
+        :param certificate: provide a certificate file, for client certification (usually not necessary)
+        :param followredirect: if True (default), automatically follow 3xx redirections
+        :param autodecompress: if True, automatically detect Content-Encoding header and decode the body
+        :param allowcookies: override default settings to disable the cookies
         '''
         with closing(container.delegateOther(self._open(container, request, ignorewebexception, timeout, datagen, cafile, key, certificate,
                                                     followredirect, autodecompress, allowcookies),
@@ -616,7 +627,7 @@ class WebClient(Configurable):
             t.close()
         del self._tasks[:]
                 
-    def urlopen(self, container, url, data = None, method = None, headers = {}, *args, **kwargs):
+    def urlopen(self, container, url, data = None, method = None, headers = {}, rawurl = False, *args, **kwargs):
         '''
         Similar to urllib2.urlopen, but:
         1. is a routine
@@ -627,21 +638,27 @@ class WebClient(Configurable):
         6. certificates are verified with CA if provided.
         If there are keep-alived connections, they are automatically reused.
         See open for available arguments
+        
+        Extra argument:
+        
+        :param rawurl: if True, assume the url is already url-encoded, do not encode it again.
         '''
-        return self.open(container, Request(url, data, method, headers), *args, **kwargs)
+        return self.open(container, Request(url, data, method, headers, rawurl=rawurl), *args, **kwargs)
     def manualredirect(self, container, exc, data, datagen = None):
         "If data is a stream, it cannot be used again on redirect. Catch the ManualRedirectException and call a manual redirect with a new stream."
         request = exc.request
         request.data = data
         return self.open(container, request, datagen = datagen, **exc.kwargs)
-    def urlgetcontent(self, container, url, data = None, method = None, headers = {}, tostr = False,  encoding = None, *args, **kwargs):
+    def urlgetcontent(self, container, url, data = None, method = None, headers = {}, tostr = False,  encoding = None, rawurl = False, *args, **kwargs):
         '''
         In Python2, bytes = str, so tostr and encoding has no effect.
         In Python3, bytes are decoded into unicode str with encoding.
         If encoding is not specified, charset in content-type is used if present, or default to utf-8 if not.
         See open for available arguments
+
+        :param rawurl: if True, assume the url is already url-encoded, do not encode it again.
         '''
-        req = Request(url, data, method, headers)
+        req = Request(url, data, method, headers, rawurl = rawurl)
         for m in self.open(container, req, *args, **kwargs):
             yield m
         resp = container.retvalue

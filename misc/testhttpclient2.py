@@ -29,7 +29,7 @@ class MainRoutine(RoutineContainer):
         self.urls.add(url)
         self.robotcount += 1
         try:
-            for m in wc.urlopen(self, url, headers = headers, autodecompress = True, timeout = 30):
+            for m in wc.urlopen(self, url, headers = headers, autodecompress = True, timeout = 30, rawurl=True):
                 yield m
         except (IOError, HttpProtocolException) as exc:
             print('Failed to open %r: %s' % (url, exc))
