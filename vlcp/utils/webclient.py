@@ -26,6 +26,11 @@ from vlcp.utils import encoders
 import re
 # From Python 2.7 ssl library
 
+try:
+    unicode
+except Exception:
+    unicode = str
+
 def _dnsname_match(dn, hostname, max_wildcards=1):
     """Matching according to RFC 6125, section 6.4.3
 
@@ -173,7 +178,7 @@ class Request(object):
         else:
             self.method = method.upper()
         if self.data is not None:
-            if isinstance(self.data, str):
+            if isinstance(self.data, unicode):
                 self.data = _bytes(self.data)
         headers = dict(headers)
         self.headers = dict((_str(k), _str(v, 'iso-8859-1')) for k,v in headers.items())
