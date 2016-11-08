@@ -143,6 +143,7 @@ class ObjectDB(Module):
             orig_retrieveonce_list = set()
             # Retrieved values are stored in update_result before merging into current storage
             update_result = {}
+            # key => [(walker_func, original_keys, rid), ...]
             walkers = {}
             self._loopCount = 0
             # A request-id -> retrieve set dictionary to store the saved keys
@@ -353,13 +354,19 @@ class ObjectDB(Module):
                                 self._updatekeys.add(k)
                     savelist.clear()
                     for k,ws in walkers.items():
+                        # k: the walker key
+                        # ws: list of [walker_func, (request_original_keys, rid)]
+                        # Retry every walker, starts with k, with the value of v
                         if k in update_result:
+                            # The value is newly retrieved
                             v = update_result.get(k)
                         else:
+                            # Use the stored value
                             v = self._managed_objs.get(k)
-                        ws = walkers.get(k)
                         if ws:
                             for w,r in list(ws):
+                                # w: walker_func
+                                # r: (request_original_keys, rid)
                                 # Custom walker
                                 def save(key):
                                     if hasattr(key, 'getkey'):
@@ -373,8 +380,10 @@ class ObjectDB(Module):
                                     used_keys.clear()
                                     w(k, v, create_walker(k), save)
                                 except Exception as exc:
+                                    # if one walker failed, the whole request is failed, remove all walkers
                                     for orig_k in r[0]:
-                                        walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
+                                        if orig_k in walkers:
+                                            walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
                                     processing_requests[:] = [r0 for r0 in processing_requests if r0[1] != r[1]]
                                     for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
                                         yield m

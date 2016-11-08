@@ -629,8 +629,14 @@ class ZooKeeperDB(TcpServerBase):
                     yield m
                 completes, losts, retries, _ = self.apiroutine.retvalue
                 if losts or retries:
-                    # Should not happend but in case...
+                    # Should not happen but in case...
                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+                if completes[0].err == zk.ZOO_ERR_NONODE:
+                    # Though not quite possible, in extreme situations the key might be lost
+                    # Return None should be the correct result for the most time
+                    self.apiroutine.retvalue = None
+                    return
+                self._check_completes(completes)
                 if completes[0].stat.mzxid <= zxid_limit:
                     if completes[0].data:
                         self.apiroutine.retvalue = completes[0].data
