@@ -159,6 +159,21 @@ class _Notifier(RoutineContainer):
                     completes, lost, retries, watchers = self.retvalue
                     if lost or retries:
                         continue
+                    if completes[0].err == zk.ZOO_ERR_NONODE:
+                        last_zxid = completes[0].zxid
+                        # Insert a barrier in case there are updates
+                        self._insert_barrier(key, last_zxid)
+                        for m in client.requests([zk.setdata(key, b''),
+                                                  zk.create(key, b''),
+                                                  zk.create(watch_key, b'', True)],
+                                                 self):
+                            yield m
+                        completes, lost, retries, _ = self.retvalue
+                        if lost or retries:
+                            continue
+                        self._check_completes(completes, (zk.ZOO_ERR_NODEEXISTS, zk.ZOO_ERR_NONODE))
+                        last_children = set()
+                        continue
                     self._check_completes(completes)
                     current_children = set(completes[0].children)
                     if last_children is not None:
