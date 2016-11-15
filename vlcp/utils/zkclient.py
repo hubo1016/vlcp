@@ -46,6 +46,8 @@ class ZooKeeperIllegalPathException(ValueError):
 
 _MAX_SETWATCHES_SIZE = 128 * 1024
 
+_should_add_watch = set(((zk.CREATED_EVENT_DEF, zk.ZOO_ERR_NONODE),))
+
 @config('zookeeperclient')
 class ZooKeeperClient(Configurable):
     _default_serverlist = []
@@ -466,7 +468,8 @@ class ZooKeeperClient(Configurable):
         watchers = {}
         def requests_callback(request, response):
             watch_type = analysis[request][1]
-            if watch_type is not None:
+            if watch_type is not None and (response.err == zk.ZOO_ERR_OK or \
+                                           (watch_type, response.err) in _should_add_watch):
                 watchers[request] = RoutineFuture(self.watch_path(request.path, watch_type, container), container)
             if callback is not None:
                 callback(request, response)

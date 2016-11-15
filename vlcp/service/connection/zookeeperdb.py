@@ -85,6 +85,11 @@ def _str(s):
     else:
         return s.decode('utf-8')
 
+def _discard_watchers(watchers):
+    for w in watchers:
+        if w is not None:
+            w.close()
+
 class _Notifier(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.Notifier')
     def __init__(self, vhostbind, scheduler=None, singlecastlimit = 256, deflate = False):
@@ -157,78 +162,81 @@ class _Notifier(RoutineContainer):
                                              self):
                         yield m
                     completes, lost, retries, watchers = self.retvalue
-                    if lost or retries:
-                        continue
-                    if completes[0].err == zk.ZOO_ERR_NONODE:
-                        last_zxid = completes[0].zxid
-                        # Insert a barrier in case there are updates
-                        self._insert_barrier(key, last_zxid)
-                        for m in client.requests([zk.setdata(key, b''),
-                                                  zk.create(key, b''),
-                                                  zk.create(watch_key, b'', True)],
-                                                 self):
-                            yield m
-                        completes, lost, retries, _ = self.retvalue
+                    try:
                         if lost or retries:
                             continue
-                        self._check_completes(completes, (zk.ZOO_ERR_NODEEXISTS, zk.ZOO_ERR_NONODE))
-                        last_children = set()
-                        continue
-                    self._check_completes(completes)
-                    current_children = set(completes[0].children)
-                    if last_children is not None:
-                        new_children = current_children.difference(last_children)
-                    else:
-                        new_children = set()
-                    last_children = current_children
-                    def _watcher_update(watcher):
-                        try:
-                            for m in watcher.wait(self):
+                        if completes[0].err == zk.ZOO_ERR_NONODE:
+                            last_zxid = completes[0].zxid
+                            # Insert a barrier in case there are updates
+                            self._insert_barrier(key, last_zxid)
+                            for m in client.requests([zk.setdata(key, b''),
+                                                      zk.create(key, b''),
+                                                      zk.create(watch_key, b'', True)],
+                                                     self):
                                 yield m
-                        except ZooKeeperSessionUnavailable:
-                            self.retvalue = -1
+                            completes, lost, retries, _ = self.retvalue
+                            if lost or retries:
+                                continue
+                            self._check_completes(completes, (zk.ZOO_ERR_NODEEXISTS, zk.ZOO_ERR_NONODE))
+                            last_children = set()
+                            continue
+                        self._check_completes(completes)
+                        current_children = set(completes[0].children)
+                        if last_children is not None:
+                            new_children = current_children.difference(last_children)
                         else:
-                            watcher_event = self.retvalue
-                            # Insert a barrier
-                            self._insert_barrier(key, watcher_event.zxid)
-                            self.retvalue = watcher_event.zxid
-                        finally:
-                            watcher.close()
-                    def _get_transacts(last_zxid, new_children):
-                        try:
-                            new_children = sorted(c for c in new_children if c.startswith(b'notify'))
-                            reqs = [zk.getdata(key + b'/' + c)
-                                                      for c in new_children]
-                            completes = []
-                            while reqs:
-                                try:
-                                    for m in client.requests(reqs, self):
-                                        yield m
-                                except ZooKeeperSessionUnavailable:
-                                    break
-                                completes2, lost, retries, _ = self.retvalue
-                                completes.extend(completes2[:len(reqs) - len(lost) - len(retries)])
-                                reqs = lost + retries
-                            completes = [c for c in completes if c.err != zk.ZOO_ERR_NONODE]
-                            self._check_completes(completes)
-                            result = []
-                            for c in completes:
-                                try:
-                                    result.append((decoder(c.data), c.stat.mzxid))
-                                except Exception:
-                                    self._logger.warning('Error while decoding data: %r, will ignore. key = %r',
-                                                         c.data, key, exc_info = True)
-                        except Exception:
-                            self._remove_barrier(key, last_zxid)
-                            raise
-                        else:
-                            self._remove_barrier(key, last_zxid, *result)
-                            self.retvalue = None
-                    with closing(self.executeAll([_watcher_update(watchers[0]),
-                                              _get_transacts(last_zxid, new_children)])) as g:
-                        for m in g:
-                            yield m
-                    ((last_zxid,), _) = self.retvalue
+                            new_children = set()
+                        last_children = current_children
+                        def _watcher_update(watcher):
+                            try:
+                                for m in watcher.wait(self):
+                                    yield m
+                            except ZooKeeperSessionUnavailable:
+                                self.retvalue = -1
+                            else:
+                                watcher_event = self.retvalue
+                                # Insert a barrier
+                                self._insert_barrier(key, watcher_event.zxid)
+                                self.retvalue = watcher_event.zxid
+                            finally:
+                                watcher.close()
+                        def _get_transacts(last_zxid, new_children):
+                            try:
+                                new_children = sorted(c for c in new_children if c.startswith(b'notify'))
+                                reqs = [zk.getdata(key + b'/' + c)
+                                                          for c in new_children]
+                                completes = []
+                                while reqs:
+                                    try:
+                                        for m in client.requests(reqs, self):
+                                            yield m
+                                    except ZooKeeperSessionUnavailable:
+                                        break
+                                    completes2, lost, retries, _ = self.retvalue
+                                    completes.extend(completes2[:len(reqs) - len(lost) - len(retries)])
+                                    reqs = lost + retries
+                                completes = [c for c in completes if c.err != zk.ZOO_ERR_NONODE]
+                                self._check_completes(completes)
+                                result = []
+                                for c in completes:
+                                    try:
+                                        result.append((decoder(c.data), c.stat.mzxid))
+                                    except Exception:
+                                        self._logger.warning('Error while decoding data: %r, will ignore. key = %r',
+                                                             c.data, key, exc_info = True)
+                            except Exception:
+                                self._remove_barrier(key, last_zxid)
+                                raise
+                            else:
+                                self._remove_barrier(key, last_zxid, *result)
+                                self.retvalue = None
+                        with closing(self.executeAll([_watcher_update(watchers[0]),
+                                                  _get_transacts(last_zxid, new_children)])) as g:
+                            for m in g:
+                                yield m
+                        ((last_zxid,), _) = self.retvalue
+                    finally:
+                        _discard_watchers(watchers)
                 except QuitException:
                     raise
                 except Exception:
@@ -902,12 +910,12 @@ class ZooKeeperDB(TcpServerBase):
                                                     self.apiroutine, 60, session_lock):
                                     yield m
                                 completes, losts, retries, waiters = self.apiroutine.retvalue
-                                if losts or retries:
-                                    raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
-                                self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
-                                if completes[0].err == zk.ZOO_ERR_OK:
-                                    # wait for the barrier to be removed
-                                    try:
+                                try:
+                                    if losts or retries:
+                                        raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+                                    self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
+                                    if completes[0].err == zk.ZOO_ERR_OK:
+                                        # wait for the barrier to be removed
                                         for m in self.apiroutine.executeWithTimeout(90, waiters[0].wait(self.apiroutine)):
                                             yield m
                                         if self.apiroutine.timeout:
@@ -924,10 +932,10 @@ class ZooKeeperDB(TcpServerBase):
                                                 continue
                                             else:
                                                 break
-                                    finally:
-                                        waiters[0].close()
-                                else:
-                                    break
+                                    else:
+                                        break
+                                finally:
+                                    _discard_watchers(waiters)
                             # Done or roll back, let's check
                             for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/data-' + seq)],
                                                 self.apiroutine, 60, session_lock):
