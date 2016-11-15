@@ -132,7 +132,9 @@ class Environment(object):
             # Delay the exception
             self.exception = exc
     def __repr__(self, *args, **kwargs):
-        r = self.method.upper() + b' ' + self.path + b', ' + self.connection.remoteaddr[0].encode(self.encoding)
+        r = self.method.upper() + b' ' + self.path + (b', ' + self.connection.remoteaddr[0].encode(self.encoding)
+                                                      if self.connection.remoteaddr
+                                                      else b'')
         if not isinstance(r, str):
             return r.decode(self.encoding)
         else:
@@ -559,7 +561,7 @@ def _handler(container, event, func):
                 yield m
         except QuitException:
             raise
-        except:
+        except Exception:
             if container and hasattr(container, 'logger'):
                 container.logger.exception('Unhandled exception in HTTP processing, env=%r:', env)
             for m in env.error(500):
@@ -568,7 +570,7 @@ def _handler(container, event, func):
             yield m
     except QuitException:
         raise
-    except:
+    except Exception:
         # Must ignore all exceptions, or the whole handler is unregistered
         pass
 

@@ -1053,6 +1053,8 @@ class ZooKeeperDB(TcpServerBase):
                             # is needed
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                     else:
+                        self._check_completes(completes)
+                        self._check_completes(completes[0].responses[:len(multi_op)])
                         break
             self.apiroutine.retvalue = (new_keys, new_values)
         except Exception:

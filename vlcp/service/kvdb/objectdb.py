@@ -789,7 +789,7 @@ class ObjectDB(Module):
             else:
                 extrakeys_list = list(extrakeysdict.items())
                 extrakeyset_list = list(extrakeysetdict.items())
-                autoremove_list = list(autoremove_keys.difference(keys[:orig_len])
+                autoremove_list = list(autoremove_keys.difference(updated_keys)
                                                       .difference(extrakeysdict.keys())
                                                       .difference(extrakeysetdict.keys()))
                 return (tuple(itertools.chain(updated_keys,
