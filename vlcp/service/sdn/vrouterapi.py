@@ -537,7 +537,7 @@ class VRouterApi(Module):
                         delattr(sn,'router')
 
                     if rp.create_weakreference() in r.interfaces.dataset():
-                        r.interfaces.dataset().discard(r.create_weakreference())
+                        r.interfaces.dataset().discard(rp.create_weakreference())
                     else:
                         raise ValueError("router " + interface["router"] + " have no router port " +
                                          interface["routerport"])
