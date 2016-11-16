@@ -387,7 +387,7 @@ class _Notifier(RoutineContainer):
             recycle_path = [b'/vlcp/notifier/bykey/' + k for k in merged_keys]
         while True:
             try:
-                for m in client.requests(reqs, self, 30):
+                for m in client.requests(reqs, self, 30, priority = 1):
                     yield m
             except ZooKeeperSessionUnavailable:
                 self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
@@ -401,7 +401,7 @@ class _Notifier(RoutineContainer):
                     # At least the last request is lost, we must detect whether it is completed
                     try:
                         for m in client.requests([zk.getchildren(detect_path)],
-                                                 self, 30):
+                                                 self, 30, priority = 2):
                             yield m
                     except ZooKeeperSessionUnavailable:
                         self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
@@ -733,7 +733,8 @@ class ZooKeeperDB(TcpServerBase):
                                         )
                                     ]
                 while True:
-                    for m in client.requests(create_requests, self.apiroutine, 60, session_lock):
+                    for m in client.requests(create_requests, self.apiroutine, 60, session_lock,
+                                             priority = 1):
                         yield m
                     completes, losts, retries, _ = self.apiroutine.retvalue
                     self._check_completes(completes[:len(create_requests) - len(losts) - len(retries)], (zk.ZOO_ERR_NONODE, zk.ZOO_ERR_NODEEXISTS))
@@ -762,7 +763,7 @@ class ZooKeeperDB(TcpServerBase):
                                             *[zk.multi_create(b'/vlcp/kvdb/' + k + b'/' + identifier,
                                                               b'', True, True)
                                               for k in escaped_keys]
-                                        )], self.apiroutine, 60):
+                                        )], self.apiroutine, 60, priority = 1):
                         yield m
                     completes, losts, retries, _ = self.apiroutine.retvalue
                     if not losts and not retries:
@@ -801,7 +802,7 @@ class ZooKeeperDB(TcpServerBase):
                         # Response is lost, we must check the result
                         for m in client.requests([zk.sync(b'/vlcp/kvdb/' + escaped_keys[0]),
                                              zk.getchildren(b'/vlcp/kvdb/' + escaped_keys[0])],
-                                            self.apiroutine, 60):
+                                            self.apiroutine, 60, priority = 2):
                             yield m
                         completes, losts, retries, _ = self.apiroutine.retvalue
                         if losts or retries:
@@ -820,7 +821,7 @@ class ZooKeeperDB(TcpServerBase):
                             if len(escaped_keys) > 1:
                                 for m in client.requests([zk.getchildren(b'/vlcp/kvdb/' + k)
                                                      for k in escaped_keys[1:]],
-                                                    self.apiroutine, 60, session_lock):
+                                                    self.apiroutine, 60, session_lock, priority = 2):
                                     yield m
                                 completes, losts, retries, _ = self.apiroutine.retvalue
                                 if losts or retries:
@@ -841,7 +842,7 @@ class ZooKeeperDB(TcpServerBase):
                             break
                 # Use mtime for created barrier for timestamp
                 for m in client.requests([zk.exists(barrier_list[0])],
-                                    self.apiroutine, 60, session_lock):
+                                    self.apiroutine, 60, session_lock, priority = 1):
                     yield m
                 completes, losts, retries, _ = self.apiroutine.retvalue
                 if losts or retries:
@@ -851,7 +852,7 @@ class ZooKeeperDB(TcpServerBase):
                 # Retrieve values
                 for m in client.requests([zk.getchildren(b'/vlcp/kvdb/' + k)
                                      for k in escaped_keys],
-                                    self.apiroutine, 60, session_lock):
+                                    self.apiroutine, 60, session_lock, priority = 1):
                     yield m
                 completes, losts, retries, _ = self.apiroutine.retvalue
                 if losts or retries:
@@ -880,7 +881,7 @@ class ZooKeeperDB(TcpServerBase):
                 def _normal_get_value():
                     for m in client.requests([zk.getdata(p[1])
                                          for p in value_path if p is not None and not p[0]],
-                                        self.apiroutine, 60, session_lock):
+                                        self.apiroutine, 60, session_lock, priority = 1):
                         yield m
                     completes, losts, retries, _ = self.apiroutine.retvalue
                     if losts or retries:
@@ -895,7 +896,7 @@ class ZooKeeperDB(TcpServerBase):
                                                  for name in dup_names]
                         while delete_requests:
                             for m in client.requests(delete_requests,
-                                                     self.apiroutine, 60, session_lock):
+                                                     self.apiroutine, 60, session_lock, priority = 1):
                                 yield m
                             completes, lost, retries, _ = self.apiroutine.retvalue
                             self._check_completes(completes[:len(completes) - len(lost) - len(retries)],
@@ -907,7 +908,7 @@ class ZooKeeperDB(TcpServerBase):
                         if name.startswith(b'barrier'):
                             while True:
                                 for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name, True)],
-                                                    self.apiroutine, 60, session_lock):
+                                                    self.apiroutine, 60, session_lock, priority = 1):
                                     yield m
                                 completes, losts, retries, waiters = self.apiroutine.retvalue
                                 try:
@@ -922,7 +923,7 @@ class ZooKeeperDB(TcpServerBase):
                                             self._logger.warning('Wait too long on a barrier, possible deadlock, key = %r, name = %r', key, name)
                                             self._logger.warning('Try to remove it to solve the problem. THIS IS NOT NORMAL.')
                                             for m in client.requests([zk.delete(b'/vlcp/kvdb/' + key + b'/' + name)],
-                                                                     self.apiroutine, 60, session_lock):
+                                                                     self.apiroutine, 60, session_lock, priority = 2):
                                                 yield m
                                             completes, lost, retries, _ = self.apiroutine.retvalue
                                             self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
@@ -938,7 +939,7 @@ class ZooKeeperDB(TcpServerBase):
                                     _discard_watchers(waiters)
                             # Done or roll back, let's check
                             for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/data-' + seq)],
-                                                self.apiroutine, 60, session_lock):
+                                                self.apiroutine, 60, session_lock, priority = 1):
                                 yield m
                             completes, losts, retries, _ = self.apiroutine.retvalue
                             if losts or retries:
@@ -951,7 +952,7 @@ class ZooKeeperDB(TcpServerBase):
                         else:
                             # Normal get
                             for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name)],
-                                                self.apiroutine, 60, session_lock):
+                                                self.apiroutine, 60, session_lock, priority = 1):
                                 yield m
                             completes, losts, retries, _ = self.apiroutine.retvalue
                             if losts or retries:
@@ -987,7 +988,7 @@ class ZooKeeperDB(TcpServerBase):
                 while True:
                     for m in client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
                                          zk.exists(b'/vlcp/tmp/timer')],
-                                        self.apiroutine, 60):
+                                        self.apiroutine, 60, priority = 1):
                         yield m
                     completes, losts, retries, _ = self.apiroutine.retvalue
                     if not losts and not retries:
@@ -1032,7 +1033,7 @@ class ZooKeeperDB(TcpServerBase):
             if multi_op:
                 while True:
                     for m in client.requests([zk.multi(*multi_op)],
-                                        self.apiroutine, 60, session_lock):
+                                        self.apiroutine, 60, session_lock, priority = 2):
                         yield m                    
                     completes, losts, retries, _ = self.apiroutine.retvalue
                     if retries:
@@ -1043,7 +1044,7 @@ class ZooKeeperDB(TcpServerBase):
                             # Check whether the transaction is succeeded
                             for m in client.requests([zk.sync(barrier_list[0]),
                                                  zk.exists(barrier_list[0])],
-                                                self.apiroutine, 60, session_lock):
+                                                self.apiroutine, 60, session_lock, priority = 2):
                                 yield m
                             completes, losts, retries, _ = self.apiroutine.retvalue
                             if losts or retries:
@@ -1071,7 +1072,7 @@ class ZooKeeperDB(TcpServerBase):
                     # if the session expires, the barrier should automatically be removed
                     try:
                         for m in client.requests([zk.delete(p) for p in barrier_list],
-                                            self.apiroutine, 60, client.session_id):
+                                            self.apiroutine, 60, client.session_id, priority = 2):
                             yield m
                     except ZooKeeperSessionUnavailable:
                         pass

@@ -421,7 +421,7 @@ class ZooKeeperClient(Configurable):
                     watcher_event.path = self.unchroot_path(watcher_event.path)
                 container.retvalue = watcher_event
                 break
-    def requests(self, requests, container, timeout = None, session_lock = None, callback = None):
+    def requests(self, requests, container, timeout = None, session_lock = None, callback = None, priority = 0):
         '''
         similar to vlcp.protocol.zookeeper.ZooKeeper.requests, but:
            1. Returns an extra item *watchers*, which is a list of objects corresponding to each request.
@@ -509,7 +509,7 @@ class ZooKeeperClient(Configurable):
                         break
             # retry all the requests
             for m in self.protocol.requests(self.current_connection, retry_requests, container,
-                                            requests_callback):
+                                            requests_callback, priority=priority):
                 yield m
             new_result, new_lost, new_retry = container.retvalue
             # Save the results

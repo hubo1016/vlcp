@@ -62,6 +62,12 @@ class ZooKeeperRequestTooLargeException(ZooKeeperException):
     '''
     pass
 
+@withIndices('priority')
+class ZooKeeperWriteEvent(ConnectionWriteEvent):
+    LOW = 0
+    MIDDLE = 1
+    HIGH = 2
+
 @defaultconfig
 class ZooKeeper(Protocol):
     '''
@@ -87,6 +93,13 @@ class ZooKeeper(Protocol):
                 self.messagepriority + 1, ZooKeeperMessageEvent.createMatcher(connection = connection), ('message', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority + 2, ZooKeeperResponseEvent.createMatcher(connection = connection, xid = zk.PING_XID)))
+        if hasattr(connection, 'queue'):
+            connection.queue.addSubQueue(1, ZooKeeperWriteEvent.createMatcher(connection = connection,
+                                                                                        priority = ZooKeeperWriteEvent.MIDDLE),
+                                         None, self.writequeuesize)
+            connection.queue.addSubQueue(2, ZooKeeperWriteEvent.createMatcher(connection = connection,
+                                                                                        priority = ZooKeeperWriteEvent.HIGH),
+                                         None, self.writequeuesize)
         for m in self.reconnect_init(connection):
             yield m
     def reconnect_init(self, connection):
@@ -141,10 +154,10 @@ class ZooKeeper(Protocol):
             # Remote write close
             events.append(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
         return (events, len(data) - start)
-    def _send(self, connection, request, container):
-        return self._senddata(connection, request._tobytes(), container)
-    def _senddata(self, connection, data, container):
-        connwrite = ConnectionWriteEvent(connection, connection.connmark, data = data)
+    def _send(self, connection, request, container, priority = 0):
+        return self._senddata(connection, request._tobytes(), container, priority)
+    def _senddata(self, connection, data, container, priority = 0):
+        connwrite = ZooKeeperWriteEvent(connection, connection.connmark, priority, data = data)
         connwrite._zookeeper_sent = False
         try:
             for m in connection.write(connwrite, False):
@@ -165,7 +178,7 @@ class ZooKeeper(Protocol):
     def handshake(self, connection, connrequest, container, extrapackets = []):
         connmark = connection.connmark
         handshake_matcher = ZooKeeperHandshakeEvent.createMatcher(connection, connection.connmark)
-        for m in self._send(connection, connrequest, container):
+        for m in self._send(connection, connrequest, container, ZooKeeperWriteEvent.HIGH):
             yield m
         handshake_received = [None]
         if extrapackets:
@@ -173,7 +186,7 @@ class ZooKeeper(Protocol):
                 handshake_received[0] = event.message
             with closing(container.executeWithTimeout(10,
                             container.withCallback(
-                                self.requests(connection, extrapackets, container),
+                                self.requests(connection, extrapackets, container, priority=ZooKeeperWriteEvent.HIGH),
                                 callback, handshake_matcher))) as g:
                 for m in g:
                     yield m
@@ -208,7 +221,7 @@ class ZooKeeper(Protocol):
                     if handshake_received[0].timeOut <= 0:
                         raise ZooKeeperSessionExpiredException
         container.retvalue = (handshake_received[0], receive)
-    def async_requests(self, connection, requests, container):
+    def async_requests(self, connection, requests, container, priority = 0):
         '''
         :return: (matchers, generator), where matchers are event matchers for the requests; generator
         is the routine to send to requests.
@@ -231,14 +244,14 @@ class ZooKeeper(Protocol):
             sent_requests = []
             for data in alldata:
                 try:
-                    for m in self._senddata(connection, data, container):
+                    for m in self._senddata(connection, data, container, priority):
                         yield m
                     sent_requests.append(container.retvalue)
                 except ZooKeeperRetryException:
                     raise ZooKeeperRetryException(sent_requests)
             container.retvalue = sent_requests
         return (matchers, _sendall())
-    def requests(self, connection, requests, container, callback = None):
+    def requests(self, connection, requests, container, callback = None, priority = 0):
         '''
         Send requests by sequence, return all the results (including the lost ones)
         
@@ -256,7 +269,7 @@ class ZooKeeper(Protocol):
         but the responses are lost due to connection lost, it is the caller's responsibility to determine whether
         the call is succeeded or failed; retry_requests are the requests which are not sent and are safe to retry. 
         '''
-        matchers, routine = self.async_requests(connection, requests, container)
+        matchers, routine = self.async_requests(connection, requests, container, priority)
         requests_dict = dict((m,r) for m,r in zip(matchers, requests))
         connmark = connection.connmark
         conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
