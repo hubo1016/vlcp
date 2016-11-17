@@ -1285,7 +1285,7 @@ class ViperFlow(Module):
                         for lognetmap in lognetmaps:
 
                             if not lognetmap:
-                                raise ValueError(" physical network mybe not existed %r" % (lognetmap.id,))
+                                raise ValueError(" logical network mybe not existed %r" % (lognetmap.id,))
 
                             if lognetmap.ports.dataset():
                                 raise ValueError('There are still ports in logical network %r' % (lognetmap.id,))
