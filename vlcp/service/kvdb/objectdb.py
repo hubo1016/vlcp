@@ -306,26 +306,8 @@ class ObjectDB(Module):
                             return walk_original
                         elif orig_key in changed_set:
                             return walk_new
-                        elif orig_key not in get_list_set:
-                            return walk_original
                         else:
-                            # Mixed mode...
-                            last_walker = []
-                            def walk(key):
-                                if last_walker:
-                                    return last_walker[0](key)
-                                if hasattr(key, 'getkey'):
-                                    key = key.getkey()
-                                key = _str(key)
-                                if key in changed_set:
-                                    last_walker.append(walk_new)
-                                    return walk_new(key)
-                                elif key not in get_list_set:
-                                    last_walker.append(walk_original)
-                                    return walk_original(key)
-                                else:
-                                    return walk_new(key)
-                            return walk
+                            return walk_original
                     walker_set = set()
                     def default_walker(key, obj, walk):
                         if key in walker_set:
@@ -578,7 +560,7 @@ class ObjectDB(Module):
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
     def watch(self, key, requestid, nostale = False):
         "Try to find an object and return a reference. Use reference.isdeleted() to test whether the object exists. "\
-        "Use reference.wait(container) to wait for the object to be existed. Use reference.release() to cancel the watch."
+        "Use reference.wait(container) to wait for the object to be existed."
         for m in self.mwatch([key], requestid, nostale):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
