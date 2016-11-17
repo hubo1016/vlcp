@@ -438,9 +438,6 @@ class NetworkVlanDriver(Module):
                 if not phymap:
                     raise ValueError("physicalnetwork map key object not existed " + network["phynetid"]) 
 
-                if len(lgnetmap.ports.dataset()):
-                    raise ValueError("there ports on logicnet remove it before")
-                
                 values[0].set.dataset().discard(lgnet.create_weakreference())
                 phymap.logicnetworks.dataset().discard(lgnet.create_weakreference())
                 del phymap.network_allocation[str(lgnet.vlanid)]

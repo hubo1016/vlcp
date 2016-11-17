@@ -433,10 +433,7 @@ class NetworkVxlanDriver(Module):
                 phymap = phynetmapdict.get(PhysicalNetworkMap.default_key(network.get("phynetid")))
                 
                 if not phymap:
-                    raise ValueError("physicalnetwork map key object not existed " + network["phynetid"]) 
-
-                if len(lgnetmap.ports.dataset()):
-                    raise ValueError("there ports on logicnet remove it before")
+                    raise ValueError("physicalnetwork map key object not existed " + network["phynetid"])
                 
                 values[0].set.dataset().discard(lgnet.create_weakreference())
                 phymap.logicnetworks.dataset().discard(lgnet.create_weakreference())

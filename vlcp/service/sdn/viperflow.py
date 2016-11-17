@@ -1279,6 +1279,21 @@ class ViperFlow(Module):
                     retvalues = [None]
                     lgnetset = values[0]
                     for k,v in typenetwork.items():
+                        lognetmaps = values[start + len(v['lgnetworkkeys']) : start + len(v['lgnetworkkeys'])
+                                                                              + len(v['lgnetworkmapkeys'])]
+                        # Must check if there are some ref object existed
+                        for lognetmap in lognetmaps:
+
+                            if not lognetmap:
+                                raise ValueError(" logical network mybe not existed %r" % (lognetmap.id,))
+
+                            if lognetmap.ports.dataset():
+                                raise ValueError('There are still ports in logical network %r' % (lognetmap.id,))
+
+                            if lognetmap.subnets.dataset():
+                                raise ValueError('There are still subnets in logical network %r' % (lognetmap.id,))
+
+
                         typekeylen = len(v['lgnetworkkeys']) + len(v['lgnetworkmapkeys']) + len(v['phynetmapkeys'])
                         objlen = len(v['lgnetworkkeys'])
 
