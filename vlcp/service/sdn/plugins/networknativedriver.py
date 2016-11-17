@@ -339,6 +339,9 @@ class NetworkNativeDriver(Module):
 
                 if len(lgnetmap.ports.dataset()):
                     raise ValueError("there ports on logicnet remove it before")
+
+                if lgnetmap.subnets.dataset():
+                    raise ValueError("there subnets on logicalnet , remove it before")
                 
                 values[0].set.dataset().discard(lgnet.create_weakreference())
                 #del phymap.network_allocation[str(lgnet.vni)]
