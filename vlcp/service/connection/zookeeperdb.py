@@ -93,7 +93,7 @@ def _discard_watchers(watchers):
 
 class _Notifier(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.Notifier')
-    def __init__(self, vhostbind, scheduler=None, singlecastlimit = 256, deflate = False):
+    def __init__(self, vhostbind, scheduler=None, singlecastlimit = 32, deflate = False):
         RoutineContainer.__init__(self, scheduler=scheduler, daemon=False)
         self.vhostbind = vhostbind
         self._poll_routines = {}
@@ -450,7 +450,7 @@ class ZooKeeperDB(TcpServerBase):
     _default_kvdbvhosts = None
     _default_timeout = 60
     _default_notifierbind = ''
-    _default_singlecastlimit = 256
+    _default_singlecastlimit = 32
     _default_notifierdeflate = False
     client = True
     def __init__(self, server):
