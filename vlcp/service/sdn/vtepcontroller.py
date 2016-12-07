@@ -173,7 +173,7 @@ class VtepController(Module):
                 method, params = ovsdb.transact('hardware_vtep',
                                                 ovsdb.select('Physical_Switch', [], ["name", "ports"]),
                                                 ovsdb.select('Physical_Port', [], ["_uuid", "name"]))
-                for m in conn.protocol.querywithreply(method, params):
+                for m in conn.protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
                 result = self.apiroutine.jsonrpc_result
                 if 'error' in result[0] or 'error' in result[1]:
@@ -227,7 +227,7 @@ class VtepController(Module):
                                                 ovsdb.select('Physical_Switch', [],
                                                              ["name", "management_ips", "tunnel_ips",
                                                               "description", "switch_fault_status"]))
-                for m in conn.protocol.querywithreply(method, params):
+                for m in conn.protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
                 result = self.apiroutine.jsonrpc_result
                 if 'error' in result[0]:
