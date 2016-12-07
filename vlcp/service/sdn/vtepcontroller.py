@@ -34,6 +34,7 @@ class VtepController(Module):
         self.apiroutine.main = self._main
         self.routines.append(self.apiroutine)
         self.createAPI(api(self.listphysicalports, self.apiroutine),
+                       api(self.listphysicalswitchs, self.apiroutine),
                        api(self.updatelogicalswitch, self.apiroutine),
                        api(self.unbindlogicalswitch, self.apiroutine))
         self._physical_switchs = {}
@@ -85,10 +86,11 @@ class VtepController(Module):
                                         ovsdb.monitor_request(['name', 'tunnel_ips'], True, True, True, True)
                                 })
             protocol = conn.protocol
-            for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                yield m
-            result = self.apiroutine.jsonrpc_result
-            if 'error' in result:
+            try:
+                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                    yield m
+                result = self.apiroutine.jsonrpc_result
+            except JsonRPCErrorResultException:
                 # The monitor is already set, cancel it first
                 method2, params2 = ovsdb.monitor_cancel('vlcp_vtepcontroller_physicalswitch_monitor')
                 for m in protocol.querywithreply(method2, params2, conn, self.apiroutine, False):
@@ -96,9 +98,7 @@ class VtepController(Module):
                 for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
                 result = self.apiroutine.jsonrpc_result
-                if 'error' in result:
-                    raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(result))
-            for r in result['result']['Physical_Switch'].values():
+            for r in result['Physical_Switch'].values():
                 _process_result(r)
             initialized = True
             if notification:
@@ -176,10 +176,10 @@ class VtepController(Module):
                 for m in conn.protocol.querywithreply(method, params):
                     yield m
                 result = self.apiroutine.jsonrpc_result
-                if 'error' in result:
+                if 'error' in result[0] or 'error' in result[1]:
                     raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(result))
-                switches = result['result'][0]['rows']
-                ports = result['result'][1]['rows']
+                switches = result[0]['rows']
+                ports = result[1]['rows']
                 ports_dict = dict((r['_uuid'][1], r['name']) for r in ports)
                 self.apiroutine.retvalue = dict((switch['name'],
                                                  [ports_dict[p['_uuid'][1]] for p in ovsdb.getlist(switch['ports'])
@@ -230,9 +230,9 @@ class VtepController(Module):
                 for m in conn.protocol.querywithreply(method, params):
                     yield m
                 result = self.apiroutine.jsonrpc_result
-                if 'error' in result:
+                if 'error' in result[0]:
                     raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(result))
-                switches = result['result'][0]['rows']
+                switches = result[0]['rows']
                 self.apiroutine.retvalue = dict((s['name'],
                                                  {'management_ips': ovsdb.getlist(s['management_ips']),
                                                   'tunnel_ips': ovsdb.getlist(s['tunnel_ips']),
