@@ -182,8 +182,8 @@ class VtepController(Module):
                 ports = result[1]['rows']
                 ports_dict = dict((r['_uuid'][1], r['name']) for r in ports)
                 self.apiroutine.retvalue = dict((switch['name'],
-                                                 [ports_dict[p['_uuid'][1]] for p in ovsdb.getlist(switch['ports'])
-                                                  if p['_uuid'][1] in ports_dict])
+                                                 [ports_dict[p[1]] for p in ovsdb.getlist(switch['ports'])
+                                                  if p[1] in ports_dict])
                                                 for switch in switches)
             except Exception:
                 self._logger.warning('Query OVSDB on %r failed with exception; will ignore this connection',
