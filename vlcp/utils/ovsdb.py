@@ -2,8 +2,12 @@
 Created on 2016/2/22
 
 OVSDB JSON structure helpers. Write less!
+
+These are just simple wrappers, see https://tools.ietf.org/html/rfc7047#page-28 for details
+
 :author: hubo
 '''
+from vlcp.protocol.jsonrpc import JsonRPCNotificationEvent
 
 def list_dbs():
     return ("list_dbs", [])
@@ -19,6 +23,11 @@ def cancel(msgid):
 
 def monitor(dbname, monitorid, monitorrequests):
     return ("monitor", [dbname, monitorid, monitorrequests])
+
+def monitor_matcher(connection, monitorid):
+    return JsonRPCNotificationEvent.createMatcher(
+                'update', connection, connection.connmark,
+                _ismatch = lambda x: x.params[0] == monitorid)
 
 def monitor_cancel(monitorid):
     return ("monitor_cancel", [monitorid])

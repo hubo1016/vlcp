@@ -224,7 +224,8 @@ class OVSDBManager(Module):
             if vb is None or c.protocol.vhost in vb:
                 if not hasattr(c, '_ovsdb_manager_get_bridges'):
                     c._ovsdb_manager_get_bridges = self.apiroutine.subroutine(self._get_bridges(c, c.protocol))
-        matchers = [OVSDBConnectionSetup.createMatcher(None, c, c.connmark) for c in conns]
+        matchers = [OVSDBConnectionSetup.createMatcher(None, c, c.connmark) for c in conns
+                    if vb is None or c.protocol.vhost in vb]
         for m in self.apiroutine.waitForAll(*matchers):
             yield m
         self._synchronized = True
