@@ -396,17 +396,16 @@ class OVSDBPortManager(Module):
                                                     'Bridge':[ovsdb.monitor_request(["name", "datapath_id", "ports"])],
                                                     'Port':[ovsdb.monitor_request(["interfaces"])]
                                                 })
-                for m in protocol.querywithreply(method, params, connection, self.apiroutine):
-                    yield m
-                if 'error' in self.apiroutine.jsonrpc_result:
+                try:
+                    for m in protocol.querywithreply(method, params, connection, self.apiroutine):
+                        yield m
+                except JsonRPCErrorResultException:
                     # The monitor is already set, cancel it first
                     method2, params2 = ovsdb.monitor_cancel('ovsdb_port_manager_interfaces_monitor')
                     for m in protocol.querywithreply(method2, params2, connection, self.apiroutine, False):
                         yield m
                     for m in protocol.querywithreply(method, params, connection, self.apiroutine):
                         yield m
-                    if 'error' in self.apiroutine.jsonrpc_result:
-                        raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(self.apiroutine.jsonrpc_result))
                 r = self.apiroutine.jsonrpc_result
             except:
                 for m in self.apiroutine.waitForSend(OVSDBConnectionPortsSynchronized(connection)):
