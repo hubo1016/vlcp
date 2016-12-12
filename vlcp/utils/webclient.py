@@ -131,7 +131,10 @@ def _str(s, encoding = 'ascii'):
         return s
 
 def _bytes(s, encoding = 'ascii'):
-    return s.encode(encoding)
+    if isinstance(s, bytes):
+        return s
+    else:
+        return s.encode(encoding)
 
 class WebException(IOError):
     pass
