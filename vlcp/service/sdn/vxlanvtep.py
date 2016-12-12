@@ -199,7 +199,7 @@ class VXLANHandler(RoutineContainer):
             for m in self.waitWithTimeout(self._parent.refreshinterval):
                 yield m
 
-            self._parent._logger.info(" ------- time cycle ---")
+            self._parent._logger.debug(" ------- time cycle ---")
             for n,v in self._last_lognets_info.items():
 
                 if n.id in self.vxlan_vlan_map_info:
@@ -312,7 +312,7 @@ class VXLANVtep(FlowBase):
         self.createAPI(publicapi(self.createioflowparts, self.app_routine,
                                  lambda connection,logicalnetwork,**kwargs:
                                         _is_vxlan(logicalnetwork)),
-                       api(self.get_vxlan_bind_info))
+                       api(self.get_vxlan_bind_info,self.app_routine))
 
     def _main(self):
 
@@ -365,15 +365,32 @@ class VXLANVtep(FlowBase):
         if None:
             yield
 
-    def get_vxlan_bind_info(self,logicalnetwork):
+    def get_vxlan_bind_info(self,systemid=None):
         """get vxlan -> vlan , bind info"""
 
         ret = []
         for conn in self.conns:
-            handler = self.conns[conn]
-            ret.append(handler.vxlan_vlan_map_info)
+            datapath_id = conn.openflow_datapathid
+            vhost = conn.protocol.vhost
 
-        return ret
+            for m in callAPI(self.app_routine,"ovsdbmanager","getbridgeinfo",{"datapathid":datapath_id,
+                                                                              "vhost":vhost}):
+                yield m
+
+            if self.app_routine.retvalue:
+                _,system_id,_ = self.app_routine.retvalue
+
+                if systemid:
+                    if systemid == system_id:
+                        handler = self.conns[conn]
+                        ret.append({system_id: handler.vxlan_vlan_map_info})
+                        break
+                else:
+                    handler = self.conns[conn]
+                    ret.append({system_id:handler.vxlan_vlan_map_info})
+
+
+        self.app_routine.retvalue = ret
 
     def createioflowparts(self,connection,logicalnetwork,physicalport,logicalnetworkid,physicalportid):
 
