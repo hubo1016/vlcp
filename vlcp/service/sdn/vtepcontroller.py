@@ -322,7 +322,7 @@ class VtepController(Module):
                                                              ["_uuid", "name", "vlan_bindings"]),
                                                 ovsdb.select('Logical_Switch',
                                                              [["name", "==", logicalnetwork]],
-                                                             [["_uuid", "name"]])
+                                                             ["_uuid", "name"])
                                                 )
                 for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
@@ -464,7 +464,7 @@ class VtepController(Module):
                                                              ["_uuid", "name", "vlan_bindings"]),
                                                 ovsdb.select('Logical_Switch',
                                                              [["name", "==", logicalnetwork]],
-                                                             [["_uuid", "name"]])
+                                                             ["_uuid", "name"])
                                                 )
                 for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
