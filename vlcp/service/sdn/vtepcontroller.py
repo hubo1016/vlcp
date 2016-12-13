@@ -158,8 +158,50 @@ class VtepController(Module):
         for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):
             yield m
             
+    def _recycling(self):
+        interval = self.recycleinterval
+        if interval is None:
+            return
+        def _recycle_logical_switches(conn):
+            try:
+                protocol = conn.protocol
+                method, params = ovsdb.transact('hardware_vtep',
+                                                ovsdb.select('Logical_Switch',
+                                                             [],
+                                                             ["_uuid", "name"]))
+                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                    yield m
+                ls_list = [(r['_uuid'][1], r['name']) for r in self.apiroutine.jsonrpc_result[0]['rows']]
+                for l, name in ls_list:
+                    method, params = ovsdb.transact('hardware_vtep',
+                                                    ovsdb.delete('Ucast_Macs_Remote',
+                                                                 [["logical_switch", "==", ovsdb.uuid(l)]]),
+                                                    ovsdb.delete('Mcast_Macs_Remote',
+                                                                 [["logical_switch", "==", ovsdb.uuid(l)]]),
+                                                    ovsdb.delete('Logical_Switch',
+                                                                 [["_uuid", "==", ovsdb.uuid(l)]]),
+                                                    ovsdb.delete(''))
+                    for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                        yield m
+                    # If the logical switch is still referenced, the transact will fail
+                    if 'error' in self.apiroutine.jsonrpc_result[0]:
+                        self._logger.warning('Recycling logical switch %r (uuid = %r) failed: %r',
+                                             name, l, self.apiroutine.jsonrpc_result[0]['error'])
+                    elif not any(r for r in self.apiroutine.jsonrpc_result if 'error' in r):
+                        self._logger.info('Recycle logical switch %r for no longer in use', name)
+            except Exception:
+                self._logger.warning('Recycling failed on connecton %r', conn, exc_info = True)
+        while True:
+            for m in self.apiroutine.waitWithTimeout(interval):
+                yield m
+            with closing(self.apiroutine.executeAll([_recycle_logical_switches(c)
+                                                     for c in self._connection_ps], None, ())) as g:
+                for m in g:
+                    yield m
+                    
     def _main(self):
         self.apiroutine.subroutine(self._manage_existing())
+        self.apiroutine.subroutine(self._recycling(), True, '_recycling_routine')
         try:
             vb = self.vhostbind
             if vb is not None:
@@ -173,6 +215,8 @@ class VtepController(Module):
         finally:
             for r in list(self._monitor_routines):
                 r.close()
+            if hasattr(self.apiroutine, '_recycling_routine'):
+                self.apiroutine._recycling_routine.close()
         
     def listphysicalports(self, physicalswitch = None):
         '''
@@ -280,7 +324,7 @@ class VtepController(Module):
                 else:
                     self.apiroutine.retvalue = {}
         
-    def updatelogicalswitch(self, physicalswitch, physicalport, vlanid, logicalnetwork, logicalports):
+    def updatelogicalswitch(self, physicalswitch, physicalport, vlanid, logicalnetwork, vni, logicalports):
         '''
         Bind VLAN on physicalport to specified logical network, and update logical port vxlan info
         
@@ -292,11 +336,14 @@ class VtepController(Module):
         
         :param logicalnetwork: the logical network id, will also be the logical switch id
         
+        :param vni: the VXLAN VNI of the logical network
+        
         :param logicalports: a list of logical port IDs. The VXLAN info of these ports will be updated.
         '''
         for m in self._wait_for_sync():
             yield m
         vlanid = int(vlanid)
+        vni = int(vni)
         if physicalswitch is None:
             raise ValueError('Physical switch cannot be None')
         # We may retry some times
@@ -385,6 +432,9 @@ class VtepController(Module):
                                                 ["_uuid"],
                                                 [{"_uuid": ovsdb.uuid(ls_uuid)}],
                                                 timeout = 0))
+                    operations.append(ovsdb.update("Logical_Switch",
+                                                   [["_uuid", "==", ovsdb.uuid(ls_uuid)]],
+                                                   {"tunnel_key": vni}))
                 else:
                     operations.append(ovsdb.wait("Logical_Switch",
                                                 [["name", "==", logicalnetwork]],
@@ -393,7 +443,8 @@ class VtepController(Module):
                                                 timeout = 0))
                     # Create the new logical switch
                     operations.append(ovsdb.insert('Logical_Switch',
-                                                   {"name": logicalnetwork},
+                                                   {"name": logicalnetwork,
+                                                    "tunnel_key": vni},
                                                    "new_logicalnetwork"))
                 operations.append(ovsdb.mutate('Physical_Port', [["_uuid", "==", port['_uuid']]],
                                                [["vlan_bindings","insert",
@@ -441,6 +492,7 @@ class VtepController(Module):
         '''
         for m in self._wait_for_sync():
             yield m
+        vlanid = int(vlanid)
         if physicalswitch is None:
             raise ValueError('Physical switch cannot be None')
         # We may retry some times
