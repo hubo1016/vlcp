@@ -343,7 +343,7 @@ class VtepController(Module):
                 port = ports[0]
                 ls_list = result[2]['rows']
                 if ls_list:
-                    ls_uuid = ls_list['_uuid'][1]
+                    ls_uuid = ls_list[0]['_uuid'][1]
                     # Logical switch is already created
                     curr_network = ovsdb.omap_getvalue(port['vlan_bindings'], vlanid)
                     if curr_network is None:
@@ -488,7 +488,7 @@ class VtepController(Module):
                 if not ls_list:
                     # Network not exists, might already be unbinded, ignore
                     break
-                ls_uuid = ls_list['_uuid'][1]
+                ls_uuid = ls_list[0]['_uuid'][1]
                 curr_network = ovsdb.omap_getvalue(port['vlan_bindings'], vlanid)
                 if curr_network[1] != ls_uuid:
                     # Not binded
