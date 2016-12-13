@@ -296,6 +296,7 @@ class VtepController(Module):
         '''
         for m in self._wait_for_sync():
             yield m
+        vlanid = int(vlanid)
         if physicalswitch is None:
             raise ValueError('Physical switch cannot be None')
         # We may retry some times
@@ -329,9 +330,9 @@ class VtepController(Module):
                 if 'rows' not in result[0]:
                     raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
                 if 'rows' not in result[1]:
-                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
+                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[1]))
                 if 'rows' not in result[2]:
-                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
+                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[2]))
                 if not result[0]['rows']:
                     raise ValueError('Physical switch %r is not found, connection = %r' % (physicalswitch, conn))
                 pswitch = result[0]['rows'][0]
@@ -471,9 +472,9 @@ class VtepController(Module):
                 if 'rows' not in result[0]:
                     raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
                 if 'rows' not in result[1]:
-                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
+                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[1]))
                 if 'rows' not in result[2]:
-                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
+                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[2]))
                 if not result[0]['rows']:
                     raise ValueError('Physical switch %r is not found, connection = %r' % (physicalswitch, conn))
                 pswitch = result[0]['rows'][0]
@@ -578,7 +579,7 @@ class VtepController(Module):
                 if 'rows' not in result[0]:
                     raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
                 if 'rows' not in result[1]:
-                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
+                    raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[1]))
                 if not result[0]['rows']:
                     raise ValueError('Physical switch %r is not found, connection = %r' % (physicalswitch, conn))
                 pswitch = result[0]['rows'][0]
