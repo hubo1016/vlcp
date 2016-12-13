@@ -36,7 +36,7 @@ class VtepController(Module):
         self.apiroutine.main = self._main
         self.routines.append(self.apiroutine)
         self.createAPI(api(self.listphysicalports, self.apiroutine),
-                       api(self.listphysicalswitchs, self.apiroutine),
+                       api(self.listphysicalswitches, self.apiroutine),
                        api(self.updatelogicalswitch, self.apiroutine),
                        api(self.unbindlogicalswitch, self.apiroutine),
                        api(self.unbindphysicalport, self.apiroutine))
@@ -226,7 +226,7 @@ class VtepController(Module):
                 else:
                     self.apiroutine.retvalue = {}
     
-    def listphysicalswitchs(self, physicalswitch = None):
+    def listphysicalswitches(self, physicalswitch = None):
         '''
         Get physical switch info
         
