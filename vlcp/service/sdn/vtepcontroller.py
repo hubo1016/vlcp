@@ -401,7 +401,7 @@ class VtepController(Module):
                                                         (vlanid, ovsdb.uuid(ls_uuid) if created
                                                                  else ovsdb.named_uuid('new_logicalnetwork'))
                                                     )]]))
-                method, params = ovsdb.transact('hardware_vtep', operations)
+                method, params = ovsdb.transact('hardware_vtep', *operations)
                 for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
                 result = self.apiroutine.jsonrpc_result
@@ -415,6 +415,7 @@ class VtepController(Module):
                         else:
                             raise JsonRPCErrorResultException(('Transact failed with error: %r, '\
                                     'corresponding operation: %r') % (r['error'], operations[i + 3]))
+                break
             except ConnectionResetException:
                 for m in self.apiroutine.waitWithTimeout(1):
                     yield m
@@ -516,7 +517,7 @@ class VtepController(Module):
                                                         (vlanid, ovsdb.uuid(ls_uuid))
                                                     )]]))
                 # We do not delete the logical switch; it will be deleted by the recycling process if not used
-                method, params = ovsdb.transact('hardware_vtep', operations)
+                method, params = ovsdb.transact('hardware_vtep', *operations)
                 for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
                 result = self.apiroutine.jsonrpc_result
@@ -530,6 +531,7 @@ class VtepController(Module):
                         else:
                             raise JsonRPCErrorResultException(('Transact failed with error: %r, '\
                                     'corresponding operation: %r') % (r['error'], operations[i + 3]))
+                break
             except ConnectionResetException:
                 for m in self.apiroutine.waitWithTimeout(1):
                     yield m
@@ -603,7 +605,7 @@ class VtepController(Module):
                                             [["_uuid", "==", port["_uuid"]]],
                                             {"vlan_bindings", ovsdb.omap()})]
                 # We do not delete the logical switch; it will be deleted by the recycling process if not used
-                method, params = ovsdb.transact('hardware_vtep', operations)
+                method, params = ovsdb.transact('hardware_vtep', *operations)
                 for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
                 result = self.apiroutine.jsonrpc_result
