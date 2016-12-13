@@ -603,7 +603,7 @@ class VtepController(Module):
                                           timeout = 0),
                                ovsdb.update("Physical_Port",
                                             [["_uuid", "==", port["_uuid"]]],
-                                            {"vlan_bindings", ovsdb.omap()})]
+                                            {"vlan_bindings": ovsdb.omap()})]
                 # We do not delete the logical switch; it will be deleted by the recycling process if not used
                 method, params = ovsdb.transact('hardware_vtep', *operations)
                 for m in protocol.querywithreply(method, params, conn, self.apiroutine):
@@ -619,6 +619,7 @@ class VtepController(Module):
                         else:
                             raise JsonRPCErrorResultException(('Transact failed with error: %r, '\
                                     'corresponding operation: %r') % (r['error'], operations[i + 2]))
+                break
             except ConnectionResetException:
                 for m in self.apiroutine.waitWithTimeout(1):
                     yield m
