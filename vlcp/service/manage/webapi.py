@@ -70,7 +70,7 @@ class WebAPIHandler(HttpHandler):
         except Exception as exc:
             if parent.errordetails:
                 parent._logger.warning('Web API call failed for %r/%r', targetname, methodname, exc_info = True)
-                env.startResponse(500, [('Content-Type', 'application/json')])
+                env.startResponse(500, [(b'Content-Type', b'application/json')])
                 err = {'error': str(exc)}
                 if parent.errortrace:
                     err['trace'] = traceback.format_exc()
