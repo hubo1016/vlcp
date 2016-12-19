@@ -13,6 +13,8 @@ from vlcp.protocol.jsonrpc import JsonRPCErrorResultException,\
 from vlcp.event.event import Event, withIndices
 from contextlib import closing
 from vlcp.event.connection import ConnectionResetException
+from vlcp.utils.vxlandiscover import lognet_vxlan_walker, update_vxlaninfo
+import vlcp.service.kvdb.objectdb as objectdb
 
 @withIndices('connection')
 class VtepConnectionSynchronized(Event):
@@ -26,10 +28,12 @@ class VtepPhysicalSwitchStateChanged(Event):
 
 
 @defaultconfig
-@depend(jsonrpcserver.JsonRPCServer)
+@depend(jsonrpcserver.JsonRPCServer, objectdb.ObjectDB)
 class VtepController(Module):
     _default_vhostbind = ['vtep']
     _default_recycleinterval = 300
+    _default_refreshinterval = 3600
+    _default_allowedmigrationtime = 120
     def __init__(self, server):
         Module.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)
@@ -142,6 +146,9 @@ class VtepController(Module):
                 del self._connection_ps[conn]
             self._monitor_routines.discard(current_routine)
 
+    def _monitor_logicalswitches(self, conn):
+        pass
+        
     def _manage_existing(self):
         for m in callAPI(self.apiroutine, "jsonrpcserver", "getconnections", {}):
             yield m
@@ -179,8 +186,7 @@ class VtepController(Module):
                                                     ovsdb.delete('Mcast_Macs_Remote',
                                                                  [["logical_switch", "==", ovsdb.uuid(l)]]),
                                                     ovsdb.delete('Logical_Switch',
-                                                                 [["_uuid", "==", ovsdb.uuid(l)]]),
-                                                    ovsdb.delete(''))
+                                                                 [["_uuid", "==", ovsdb.uuid(l)]]))
                     for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                         yield m
                     # If the logical switch is still referenced, the transact will fail
@@ -475,9 +481,20 @@ class VtepController(Module):
                 for m in self.apiroutine.waitWithTimeout(1):
                     yield m
                 continue
+        if logicalports:
+            # Refresh network with monitor, only update the logical port information
+            for m in update_vxlaninfo(self.apiroutine,
+                                      {},
+                                      dict((p, tunnelip) for p in logicalports),
+                                      {},
+                                      protocol.vhost,
+                                      physicalswitch,
+                                      'hardware_vtep',
+                                      self.allowedmigrationtime,
+                                      self.refreshinterval):
+                yield m
         self.apiroutine.retvalue = None
         
-    
     def unbindlogicalswitch(self, physicalswitch, physicalport, vlanid, logicalnetwork):
         '''
         Remove bind of a physical port
