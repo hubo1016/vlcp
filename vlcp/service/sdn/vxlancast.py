@@ -28,6 +28,7 @@ from vlcp.utils import ovsdb
 from vlcp.utils.dataobject import updater, ReferenceObject
 from time import time
 import vlcp.utils.vxlandiscover as vxlandiscover
+from vlcp.utils.vxlandiscover import get_broadcast_ips
 
 @withIndices('connection', 'logicalnetworkid', 'type')
 class VXLANGroupChanged(Event):
@@ -438,10 +439,8 @@ class VXLANUpdater(FlowUpdater):
                         phyport = unique_phyports[phynet]
                         if phyport in currentphyportinfo:
                             _, portid, localip = currentphyportinfo[phyport]
-                            localip_addr = _get_ip(localip, ofdef)
-                            allips = [ip for ip in (_get_ip(ep[0], ofdef) for ep in ve.endpointlist
-                                      if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge))
-                                      if ip is not None and ip != localip_addr]
+                            allips = [ipnum for _,ipnum in get_broadcast_ips(ve, [localip],
+                                                                             ovsdb_vhost, system_id, bridge)]
                             created_groups[netid] = portid
                             group_cmds.append(
                                 ofdef.ofp_group_mod(
