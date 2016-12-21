@@ -9,12 +9,16 @@ from vlcp.event.runnable import RoutineContainer
 import vlcp.utils.ovsdb as ovsdb
 import vlcp.service.connection.jsonrpcserver as jsonrpcserver
 from vlcp.protocol.jsonrpc import JsonRPCErrorResultException,\
-    JsonRPCConnectionStateEvent
+    JsonRPCConnectionStateEvent, JsonRPCNotificationEvent
 from vlcp.event.event import Event, withIndices
 from contextlib import closing
 from vlcp.event.connection import ConnectionResetException
-from vlcp.utils.vxlandiscover import lognet_vxlan_walker, update_vxlaninfo
+from vlcp.utils.vxlandiscover import lognet_vxlan_walker, update_vxlaninfo,\
+    get_broadcast_ips
 import vlcp.service.kvdb.objectdb as objectdb
+from vlcp.utils.networkmodel import LogicalNetwork, VXLANEndpointSet,\
+    LogicalNetworkMap, LogicalPortVXLANInfo, LogicalPort
+from vlcp.utils.dataobject import multiwaitif
 
 @withIndices('connection')
 class VtepConnectionSynchronized(Event):
@@ -27,6 +31,11 @@ class VtepPhysicalSwitchStateChanged(Event):
     DOWN = 'down'
 
 
+@withIndices('identifier')
+class _DataUpdateEvent(Event):
+    pass
+
+
 @defaultconfig
 @depend(jsonrpcserver.JsonRPCServer, objectdb.ObjectDB)
 class VtepController(Module):
@@ -34,6 +43,8 @@ class VtepController(Module):
     _default_recycleinterval = 300
     _default_refreshinterval = 3600
     _default_allowedmigrationtime = 120
+    _default_masterlock = "vlcp_vtepcontroller_masterlock"
+    _default_prepush = True
     def __init__(self, server):
         Module.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)
@@ -48,6 +59,7 @@ class VtepController(Module):
         self._connection_ps = {}
         self._synchronized = False
         self._monitor_routines = set()
+        self._requestid = 0
         
     def _wait_for_sync(self):
         if not self._synchronized:
@@ -56,6 +68,7 @@ class VtepController(Module):
     def _monitor_conn(self, conn, notification = False):
         current_routine = self.apiroutine.currentroutine
         self._monitor_routines.add(current_routine)
+        ls_monitor = self.apiroutine.subroutine(self._monitor_logicalswitches(conn))
         initialized = False
         protocol = conn.protocol
         def _process_result(result):
@@ -136,6 +149,7 @@ class VtepController(Module):
             self._logger.warning('Initialize OVSDB vtep connection failed, maybe this is not a valid vtep endpoint',
                                  exc_info = True)
         finally:
+            ls_monitor.close()
             if notification and not initialized:
                 self.scheduler.emergesend(VtepConnectionSynchronized(conn))
             if conn in self._connection_ps:
@@ -147,8 +161,385 @@ class VtepController(Module):
             self._monitor_routines.discard(current_routine)
 
     def _monitor_logicalswitches(self, conn):
-        pass
+        protocol = conn.protocol
+        lockid = self.masterlock
+        # There may be multiple vtep controllers running, only the one which successfully acquired the
+        # master lock should update the ObjectDB
+        method, params = ovsdb.lock(lockid)
+        def _unlock():
+            method, params = ovsdb.unlock(lockid)
+            try:
+                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                    yield m
+            except Exception:
+                # Any result is acceptable, including: error result; connection down; etc.
+                # We don't report an exception that we cannot do anything for it.
+                pass
+        try:
+            for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                yield m
+        except JsonRPCErrorResultException:
+            # For some reason the lock is not released? let's try it out
+            for m in _unlock():
+                yield m
+            for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                yield m                
+        result = self.apiroutine.jsonrpc_result
+        switch_routines = {}
+        try:
+            if not result['locked']:
+                # Wait for lock
+                lock_notification = JsonRPCNotificationEvent.createMatcher(
+                                            "locked",
+                                            conn,
+                                            conn.connmark,
+                                            _ismatch = lambda x: x.params[0] == lockid)
+                conn_matcher = protocol.statematcher(conn)
+                yield (lock_notification, conn_matcher)
+                if self.apiroutine.matcher is conn_matcher:
+                    return
+            # Now we acquired the lock, start monitoring the logical switches
+            method, params = ovsdb.monitor(
+                                'hardware_vtep',
+                                'vlcp_vtepcontroller_logicalswitch_monitor',
+                                {
+                                    'Logical_Switch':
+                                        ovsdb.monitor_request(['name'], True, True, True, False)
+                                })
+            try:
+                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                    yield m
+                result = self.apiroutine.jsonrpc_result
+            except JsonRPCErrorResultException:
+                # The monitor is already set, cancel it first
+                method2, params2 = ovsdb.monitor_cancel('vlcp_vtepcontroller_logicalswitch_monitor')
+                for m in protocol.querywithreply(method2, params2, conn, self.apiroutine, False):
+                    yield m
+                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                    yield m
+                result = self.apiroutine.jsonrpc_result
+            for k, r in result['Logical_Switch'].items():
+                switch_routines[k] = self.apiroutine.subroutine(self._update_logicalswitch_info(conn, r['new']['name'], k))
+            monitor_matcher = ovsdb.monitor_matcher(conn, 'vlcp_vtepcontroller_logicalswitch_monitor')
+            conn_state = protocol.statematcher(conn)
+            while True:
+                yield (monitor_matcher, conn_state)
+                if self.apiroutine.matcher is conn_state:
+                    break
+                for k,r in self.apiroutine.event.params[1]['Logical_Switch'].items():
+                    if 'old' in r:
+                        if k in switch_routines:
+                            switch_routines[k].close()
+                            del switch_routines[k]
+                    else:
+                        if k in switch_routines:
+                            switch_routines[k].close()
+                        switch_routines[k] = self.apiroutine.subroutine(self._update_logicalswitch_info(conn, r['new']['name'], k))
+        finally:
+            for r in switch_routines.values():
+                r.close()
+            self.apiroutine.subroutine(_unlock(), False)
+    
+    def _push_logicalswitch_endpoints(self, conn, logicalswitchid):
+        while True:
+            if conn in self._connection_ps:
+                ps_list = [(name, self._physical_switchs[name][1])
+                           for name in self._connection_ps[conn]]
+                for name, tunnel_ip in ps_list:
+                    with closing(update_vxlaninfo(
+                                    self.apiroutine,
+                                    {logicalswitchid: tunnel_ip},
+                                    [],
+                                    [],
+                                    conn.protocol.vhost,
+                                    name,
+                                    'hardware_vtep',
+                                    self.allowedmigrationtime,
+                                    self.refreshinterval)) as g:
+                        for m in g:
+                            yield m
+            for m in self.apiroutine.waitWithTimeout(self.refreshinterval):
+                yield m
+    
+    def _poll_logicalswitch_endpoints(self, conn, logicalswitchid, lsuuid):
+        protocol = conn.protocol
+        walker = lognet_vxlan_walker(self.prepush)
+        self._requestid += 1
+        requestid = ('vtepcontroller', self._requestid)
+        lognet_key = LogicalNetwork.default_key(logicalswitchid)
+        endpointset_key = VXLANEndpointSet.default_key(logicalswitchid)
+        lognetmap_key = LogicalNetworkMap.default_key(logicalswitchid)
+        rewalk_keys = (lognet_key, endpointset_key, lognetmap_key)
+        _update_set = set()
+        _detect_update_routine = None
+        identifier = object()
+        def _detect_update(saved_result, identifier):
+            while True:
+                for m in multiwaitif(saved_result, self.apiroutine, lambda _,_: True, True):
+                    yield m
+                updated_values, _ = self.apiroutine.retvalue
+                if not _update_set:
+                    self.apiroutine.scheduler.emergesend(_DataUpdateEvent(identifier))
+                _update_set.update(updated_values)
+        update_matcher = _DataUpdateEvent.createMatcher(identifier)
+        _savedkeys = ()
+        _savedresult = ()
+        # These are: set of network tunnelips; dictionary for mac: tunnelip; last_physical_switch
+        _last_endpoints = [set(), {}, None]
         
+        def _update_hardware_vtep(saved_result):
+            if conn not in self._connection_ps or not self._connection_ps[conn]:
+                _last_endpoints[:] = [set(), {}, None]
+                return
+            # There should be only one physical switch in this connection
+            ps = self._connection_ps[conn][0]
+            allobjs = [v for v in saved_result if v is not None and not v.isdeleted()]
+            lognet_list = [o for o in allobjs if o.getkey() == lognet_key]
+            if not lognet_list or not hasattr(lognet_list[0], 'vni'):
+                # Logical network maybe deleted, or not a VXLAN network, do not need to update
+                return
+            vni = lognet_list[0].vni
+            endpointset_list = [v for v in allobjs if v.getkey() == endpointset_key]
+            local_ip = self._physical_switchs[ps][1]
+            if endpointset_list:
+                broadcast_ips = set(ip for ip,_ in get_broadcast_ips(endpointset_list[0], local_ip,
+                                                  protocol.vhost,
+                                                  ps,
+                                                  'hardware_vtep'))
+            else:
+                broadcast_ips = set()
+            if self.prepush:
+                logport_tunnel_ip_dict = dict((o.id, o.endpoints[0]['tunnel_dst'])
+                                              for o in allobjs
+                                              if o.isinstance(LogicalPortVXLANInfo) \
+                                              and hasattr(o, 'endpoints') and o.endpoints \
+                                              and (o.endpoints[0]['vhost'],
+                                                   o.endpoints[0]['systemid'],
+                                                   o.endpoints[0]['bridge'])
+                                                != (protocol.vhost, ps, 'hardware_vtep'))
+                mac_ip_dict = dict((p.mac_address, logport_tunnel_ip_dict[p.id])
+                                   for p in allobjs
+                                   if p.isinstance(LogicalPort) \
+                                   and hasattr(p, 'mac_address') \
+                                   and p.id in logport_tunnel_ip_dict)
+            else:
+                mac_ip_dict = {}
+            if _last_endpoints[2] == ps:
+                # Update
+                update = True
+                add_broadcasts = broadcast_ips.difference(_last_endpoints[0])
+                remove_broadcasts = _last_endpoints[0].difference(broadcast_ips)
+                add_ucasts = dict((m, mac_ip_dict[m])
+                                  for m in mac_ip_dict
+                                  if m not in _last_endpoints[1] or \
+                                    _last_endpoints[1][m] != mac_ip_dict[m])
+                remove_ucasts = dict((m, _last_endpoints[1][m])
+                                     for m in _last_endpoints[1]
+                                     if m not in mac_ip_dict)
+            else:
+                update = False
+                add_broadcasts = broadcast_ips
+                remove_broadcasts = set()
+                add_ucasts = mac_ip_dict
+                remove_ucasts = {}
+            using_ips = list(add_broadcasts.union(add_broadcasts.values()))
+            try:
+                while True:
+                    # Check and set
+                    check_operates = [ovsdb.select('Logical_Switch',
+                                                     [["_uuid", "==", ovsdb.uuid(lsuuid)],
+                                                      ["name", "==", logicalswitchid]],
+                                                     ["_uuid", "name", "tunnel_key"]),
+                                      ovsdb.select('Mcast_Macs_Remote',
+                                                     [["MAC", "==", "unknown-dst"],
+                                                      ["logical_switch", "==", ovsdb.uuid(lsuuid)]],
+                                                     ["_uuid", "locator_set"])]
+                    # Check if each destination location exists
+                    check_operates.extend(ovsdb.select('Physical_Locator',
+                                                       [["dst_ip", "==", ip],
+                                                        ["encapsulation_type", "==", "vxlan_over_ipv4"]],
+                                                       ["_uuid",  "dst_ip"])
+                                          for ip in using_ips)
+                    method, params = ovsdb.transact('hardware_vtep',
+                                                    check_operates)
+                    for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                        yield m
+                    result = self.apiroutine.jsonrpc_result
+                    if any('error' in r for r in result):
+                        err_info = [(r['error'],
+                                     check_operates[i] if i < len(check_operates) else None)
+                                    for i,r in enumerate(result)
+                                    if 'error' in r][0]
+                        raise JsonRPCErrorResultException('Error in OVSDB select operation: %r. Corresponding operation: %r' % err_info)
+                    if not result[0]['result']:
+                        # Logical switch is removed
+                        break
+                    wait_operates = [ovsdb.wait('Logical_Switch',
+                                               [["_uuid", "==", ovsdb.uuid(lsuuid)]],
+                                               ["name"],
+                                               [{"name": logicalswitchid}], True, 0)]
+                    set_operates = []
+                    # Check destinations
+                    locator_uuid_dict = {}
+                    for r in result[2:len(check_operates)]:
+                        if r['result']:
+                            locator = r['result'][0]
+                            # This locator is already created
+                            locator_uuid_dict[locator['dst_ip']] = locator['_uuid']
+                            wait_operates.append(ovsdb.wait('Physical_Locator',
+                                                       [["_uuid", "==", locator['_uuid']]],
+                                                       ["dst_ip", "encapsulation_type"],
+                                                       [{"dst_ip": locator['dst_ip'],
+                                                         "encapsulation_type": "vxlan_over_ipv4"}],
+                                                        True, 0))
+                        else:
+                            # Create the locator
+                            wait_operates.append(ovsdb.wait('Physical_Locator',
+                                                            [["dst_ip", "==", locator['dst_ip']],
+                                                             ["encapsulation_type", "==", "vxlan_over_ipv4"]],
+                                                            ["_uuid"],
+                                                            [], True, 0))
+                            name = 'locator_uuid_' + locator['dst_ip']
+                            locator_uuid_dict[locator['dst_ip']] = ovsdb.named_uuid(name)
+                            set_operates.append(ovsdb.insert('Physical_Locator',
+                                                             {"dst_ip": locator['dst_ip'],
+                                                              "encapsulation_type": "vxlan_over_ipv4"},
+                                                             name))
+                    if result[1]['result'] and (not update or add_broadcasts or remove_broadcasts):
+                        mcast_uuid = result[1]['result'][0]['locator_set']
+                        # locator set is already created
+                        if not broadcast_ips:
+                            # Remove the whole locator set. We do not do check; it is always removed
+                            set_operates.append(ovsdb.delete('Mcast_Macs_Remote',
+                                                             [["MAC", "==", "unknown-dst"],
+                                                              ["logical_switch", "==", ovsdb.uuid(lsuuid)]]))
+                        else:
+                            # Check for the set
+                            wait_operates.append(ovsdb.wait('Mcast_Macs_Remote',
+                                                           [["_uuid", "==", result[1]['result']['_uuid']]],
+                                                           ["MAC", "logical_switch"],
+                                                           [{"MAC": "unknown-dst",
+                                                             "logical_switch": ovsdb.uuid(lsuuid),
+                                                             "locator_set": mcast_uuid}],
+                                                           True, 0))
+                            if update:
+                                mutators = []
+                                if add_broadcasts:
+                                    mutators.append(["locators", "insert", ovsdb.oset(*add_broadcasts)])
+                                if remove_broadcasts:
+                                    mutators.append(["locators", "delete", ovsdb.oset(*remove_broadcasts)])
+                                if mutators:
+                                    set_operates.append(ovsdb.mutate('Physical_Locator_Set',
+                                                                 [["_uuid", "==", mcast_uuid]],
+                                                                 mutators))
+                            else:
+                                set_operates.append(ovsdb.update('Physical_Locator_Set',
+                                                                 [["_uuid", "==", mcast_uuid]],
+                                                                 {"locators": ovsdb.oset(*add_broadcasts)}))
+                    else:
+                        if broadcast_ips:
+                            wait_operates.append(ovsdb.wait('Mcast_Macs_Remote',
+                                                          [["MAC", "==", "unknown-dst"],
+                                                          ["logical_switch", "==", ovsdb.uuid(lsuuid)]],
+                                                          ["_uuid"],
+                                                          [],
+                                                          True, 0))
+                            set_operates.append(ovsdb.insert('Physical_Locator_Set',
+                                                             {"locators": ovsdb.oset(*add_broadcasts)},
+                                                             'mcast_unknown_uuid'))
+                            mcast_uuid = ovsdb.named_uuid('mcast_unknown_uuid')
+                            set_operates.append(ovsdb.insert('Mcast_Macs_Remote',
+                                                             {"MAC": "unknown-dst",
+                                                              "logical_switch": ovsdb.uuid(lsuuid),
+                                                              "locator_set": mcast_uuid}))
+                    # modify unicast table
+                    if update:
+                        set_operates.extend(ovsdb.delete('Ucast_Macs_Remote',
+                                                         [["logical_switch", "==", ovsdb.uuid(lsuuid)],
+                                                          ["MAC", "==", mac]])
+                                            for mac in remove_ucasts)
+                        set_operates.extend(ovsdb.delete('Ucast_Macs_Remote',
+                                                         [["logical_switch", "==", ovsdb.uuid(lsuuid)],
+                                                          ["MAC", "==", mac]])
+                                            for mac in add_ucasts)
+                        set_operates.extend(ovsdb.insert('Ucast_Macs_Remote',
+                                                         {"MAC": mac,
+                                                          "logical_switch": ovsdb.uuid(lsuuid),
+                                                          "locator": locator_uuid_dict[tunnel]})
+                                            for mac, tunnel in add_ucasts.items())
+                    else:
+                        set_operates.append(ovsdb.delete('Ucast_Macs_Remote',
+                                                         [["logical_switch", "==", ovsdb.uuid(lsuuid)]]))
+                        set_operates.extend(ovsdb.insert('Ucast_Macs_Remote',
+                                                         {"MAC": mac,
+                                                          "logical_switch": ovsdb.uuid(lsuuid),
+                                                          "locator": locator_uuid_dict[tunnel]})
+                                            for mac, tunnel in add_ucasts.items())
+                    method, params = ovsdb.transact('hardware_vtep', *(wait_operates + set_operates))
+                    for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                        yield m
+                    result = self.apiroutine.jsonrpc_result
+                    if any('error' in r for r in result[:len(wait_operates)]):
+                        # Some wait operates failed, retry
+                        continue
+                    if any('error' in r for r in result[len(wait_operates):]):
+                        err_info = [(r['error'],
+                                     set_operates[i] if i < len(set_operates) else None)
+                                    for i,r in enumerate(result[len(wait_operates):])
+                                    if 'error' in r][0]
+                        raise JsonRPCErrorResultException('Error in OVSDB update operation: %r. Corresponding operation: %r' % err_info)                        
+            except Exception:
+                self._logger.warning('Update hardware_vtep failed with exception', exc_info = True)
+                # Force a full update next time
+                _last_endpoints[:] = [set(), {}, None]
+            else:
+                _last_endpoints[:] = [broadcast_ips, mac_ip_dict, ps]
+        try:
+            while True:
+                for m in callAPI(self.apiroutine, 'objectdb', 'walk',
+                                 {'keys': (lognet_key,
+                                           endpointset_key,
+                                           lognetmap_key),
+                                  'walkerdict': {lognet_key: walker},
+                                  'requestid': requestid
+                                  }):
+                    yield m
+                if _update_set:
+                    _update_set.clear()
+                    continue
+                lastkeys = set(self._savedkeys)
+                _savedkeys, _savedresult = self.retvalue
+                if _detect_update_routine is not None:
+                    _detect_update_routine.close()
+                _detect_update_routine = self.apiroutine.subroutine(_detect_update(_savedresult), False)
+                removekeys = tuple(lastkeys.difference(_savedkeys))
+                if removekeys:
+                    # Unwatch unnecessary keys
+                    for m in callAPI(self, 'objectdb', 'munwatch', {'keys': removekeys,
+                                                                    'requestid': requestid}):
+                        yield m
+                for m in _update_hardware_vtep(_savedresult):
+                    yield m
+                while True:
+                    if not _update_set:
+                        yield (update_matcher,)
+                    should_rewalk = any(v.getkey() in rewalk_keys for v in _update_set if v is not None)
+                    if should_rewalk:
+                        break
+                    else:
+                        for m in _update_hardware_vtep(_savedresult):
+                            yield m
+        finally:
+            if _detect_update_routine is not None:
+                _detect_update_routine.close()
+            self.apiroutine.subroutine(callAPI(self.apiroutine,'objectdb', 'unwatchall', {'requestid': requestid}))
+    
+    def _update_logicalswitch_info(self, conn, logicalswitch, lsuuid):
+        with closing(self.apiroutine.executeAll([self._push_logicalswitch_endpoints(conn, logicalswitch),
+                                                 self._poll_logicalswitch_endpoints(conn, logicalswitch, lsuuid)], None, ())) as g:
+            for m in g:
+                yield m
+    
     def _manage_existing(self):
         for m in callAPI(self.apiroutine, "jsonrpcserver", "getconnections", {}):
             yield m
@@ -184,6 +575,10 @@ class VtepController(Module):
                                                     ovsdb.delete('Ucast_Macs_Remote',
                                                                  [["logical_switch", "==", ovsdb.uuid(l)]]),
                                                     ovsdb.delete('Mcast_Macs_Remote',
+                                                                 [["logical_switch", "==", ovsdb.uuid(l)]]),
+                                                    ovsdb.delete('Ucast_Macs_Local',
+                                                                 [["logical_switch", "==", ovsdb.uuid(l)]]),
+                                                    ovsdb.delete('Mcast_Macs_Local',
                                                                  [["logical_switch", "==", ovsdb.uuid(l)]]),
                                                     ovsdb.delete('Logical_Switch',
                                                                  [["_uuid", "==", ovsdb.uuid(l)]]))
