@@ -249,8 +249,8 @@ class VtepController(Module):
                     with closing(update_vxlaninfo(
                                     self.apiroutine,
                                     {logicalswitchid: tunnel_ip},
-                                    [],
-                                    [],
+                                    {},
+                                    {},
                                     conn.protocol.vhost,
                                     name,
                                     'hardware_vtep',
@@ -273,9 +273,9 @@ class VtepController(Module):
         _update_set = set()
         _detect_update_routine = None
         identifier = object()
-        def _detect_update(saved_result, identifier):
+        def _detect_update(saved_result):
             while True:
-                for m in multiwaitif(saved_result, self.apiroutine, lambda _,_: True, True):
+                for m in multiwaitif(saved_result, self.apiroutine, lambda x,y: True, True):
                     yield m
                 updated_values, _ = self.apiroutine.retvalue
                 if not _update_set:
@@ -292,7 +292,7 @@ class VtepController(Module):
                 _last_endpoints[:] = [set(), {}, None]
                 return
             # There should be only one physical switch in this connection
-            ps = self._connection_ps[conn][0]
+            ps = next(iter(self._connection_ps[conn]))
             allobjs = [v for v in saved_result if v is not None and not v.isdeleted()]
             lognet_list = [o for o in allobjs if o.getkey() == lognet_key]
             if not lognet_list or not hasattr(lognet_list[0], 'vni'):
@@ -381,6 +381,10 @@ class VtepController(Module):
                     set_operates = []
                     # Check destinations
                     locator_uuid_dict = {}
+                    if result[0]['result']['tunnel_key'] != vni:
+                        set_operates.append(ovsdb.update('Logical_Switch',
+                                               [["_uuid", "==", ovsdb.uuid(lsuuid)]],
+                                               {"tunnel_key": vni}))
                     for r in result[2:len(check_operates)]:
                         if r['result']:
                             locator = r['result'][0]
@@ -487,7 +491,8 @@ class VtepController(Module):
                                      set_operates[i] if i < len(set_operates) else None)
                                     for i,r in enumerate(result[len(wait_operates):])
                                     if 'error' in r][0]
-                        raise JsonRPCErrorResultException('Error in OVSDB update operation: %r. Corresponding operation: %r' % err_info)                        
+                        raise JsonRPCErrorResultException('Error in OVSDB update operation: %r. Corresponding operation: %r' % err_info)
+                    break
             except Exception:
                 self._logger.warning('Update hardware_vtep failed with exception', exc_info = True)
                 # Force a full update next time
@@ -507,8 +512,8 @@ class VtepController(Module):
                 if _update_set:
                     _update_set.clear()
                     continue
-                lastkeys = set(self._savedkeys)
-                _savedkeys, _savedresult = self.retvalue
+                lastkeys = set(_savedkeys)
+                _savedkeys, _savedresult = self.apiroutine.retvalue
                 if _detect_update_routine is not None:
                     _detect_update_routine.close()
                 _detect_update_routine = self.apiroutine.subroutine(_detect_update(_savedresult), False)
