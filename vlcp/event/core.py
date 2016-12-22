@@ -346,6 +346,8 @@ class Scheduler(object):
                 if self.debugging:
                     self.logger.debug('Blocked events: %d', len(self.queue.blockEvents))
                     self.logger.debug('Blocked events list: %r', list(self.queue.blockEvents.keys()))
+                    if self.quitting:
+                        self.logger.debug('Routines still not quit: %r', list(self.registerIndex.keys()))
                 if self.quitsignal:
                     self.quit()
                 if canquit and not self.queue.canPop() and not self.timers:
