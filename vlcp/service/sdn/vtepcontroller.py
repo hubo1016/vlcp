@@ -218,23 +218,26 @@ class VtepController(Module):
                 for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                     yield m
                 result = self.apiroutine.jsonrpc_result
-            for k, r in result['Logical_Switch'].items():
-                switch_routines[k] = self.apiroutine.subroutine(self._update_logicalswitch_info(conn, r['new']['name'], k))
+            if 'Logical_Switch' in result:
+                for k, r in result['Logical_Switch'].items():
+                    switch_routines[k] = self.apiroutine.subroutine(self._update_logicalswitch_info(conn, r['new']['name'], k))
             monitor_matcher = ovsdb.monitor_matcher(conn, 'vlcp_vtepcontroller_logicalswitch_monitor')
             conn_state = protocol.statematcher(conn)
             while True:
                 yield (monitor_matcher, conn_state)
                 if self.apiroutine.matcher is conn_state:
                     break
-                for k,r in self.apiroutine.event.params[1]['Logical_Switch'].items():
-                    if 'old' in r:
-                        if k in switch_routines:
-                            switch_routines[k].close()
-                            del switch_routines[k]
-                    else:
-                        if k in switch_routines:
-                            switch_routines[k].close()
-                        switch_routines[k] = self.apiroutine.subroutine(self._update_logicalswitch_info(conn, r['new']['name'], k))
+                updates = self.apiroutine.event.params[1]
+                if 'Logical_Switch' in updates:
+                    for k,r in self.apiroutine.event.params[1]['Logical_Switch'].items():
+                        if 'old' in r:
+                            if k in switch_routines:
+                                switch_routines[k].close()
+                                del switch_routines[k]
+                        else:
+                            if k in switch_routines:
+                                switch_routines[k].close()
+                            switch_routines[k] = self.apiroutine.subroutine(self._update_logicalswitch_info(conn, r['new']['name'], k))
         finally:
             for r in switch_routines.values():
                 r.close()
@@ -342,7 +345,7 @@ class VtepController(Module):
                 remove_broadcasts = set()
                 add_ucasts = mac_ip_dict
                 remove_ucasts = {}
-            using_ips = list(add_broadcasts.union(add_broadcasts.values()))
+            using_ips = list(add_broadcasts.union(add_ucasts.values()))
             try:
                 while True:
                     # Check and set
@@ -361,7 +364,7 @@ class VtepController(Module):
                                                        ["_uuid",  "dst_ip"])
                                           for ip in using_ips)
                     method, params = ovsdb.transact('hardware_vtep',
-                                                    check_operates)
+                                                    *check_operates)
                     for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                         yield m
                     result = self.apiroutine.jsonrpc_result
@@ -371,7 +374,7 @@ class VtepController(Module):
                                     for i,r in enumerate(result)
                                     if 'error' in r][0]
                         raise JsonRPCErrorResultException('Error in OVSDB select operation: %r. Corresponding operation: %r' % err_info)
-                    if not result[0]['result']:
+                    if not result[0]['rows']:
                         # Logical switch is removed
                         break
                     wait_operates = [ovsdb.wait('Logical_Switch',
@@ -381,13 +384,13 @@ class VtepController(Module):
                     set_operates = []
                     # Check destinations
                     locator_uuid_dict = {}
-                    if result[0]['result']['tunnel_key'] != vni:
+                    if result[0]['rows']['tunnel_key'] != vni:
                         set_operates.append(ovsdb.update('Logical_Switch',
                                                [["_uuid", "==", ovsdb.uuid(lsuuid)]],
                                                {"tunnel_key": vni}))
                     for r in result[2:len(check_operates)]:
-                        if r['result']:
-                            locator = r['result'][0]
+                        if r['rows']:
+                            locator = r['rows'][0]
                             # This locator is already created
                             locator_uuid_dict[locator['dst_ip']] = locator['_uuid']
                             wait_operates.append(ovsdb.wait('Physical_Locator',
@@ -409,8 +412,8 @@ class VtepController(Module):
                                                              {"dst_ip": locator['dst_ip'],
                                                               "encapsulation_type": "vxlan_over_ipv4"},
                                                              name))
-                    if result[1]['result'] and (not update or add_broadcasts or remove_broadcasts):
-                        mcast_uuid = result[1]['result'][0]['locator_set']
+                    if result[1]['rows'] and (not update or add_broadcasts or remove_broadcasts):
+                        mcast_uuid = result[1]['rows'][0]['locator_set']
                         # locator set is already created
                         if not broadcast_ips:
                             # Remove the whole locator set. We do not do check; it is always removed
@@ -420,7 +423,7 @@ class VtepController(Module):
                         else:
                             # Check for the set
                             wait_operates.append(ovsdb.wait('Mcast_Macs_Remote',
-                                                           [["_uuid", "==", result[1]['result']['_uuid']]],
+                                                           [["_uuid", "==", result[1]['rows']['_uuid']]],
                                                            ["MAC", "logical_switch"],
                                                            [{"MAC": "unknown-dst",
                                                              "logical_switch": ovsdb.uuid(lsuuid),
@@ -529,6 +532,7 @@ class VtepController(Module):
                     if not _update_set:
                         yield (update_matcher,)
                     should_rewalk = any(v.getkey() in rewalk_keys for v in _update_set if v is not None)
+                    _update_set.clear()
                     if should_rewalk:
                         break
                     else:
