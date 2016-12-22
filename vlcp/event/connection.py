@@ -369,6 +369,7 @@ class Connection(RoutineContainer):
             self.scheduler.unregisterPolling(self.socket, self.daemon)
             self.socket.close()
             self.socket = None
+        self.connected = False
     def main(self):
         try:
             try:
