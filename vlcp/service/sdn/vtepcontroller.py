@@ -168,13 +168,14 @@ class VtepController(Module):
         method, params = ovsdb.lock(lockid)
         def _unlock():
             method, params = ovsdb.unlock(lockid)
-            try:
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-            except Exception:
-                # Any result is acceptable, including: error result; connection down; etc.
-                # We don't report an exception that we cannot do anything for it.
-                pass
+            if conn.connected:
+                try:
+                    for m in protocol.querywithreply(method, params, conn, self.apiroutine):
+                        yield m
+                except Exception:
+                    # Any result is acceptable, including: error result; connection down; etc.
+                    # We don't report an exception that we cannot do anything for it.
+                    pass
         try:
             for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                 yield m
@@ -384,7 +385,7 @@ class VtepController(Module):
                     set_operates = []
                     # Check destinations
                     locator_uuid_dict = {}
-                    if result[0]['rows']['tunnel_key'] != vni:
+                    if result[0]['rows'][0]['tunnel_key'] != vni:
                         set_operates.append(ovsdb.update('Logical_Switch',
                                                [["_uuid", "==", ovsdb.uuid(lsuuid)]],
                                                {"tunnel_key": vni}))
