@@ -49,8 +49,6 @@ class VXLANHandler(RoutineContainer):
         self._store_unbind_event = []
         self._store_unbindall_event = []
 
-        self.wc = WebClient()
-
         if self._parent.remote_api:
             self.api = remoteAPI
         else:
@@ -60,225 +58,234 @@ class VXLANHandler(RoutineContainer):
         try:
             data_change_event = ioprocessing.DataObjectChanged.createMatcher(None, None, self._conn)
 
-            self.subroutine(self.time_cycle(),True,"_time_cycle")
-
             # routine sync call to vtep controller (updatelogicalswitch,unbindlogicalswitch,unbindphysicalport)
             self.subroutine(self.action_handler(),True,"_action_handler")
 
             # routine handle action event which send failed , in cycle
             self.subroutine(self.handle_failed_action(),True,"_handle_failed_action")
+            _last_change_event = [None]
             while True:
                 yield (data_change_event,)
-
-                try:
-                    last_lognets_info = self._last_lognets_info
-                    last_phyport_info = self._last_phyport_info
-
-                    current_logports,current_phyports,current_lognets,_ = self.event.current
-
-                    lognet_to_logports = dict((n,[p.id for p,_ in current_logports if p.network == n])
-                                              for n,_ in current_lognets)
-
-                    phy_port_info = {}
-
-
-                    datapath_id = self._conn.openflow_datapathid
-                    vhost = self._conn.protocol.vhost
-
-                    def get_phyport_info(portid):
+                _last_change_event[0] = self.event
+                def _update_callback(event, matcher):
+                    _last_change_event[0] = event
+                def _update_loop():
+                    while _last_change_event[0] is not None:
                         try:
-                            for m in callAPI(self, "ovsdbportmanager", "waitportbyno",
-                                         {"datapathid": datapath_id,
-                                          "vhost": vhost,
-                                          "timeout": 1,
-                                          "portno": portid}):
+                            last_lognets_info = self._last_lognets_info
+                            last_phyport_info = self._last_phyport_info
+        
+                            current_logports,current_phyports,current_lognets,_ = _last_change_event[0].current
+                            _last_change_event[0] = None
+        
+                            lognet_to_logports = {}
+                            for p, _ in current_logports:
+                                lognet_to_logports.setdefault(p.network, []).append(p.id)
+        
+                            datapath_id = self._conn.openflow_datapathid
+                            vhost = self._conn.protocol.vhost
+        
+                            def get_phyport_info(portid):
+                                try:
+                                    for m in callAPI(self, "ovsdbportmanager", "waitportbyno",
+                                                 {"datapathid": datapath_id,
+                                                  "vhost": vhost,
+                                                  "timeout": 1,
+                                                  "portno": portid}):
+                                        yield m
+                                except ovsdbportmanager.OVSDBPortNotAppearException:
+                                    self.retvalue = None
+                            phy_ports = [p for p in current_phyports if _is_vxlan(p[0])]
+                            for m in self.executeAll([get_phyport_info(pid) for p,pid in phy_ports]):
                                 yield m
-                        except ovsdbportmanager.OVSDBPortNotAppearException:
-                            self.retvalue = None
-                    phy_ports = [p for p in current_phyports if _is_vxlan(p[0])]
-                    for m in self.executeAll([get_phyport_info(pid) for p,pid in phy_ports]):
-                        yield m
-
-                    temp_phy_port_info  = dict(zip(phy_ports,self.retvalue))
-
-                    for k,v in temp_phy_port_info.items():
-                        if v and v[0]['external_ids']['vtep-physname'] and v[0]['external_ids']['vtep-phyiname']:
-                            phy_port_info[k[0]] = [v[0]['external_ids']['vtep-physname'],
-                                                v[0]['external_ids']['vtep-phyiname']]
-
-                    lognet_to_phyport =  dict((n,[p for p,_ in current_phyports if _is_vxlan(p)
-                                            and p.physicalnetwork == n.physicalnetwork]) for n,_ in current_lognets)
-
-                    current_lognets_info = dict((n,((phy_port_info[lognet_to_phyport[n][0]][0],
-                                                     phy_port_info[lognet_to_phyport[n][0]][1]),lognet_to_logports[n]))
-                                                for n,nid in current_lognets if _is_vxlan(n)
-                                                and n in lognet_to_phyport and lognet_to_phyport[n][0] in phy_port_info
-                                                and n in lognet_to_logports)
-
-                    self._last_lognets_info = current_lognets_info
-                    self._last_phyport_info = phy_port_info
-
-                    # add or update new phyport, unbind all physical interface bind
-                    # must do it as init first ....
-                    for p in phy_port_info:
-                        if p not in last_phyport_info or\
-                                (p in last_phyport_info and last_phyport_info[p] != phy_port_info[p]):
-
-                            physname = phy_port_info[p][0]
-                            phyiname = phy_port_info[p][1]
-
-                            event = VtepControllerCall(connection=self._conn,type=VtepControllerCall.UNBINDALL,
-                                                       physname=physname,phyiname=phyiname)
-
-                            for m in self.waitForSend(event):
-                                yield m
-
-
-                    # remove phyport , unbind all physical interface bind also
-                    for p in last_phyport_info:
-                        if p not in phy_port_info:
-                            physname = last_phyport_info[p][0]
-                            phyiname = last_phyport_info[p][1]
-
-                            event = VtepControllerCall(connection=self._conn,type=VtepControllerCall.UNBINDALL,
-                                                       physname=physname,phyiname=phyiname)
-
-                            for m in self.waitForSend(event):
-                                yield m
-
-                    for n in last_lognets_info:
-                        if n not in current_lognets_info:
-                            # means lognet removed
-                            # release vlan id
-                            # unbind physwitch
-
-                            # if last cause exception , n.id mybe not in vxlan_vlan_map_info
-                            if n.id in self.vxlan_vlan_map_info:
-                                vid = self.vxlan_vlan_map_info[n.id]
-                                physname = last_lognets_info[n][0][0]
-                                phyiname = last_lognets_info[n][0][1]
-
-                                del self.vxlan_vlan_map_info[n.id]
-
-                                event = VXLANMapChanged(self._conn,n.id,VXLANMapChanged.DELETED)
-
-                                for m in self.waitForSend(event):
-                                    yield m
-
-                                event = VtepControllerCall(connection=self._conn,logicalnetworkid=n.id,
-                                                           physname=physname,phyiname=phyiname,vlanid=vid,
-                                                           type=VtepControllerCall.UNBIND)
-
-                                for m in self.waitForSend(event):
-                                    yield m
-                        
-                        else:
-                            last_info = last_lognets_info[n]
-                            current_info = current_lognets_info[n]
-
-                            if last_info[0] != current_info[0]:
-                                # physwitch info have changed
-                                # unbind it
-
-                                if n.id in self.vxlan_vlan_map_info:
-                                    vid = self.vxlan_vlan_map_info[n.id]
-                                    physname = last_lognets_info[n][0][0]
-                                    phyiname = last_lognets_info[n][0][1]
-
-                                    del self.vxlan_vlan_map_info[n.id]
-
-                                    event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
-                                                               physname=physname, phyiname=phyiname, vlanid=vid,
-                                                               type=VtepControllerCall.UNBIND)
-
+        
+                            phy_port_info  = dict((k[0], (v[0]['external_ids']['vtep-physname'],
+                                                                v[0]['external_ids']['vtep-phyiname']))
+                                                  for k,v in zip(phy_ports,self.retvalue)
+                                                  if v[0] is not None and \
+                                                    'vtep-physname' in v[0]['external_ids'] and \
+                                                    'vtep-phyiname' in v[0]['external_ids'])
+                            unique_phyports = dict((p.physicalnetwork, p)
+                                                   for p,_ in sorted(phy_ports, key = lambda x: x[1])
+                                                   if p in phy_port_info)
+        
+                            lognet_to_phyport =  dict((n,unique_phyports[n.physicalnetwork])
+                                                      for n,_ in current_lognets
+                                                      if n.physicalnetwork in unique_phyports)
+        
+                            current_lognets_info = dict((n,(phy_port_info[v], lognet_to_logports[n]))
+                                                        for n,v in lognet_to_phyport.items()
+                                                        if n in lognet_to_logports)
+        
+                            self._last_lognets_info = current_lognets_info
+                            self._last_phyport_info = phy_port_info
+        
+                            # add or update new phyport, unbind all physical interface bind
+                            # must do it as init first ....
+                            for p in phy_port_info:
+                                if p not in last_phyport_info or\
+                                        (p in last_phyport_info and last_phyport_info[p] != phy_port_info[p]):
+        
+                                    physname = phy_port_info[p][0]
+                                    phyiname = phy_port_info[p][1]
+        
+                                    event = VtepControllerCall(connection=self._conn,type=VtepControllerCall.UNBINDALL,
+                                                               physname=physname,phyiname=phyiname)
+        
                                     for m in self.waitForSend(event):
                                         yield m
-                                   
-                            else:
-                                if last_info[1] != current_info[1]:
-                                    add_ports = list(set(current_info[1]).difference(set(last_info[1])))
-
-                                    if add_ports:
-                                        # add new add_ports
-                                        # update bind logical ports
-
+        
+        
+                            # remove phyport , unbind all physical interface bind also
+                            for p in last_phyport_info:
+                                if p not in phy_port_info or\
+                                        (p in phy_port_info and last_phyport_info[p] != phy_port_info[p]):
+                                    physname = last_phyport_info[p][0]
+                                    phyiname = last_phyport_info[p][1]
+        
+                                    event = VtepControllerCall(connection=self._conn,type=VtepControllerCall.UNBINDALL,
+                                                               physname=physname,phyiname=phyiname)
+        
+                                    for m in self.waitForSend(event):
+                                        yield m
+        
+                            for n in last_lognets_info:
+                                if n not in current_lognets_info:
+                                    # means lognet removed
+                                    # release vlan id
+                                    # unbind physwitch
+        
+                                    # if last cause exception , n.id mybe not in vxlan_vlan_map_info
+                                    if n.id in self.vxlan_vlan_map_info:
+                                        vlan_id = self.vxlan_vlan_map_info[n.id]
+                                        physname = last_lognets_info[n][0][0]
+                                        phyiname = last_lognets_info[n][0][1]
+        
+                                        del self.vxlan_vlan_map_info[n.id]
+        
+                                        event = VXLANMapChanged(self._conn,n.id,VXLANMapChanged.DELETED)
+        
+                                        for m in self.waitForSend(event):
+                                            yield m
+        
+                                        event = VtepControllerCall(connection=self._conn,logicalnetworkid=n.id,
+                                                                   physname=physname,phyiname=phyiname,vlanid=vlan_id,
+                                                                   type=VtepControllerCall.UNBIND)
+        
+                                        for m in self.waitForSend(event):
+                                            yield m
+                                
+                                else:
+                                    last_info = last_lognets_info[n]
+                                    current_info = current_lognets_info[n]
+        
+                                    if last_info[0] != current_info[0]:
+                                        # physwitch info have changed
+                                        # unbind it
+        
                                         if n.id in self.vxlan_vlan_map_info:
                                             vid = self.vxlan_vlan_map_info[n.id]
                                             physname = last_lognets_info[n][0][0]
                                             phyiname = last_lognets_info[n][0][1]
-
+        
+                                            del self.vxlan_vlan_map_info[n.id]
+        
                                             event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
-                                                                       vni = n.vni,logicalports=add_ports,
                                                                        physname=physname, phyiname=phyiname, vlanid=vid,
-                                                                       type=VtepControllerCall.BIND)
-
+                                                                       type=VtepControllerCall.UNBIND)
+        
                                             for m in self.waitForSend(event):
                                                 yield m
-
-
-                    for n in current_lognets_info:
-                        if n not in last_lognets_info:
-                            # means add lognet
-                            # find avaliable vlan id , send event
-                            # bind physwitch
-                            find = False
-                            for start,end in self.vlanid_pool:
-                                for vid in range(start,end + 1):
-                                    if str(vid) not in self.vxlan_vlan_map_info.values():
-                                        find = True
-                                        break
-
-                            if find:
-                                self.vxlan_vlan_map_info[n.id] = str(vid)
-
-                                event = VXLANMapChanged(self._conn,n.id,VXLANMapChanged.UPDATED,vlan_id = str(vid))
-                                for m in self.waitForSend(event):
-                                    yield m
-
-                                physname = current_lognets_info[n][0][0]
-                                phyiname = current_lognets_info[n][0][1]
-                                ports = current_lognets_info[n][1]
-
-                                event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
-                                                           vni=n.vni, logicalports=ports,
-                                                           physname=physname, phyiname=phyiname, vlanid=vid,
-                                                           type=VtepControllerCall.BIND)
-
-                                for m in self.waitForSend(event):
-                                    yield m
-
-                            else:
-                                raise ValueError(" find avaliable vlan id error")
-                        else:
-
-                            last_info = last_lognets_info[n]
-                            current_info = current_lognets_info[n]
-
-                            if last_info[0] != current_info[0]:
-                                # physwitch info have changed
-                                # rebind it
-                                if n.id in self.vxlan_vlan_map_info:
-                                    vid = self.vxlan_vlan_map_info[n.id]
-                                    physname = current_lognets_info[n][0][0]
-                                    phyiname = current_lognets_info[n][0][1]
-                                    ports = current_lognets_info[n][1]
-
-                                    event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
-                                                               vni=n.vni, logicalports=ports,
-                                                               physname=physname, phyiname=phyiname, vlanid=vid,
-                                                               type=VtepControllerCall.BIND)
-
-                                    for m in self.waitForSend(event):
-                                        yield m
-
-
-                except Exception:
-                    self._parent._logger.info(" vxlan vtep handler exception , continue", exc_info = True)
-
+                                           
+                                    else:
+                                        if last_info[1] != current_info[1]:
+                                            add_ports = list(set(current_info[1]).difference(set(last_info[1])))
+        
+                                            if add_ports:
+                                                # add new add_ports
+                                                # update bind logical ports
+        
+                                                if n.id in self.vxlan_vlan_map_info:
+                                                    vid = self.vxlan_vlan_map_info[n.id]
+                                                    physname = last_lognets_info[n][0][0]
+                                                    phyiname = last_lognets_info[n][0][1]
+        
+                                                    event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
+                                                                               vni = n.vni,logicalports=add_ports,
+                                                                               physname=physname, phyiname=phyiname, vlanid=vid,
+                                                                               type=VtepControllerCall.BIND)
+        
+                                                    for m in self.waitForSend(event):
+                                                        yield m
+        
+        
+                            for n in current_lognets_info:
+                                if n not in last_lognets_info:
+                                    # means add lognet
+                                    # find avaliable vlan id , send event
+                                    # bind physwitch
+                                    find = False
+                                    _current_vlan_ids = set(self.vxlan_vlan_map_info.values())
+                                    for start,end in self.vlanid_pool:
+                                        for vid in range(start,end + 1):
+                                            if vid not in _current_vlan_ids:
+                                                find = True
+                                                break
+                                        if find:
+                                            break
+        
+                                    if find:
+                                        self.vxlan_vlan_map_info[n.id] = vid
+        
+                                        event = VXLANMapChanged(self._conn,n.id,VXLANMapChanged.UPDATED,vlan_id = vid)
+                                        for m in self.waitForSend(event):
+                                            yield m
+        
+                                        physname = current_lognets_info[n][0][0]
+                                        phyiname = current_lognets_info[n][0][1]
+                                        ports = current_lognets_info[n][1]
+        
+                                        event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
+                                                                   vni=n.vni, logicalports=ports,
+                                                                   physname=physname, phyiname=phyiname, vlanid=vid,
+                                                                   type=VtepControllerCall.BIND)
+        
+                                        for m in self.waitForSend(event):
+                                            yield m
+        
+                                    else:
+                                        self._parent._logger.warning('Not enough vlan_id for logical network %r', n.id)
+                                        event = VXLANMapChanged(self._conn,n.id,VXLANMapChanged.UPDATED,vlan_id = None)
+                                        for m in self.waitForSend(event):
+                                            yield m
+                                else:
+        
+                                    last_info = last_lognets_info[n]
+                                    current_info = current_lognets_info[n]
+        
+                                    if last_info[0] != current_info[0]:
+                                        # physwitch info have changed
+                                        # rebind it
+                                        if n.id in self.vxlan_vlan_map_info:
+                                            vid = self.vxlan_vlan_map_info[n.id]
+                                            physname = current_lognets_info[n][0][0]
+                                            phyiname = current_lognets_info[n][0][1]
+                                            ports = current_lognets_info[n][1]
+        
+                                            event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
+                                                                       vni=n.vni, logicalports=ports,
+                                                                       physname=physname, phyiname=phyiname, vlanid=vid,
+                                                                       type=VtepControllerCall.BIND)
+        
+                                            for m in self.waitForSend(event):
+                                                yield m
+        
+        
+                        except Exception:
+                            self._parent._logger.info(" vxlan vtep handler exception , continue", exc_info = True)
+                for m in self.withCallback(_update_loop(), _update_callback, data_change_event):
+                    yield m
         finally:
-
-            if hasattr(self,"_time_cycle"):
-                self._time_cycle.close()
 
             if hasattr(self,"_action_handler"):
                 self._action_handler.close()
@@ -286,27 +293,27 @@ class VXLANHandler(RoutineContainer):
             if hasattr(self,"_handle_failed_action"):
                 self._handle_failed_action.close()
 
-    def time_cycle(self):
-
-        while True:
-            for m in self.waitWithTimeout(self._parent.refreshinterval):
-                yield m
-
-            for n,v in self._last_lognets_info.items():
-
-                if n.id in self.vxlan_vlan_map_info:
-                    vid = self.vxlan_vlan_map_info[n.id]
-                    physname = v[0][0]
-                    phyiname = v[0][1]
-                    ports = v[1]
-                    
-                    event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
-                                                               vni=n.vni, logicalports=ports,
-                                                               physname=physname, phyiname=phyiname, vlanid=vid,
-                                                               type=VtepControllerCall.BIND)
-
-                    for m in self.waitForSend(event):
-                        yield m
+#===============================================================================
+#     def time_cycle(self):
+# 
+#         while True:
+#             for m in self.waitWithTimeout(self._parent.refreshinterval):
+#                 yield m
+# 
+#             for n,v in self._last_lognets_info.items():
+# 
+#                 if n.id in self.vxlan_vlan_map_info:
+#                     vid = self.vxlan_vlan_map_info[n.id]
+#                     physname = v[0][0]
+#                     phyiname = v[0][1]
+#                     ports = v[1]
+#                     
+#                     event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
+#                                                                vni=n.vni, logicalports=ports,
+#                                                                physname=physname, phyiname=phyiname, vlanid=vid,
+#                                                                type=VtepControllerCall.BIND)
+#                     self.scheduler.emergesend(event)
+#===============================================================================
 
     def handle_failed_action(self):
 
@@ -472,20 +479,20 @@ class VXLANHandler(RoutineContainer):
                 yield m
 
 
-    def wait_vxlan_map_info(self,contianer,logicalnetworkid,timeout = 4):
+    def wait_vxlan_map_info(self,container,logicalnetworkid,timeout = 4):
 
         if logicalnetworkid in self.vxlan_vlan_map_info:
-            contianer.retvalue = int(self.vxlan_vlan_map_info[logicalnetworkid])
+            container.retvalue = self.vxlan_vlan_map_info[logicalnetworkid]
         else:
             event = VXLANMapChanged.createMatcher(self._conn,logicalnetworkid,VXLANMapChanged.UPDATED)
 
-            for m in contianer.waitWithTimeout(timeout,event):
+            for m in container.waitWithTimeout(timeout,event):
                 yield m
 
-            if contianer.timeout:
-                raise ValueError(" can find vxlan vlan map info ")
+            if container.timeout:
+                raise ValueError(" cannot find vxlan vlan map info ")
             else:
-                contianer.retvalue = int(contianer.event.vlan_id)
+                container.retvalue = container.event.vlan_id
 
 @defaultconfig
 class VXLANVtep(FlowBase):
@@ -611,7 +618,9 @@ class VXLANVtep(FlowBase):
             else:
                 find = True
                 vid = self.app_routine.retvalue
-
+                if vid is None:
+                    self._logger.warning('Not enough vlan ID, io flow parts not created')
+                    find = False
 
         if find:
             self.app_routine.retvalue = self.createflowparts(connection, vid, physicalportid)

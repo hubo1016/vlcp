@@ -18,7 +18,16 @@ class RemoteCall(Module):
         # there is no need to run this container main, so don't append it
         # self.routines.append(self.app_routine)
         self.wc = WebClient()
+        self.app_routine.main = self._main
+        self.routines.append(self.app_routine)
         self.createAPI(api(self.call,self.app_routine))
+    
+    def _main(self):
+        try:
+            self.wc.cleanup_task(self.app_routine, 120)
+            yield ()
+        finally:
+            self.wc.endtask()
 
     def call(self,remote_module,method,timeout,params):
         self._logger.info("remote call remote_module %r",remote_module)
