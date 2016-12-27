@@ -171,7 +171,7 @@ class VXLANHandler(RoutineContainer):
 
                                 for m in self.waitForSend(event):
                                     yield m
-                                #self.subroutine(self._unbind_lgnet(n.id,physname,phyiname,vid))
+                        
                         else:
                             last_info = last_lognets_info[n]
                             current_info = current_lognets_info[n]
@@ -193,7 +193,7 @@ class VXLANHandler(RoutineContainer):
 
                                     for m in self.waitForSend(event):
                                         yield m
-                                    #self.subroutine(self._unbind_lgnet(n.id, physname, phyiname, vid))
+                                   
                             else:
                                 if last_info[1] != current_info[1]:
                                     add_ports = list(set(current_info[1]).difference(set(last_info[1])))
@@ -215,7 +215,6 @@ class VXLANHandler(RoutineContainer):
                                             for m in self.waitForSend(event):
                                                 yield m
 
-                                            #self.subroutine(self._bind_lgnet(n.id,physname,phyiname,vid,add_ports))
 
                     for n in current_lognets_info:
                         if n not in last_lognets_info:
@@ -248,7 +247,6 @@ class VXLANHandler(RoutineContainer):
                                 for m in self.waitForSend(event):
                                     yield m
 
-                                # self.subroutine(self._bind_lgnet(n.id,physname,phyiname,vid,ports))
                             else:
                                 raise ValueError(" find avaliable vlan id error")
                         else:
@@ -273,7 +271,6 @@ class VXLANHandler(RoutineContainer):
                                     for m in self.waitForSend(event):
                                         yield m
 
-                                    #self.subroutine(self._bind_lgnet(n.id, physname, phyiname, vid, ports))
 
                 except Exception:
                     self._parent._logger.info(" vxlan vtep handler exception , continue", exc_info = True)
@@ -295,7 +292,6 @@ class VXLANHandler(RoutineContainer):
             for m in self.waitWithTimeout(self._parent.refreshinterval):
                 yield m
 
-            self._parent._logger.debug(" ------- time cycle ---")
             for n,v in self._last_lognets_info.items():
 
                 if n.id in self.vxlan_vlan_map_info:
@@ -303,7 +299,14 @@ class VXLANHandler(RoutineContainer):
                     physname = v[0][0]
                     phyiname = v[0][1]
                     ports = v[1]
-                    self.subroutine(self._bind_lgnet(n.id, physname, phyiname, vid, ports))
+                    
+                    event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
+                                                               vni=n.vni, logicalports=ports,
+                                                               physname=physname, phyiname=phyiname, vlanid=vid,
+                                                               type=VtepControllerCall.BIND)
+
+                    for m in self.waitForSend(event):
+                        yield m
 
     def handle_failed_action(self):
 
@@ -468,73 +471,6 @@ class VXLANHandler(RoutineContainer):
             for m in self.withCallback(handle_action(),append_event,bind_event):
                 yield m
 
-    def _bind_lgnet(self,logicalnetworkid,physname,phyiname,vlanid,logicalports):
-        self._parent._logger.debug(" bind logicalnetwork id = %r",logicalnetworkid)
-        self._parent._logger.debug(" bind physname %r,phyiname %r",physname,phyiname)
-        self._parent._logger.debug(" bind vlanid %r",vlanid)
-        self._parent._logger.debug(" bind logicalports %r",logicalports)
-
-        url = self._parent.vtepcontroller_url + 'vtepcontroller/updatelogicalswitch'
-
-        request = {"physicalswitch":physname,
-                   "physicalport":phyiname,
-                   "vlanid":vlanid,
-                   "logicalnetwork":logicalnetworkid,
-                   "logicalports":logicalports}
-
-        request_data = json.dumps(request).encode("utf-8")
-
-        again = 3
-        while True:
-            try:
-                for m in self.wc.urlgetcontent(self,url,request_data,
-                                      b'POST',{"Content-Type":"application/json"}):
-                    yield m
-                resp = json.loads(self.retvalue)
-            except Exception:
-                again -= 1
-                if again > 0:
-                    self._parent._logger.warning("url open error %r , try again (%r)",url,again)
-                    continue
-                else:
-                    self._parent._logger.warning("url open error %r final", url)
-                    break
-            else:
-                self._parent._logger.info(" url open success %r",url)
-                break
-
-    def _unbind_lgnet(self,logicalnetworkid,physname,phyiname,vlanid):
-        self._parent._logger.debug(" unbind logicalnetwork id = %r",logicalnetworkid)
-        self._parent._logger.debug(" unbind physname %r,phyiname %r",physname,phyiname)
-        self._parent._logger.debug(" unbind vlanid %r",vlanid)
-
-        url = self._parent.vtepcontroller_url + 'vtepcontroller/unbindlogicalswitch'
-
-        request = {"physicalswitch":physname,
-                   "physicalport":phyiname,
-                   "vlanid":vlanid,
-                   "logicalnetwork":logicalnetworkid}
-
-        request_data = json.dumps(request).encode("utf-8")
-
-        again = 3
-        while True:
-            try:
-                for m in self.wc.urlgetcontent(self,url,request_data,
-                                      b'POST',{"Content-Type":"application/json"}):
-                    yield m
-                resp = json.loads(self.retvalue)
-            except Exception:
-                again -= again
-                if again > 0:
-                    self._parent._logger.warning("url open error %r , try again (%r)",url,again)
-                    continue
-                else:
-                    self._parent._logger.warning("url open error %r final", url)
-                    break
-            else:
-                self._parent._logger.info(" url open success %r",url)
-                break
 
     def wait_vxlan_map_info(self,contianer,logicalnetworkid,timeout = 4):
 
@@ -555,8 +491,6 @@ class VXLANHandler(RoutineContainer):
 class VXLANVtep(FlowBase):
     _default_vlanid_pool = ((3000, 4000),)
     _default_refreshinterval = 3600
-
-    _default_vtepcontroller_url = 'http://127.0.0.1:8081/'
 
     # remote_api means call remote api to vtep controller
     _default_remote_api = True
