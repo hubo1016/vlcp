@@ -362,14 +362,6 @@ class VXLANHandler(RoutineContainer):
                 events = event_queue[:]
                 del event_queue[:]
 
-                # first handle unbind all event, because unbindall event
-                # as init action , when remove phy
-
-                # handle unbindall event first , because unbindall as init action
-                # but remove phyport , after unbindall , mybe have unbind ,
-
-                # have unbindall ,, means unbind is invaild
-
                 bind_events = [e for e in events if e.type == VtepControllerCall.BIND]
                 unbind_events = [e for e in events if e.type == VtepControllerCall.UNBIND]
                 unbindall_events = [e for e in events if e.type == VtepControllerCall.UNBINDALL]
@@ -388,7 +380,7 @@ class VXLANHandler(RoutineContainer):
                         params = {"physicalswitch": physname,
                                    "physicalport": phyiname,
                                    "vlanid": vlanid,
-                                   "logicalnetworkid": lgnetid,
+                                   "logicalnetwork": lgnetid,
                                    "vni":vni,
                                    "logicalports": ports}
 
@@ -413,7 +405,7 @@ class VXLANHandler(RoutineContainer):
                         phyiname = e.phyiname
                         vlanid = e.vlanid
 
-                        params = {"logicalnetworkid":e.logicalnetworkid,
+                        params = {"logicalnetwork":e.logicalnetworkid,
                                   "physicalswitch":e.physname,
                                   "physicalport":e.phyiname,
                                   "vlanid":e.vlanid}
@@ -438,7 +430,7 @@ class VXLANHandler(RoutineContainer):
 
                         physname = e.physname
                         phyiname = e.phyiname
-                        params = {"physname":e.physname,"phyiname":e.phyiname}
+                        params = {"physicalswitch":e.physname,"physicalport":e.phyiname}
 
                         unbindall_info = (e.physname,e.phyiname)
 
