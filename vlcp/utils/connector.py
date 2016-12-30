@@ -482,7 +482,7 @@ class Resolver(Connector):
     logger = logging.getLogger(__name__ + '.Resolver')
     def __init__(self, scheduler = None, poolsize = 256):
         rm = ResolveRequestEvent.createMatcher()
-        Connector.__init__(self, ThreadPool(poolsize, Resolver.resolver).create, (rm,), scheduler, True, poolsize, False)
+        Connector.__init__(self, ThreadPool(poolsize, Resolver.resolver).create, (rm,), scheduler, False, poolsize, False)
         self.resolving = set()
     @staticmethod
     @processor
