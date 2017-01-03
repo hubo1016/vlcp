@@ -1,5 +1,3 @@
-import json
-
 from vlcp.config import defaultconfig
 from vlcp.event import Event
 from vlcp.event import RoutineContainer
@@ -12,7 +10,6 @@ from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.service.utils.remoteapi import remoteAPI
 from vlcp.utils.ethernet import ETHERTYPE_8021Q
-from vlcp.utils.webclient import WebClient
 
 
 def _is_vxlan(obj):
@@ -44,7 +41,7 @@ class VXLANHandler(RoutineContainer):
         self._last_lognets_info = {}
         self._last_phyport_info = {}
 
-        self._store_event = []
+        self._store_event = dict()
         self._store_bind_event = []
         self._store_unbind_event = []
         self._store_unbindall_event = []
@@ -53,6 +50,7 @@ class VXLANHandler(RoutineContainer):
             self.api = remoteAPI
         else:
             self.api = callAPI
+
     def main(self):
 
         try:
@@ -61,8 +59,6 @@ class VXLANHandler(RoutineContainer):
             # routine sync call to vtep controller (updatelogicalswitch,unbindlogicalswitch,unbindphysicalport)
             self.subroutine(self.action_handler(),True,"_action_handler")
 
-            # routine handle action event which send failed , in cycle
-            self.subroutine(self.handle_failed_action(),True,"_handle_failed_action")
             _last_change_event = [None]
             while True:
                 yield (data_change_event,)
@@ -290,190 +286,159 @@ class VXLANHandler(RoutineContainer):
             if hasattr(self,"_action_handler"):
                 self._action_handler.close()
 
-            if hasattr(self,"_handle_failed_action"):
-                self._handle_failed_action.close()
 
-#===============================================================================
+# ===============================================================================
 #     def time_cycle(self):
-# 
+#
 #         while True:
 #             for m in self.waitWithTimeout(self._parent.refreshinterval):
 #                 yield m
-# 
+#
 #             for n,v in self._last_lognets_info.items():
-# 
+#
 #                 if n.id in self.vxlan_vlan_map_info:
 #                     vid = self.vxlan_vlan_map_info[n.id]
 #                     physname = v[0][0]
 #                     phyiname = v[0][1]
 #                     ports = v[1]
-#                     
+#
 #                     event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
 #                                                                vni=n.vni, logicalports=ports,
 #                                                                physname=physname, phyiname=phyiname, vlanid=vid,
 #                                                                type=VtepControllerCall.BIND)
 #                     self.scheduler.emergesend(event)
-#===============================================================================
-
-    def handle_failed_action(self):
-
-        while True:
-            for m in self.waitWithTimeout(self._parent.retryactioninterval):
-                yield m
-
-            self._store_event = [ x for x in self._store_event
-                                  if x[1] in self._store_bind_event or x[1] in self._store_unbind_event]
-
-            handle_events = self._store_event[:]
-            del self._store_event[:]
-
-            for x in handle_events:
-                if x[0] == "BIND":
-                    logicalnetworkid = x[1][0]
-                    vni = x[1][1]
-                    physname = x[1][2]
-                    phyiname = x[1][3]
-                    vlanid = x[1][4]
-                    ports = x[1][5]
-                    e = VtepControllerCall(connection=self._conn,logicalnetworkid=logicalnetworkid,vni=vni,
-                                           physname=physname,phyiname=phyiname,vlanid=vlanid,logicalports=ports,
-                                           type=VtepControllerCall.BIND)
-
-                    for m in self.waitForSend(e):
-                        yield m
-
-                elif x[0] == "UNBIND":
-                    logicalnetworkid = x[1][0]
-                    physname = x[1][1]
-                    phyiname = x[1][2]
-                    vlanid = x[1][3]
-
-                    e = VtepControllerCall(connection=self._conn,logicalnetworkid=logicalnetworkid,
-                                           physname=physname,phyiname=phyiname,vlanid=vlanid,
-                                           type=VtepControllerCall.UNBIND)
-
-                    for m in self.waitForSend(e):
-                        yield m
-                else:
-                    self._parent._logger.warning(" handle failed event , invaild type %r ignore ..",x[0])
-                    continue
+# ===============================================================================
 
     def action_handler(self):
 
-        bind_event = VtepControllerCall.createMatcher(self._conn,type=VtepControllerCall.BIND)
-        unbind_event = VtepControllerCall.createMatcher(self._conn,type=VtepControllerCall.UNBIND)
-        unbindall_event = VtepControllerCall.createMatcher(self._conn,type=VtepControllerCall.UNBINDALL)
-
         bind_event = VtepControllerCall.createMatcher(self._conn)
         event_queue = []
+        timeout_flag = [False]
 
         def handle_action():
-            while event_queue:
+            while event_queue or timeout_flag[0]:
                 events = event_queue[:]
                 del event_queue[:]
 
-                bind_events = [e for e in events if e.type == VtepControllerCall.BIND]
-                unbind_events = [e for e in events if e.type == VtepControllerCall.UNBIND]
-                unbindall_events = [e for e in events if e.type == VtepControllerCall.UNBINDALL]
-
-                target_name = "vtepcontroller"
                 for e in events:
-                    if e.type == VtepControllerCall.BIND:
-                        method = "updatelogicalswitch"
-                        lgnetid=e.logicalnetworkid
-                        vni = e.vni
-                        physname = e.physname
-                        phyiname = e.phyiname
+                    # every event must have physname , phyiname
+                    physname = e.physname
+                    phyiname = e.phyiname
+                    if e.type == VtepControllerCall.UNBINDALL:
+                        # clear all other event info
+                        self._store_event[(physname,phyiname)] = {"all":e}
+                    elif e.type == VtepControllerCall.BIND:
+                        # bind will combine bind event before
                         vlanid = e.vlanid
-                        ports = e.logicalports
+                        if (physname,phyiname) in self._store_event:
+                            v = self._store_event[(physname,phyiname)]
 
-                        params = {"physicalswitch": physname,
-                                   "physicalport": phyiname,
-                                   "vlanid": vlanid,
-                                   "logicalnetwork": lgnetid,
-                                   "vni":vni,
-                                   "logicalports": ports}
+                            if vlanid in v:
+                                x = v[vlanid]
+                                logicalports = e.logicalports
 
-                        bind_info = (e.logicalnetworkid,e.vni,e.physname,e.phyiname,e.vlanid,e.logicalports)
-                        if bind_info in self._store_bind_event:
-                            # means this bind event faild in last ,  delete it to never retry
-                            self._store_bind_event = [x for x in self._store_bind_event if x != bind_info]
+                                if x[0] == VtepControllerCall.BIND and x[1] == e.logicalnetworkid:
+                                    new_set = set(e.logicalports)
+                                    old_set = set(x[3])
+                                    new_set.update(old_set)
+                                    logicalports = list(new_set)
 
-                        try:
-                            for m in self.api(self,target_name,method,params):
-                                yield m
-                        except Exception:
-                            # error , store this event
-                            self._parent._logger.warning(" bind event handle error %r , store it",e,exec_info=True)
-                            self._store_bind_event.append(bind_info)
-                            self._store_event.append(("BIND",bind_info))
+                                v.update({vlanid:(e.type,e.logicalnetworkid,e.vni,logicalports)})
+                                self._store_event[(physname,phyiname)] = v
+                            else:
+                                # new bind info , no combind event
+                                v.update({vlanid:(e.type,e.logicalnetworkid,e.vni,e.logicalports)})
+                                self._store_event[(physname,phyiname)] = v
+                        else:
+                            self._store_event[(physname,phyiname)] = {vlanid:(e.type,e.logicalnetworkid,
+                                                                              e.vni,e.logicalports)}
 
                     elif e.type == VtepControllerCall.UNBIND:
-                        method = "unbindlogicalswitch"
-                        lgnetid=e.logicalnetworkid
-                        physname = e.physname
-                        phyiname = e.phyiname
+
                         vlanid = e.vlanid
 
-                        params = {"logicalnetwork":e.logicalnetworkid,
-                                  "physicalswitch":e.physname,
-                                  "physicalport":e.phyiname,
-                                  "vlanid":e.vlanid}
+                        if (physname,phyiname) in self._store_event:
+                            v = self._store_event[(physname,phyiname)]
+                            v.update({vlanid:(e.type,e.logicalnetworkid)})
+                            self._store_event[(physname,phyiname)] = v
+                        else:
+                            self._store_event[(physname,phyiname)] = {vlanid:(e.type,e.logicalnetworkid)}
 
-                        unbind_info = (e.logicalnetworkid,e.physname,e.phyiname,e.vlanid)
-                        if unbind_info in self._store_unbind_event:
-                            self._store_unbind_event = [ x for x in self._store_unbind_event if x != unbind_info]
-
-                        # unbind event, should remove last bind failed , no need to retry it
-                        self._store_bind_event = [x for x in self._store_bind_event
-                                                  if unbind_info != (x[0],x[2],x[3],x[4])]
-                        try:
-                            for m in self.api(self,target_name,method,params):
-                                yield m
-                        except Exception:
-                            self._parent._logger.warning(" unbind event handle error %r, store it",e,exec_info=True)
-                            self._store_unbind_event.append(unbind_info)
-                            self._store_event.append(("UNBIND",unbind_info))
-
-                    elif e.type == VtepControllerCall.UNBINDALL:
-                        method = "unbindphysicalport"
-
-                        physname = e.physname
-                        phyiname = e.phyiname
-                        params = {"physicalswitch":e.physname,"physicalport":e.phyiname}
-
-                        unbindall_info = (e.physname,e.phyiname)
-
-                        # unbindall ,  some bind , unbind event action last failed , no need do it !
-                        self._store_bind_event = [x for x in self._store_bind_event
-                                                  if unbindall_info != (x[2],x[3])]
-
-                        self._store_unbind_event = [ x for x in self._store_unbind_event
-                                                     if unbindall_info != (x[1],x[2])]
-
-                        try:
-                            for m in self.api(self,target_name,method,params):
-                                yield m
-                        except Exception:
-                            self._parent._logger.warning(" unbindall event handle error %r , store it",e,exec_info=True)
-                            # don't store unbindall event , because if unbindall failed
-                            # (1) init unbindall failed , after event will work ...
-                            # (2) clean unbindall failed, nothing to do for me ...
-                            # else store it ,retry it , mybe drop some vaild actions
-
-                            # self._store_unbindall_event.append(e)
                     else:
-                        self._parent._logger.warning("catch error type event %r , ignore it",e)
+                        self._parent._logger.warning("catch error type event %r , ignore it", e)
                         continue
 
+                call = []
+                target_name = "vtepcontroller"
+                for k,v in self._store_event.items():
+                    if "all" in v:
+                        # send unbindall
+                        call.append(self.api(self,target_name,"unbindphysicalport",
+                                             {"physicalswitch": k[0], "physicalport": k[1]},
+                                             timeout=10))
+                        # unbindall , del it whatever
+                        del v["all"]
+
+                try:
+                    for m in self.executeAll(call):
+                        yield m
+                except Exception:
+                    self._parent._logger.warning("unbindall remove call failed")
+
+                for k,v in self._store_event.items():
+                    for vlanid , e in dict(v).items():
+                        if vlanid != "all":
+                            if e[0] == VtepControllerCall.BIND:
+
+                                params = {"physicalswitch": k[0],
+                                            "physicalport": k[1],
+                                            "vlanid": vlanid,
+                                            "logicalnetwork": e[1],
+                                            "vni":e[2],
+                                            "logicalports": e[3]}
+
+                                try:
+                                    for m in self.api(self,target_name,"updatelogicalswitch",
+                                                  params,timeout=10):
+                                        yield m
+                                except Exception:
+                                    self._parent._logger.warning("update logical switch error,try next %r",params)
+                                else:
+                                    del self._store_event[k][vlanid]
+
+                            if e[0] == VtepControllerCall.UNBIND:
+
+                                params = {"logicalnetwork":e[1],
+                                                "physicalswitch":k[0],
+                                                "physicalport":k[1],
+                                                  "vlanid":vlanid}
+
+                                try:
+                                    for m in self.api(self,target_name,"unbindlogicalswitch",
+                                                      params,timeout=10):
+                                        yield m
+                                except Exception:
+                                    self._parent._logger.warning("unbind logical switch error,try next %r",params)
+                                else:
+                                    del self._store_event[k][vlanid]
+
+                self._store_event = dict((k,v) for k,v in self._store_event.items() if v )
+
+                if timeout_flag[0]:
+                    timeout_flag[0] = False
 
         def append_event(event,matcher):
             event_queue.append(event)
 
         while True:
-            yield (bind_event,)
 
-            event_queue.append(self.event)
+            for m in self.waitWithTimeout(10,bind_event):
+                yield m
+
+            if not self.timeout:
+                event_queue.append(self.event)
+            else:
+                timeout_flag[0] = True
 
             for m in self.withCallback(handle_action(),append_event,bind_event):
                 yield m
@@ -599,9 +564,9 @@ class VXLANVtep(FlowBase):
 
     def createioflowparts(self,connection,logicalnetwork,physicalport,logicalnetworkid,physicalportid):
 
-        self._logger.info(" create flow parts connection = %r",connection)
-        self._logger.info(" create flow parts logicalnetworkid = %r", logicalnetworkid)
-        self._logger.info(" create flow parts physicalportid = %r", physicalportid)
+        self._logger.debug(" create flow parts connection = %r",connection)
+        self._logger.debug(" create flow parts logicalnetworkid = %r", logicalnetworkid)
+        self._logger.debug(" create flow parts physicalportid = %r", physicalportid)
 
         find = False
         vid = None

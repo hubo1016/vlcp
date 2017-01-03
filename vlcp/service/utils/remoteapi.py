@@ -33,6 +33,7 @@ class RemoteCall(Module):
         self._logger.info("remote call remote_module %r",remote_module)
         self._logger.info("remote call method %r", method)
         self._logger.info("remote call kwargs %r", params)
+        success = False
 
         if remote_module and remote_module in self.target_url_map:
             endpoints = self.target_url_map[remote_module]
@@ -47,16 +48,21 @@ class RemoteCall(Module):
                 except WebException as e:
                     # this endpoint connection error , try next url
                     self._logger.warning(" url (%r) post error %r , break ..",url,e)
-                    break
+                    success = False
+                    raise
                 except Exception:
                     self._logger.warning(" url (%r) connection error , try next ..", url)
                     continue
+                else:
+                    success = True
 
         else:
             self._logger.warning(" target (%r) url not existed, ignore it ",remote_module)
 
-        self.app_routine.retvalue = []
+        if not success:
+            raise IOError("remote call connection error !")
 
+        self.app_routine.retvalue = []
 
 def remoteAPI(container,targetname,name,params={},timeout=60.0):
     args = {"remote_module":targetname,"method":name,"timeout":timeout,"params":params}
