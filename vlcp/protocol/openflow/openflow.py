@@ -103,7 +103,7 @@ class Openflow(Protocol):
                     helloversion = None
                     usebitmap = False
                     for e in msg.elements:
-                        if e.type == OFPHET_VERSIONBITMAP:
+                        if e.type == common.OFPHET_VERSIONBITMAP:
                             # There is a bitmap
                             for v in reversed(sorted(self.allowedversions)):
                                 bitmapIndex = v // 32

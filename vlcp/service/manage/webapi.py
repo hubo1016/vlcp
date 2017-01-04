@@ -17,6 +17,7 @@ import json
 import ast
 from namedstruct import NamedStruct, dump
 from vlcp.utils.jsonencoder import encode_default, decode_object, JsonFormat
+import traceback
 
 def _str(b, encoding = 'ascii'):
     if isinstance(b, str):
@@ -63,10 +64,22 @@ class WebAPIHandler(HttpHandler):
             for m in callAPI(self, parent.authtarget, parent.authmethod,
                              {'env':env, 'targetname':targetname, 'name':methodname, 'params': params}):
                 yield m
-        for m in callAPI(self, targetname, methodname, params):
-            yield m
-        env.header('Content-Type', 'application/json')
-        env.outputdata(json.dumps({'result':self.retvalue}, default=self.jsonencoder.jsonencoder).encode('ascii'))
+        try:
+            for m in callAPI(self, targetname, methodname, params):
+                yield m
+        except Exception as exc:
+            if parent.errordetails:
+                parent._logger.warning('Web API call failed for %r/%r', targetname, methodname, exc_info = True)
+                env.startResponse(500, [(b'Content-Type', b'application/json')])
+                err = {'error': str(exc)}
+                if parent.errortrace:
+                    err['trace'] = traceback.format_exc()
+                env.outputjson(err)
+            else:
+                raise
+        else:
+            env.header('Content-Type', 'application/json')
+            env.outputdata(json.dumps({'result':self.retvalue}, default=self.jsonencoder.jsonencoder).encode('ascii'))
     def start(self, asyncStart=False):
         HttpHandler.start(self, asyncStart=asyncStart)
         path = self.parent.rootpath.encode('utf-8')
@@ -93,6 +106,8 @@ class WebAPI(Module):
     _default_allowtargets = None
     _default_denytargets = None
     _default_typeextension = True
+    _default_errordetails = True
+    _default_errortrace = False
     service = False
     def __init__(self, server):
         '''

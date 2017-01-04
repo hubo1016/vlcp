@@ -131,7 +131,10 @@ def _str(s, encoding = 'ascii'):
         return s
 
 def _bytes(s, encoding = 'ascii'):
-    return s.encode(encoding)
+    if isinstance(s, bytes):
+        return s
+    else:
+        return s.encode(encoding)
 
 class WebException(IOError):
     pass
@@ -426,6 +429,12 @@ class WebClient(Configurable):
                 if resp.iserror and not ignorewebexception:
                     try:
                         exc = WebException(resp.fullstatus)
+                        if autodecompress and resp.stream:
+                            ce = resp.get_header('Content-Encoding', '')
+                            if ce.lower() == 'gzip' or ce.lower() == 'x-gzip':
+                                resp.stream.getEncoderList().append(encoders.gzip_decoder())
+                            elif ce.lower() == 'deflate':
+                                resp.stream.getEncoderList().append(encoders.deflate_decoder())
                         for m in resp.stream.read(container, 4096):
                             yield m
                         exc.response = resp

@@ -859,63 +859,77 @@ class ViperFlow(Module):
             self.app_routine.retvalue = {"status":'OK'}
 
     def listphysicalports(self,name = None,physicalnetwork = None,vhost='',
-            systemid='%',bridge='%',**args):
+            systemid='%',bridge='%',**kwargs):
         "list physicalports info"
-        def set_walker(key,set,walk,save):
-            if set is None:
-                return
-            for weakobj in set.dataset():
-                phyportkey = weakobj.getkey()
-
-                try:
-                    phyport = walk(phyportkey)
-                except:
-                    pass
-                else:
-                    if not physicalnetwork:
-                        if all(getattr(phyport,k,None) == v for k,v in args.items()):
-                            save(phyportkey)
-                    else:
-    
-                        try:
-                            phynet = walk(phyport.physicalnetwork.getkey())
-                        except:
-                            pass
-                        else:
-                            if phynet.id == physicalnetwork:
-                                if all(getattr(phyport,k,None) == v for k,v in args.items()):
-                                    save(phyportkey)
-
-        def walker_func(set_func):
-
-            def walker(key,obj,walk,save):
-                if obj is None:
-                    return
-                set_walker(key,set_func(obj),walk,save)
-
-            return walker
-
-        if not name:
-            # get all physical port
-            phyportsetkey = PhysicalPortSet.default_key()
-            # an unique id used to unwatch
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
-
-            for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[phyportsetkey],
-                'walkerdict':{phyportsetkey:walker_func(lambda x:x.set)},
-                'requestid':reqid}):
-                yield m
-            keys,values = self.app_routine.retvalue
-            # dump will get reference
-            with watch_context(keys,values,reqid,self.app_routine):
-                self.app_routine.retvalue = [dump(r) for r in values]
-
-        else:
+        if name:
             phyportkey = PhysicalPort.default_key(vhost,systemid,bridge,name)
 
-            for m in self._dumpone(phyportkey,args):
+            for m in self._dumpone(phyportkey,kwargs):
                 yield m
+        else:
+            if physicalnetwork:
+                # special physicalnetwork , find it in map , filter it ..
+                physical_map_key = PhysicalNetworkMap.default_key(physicalnetwork)
+
+                self._reqid += 1
+                reqid = ('viperflow',self._reqid)
+
+                def walk_map(key,value,walk,save):
+                    if value is None:
+                        return
+
+                    for weakobj in value.ports.dataset():
+                        phyport_key = weakobj.getkey()
+
+                        try:
+                            phyport_obj = walk(phyport_key)
+                        except KeyError:
+                            pass
+                        else:
+                            if all(getattr(phyport_obj,k,None) == v for k ,v in kwargs.items()):
+                                save(phyport_key)
+
+                for m in callAPI(self.app_routine,'objectdb','walk',{"keys":[physical_map_key],
+                                        "walkerdict":{physical_map_key:walk_map},
+                                        "requestid":reqid}):
+                    yield m
+
+                keys,values = self.app_routine.retvalue
+
+                with watch_context(keys,values,reqid,self.app_routine):
+                    self.app_routine.retvalue = [dump(r) for r in values]
+
+            else:
+                # find it in all, , filter it ,,
+                phyport_set_key = PhysicalPortSet.default_key()
+
+                self._reqid += 1
+                reqid = ('viperflow',self._reqid)
+
+                def walk_set(key,value,walk,save):
+                    if value is None:
+                        return
+
+                    for weakobj in value.set.dataset():
+                        phyport_key = weakobj.getkey()
+
+                        try:
+                            phyport_obj = walk(phyport_key)
+                        except KeyError:
+                            pass
+                        else:
+                            if all(getattr(phyport_obj,k,None) == v for k,v in kwargs.items()):
+                                save(phyport_key)
+
+                for m in callAPI(self.app_routine,'objectdb','walk',{"keys":[phyport_set_key],
+                                        "walkerdict":{phyport_set_key:walk_set},
+                                        "requestid":reqid}):
+                    yield m
+
+                keys, values = self.app_routine.retvalue
+
+                with watch_context(keys,values,reqid,self.app_routine):
+                    self.app_routine.retvalue = [dump(r) for r in values]
 
     def createlogicalnetwork(self,physicalnetwork,id = None,**kwargs):
         "create logicalnetwork info,return creared info"
@@ -1329,63 +1343,76 @@ class ViperFlow(Module):
 
             self.app_routine.retvalue = {"status":'OK'}
 
-    def listlogicalnetworks(self,id = None,physicalnetwork = None,**args):
+    def listlogicalnetworks(self,id = None,physicalnetwork = None,**kwargs):
         "list logcialnetworks infos"
-        def set_walker(key,set,walk,save):
-            if set is None:
-                return
-            for weakobj in set.dataset():
-                lgnetkey = weakobj.getkey()
+        if id:
+            # special id ,, find it,, filter it
+            lgnetkey = LogicalNetwork.default_key(id)
 
-                try:
-                    lgnet = walk(lgnetkey)
-                except KeyError:
-                    pass
-                else:
-                    if not physicalnetwork:
-                        if all(getattr(lgnet,k,None) == v for k,v in args.items()):
-                            save(lgnetkey)
-                    else:
+            for m in self._dumpone(lgnetkey,kwargs):
+                yield m
+
+        else:
+            if physicalnetwork:
+                # special physicalnetwork , find it in physicalnetwork,  filter it
+                self._reqid += 1
+                reqid = ('viperflow',self._reqid)
+
+                physicalnetwork_map_key = PhysicalNetworkMap.default_key(physicalnetwork)
+
+                def walk_map(key,value,walk,save):
+                    if value is None:
+                        return
+
+                    for weakobj in value.logicnetworks.dataset():
+                        lgnet_key = weakobj.getkey()
+
                         try:
-                            phynet = walk(lgnet.physicalnetwork.getkey())
+                            lgnet_obj = walk(lgnet_key)
                         except KeyError:
                             pass
                         else:
-                            if phynet.id == physicalnetwork:
-                                if all(getattr(lgnet,k,None) == v for k,v in args.items()):
-                                    save(lgnetkey)
+                            if all(getattr(lgnet_obj,k,None) == v for k ,v in kwargs.items()):
+                                save(lgnet_key)
 
-        def walker_func(set_func):
+                for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[physicalnetwork_map_key],
+                                        'walkerdict':{physicalnetwork_map_key:walk_map},
+                                        'requestid':reqid}):
+                    yield m
 
-            def walker(key,obj,walk,save):
-                if obj is None:
-                    return
-                set_walker(key,set_func(obj),walk,save)
+                keys,values = self.app_routine.retvalue
 
-            return walker
+                with watch_context(keys,values,reqid,self.app_routine):
+                    self.app_routine.retvalue = [dump(r) for r in values]
+            else:
+                # find it in all set , filter it
+                self._reqid += 1
+                reqid = ('viperflow',self._reqid)
+                lgnet_set_key = LogicalNetworkSet.default_key()
 
-        if not id:
-            # get all logical network
-            lgnetsetkey = LogicalNetworkSet.default_key()
-            # an unique id used to unwatch
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
+                def walk_set(key,value,walk,save):
+                    if value is None:
+                        return
 
-            for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[lgnetsetkey],
-                'walkerdict':{lgnetsetkey:walker_func(lambda x:x.set)},
-                'requestid':reqid}):
-                yield m
-            keys,values = self.app_routine.retvalue
+                    for weakobj in value.set.dataset():
+                        lgnet_key = weakobj.getkey()
 
-            # dump will get reference
-            with watch_context(keys,values,reqid,self.app_routine):
-                self.app_routine.retvalue = [dump(r) for r in values]
+                        try:
+                            lgnet_obj = walk(lgnet_key)
+                        except KeyError:
+                            pass
+                        else:
+                            if all(getattr(lgnet_obj,k,None) == v for k,v in kwargs.items()):
+                                save(lgnet_key)
 
-        else:
-            lgnetkey = LogicalNetwork.default_key(id)
+                for m in callAPI(self.app_routine,"objectdb","walk",{'keys':[lgnet_set_key],
+                                    "walkerdict":{lgnet_set_key:walk_set},"requestid":reqid}):
+                    yield m
 
-            for m in self._dumpone(lgnetkey,args):
-                yield m
+                keys,values = self.app_routine.retvalue
+
+                with watch_context(keys,values,reqid,self.app_routine):
+                    self.app_routine.retvalue = [dump(r) for r in values]
 
     def createlogicalport(self,logicalnetwork,id=None,subnet=None,**args):
         "create logicalport info,return created info"
@@ -1773,61 +1800,73 @@ class ViperFlow(Module):
 
     def listlogicalports(self,id = None,logicalnetwork = None,**kwargs):
         "list logicalports infos"
-        def set_walker(key,set,walk,save):
-            if set is None:
-                return
-            for weakobj in set.dataset():
-                lgportkey = weakobj.getkey()
-
-                try:
-                    lgport = walk(lgportkey)
-                except KeyError:
-                    pass
-                else:
-                    if not logicalnetwork:
-                        if all(getattr(lgport,k,None) == v for k,v in kwargs.items()):
-                            save(lgportkey)
-                    else:
-                        try:
-                            lgnet = walk(lgport.network.getkey())
-                        except:
-                            pass
-                        else:
-                            if lgnet.id == logicalnetwork:
-                                if all(getattr(lgport,k,None) == v for k,v in kwargs.items()):
-                                    save(lgportkey)
-
-        def walker_func(set_func):
-
-            def walker(key,obj,walk,save):
-                if obj is None:
-                    return
-                set_walker(key,set_func(obj),walk,save)
-
-            return walker
-
-        if not id:
-            # get all logical ports
-            lgportsetkey = LogicalPortSet.default_key()
-            # an unique id used to unwatch
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
-
-            for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[lgportsetkey],
-                'walkerdict':{lgportsetkey:walker_func(lambda x:x.set)},
-                'requestid':reqid}):
-                yield m
-            keys,values = self.app_routine.retvalue
-
-            # dump will get reference
-            with watch_context(keys,values,reqid,self.app_routine):
-                self.app_routine.retvalue = [dump(r) for r in values]
-
-        else:
+        if id:
+            # special id ,  find it ,, filter it
             lgportkey = LogicalPort.default_key(id)
 
             for m in self._dumpone(lgportkey,kwargs):
                 yield m
+        else:
+            if logicalnetwork:
+                # special logicalnetwork , find in logicalnetwork map , filter it
+                lgnet_map_key = LogicalNetworkMap.default_key(logicalnetwork)
+
+                self._reqid += 1
+                reqid = ('viperflow',self._reqid)
+
+                def walk_map(key,value,walk,save):
+                    if value is None:
+                        return
+
+                    for weakobj in value.ports.dataset():
+                        lgportkey = weakobj.getkey()
+                        try:
+                            lgport_obj = walk(lgportkey)
+                        except KeyError:
+                            pass
+                        else:
+                            if all(getattr(lgport_obj,k,None) == v for k,v in kwargs.items()):
+                                save(lgportkey)
+
+                for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[lgnet_map_key],
+                                    'walkerdict':{lgnet_map_key:walk_map},
+                                    'requestid':reqid}):
+                    yield m
+
+                keys,values = self.app_routine.retvalue
+
+                with watch_context(keys,values,reqid,self.app_routine):
+                    self.app_routine.retvalue = [dump(r) for r in values]
+
+            else:
+                logport_set_key = LogicalPortSet.default_key()
+
+                self._reqid += 1
+                reqid = ('viperflow',self._reqid)
+
+                def walk_set(key,value,walk,save):
+                    if value is None:
+                        return
+
+                    for weakobj in value.set.dataset():
+                        lgportkey = weakobj.getkey()
+                        try:
+                            lgport_obj = walk(lgportkey)
+                        except KeyError:
+                            pass
+                        else:
+                            if all(getattr(lgport_obj,k,None) == v for k,v in kwargs.items()):
+                                save(lgportkey)
+
+                for m in callAPI(self.app_routine,"objectdb","walk",{'keys':[logport_set_key],
+                                                "walkerdict":{logport_set_key:walk_set},
+                                                "requestid":reqid}):
+                    yield m
+
+                keys,values = self.app_routine.retvalue
+
+                with watch_context(keys,values,reqid,self.app_routine):
+                    self.app_routine.retvalue = [dump(r) for r in values]
 
     def createsubnet(self,logicalnetwork,cidr,id=None,**kwargs):
         "create subnet info"
@@ -2146,60 +2185,74 @@ class ViperFlow(Module):
 
     def listsubnets(self,id = None,logicalnetwork=None,**kwargs):
         "list subnets infos"
-        def set_walker(key,set,walk,save):
+        if id:
+            # special id , find it ,, filter it
+            subnet_key = SubNet.default_key(id)
 
-            for weakobj in set.dataset():
-                subnetkey = weakobj.getkey()
-
-                try:
-                    subnet = walk(subnetkey)
-                except KeyError:
-                    pass
-                else:
-                    if not logicalnetwork:
-                        if all(getattr(subnet,k,None) == v for k,v in kwargs.items()):
-                            save(subnetkey)
-                    else:
-                        try:
-                            lgnet = walk(subnet.network.getkey())
-                        except:
-                            pass
-                        else:
-                            if lgnet.id == logicalnetwork:
-                                if all(getattr(subnet,k,None) == v for k,v in kwargs.items()):
-                                    save(subnetkey)
-
-        def walker_func(set_func):
-
-            def walker(key,obj,walk,save):
-                if obj is None:
-                    return
-                set_walker(key,set_func(obj),walk,save)
-
-            return walker
-
-        if not id:
-            # get all subnets
-            subnetsetkey = SubNetSet.default_key()
-            # an unique id used to unwatch
-            self._reqid += 1
-            reqid = ('viperflow',self._reqid)
-
-            for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[subnetsetkey],
-                'walkerdict':{subnetsetkey:walker_func(lambda x:x.set)},
-                'requestid':reqid}):
+            for m in self._dumpone(subnet_key,kwargs):
                 yield m
-            keys,values = self.app_routine.retvalue
-
-            # dump will get reference
-            with watch_context(keys,values,reqid,self.app_routine):
-                self.app_routine.retvalue = [dump(r) for r in values]
 
         else:
-            subnetkey = SubNet.default_key(id)
+            if logicalnetwork:
+                # special logicalnetwork ,, find in logicalnetwork ,, filter it
 
-            for m in self._dumpone(subnetkey,kwargs):
-                yield m
+                def walk_map(key,value,walk,save):
+                    if value is None:
+                        return
+
+                    for weakobj in value.subnets.dataset():
+                        subnet_key = weakobj.getkey()
+                        try:
+                            subnet_obj = walk(subnet_key)
+                        except KeyError:
+                            pass
+                        else:
+                            if all(getattr(subnet_obj,k,None) == v for k,v in kwargs.items()):
+                                save(subnet_key)
+
+                lgnetmap_key = LogicalNetworkMap.default_key(logicalnetwork)
+
+                self._reqid += 1
+                reqid = ("viperflow",self._reqid)
+
+                for m in callAPI(self.app_routine,"objectdb","walk",{'keys':[lgnetmap_key],
+                                        'walkerdict':{lgnetmap_key:walk_map},"requestid":reqid}):
+                    yield m
+
+                keys, values = self.app_routine.retvalue
+
+                with watch_context(keys,values,reqid,self.app_routine):
+                    self.app_routine.retvalue = [dump(r) for r in values]
+            else:
+                # find in all set ,, filter it
+                subnet_set_key = SubNetSet.default_key()
+
+                self._reqid += 1
+                reqid = ('viperflow',self._reqid)
+
+                def walk_set(key,value,walk,save):
+                    if value is None:
+                        return
+
+                    for weakobj in value.set.dataset():
+                        subnet_key = weakobj.getkey()
+
+                        try:
+                            subnet_obj = walk(subnet_key)
+                        except KeyError:
+                            pass
+                        else:
+                            if all(getattr(subnet_obj,k,None) == v for k,v in kwargs.items()):
+                                save(subnet_key)
+
+                for m in callAPI(self.app_routine,"objectdb","walk",{'keys':[subnet_set_key],
+                                    'walkerdict':{subnet_set_key:walk_set},'requestid':reqid}):
+                    yield m
+
+                keys,values = self.app_routine.retvalue
+
+                with watch_context(keys,values,reqid,self.app_routine):
+                    self.app_routine.retvalue = [dump(r) for r in values]
 
     # the first run as routine going
     def load(self,container):

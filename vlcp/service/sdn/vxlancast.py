@@ -27,6 +27,8 @@ from vlcp.service.sdn import ovsdbportmanager
 from vlcp.utils import ovsdb
 from vlcp.utils.dataobject import updater, ReferenceObject
 from time import time
+import vlcp.utils.vxlandiscover as vxlandiscover
+from vlcp.utils.vxlandiscover import get_broadcast_ips
 
 @withIndices('connection', 'logicalnetworkid', 'type')
 class VXLANGroupChanged(Event):
@@ -66,6 +68,7 @@ class VXLANUpdater(FlowUpdater):
         self._buffered_packets = {}
         # LogicalNetworkID -> PhysicalPortNo map
         self._current_groups = {}
+        self._walk_lognet = vxlandiscover.lognet_vxlan_walker(self._parent.prepush)
     def wait_for_group(self, container, networkid, timeout = 30):
         if networkid in self._current_groups:
             container.retvalue = self._current_groups[networkid]
@@ -93,47 +96,7 @@ class VXLANUpdater(FlowUpdater):
             if hasattr(self, '_refresh_handler_routine'):
                 self._refresh_handler_routine.close()
             if hasattr(self, '_query_packet_handler_routine'):
-                self._query_packet_handler_routine.close()
-    def _walk_lognet(self, key, value, walk, save):
-        save(key)
-        if value is None:
-            return
-        try:
-            phynet = walk(value.physicalnetwork.getkey())
-        except KeyError:
-            pass
-        else:
-            if phynet is not None and getattr(phynet, 'type') == 'vxlan':
-                try:
-                    vxlan_endpoint_key = VXLANEndpointSet.default_key(value.id)
-                    walk(vxlan_endpoint_key)
-                except KeyError:
-                    pass
-                else:
-                    save(vxlan_endpoint_key)
-                if self._parent.prepush:
-                    # Acquire all logical ports
-                    try:
-                        netmap = walk(LogicalNetworkMap.default_key(value.id))
-                    except KeyError:
-                        pass
-                    else:
-                        save(netmap.getkey())
-                        for logport in netmap.ports.dataset():
-                            try:
-                                _ = walk(logport.getkey())
-                            except KeyError:
-                                pass
-                            else:
-                                save(logport.getkey())
-                            try:
-                                _, (portid,) = LogicalPort._getIndices(logport.getkey())
-                                portinfokey = LogicalPortVXLANInfo.default_key(portid)
-                                _ = walk(portinfokey)
-                            except KeyError:
-                                pass
-                            else:
-                                save(portinfokey)                                
+                self._query_packet_handler_routine.close()                           
     def reset_initialkeys(self, keys, values):
         if self._parent.prepush:
             self._watched_maps = [k for k,v in zip(keys, values)
@@ -410,14 +373,14 @@ class VXLANUpdater(FlowUpdater):
                 phyport = [(p,v) for p,v in lastphyportinfo.items() if v[0] == phynet]
                 if phyport:
                     phyport = phyport[0]
-                    removed_ports[logport] = phyport[1][2]
+                    removed_ports[logport.id] = phyport[1][2]
         def _create_port_tun(lognet, logport):
             if lognet in currentlognetinfo:
                 phynet, _ = currentlognetinfo[lognet]
                 phyport = [(p,v) for p,v in currentphyportinfo.items() if v[0] == phynet]
                 if phyport:
                     phyport = phyport[0]
-                    created_ports[logport] = phyport[1][2]
+                    created_ports[logport.id] = phyport[1][2]
         for logport, (lognet, _, _) in lastlogportinfo.items():
             if lognet in transact_networks:
                 _remove_port_tun(lognet, logport)
@@ -432,76 +395,23 @@ class VXLANUpdater(FlowUpdater):
         for logport, (lognet, _, _) in currentlogportinfo.items():
             if lognet in transact_networks:
                 _create_port_tun(lognet, logport)
-        all_tun_ports = set(created_ports.keys()).union(set(removed_ports.keys()))
-        if transact_networks or all_tun_ports:
-            def do_transact():
-                network_list = list(transact_networks)
-                vxlanendpoint_list = [VXLANEndpointSet.default_key(n.id) for n in network_list]
-                all_tun_ports2 = list(all_tun_ports)
-                def update_vxlanendpoints(keys, values, timestamp):
-                    # values = List[VXLANEndpointSet]
-                    # endpointlist is [src_ip, vhost, systemid, bridge, expire]
-                    for v,n in zip(values[0:len(network_list)], network_list):
-                        if v is not None:
-                            v.endpointlist = [ep for ep in v.endpointlist
-                                              if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge)
-                                              and ep[4] >= timestamp]
-                            if n is not None and not n.isdeleted() and n.physicalnetwork in unique_phyports:
-                                phyport = unique_phyports[n.physicalnetwork]
-                                if phyport in currentphyportinfo:
-                                    v.endpointlist.append([currentphyportinfo[phyport][2],
-                                              ovsdb_vhost,
-                                              system_id,
-                                              bridge,
-                                              None if self._parent.refreshinterval is None else
-                                                    self._parent.refreshinterval * 1000000 * 2 + timestamp
-                                              ])
-                    written_values = {}
-                    if all_tun_ports2:
-                        for k,v,vxkey,vxinfo in zip(keys[len(network_list):len(network_list) + len(all_tun_ports2)],
-                                       values[len(network_list):len(network_list) + len(all_tun_ports2)],
-                                       keys[len(network_list) + len(all_tun_ports2):len(network_list) + 2 * len(all_tun_ports2)],
-                                       values[len(network_list) + len(all_tun_ports2):len(network_list) + 2 * len(all_tun_ports2)]):
-                            if v is None:
-                                if vxinfo is not None:
-                                    # The port is deleted? Then we should also delete the vxinfo
-                                    written_values[vxkey] = None
-                            else:
-                                portref = v.create_reference()
-                                if portref in created_ports:
-                                    if vxinfo is None:
-                                        vxinfo = LogicalPortVXLANInfo.create_from_key(vxkey)
-                                    # There maybe more than one endpoint at the same time (on migrating)
-                                    # so we keep all possible endpoints, but move our endpoint to the first place
-                                    myendpoint = {'vhost': ovsdb_vhost,
-                                                  'systemid': system_id,
-                                                  'bridge': bridge,
-                                                  'tunnel_dst': created_ports[portref],
-                                                  'updated_time': timestamp}
-                                    vxinfo.endpoints = [ep for ep in vxinfo.endpoints
-                                                        if ep['updated_time'] + self._parent.allowedmigrationtime * 1000000 >= timestamp
-                                                        and (ep['vhost'], ep['systemid'], ep['bridge']) != (ovsdb_vhost, system_id, bridge)]
-                                    vxinfo.endpoints = [myendpoint] + vxinfo.endpoints
-                                    written_values[vxkey] = vxinfo
-                                elif portref in removed_ports:
-                                    if vxinfo is not None:
-                                        # Remove endpoint
-                                        vxinfo.endpoints = [ep for ep in vxinfo.endpoints
-                                                            if (ep['vhost'], ep['systemid'], ep['bridge']) != (ovsdb_vhost, system_id, bridge)]
-                                        if not vxinfo.endpoints:
-                                            written_values[vxkey] = None
-                                        else:
-                                            written_values[vxkey] = vxinfo
-                    written_values_list = tuple(written_values.items())
-                    return (tuple(itertools.chain(keys[:len(network_list)], (k for k,_ in written_values_list))),
-                            tuple(itertools.chain(values[:len(network_list)], (v for _,v in written_values_list))))
-                for m in callAPI(self, 'objectdb', 'transact', {'keys': tuple(vxlanendpoint_list + [p.getkey() for p in all_tun_ports2] +
-                                                                              [LogicalPortVXLANInfo.default_key(p.id) for p in all_tun_ports2]),
-                                                                'updater': update_vxlanendpoints,
-                                                                'withtime': True
-                                                                }):
-                    yield m
-            subroutines.append(do_transact())
+        if transact_networks or created_ports or removed_ports:
+            # Network -> IP dictionary
+            network_ip_dict = {}
+            for n in transact_networks:
+                if n is not None and not n.isdeleted() and n.physicalnetwork in unique_phyports:
+                    phyport = unique_phyports[n.physicalnetwork]
+                    if phyport in currentphyportinfo:
+                        network_ip_dict[n.id] = currentphyportinfo[phyport][2]
+                    else:
+                        network_ip_dict[n.id] = None
+                else:
+                    network_ip_dict[n.id] = None
+            subroutines.append(vxlandiscover.update_vxlaninfo(self, network_ip_dict,
+                                                              created_ports, removed_ports,
+                                                              ovsdb_vhost, system_id, bridge,
+                                                              self._parent.allowedmigrationtime,
+                                                              self._parent.refreshinterval))
         # We must create broadcast groups for VXLAN logical networks, using the information in VXLANEndpointSet
         group_cmds = []
         created_groups = {}
@@ -529,10 +439,8 @@ class VXLANUpdater(FlowUpdater):
                         phyport = unique_phyports[phynet]
                         if phyport in currentphyportinfo:
                             _, portid, localip = currentphyportinfo[phyport]
-                            localip_addr = _get_ip(localip, ofdef)
-                            allips = [ip for ip in (_get_ip(ep[0], ofdef) for ep in ve.endpointlist
-                                      if (ep[1], ep[2], ep[3]) != (ovsdb_vhost, system_id, bridge))
-                                      if ip is not None and ip != localip_addr]
+                            allips = [ipnum for _,ipnum in get_broadcast_ips(ve, [localip],
+                                                                             ovsdb_vhost, system_id, bridge)]
                             created_groups[netid] = portid
                             group_cmds.append(
                                 ofdef.ofp_group_mod(

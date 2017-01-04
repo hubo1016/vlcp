@@ -80,6 +80,7 @@ class ObjectDB(Module):
                        api(self.watch, self.apiroutine),
                        api(self.munwatch, self.apiroutine),
                        api(self.unwatch, self.apiroutine),
+                       api(self.unwatchall, self.apiroutine),
                        api(self.transact, self.apiroutine),
                        api(self.watchlist),
                        api(self.walk, self.apiroutine)
@@ -584,6 +585,11 @@ class ObjectDB(Module):
         for m in self.munwatch([key], requestid):
             yield m
         self.apiroutine.retvalue = None
+    def unwatchall(self, requestid):
+        "Cancel management for all keys that are managed by requestid"
+        keys = [k for k,v in self._watches.items() if requestid in v]
+        for m in self.munwatch(keys, requestid):
+            yield m
     def munwatch(self, keys, requestid):
         "Cancel management of keys"
         keys = tuple(_str2(k) for k in keys)
