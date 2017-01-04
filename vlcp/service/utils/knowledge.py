@@ -17,6 +17,7 @@ class Knowledge(Module):
     Data is automatically removed after timeout.
     Use knowledge instead of local storage in modules so data is not lost on module restarting.
     '''
+    # Check current data set, remove the expired data
     _default_checkinterval = 300
     service = True
     def __init__(self, server):

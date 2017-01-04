@@ -8,6 +8,7 @@ from vlcp.event.connection import ConnectionWriteEvent
 from vlcp.event.core import syscall_clearqueue, syscall_removequeue, syscall_clearremovequeue
 from logging import getLogger
 from socket import SOL_SOCKET, SO_ERROR
+from ssl import PROTOCOL_SSLv23
 import errno
 
 @defaultconfig
@@ -15,17 +16,44 @@ class Protocol(Configurable):
     '''
     Protocol base class
     '''
+    # Message event priority for this protocol
     _default_messagepriority = 400
+    # Data write event priority for this protocol
     _default_writepriority = 600
+    # Create separated queues for data write events from each connection
     _default_createqueue = False
+    # Wait before cleanup the created queues for each connection
     _default_cleanuptimeout = 60
+    # Data write event queue size for each connection
     _default_writequeuesize = 10
+    # Message event queue size for each connection
     _default_messagequeuesize = 10
+    # Enable keep-alive for this protocol: send protocol specified keep-alive packages when
+    # the connection idles to detect the connection liveness
     _default_keepalivetime = None
+    # Use SO_REUSEPORT socket option for the connections, so that multiple processes can bind to
+    # the same port; can be used to create load-balanced services
     _default_reuseport = False
+    # This protocol should automatically reconnect when the connection is disconnected unexpectedly
+    _default_persist = False
+    # Default read buffer size for this protocol. When the buffer is not large enough to contain a
+    # single message, the buffer will automatically be enlarged.
+    _default_buffersize = 4096
+    # Connect timeout for this protocol
+    _default_connect_timeout = 30
+    # Enable TCP_NODELAY option for this protocol
+    _default_tcp_nodelay = False
+    # Enabled SSL version, default to PROTOCOL_SSLv23, configure it to a TLS version for more security
+    _default_sslversion = PROTOCOL_SSLv23
+    # Server socket should retry listening if failed to bind to the specified address
+    _default_listen_persist = True
+    # Retry interval for listen
+    _default_retrylisten_interval = 3
+    # Default listen backlog size
+    _default_backlogsize = 2048
+    
     vhost = '<other>'
     _logger = getLogger(__name__ + '.Protocol')
-    _default_tcp_nodelay = False
     def __init__(self):
         '''
         Constructor

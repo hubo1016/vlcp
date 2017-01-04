@@ -36,8 +36,11 @@ class RedisClientBase(Configurable):
     '''
     Connect to Redis server
     '''
+    # Default connection URL for Redis client
     _default_url = 'tcp://localhost/'
+    # Wait for the connection setup before raise an exception
     _default_timeout = 10
+    # Select database
     _default_db = 0
     def __init__(self, conn = None, parent = None, protocol = None):
         Configurable.__init__(self)

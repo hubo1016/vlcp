@@ -2078,26 +2078,35 @@ class L3Router(FlowBase):
         ("l3output", ("l3router",), "l3"),
         ("l2output", ("l3output",), "")
     )
-
+    # Router responding MAC address for logical ports on this switch
     _default_inroutermac = '1a:23:67:59:63:33'
+    # Router responding MAC address mask for outside network. The MAC address
+    # is formed with the physical MAC address (NIC MAC address) XORed with this
+    # mask
     _default_outroutermacmask = '0a:00:00:00:00:00'
+    # Retry ARP requests with this interval when there is no respond
     _default_arp_cycle_time = 5
+    # Prepush ARP entries for all the logical ports which are accessible from the router
     _default_prepush = False
 
     # if arp entry have no reply ,  it will send in arp cycle until timeout
     # but if new packet request arp ,, it will flush this timeout in arp entry
     _default_arp_incomplete_timeout = 60
-
+    # an ARP entry stays in "COMPLETE" state without sending further ARP requests
+    # until this time
     _default_arp_complete_timeout = 30
-
+    # The L3 gateway buffers a packet and wait for ARP responds until this time
     _default_buffer_packet_timeout = 30
-
+    # Refresh external IPs (external gateway address) ARP (MAC-IP corresponding)
     _default_static_host_arp_refresh_interval = 60
-
+    # Enable forwarding in this server, so it becomes a forwarding node (also known as a N/S gateway)
+    # This should be set together with module.ioprocessing.enable_router_forward
     _default_enable_router_forward = False
-
+    # A forwarding node will acquire a IP address from an external network, and refresh the information
+    # to keep the acquire state. This is the refresh interval.
     _default_addressinfo_discover_update_time = 150
-
+    # A forwarding node will acknowledge other nodes that it is ready to forward network traffic from
+    # other nodes, this is the fresh interval
     _default_forwardinfo_discover_update_time = 15
 
     def __init__(self, server):

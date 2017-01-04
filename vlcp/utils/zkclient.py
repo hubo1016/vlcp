@@ -50,11 +50,19 @@ _should_add_watch = set(((zk.CREATED_EVENT_DEF, zk.ZOO_ERR_NONODE),))
 
 @config('zookeeperclient')
 class ZooKeeperClient(Configurable):
+    # Default ZooKeeper server list, should be a list contains connection URLs
     _default_serverlist = []
+    # Chroot to a child node instead of the root node. All paths used in the program
+    # will be mapped to *chroot_path*/*path*
     _default_chroot = '/'
+    # Extra authentications, should be list of tuples [(scheme1, auth1), (scheme2, auth2), ...]
     _default_auth = []
+    # Zookeeper session timeout
     _default_sessiontimeout = 20
-    _default_rebalancetime = 3600
+    # If not None, ZooKeeperClient will disconnect from the server and reconnect to a random server
+    # to make sure the connections to ZooKeeper servers are balanced. It sometimes causes problems,
+    # so it is disabled by default.
+    _default_rebalancetime = None
     _logger = logging.getLogger(__name__ + '.ZooKeeperClient')
     def __init__(self, container, serverlist = None, chroot = None, protocol = None, readonly = False,
                  restart_session = True):

@@ -96,17 +96,39 @@ class WebAPI(Module):
     Call module API from web. Free access to any module APIs may create serious security problems,
     make sure to configure this module properly.
     '''
+    # Default bind HttpServer vHost to 'api', so you should use
+    #     module.httpserver.vhost.api.url='http://localhost:8080/'
+    # to create the API endpoint
     _default_vhostbind = 'api'
+    # Bind to a specified Host (HTTP "Host: " header)
     _default_hostbind = None
+    # Bind API endpoint under this path. Each endpoint would be <rootpath>/<targetname>/<methodname>.
+    # e.g. Manager.reloadmodules would be
+    #     http://*serverurl*/*rootpath*/manager/reloadmodules
+    # targetname and methodnames are always in lower case
     _default_rootpath = '/'
+    # Allowed HTTP method, GET/POST or both
     _default_acceptmethods = [b'GET', b'POST']
+    # Allow to use JSON format for POST data
     _default_acceptjson = True
+    # If authenticate is enabled, WebAPI module uses an extra API call to authenticate the request.
+    # This is the target name.
     _default_authtarget = 'public'
+    # If authenticate is enabled, WebAPI module uses an extra API call to authenticate the request.
+    # This is the method name. The params will be {'env': *env*, 'targetname':*targetname*,
+    #     'name': *methodname*, 'params': *parameters*}
     _default_authmethod = None
+    # Only allow API calls on specified targets (usually a target name is the lower-cased module name)
     _default_allowtargets = None
+    # Disallow API calls on specified targets
     _default_denytargets = None
+    # Enable a type extension for GET/POST methods: use `` quoted string to represent a Python literal
+    # expression like lists, tuples, dictionaries, numbers etc.
     _default_typeextension = True
+    # Show error details in error responses with JSON format {"error":...}. If errordetails = False,
+    # the default HTTP error response is used.
     _default_errordetails = True
+    # Also output the trace information in the JSON output
     _default_errortrace = False
     service = False
     def __init__(self, server):

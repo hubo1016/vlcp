@@ -901,8 +901,10 @@ class IOProcessing(FlowBase):
     "Ingress and Egress processing"
     _tablerequest = (("ingress", (), ''),
                      ("egress", ("ingress",),''))
+    # vHost map from OpenFlow vHost to OVSDB vHost. If the OpenFlow vHost is not found in this map,
+    # it will map to the default OVSDB vHost ('')
     _default_vhostmap = {}
-
+    # Enable forwarding in this server, so it becomes a forwarding node (also known as a N/S gateway)
     _default_enable_router_forward = False
 
     def __init__(self, server):

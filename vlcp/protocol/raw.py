@@ -35,8 +35,12 @@ class Raw(Protocol):
     _default_persist = False
     _default_defaultport = 0
     _default_createqueue = True
+    # Enable/disable buffering for the output stream.
+    # It is dangerous to use buffering in output stream because small amount of data might
+    # stay in buffer and not be sent
     _default_buffering = False
     _default_writebufferlimit = 4096
+    # Split very large data to chunks to balance the output streaming
     _default_splitsize = 1048576
     _logger = logging.getLogger(__name__ + '.JsonRPC')
     def __init__(self):

@@ -93,13 +93,24 @@ def decode_object(obj):
 
 @config('jsonformat')
 class JsonFormat(Configurable):
+    # Enable special format for namedstruct (https://pypi.python.org/pypi/nstruct)
     _default_namedstruct = True
+    # Use human read format, so:
+    # namedstruct structures are formatted with readable names;
+    # very long bytes are viewed like \<10000 bytes...\> (Python 3 only)
     _default_humanread = True
+    # In Python 3, Try to decode bytes to str with this encoding 
     _default_bytesdecode = 'ascii'
+    # When bytes object is longer than this and humanread=True, show \<*length* bytes...\>
+    # instead of the exact content
     _default_byteslimit = 256
+    # Dump extra information for namedstruct structures
     _default_dumpextra = False
+    # Dump type information for namedstruct structures
     _default_dumptypeinfo = 'flat'
+    # Dump the content for data objects
     _default_dataobject = True
+    # Dump attributes for data objects
     _default_dataattributes = True    
     def jsonencoder(self, obj):
         if isinstance(obj, NamedStruct) and self.namedstruct:

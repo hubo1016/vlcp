@@ -190,38 +190,59 @@ class Http(Protocol):
     Base on RFC723x, which are more strict than RFC2616
     '''
     _default_persist = False
-    _default_connectionlimit = None
-    _default_persourceconnlimit = 50
+    # Limit the pipelining requests that are executed in parallel.
+    # Disable pipelining by setting pipelinelimit = 1
     _default_pipelinelimit = 10
+    # Maximum length for the first line of request or response
     _default_headlinelimit = 8192
+    # Maximum length for a single header
     _default_headerlimit = 1048576
+    # Maximum header count for a single request/response
     _default_headercountlimit = 1024
+    # Maximum length for a chunked header; it is a special header type which is rarely used.
     _default_chunkedheaderlimit = 8192
+    # Maximum chunked header count
     _default_chunkednumberlimit = 16
+    # Enable HTTP/0.9, in which a response does not have headers
     _default_allownoheader = True
+    # Default HTTP protocol
     _default_defaultversion = '1.1'
     # Drop the connection rather than sending a 400 Bad Request
-    # When there is a protocol break in the request or response
+    # when there is a protocol break in the request or response
     _default_fastfail = False
+    # Enable TE: deflate header. Not all implements support this.
     _default_allowtransfercompress = False
-    _default_generatete = False
-    _default_headertimeout = 60
+    # Close a HTTP/1.1 keep-alive connection when idles for a specified time
     _default_idletimeout = 20
+    # Close a connection when "Connection: close" is received after the specified time
     _default_closetimeout = 5
+    # Print debugging logs
     _default_debugging = False
+    # Use Expect: 100-continue for POST requests; not all server supports this
     _default_useexpect = False
+    # If useexpect = True, Use Expect: 100-continue for POST requests with data larger than this size
     _default_useexpectsize = 4096
+    # When 100 Continue response is not received for the specified time, send the data
     _default_expecttimeout = 2
+    # default HTTP port
     _default_defaultport = 80
+    # default HTTPS port
     _default_ssldefaultport = 443
+    # Show error details in error response
     _default_showerrorinfo = False
+    # Use unquoteplus instead of unquote, which means + is recognized as space ' '
     _default_unquoteplus = True
     _logger = logging.getLogger(__name__ + '.HTTP')
+    # A dictionary to rewrite errors in HttpHandler to specified path (without 3xx redirect)
     _default_errorrewrite = {}
+    # A dictionary to redirect errors in HttpHandler to specified path (with 302 Found)
     _default_errorredirect = {}
+    # Priority for response end events
     _default_responseendpriority = 690
+    # Default response headers that are sent from HTTP server to client
     _default_defaultresponseheaders = [(b'Content-Type', b'text/html'), (b'Server', b'VLCP HTTP Server'),
                                     (b'Vary', b'Accept-Encoding')]
+    # Default request headers that are sent from HTTP client to server
     _default_defaultrequestheaders = [(b'Accept', b'*/*'), (b'User-Agent', b'VLCP HTTP Client')]
     _default_tcp_nodelay = True
     def __init__(self, server = True, defaultversion = None):

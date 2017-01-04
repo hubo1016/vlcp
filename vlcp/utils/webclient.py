@@ -331,11 +331,23 @@ class WebClientRequestDoneEvent(Event):
 @config('webclient')
 class WebClient(Configurable):
     "Convenient HTTP request processing. Proxy is not supported in current version."
+    # When a cleanup task is created, the task releases dead connections by this interval
     _default_cleanupinterval = 60
+    # Persist this number of connections at most for each host. If all connections are in
+    # use, new requests will wait until there are free connections.
     _default_samehostlimit = 20
+    # Do not allow multiple requests to the same URL at the same time. If sameurllimit=True,
+    # requests to the same URL will always be done sequential.
     _default_sameurllimit = False
+    # CA file used to verify HTTPS certificates. To be compatible with older Python versions,
+    # the new SSLContext is not enabled currently, so with the default configuration, the
+    # certificates are NOT verified. You may configure this to a .pem file in your system,
+    # usually /etc/pki/tls/cert.pem in Linux.
     _default_cafile = None
+    # When following redirects and the server redirects too many times, raises an exception
+    # and end the process
     _default_redirectlimit = 10
+    # Verify the host with the host in certificate
     _default_verifyhost = True
     def __init__(self, allowcookies = False, cookiejar = None):
         '''

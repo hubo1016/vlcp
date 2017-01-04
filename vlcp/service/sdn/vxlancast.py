@@ -887,13 +887,38 @@ class VXLANCast(FlowBase):
                      ("vxlanoutput", ('l2output','vxlaninput'), ''),
                      ('egress', ('vxlanoutput', 'vxlanlearning'), ''),
                      ("vxlanlearning", ('vxlanoutput',), 'vxlanlearning'))
+    # Enable learning on VXLAN tunnel IP destination.
+    # VXLAN model must know every destination for each unicast MAC address. There are three
+    # working mode the VXLANCast module:
+    # 1. prepush = True, necessary MAC-tunneldst information will be pushed to the logical switch.
+    #    learning = True may also be enabled so that external VXLAN MAC addresses may use learning
+    #    strategy. If learning = False, unknown MAC addresses cannot be forwarded.
+    # 2. learning = True, prepush = False. When a packet is received from a destination, its
+    #    destination tunnel IP address is recorded, a flow is created for this MAC address;
+    #    every packet with an unknown unicast MAC address as its destination will be broadcasted.
+    # 3. learning = False, prepush = False. This enables a first-packet-to-controller strategy:
+    #    When the first packet is going out from the switch, it is transmitted to the controller,
+    #    and the controller queries ObjectDB for the tunnel destination, creates the fast-path
+    #    and retransmit the packet. This may introduce a significant delay for the first packet.
     _default_learning = True
+    # Enable prepush on VXLAN tunnel IP destination, the necessary MAC-tunneldst information
+    # will be written into switch
     _default_prepush = True
+    # Learning flow timeout
     _default_learntimeout = 300
+    # When using first-packet-to-controller strategy, the buffered packets will only be keep for a
+    # short time before expiring
     _default_packetexpire = 3
+    # When using first-packet-to-controller strategy, the created flow will be timeout after this time
     _default_pushtimeout = 300
+    # Mapping OpenFlow vHosts to OVSDB vHosts
     _default_vhostmap = {}
+    # Every logical network has a broadcast list which contains all related server nodes,
+    # this is the refresh interval to keep current node in the list
     _default_refreshinterval = 3600
+    # When a logical port is migrating from one node to another, there may be multiple
+    # instances of the logical port on different or same nodes. This is the maximum time
+    # allowed for the migration.
     _default_allowedmigrationtime = 120
     def __init__(self, server):
         FlowBase.__init__(self, server)

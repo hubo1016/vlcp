@@ -48,16 +48,27 @@ class Openflow(Protocol):
     Openflow control protocol
     '''
     _default_persist = True
+    # Default OpenFlow port
     _default_defaultport = common.OFP_TCP_PORT
+    # Allowed versions for OpenFlow handshake; should be one or both of OFP10_VERSION and OFP13_VERSION
     _default_allowedversions = (common.OFP10_VERSION, common.OFP13_VERSION)
+    # Disconnect when OFPT_HELLO message is not received for a long time
     _default_hellotimeout = 10
+    # Disconnect when OFPT_FEATURES_REQUEST message does not get response
     _default_featurerequesttimeout = 30
+    # Send OFPT_ECHO packet when connection is idle
     _default_keepalivetime = 10
+    # When OFPT_ECHO packet does not get response in the specified time, disconnect
     _default_keepalivetimeout = 3
     _default_createqueue = True
     _default_buffersize = 65536
+    # Show debugging messages in log
     _default_debugging = False
+    # Disable nicira extension; when you are not using VLCP with OpenvSwitch (e.g. using with
+    # physical switches) you should set this to True 
     _default_disablenxext = False
+    # Disable using ofp_action_group in another group: this is only supported in OpenvSwitch 2.5+,
+    # so it is disabled by default
     _default_disablechaining = True
     _logger = logging.getLogger(__name__ + '.Openflow')
     _default_tcp_nodelay = True

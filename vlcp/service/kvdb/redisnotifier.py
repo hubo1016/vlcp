@@ -290,9 +290,15 @@ class RedisNotifier(Module):
     """
     Update notification with Redis Pub/Sub
     """
+    # Bind to RedisDB vHost
     _default_vhostbind = ''
+    # Use this prefix for subscribe channels
     _default_prefix = 'vlcp.updatenotifier.'
+    # If a notification contains more than .singlecastlimit keys, do not replicate the notification
+    # to all channels; only broadcast it once in the public channel.
     _default_singlecastlimit = 256
+    # Use an extra deflate compression on notification, should not be necessary if you already have
+    # module.redisdb.deflate=True
     _default_deflate = False
     def __init__(self, server):
         Module.__init__(self, server)

@@ -441,16 +441,33 @@ class ZooKeeperDB(TcpServerBase):
     '''
     Create zookeeper clients to connect to redis server
     '''
+    # This URL is special comparing to other connection URLs, it should be like:
+    #     zk://server1[:port1],server2[:port2],server3[:port3]/[chroot]
+    # Firstly there may be multiple hosts (and ports) in the connection URL, they
+    # form a ZooKeeper cluster; secondly, there can be a "chroot" path in the URL
+    # path. If "chroot" path apears, ZooKeeperDB uses a child node as the root node,
+    # makes it easy to host multiple services in the same ZooKeeper cluster.
     _default_url = 'tcp://localhost/'
+    # Default serialization protocol, "json" or "pickle"
     _default_serialize = 'json'
+    # Use deflate to compress the serialized data
     _default_deflate = True
+    # Pickle version, either a number or "default"/"highest"
     _default_pickleversion = 'default'
+    # Use cPickle if possible
     _default_cpickle = True
+    # Disable autosuccess; this module is loaded successfully after it initialized the ZooKeeper node.
     _default_autosuccess = False
+    # Only enable ZooKeeper KVDB service on specified vHosts, this service uses ZooKeeper in a special way.
+    # Other vHosts may be used as normal ZooKeeper clients without extra assumption.
     _default_kvdbvhosts = None
-    _default_timeout = 60
+    # Notifier service vHost binding
     _default_notifierbind = ''
+    # If a notification contains more than .singlecastlimit keys, do not replicate the notification
+    # to all channels; only broadcast it once in the public channel.
     _default_singlecastlimit = 32
+    # Use an extra deflate compression on notification, should not be necessary if you already have
+    # .deflate=True
     _default_notifierdeflate = False
     client = True
     def __init__(self, server):

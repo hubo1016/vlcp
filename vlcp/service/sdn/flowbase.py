@@ -12,6 +12,7 @@ from vlcp.event.core import QuitException
 class FlowBase(Module):
     # Table request should be list of (name, (ancester, ancester,...), pathname). For default path, pathname = ''
     _tablerequest = ()
+    # Default binding to OpenFlow vHosts
     _default_vhostbind = [""]
     autosuccess = False
     def __init__(self, server):

@@ -73,15 +73,21 @@ class ZooKeeper(Protocol):
     '''
     ZooKeeper protocol
     '''
-    _default_persist = False        # Usually we should connect to another server
-    _default_defaultport = 2181     
+    # Usually we should connect to another server, this is done by ZooKeeperClient
+    _default_persist = False
+    # default ZooKeeper port
+    _default_defaultport = 2181
     _default_createqueue = True
     _default_buffersize = 4194304
+    # Limit the response and watcher queue size
     _default_messagequeuesize = 1024
+    # Send ping command when the connection is idle
     _default_keepalivetime = 5
+    # Disconnect when the ping command does not receive response
     _default_keepalivetimeout = 10
     _default_connect_timeout = 5
     _default_tcp_nodelay = True
+    # Limit the data write queue size
     _default_writequeuesize = 8192
     _logger = logging.getLogger(__name__ + '.ZooKeeper')
     def init(self, connection):

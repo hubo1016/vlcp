@@ -461,8 +461,8 @@ class VXLANHandler(RoutineContainer):
 
 @defaultconfig
 class VXLANVtep(FlowBase):
+    # Use these VLANs for vtep configuration. Must not be conflicted with VLAN networks.
     _default_vlanid_pool = ((3000, 4000),)
-    _default_refreshinterval = 3600
 
     # remote_api means call remote api to vtep controller
     _default_remote_api = True

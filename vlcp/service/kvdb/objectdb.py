@@ -57,7 +57,10 @@ class _NeedMoreKeysException(Exception):
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
 class ObjectDB(Module):
     service = True
+    # Priority for object update event
     _default_objectupdatepriority = 450
+    # Enable debugging mode for updater: all updaters will be called for an extra time
+    # to make sure it does not crash with multiple calls
     _default_debuggingupdater = False
     def __init__(self, server):
         Module.__init__(self, server)

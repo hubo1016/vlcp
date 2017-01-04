@@ -10,6 +10,7 @@ from vlcp.server.module import Module,callAPI, api
 
 @defaultconfig
 class RemoteCall(Module):
+    # URL list for every target, should be {*target*: [*url*, *url*, ...]}
     _default_target_url_map = {}
 
     def __init__(self,server):

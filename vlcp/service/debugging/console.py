@@ -143,10 +143,19 @@ console_help()
  - show this help
 '''
     service = False
+    # Directly start VLCP in the console mode. By default, the console module creates a
+    # telnet server and wait for a connection. The console can be used in the telnet session.
+    # With startinconsole = True, the module uses stdin/stdout to create the console.
     _default_startinconsole = False
+    # Default telnet connection URL, this is a passive connection on port 9923, so use
+    #     telnet localhost 9923
+    # to connect to the console.
     _default_telnetconsole = 'ptcp://localhost:9923/'
+    # If SSL is configured (with pssl://...), specify the private key file
     _default_key = None
+    # If SSL is configured, specify the certificate file
     _default_certificate = None
+    # If SSL is configured, specify the CA file
     _default_ca_certs = None
     def _service_routine(self):
         self.apiroutine.subroutine(self._intercept_main())

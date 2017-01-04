@@ -10,7 +10,11 @@ import pkgutil
 
 @defaultconfig
 class AutoLoad(Module):
+    '''
+    Auto load some modules from a package. Usually used to load network plugins.
+    '''
     autosuccess = False
+    # Auto load packages from some packages
     _default_autoloadpackages = ('vlcp.service.sdn.plugins',)
     def __init__(self, server):
         Module.__init__(self, server)

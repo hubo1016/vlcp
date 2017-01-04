@@ -51,6 +51,7 @@ class OVSDBManager(Module):
     '''
     service = True
     _default_vhostbind = None
+    # Only acquire information from bridges with this names
     _default_bridgenames = None
     def __init__(self, server):
         Module.__init__(self, server)

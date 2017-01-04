@@ -15,7 +15,11 @@ class Manager(Module):
     '''
     Manage module loading/unloading. Optionally reload a module when modified.
     '''
+    # Check files change with this interval.
     _default_checkinterval = 5
+    # Automatically check the loaded module files, reload them if they are changed on the disk.
+    # Notice that only the file contains the Module class is reloaded, other files will not be
+    # reloaded automatically. You should reload them manually with *reloadmodules* API if necessary.
     _default_autoreload = False
     service = False
     def __init__(self, server):

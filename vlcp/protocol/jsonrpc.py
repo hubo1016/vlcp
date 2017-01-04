@@ -47,15 +47,19 @@ class JsonRPC(Protocol):
     JSON-RPC 1.0 Protocol
     '''
     _default_persist = True
+    # This is the OVSDB default port
     _default_defaultport = 6632
     _default_createqueue = True
+    # Print debugging log
     _default_debugging = False
+    # JSON encoding
     _default_encoding = 'utf-8'
     _default_buffersize = 65536
     # Default limit a JSON message to 16MB for security purpose
     _default_messagelimit = 16777216
     # Default limit JSON scan level to 1024 levels
     _default_levellimit = 1024
+    # Limit the allowed request methods
     _default_allowedrequests = None
     _logger = logging.getLogger(__name__ + '.JsonRPC')
     def __init__(self):

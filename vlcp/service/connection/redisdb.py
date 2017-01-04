@@ -37,14 +37,23 @@ class RedisDB(TcpServerBase):
     '''
     Create redis clients to connect to redis server
     '''
+    # Default Redis connection URL
     _default_url = 'tcp://localhost/'
+    # Default database selected
     _default_db = None
+    # Default serialization protocol: should be "json" or "pickle"
     _default_serialize = 'json'
+    # Use deflate to compress the serialized data
     _default_deflate = True
+    # Pickling version: should be a number or "default"/"highest"
     _default_pickleversion = 'default'
+    # Allow using cPickle
     _default_cpickle = True
+    # Serialize requests on the same key in this process if a transact rolls back too many times
     _default_enterseq = 20
+    # Try to use locks on the same key for all VLCP processes if a transact rolls back too many times
     _default_enterlock = 50
+    # Maximum retry times for a transact
     _default_maxretry = 160
     client = True
     def __init__(self, server):

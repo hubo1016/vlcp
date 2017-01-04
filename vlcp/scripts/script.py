@@ -15,7 +15,9 @@ class ScriptModule(Module):
     Base script module
     '''
     configkey = 'main'
+    # This is not meant to be configured in a configuration file; this is done by the command line executor
     _default_args = ()
+    # This is not meant to be configured in a configuration file; this is done by the command line executor
     _default_kwargs = {}
     options = ()
     def __init__(self, server):

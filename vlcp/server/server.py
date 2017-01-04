@@ -21,45 +21,77 @@ class Server(Configurable):
     '''
     Create a server with all necessary parts
     '''
+    # File-can-write event priority, usually means socket send() can be used
     _default_pollwritepriority = 700
+    # ConnectionWrite events priority
     _default_connectionwritepriority = 600
+    # File-can-read event priority, usually means data received from socket
     _default_pollreadpriority = 500 
+    # error event priority, usually means the socket is in an error status
     _default_pollerrorpriority = 800
+    # responses from resolver
     _default_resolverresppriority = 490
+    # requests to resolver
     _default_resolverreqpriority = 650
+    # shutdown/reset/restart commands for connections
     _default_connectioncontrolpriority = 450
+    # asynchronously starts a routine 
     _default_routinecontrolpriority = 1000
+    # streams (vlcp.event.stream.Stream) data
     _default_streamdatapriority = 640
+    # timers
     _default_timerpriority = 900
+    # a lock can be acquired
     _default_lockpriority = 990
+    # future objects been set
     _default_futurepriority = 989
+    # a module is loaded/unloaded
     _default_moduleloadeventpriority = 890
+    # system high-priority events
     _default_sysctlpriority = 2000
+    # system low-priority events
     _default_sysctllowpriority = 10
+    # module API call
     _default_moduleapicallpriority = 630
+    # module API response
     _default_moduleapireplypriority = 420
+    # module notify
     _default_modulenotifypriority = 410
+    # default connection write queue limit for all connections
     _default_totalwritelimit = 100000
+    # connection write events limit per connection
     _default_writelimitperconnection = 5
+    # preserve space for newly created connections in default connection write queue
     _default_preservefornew = 100
+    # stream data limit for all streams
     _default_streamdatalimit = 100000
+    # stream data limit per stream
     _default_datalimitperstream = 5
+    # the default multi-threading resolver pool size
     _default_resolverpoolsize = 64
+    # try to set open files limit (ulimit -n) to this number if it is smaller
     _default_ulimitn = 32768
+    # startup modules list
     _default_startup = ()
+    # enable debugging log for scheduler
     _default_debugging = False
+    # Use logging.config.dictConfig with this dictionary to configure the logging system.
+    # It is supported in Python 2.7+
+    _default_logging = None
+    # Use logging.config.fileConfig with this file to configure the logging system.
+    _default_loggingconfig = None
     def __init__(self):
         '''
         Constructor
         '''
-        if hasattr(self, 'logging'):
+        if hasattr(self, 'logging') and self.logging is not None:
             if isinstance(self.logging, dict):
                 logging_config = dict(self.logging)
             else:
                 logging_config = self.logging.todict()
             logging_config.setdefault('disable_existing_loggers', False)
             logging.config.dictConfig(logging_config)
-        elif hasattr(self, 'loggingconfig'):
+        elif hasattr(self, 'loggingconfig') and self.loggingconfig is not None:
             logging.config.fileConfig(self.loggingconfig, disable_existing_loggers=False)
         self.scheduler = Scheduler(DefaultPolling(), getattr(self, 'processevents', None), getattr(self, 'queuedefaultsize', None), getattr(self, 'queuemaxsize', None),
                                    defaultQueueClass=CBQueue.AutoClassQueue.initHelper('_classname0'), defaultQueuePriority = 400)

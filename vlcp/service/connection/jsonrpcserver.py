@@ -13,6 +13,7 @@ class JsonRPCServer(TcpServerBase):
     '''
     Create JsonRPC server on specified URLs, vHosts are supported.
     '''
+    # Enable connection management
     _default_connmanage = True
     def __init__(self, server):
         TcpServerBase.__init__(self, server, JsonRPC)

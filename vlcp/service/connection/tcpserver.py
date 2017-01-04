@@ -12,8 +12,44 @@ class TcpServerBase(Module):
     '''
     Generic tcp server on specified URLs, vHosts are supported.
     '''
+    # Default server URL.
+    # If there are multiple endpoints to listen, use .urls configuration instead of .url,
+    # it should be a list of endpoint URLs.
+    # The URL (and also any "connection URL" in other part of VLCP) should be like:
+    # <protocol>://[<address>[:port]]/
+    # For server socket (the listening part), the protocol should be tcp(or ltcp), ssl(or lssl)
+    # The address should be the binding address of the server.
+    # For client sockets (the connecting part), the protocol should be tcp, udp, ssl, ptcp, pudp, pssl
+    # The ptcp, pudp, pssl protocols are passive connections: they start listen and accept only one socket.
+    # The address (if specified) should be the IP address of the remote endpoint.
+    # The tcp, udp, ssl protocols are normal connections which begins by connecting to the specified address.
+    # If .urls and .url are both specified, they are both used.
+    #
+    # For SSL connections, use .key, .certificate, .ca_certs configurations to specify private key, public key,
+    # CA files for the SSL connection. If .ca_certs is not specified, the SSL certificate is not verified which
+    # may introduce security holes.
+    #
+    # the .protocol configuration node may be used to override the global protocol configurations, e.g. use
+    #     module.redisdb.protocol.connect_timeout = 20
+    # to override the protocol.redis.connect_timeout configuration
+    #
+    # Any TCPServer module can use .vhost node to create multiple servers for different uses.
+    # For example, use
+    #     module.httpserver.url='tcp://localhost:80/'
+    #     module.httpserver.vhost.api.url='tcp://localhost:8080/'
+    #     module.httpserver.vhost.api.protocol.fastfail=True
+    # to create two different HTTP servers, potentially with different configurations. Some modules can be
+    # configured to bind to specified vhosts.
+    #
+    # All configurations for the default vhost ('') can be used on a vhost, like .urls and .protocol and even
+    # .vhost. Vhosts inherits the settings from the parent node (the default server or another vhost) except URLs.
     _default_url = 'tcp:///'
+    # If True, the incoming connections are automatically managed, and can be queried with *getconnections* API.
+    # Also when the module is unloaded, the incoming connections are closed.
     _default_connmanage = False
+    # By default the .url and .urls are recognized as server URLs, so it creates listening sockets.
+    # use client=True to make this module recognize the URLs as client URLs, so it creates client connections
+    # (either normal or passive)
     _default_client = False
     service = True
     def _createprotocol(self, config):

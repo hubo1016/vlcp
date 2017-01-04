@@ -21,7 +21,9 @@ class Session(Module):
     '''
     HTTP Session with cookies
     '''
+    # Timeout for a session
     _default_timeout = 1800
+    # Cookie name used in session id storage
     _default_cookiename = '_session_id'
     service = True
     class SessionObject(object):

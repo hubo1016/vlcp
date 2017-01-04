@@ -39,11 +39,23 @@ class _DataUpdateEvent(Event):
 @defaultconfig
 @depend(jsonrpcserver.JsonRPCServer, objectdb.ObjectDB)
 class VtepController(Module):
+    # Default bind controller to OVSDB vHost
     _default_vhostbind = ['vtep']
+    # Recycle unused logical switches from hardware_vtep OVSDB
     _default_recycleinterval = 300
+    # Every logical network has a broadcast list which contains all related server nodes,
+    # this is the refresh interval to keep current node in the list
     _default_refreshinterval = 3600
+    # When a logical port is migrating from one node to another, there may be multiple
+    # instances of the logical port on different or same nodes. This is the maximum time
+    # allowed for the migration.
     _default_allowedmigrationtime = 120
+    # When there are multiple controllers started for the same hardware_vtep OVSDB,
+    # every instance will try to acquire this lock in the OVSDB, and the one who
+    # acquired the lock will be the master. 
     _default_masterlock = "vlcp_vtepcontroller_masterlock"
+    # Prepush unicast information for MACs on other nodes. If this is not set, the
+    # physical switch should support and enable MAC-learning on VXLAN.
     _default_prepush = True
     def __init__(self, server):
         Module.__init__(self, server)

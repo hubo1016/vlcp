@@ -175,18 +175,24 @@ class Redis(Protocol):
     Redis (RESP) Protocol
     '''
     _default_persist = True
+    # Default Redis server port
     _default_defaultport = 6379
     _default_createqueue = True
+    # Limit response messages queue size
     _default_messagequeuesize = 4096
     # Default limit Redis bulk string to 64MB
     _default_bulklimit = 67108864
     # Default limit Redis array level to 128 levels
     _default_levellimit = 128
+    # Default encoding when using Unicode strings in Redis commands
     _default_encoding = 'utf-8'
     # Use hiredis if possible
     _default_hiredis = True
+    # Send PING command when the connection is idle
     _default_keepalivetime = 10
+    # Disconnect when PING command does not have response
     _default_keepalivetimeout = 5
+    # Connect timeout
     _default_connect_timeout = 5
     _default_tcp_nodelay = True
     _logger = logging.getLogger(__name__ + '.Redis')

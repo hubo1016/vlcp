@@ -353,8 +353,14 @@ class L2Switch(FlowBase):
                      ("l2output", ('l2input',), ''),
                      ('egress', ('l2output', 'l2learning'), ''),
                      ("l2learning", ('l2output',), 'l2learning'))
+    # Use learning or prepush. Learning strategy creates flows on necessary, but may cause
+    # some delay for the first packet; prepush push all necessary flows from beginning.
     _default_learning = False
+    # When using learning=True, enable OpenvSwitch learn() action. if nxlearn=False, the
+    # learning strategy will be done with controller PACKET_IN processing, which may be
+    # less efficient.
     _default_nxlearn = True
+    # Timeout for a learned flow
     _default_learntimeout = 300
     def __init__(self, server):
         FlowBase.__init__(self, server)

@@ -499,13 +499,18 @@ class DHCPUpdater(FlowUpdater):
 @defaultconfig
 @depend(ofpportmanager.OpenflowPortManager, objectdb.ObjectDB, arpresponder.ARPResponder)
 class DHCPServer(FlowBase):
-    "Send ARP respond"
+    "DHCP server that responds the DHCP discover/request with static IP address settings"
     _tablerequest = (("l3input", ('l2input',), ''),
                      ("l2output", ("l3input",), ''))
+    # Responding DHCP server address
     _default_serveraddress = '169.254.169.254'
+    # Responding DHCP server MAC address
     _default_servermac = '1a:23:67:59:63:33'
+    # DHCP leases timeout time
     _default_leasetime = None
+    # DHCP default T1 option
     _default_t1 = None
+    # DHCP default T2 option
     _default_t2 = None
     def __init__(self, server):
         FlowBase.__init__(self, server)

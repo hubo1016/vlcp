@@ -211,8 +211,12 @@ class Module(Configurable):
     '''
     A functional part which can be loaded or unloaded dynamically
     '''
+    # Service modules are automatically unloaded if all the dependencies are unloaded
     _default_service = False
+    # Force stop all the RoutineContainers that are started by this module.
+    # Subroutines are not stopped.
     _default_forcestop = True
+    # Automatically change module status to SUCCEEDED when load() is finished
     _default_autosuccess = True
     depends = []
     def __init__(self, server):

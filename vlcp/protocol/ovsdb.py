@@ -11,8 +11,11 @@ from vlcp.event.connection import ConnectionResetException
 @defaultconfig
 class OVSDB(JsonRPC):
     _default_defaultport = 6632
+    # Only accept "echo" requests
     _default_allowedrequests = ('echo',)
+    # Send "echo" requests when connection is idle
     _default_keepalivetime = 10
+    # Disconnect when reply is not received for "echo" requests
     _default_keepalivetimeout = 3
     _default_tcp_nodelay = True
     def _respond_echo(self, connection):

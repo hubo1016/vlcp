@@ -388,8 +388,13 @@ class ARPResponder(FlowBase):
                      ("l3input", ('arp',), ''),
                      ("l2output", ("l3input",), ''),
                      ("egress", ("l2output",), ''))
+    # Prepush ARP entries with Flows, so the switch directly responds an ARP request
     _default_prepush = True
+    # When using prepush=True, only responds a broadcast ARP request; let unicast ARP request
+    # reach the other side
     _default_broadcastonly = True
+    # Drop ARP requests with unknown IP addresses. The ports will not be able to access external IPs,
+    # so use with caution.
     _default_disableothers = False
     def __init__(self, server):
         FlowBase.__init__(self, server)

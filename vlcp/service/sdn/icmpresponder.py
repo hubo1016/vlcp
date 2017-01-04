@@ -376,15 +376,14 @@ class ICMPResponder(FlowBase):
         ("l3input",("l2input",),""),
         ("l2output",("l3input",),"")
     )
-    # True :  use flow auto reply icmp ping
-    # False: use controller reply icmp ping
-
+    # True : reply icmp ping with flow
+    # False: reply icmp ping with controller PACKET_IN/PACKET_OUT
     #
-    # when ovs 2.5 , icmp_type is not readonly , we can use flow auto reply icmp echo
+    # Must use prepush=True with OpenvSwitch 2.5+
     #
     _default_prepush = False
 
-    # router use this mac as inner mac
+    # "Gateway" responds with this MAC address
     _default_inroutermac = '1a:23:67:59:63:33'
 
     def __init__(self,server):
