@@ -94,7 +94,7 @@ class Semaphore(object):
         self.queue = self.scheduler.queue.addSubQueue(self.priority, LockEvent.createMatcher(self.context, self.key),
                                          maxdefault = self.size, defaultQueueClass = CBQueue.AutoClassQueue.initHelper('locker', subqueuelimit = 1))
     def destroy(self, container):
-        if self.queue:
+        if self.queue is not None:
             for m in container.syscall_noreturn(syscall_removequeue(self.scheduler.queue, self.queue)):
                 yield m
             self.queue = None
