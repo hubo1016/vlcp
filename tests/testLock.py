@@ -140,8 +140,6 @@ class Test(unittest.TestCase):
     def testSemaphore(self):
         rc = RoutineContainer(self.server.scheduler)
         obj = [0]
-        smp = Semaphore('testobj', 2, rc.scheduler)
-        smp.create()
         def routineLock(key):
             l = Lock(key, rc.scheduler)
             for m in l.lock(rc):
@@ -151,10 +149,17 @@ class Test(unittest.TestCase):
                 yield m
             obj[0] = t + 1
             l.unlock()
-        rc.subroutine(routineLock('testobj'))
-        rc.subroutine(routineLock('testobj'))
-        rc.subroutine(routineLock('testobj'))
-        rc.subroutine(routineLock('testobj'))
+        def main_routine():
+            smp = Semaphore('testobj', 2, rc.scheduler)
+            smp.create()
+            for m in rc.executeAll([routineLock('testobj'),
+                                    routineLock('testobj'),
+                                    routineLock('testobj'),
+                                    routineLock('testobj')], retnames = ()):
+                yield m
+            for m in smp.destroy(rc):
+                yield m
+        rc.subroutine(main_routine())
         self.server.serve()
         self.assertEqual(obj[0], 2)
 
