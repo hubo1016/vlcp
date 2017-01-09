@@ -83,7 +83,10 @@ def assert_lock(lockid):
     return {"op": "assert", "lock": lockid}
 
 def oset(*objs):
-    return ["set", list(objs)]
+    if len(objs) == 1:
+        return objs[0]
+    else:
+        return ["set", list(objs)]
 
 def omap(*pairs, **kwargs):
     return ["map", [list(p) for p in pairs] + [[k,v] for k,v in kwargs.items()]]
