@@ -55,9 +55,8 @@ def parsearg():
     except getopt.GetoptError as exc:
         print(exc)
         usage()
-        
 
-if __name__ == '__main__':
+def default_start():
     (config, daemon, pidfile, startup, fork) = parsearg()
     if config is None:
         if os.path.isfile('/etc/vlcp.conf'):
@@ -67,3 +66,7 @@ if __name__ == '__main__':
     elif not config:
         config = None
     main(config, startup, daemon, pidfile, fork)
+
+
+if __name__ == '__main__':
+    default_start()

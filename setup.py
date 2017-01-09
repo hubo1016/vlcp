@@ -11,7 +11,7 @@ except:
     pass
 from setuptools import setup, find_packages
 
-VERSION = '1.2.3'
+VERSION = '1.3.0'
 
 setup(name='vlcp',
       version=VERSION,
@@ -24,4 +24,5 @@ setup(name='vlcp',
       test_suite = 'tests',
       use_2to3=False,
       install_requires = ["nstruct>=1.1.1"],
-      packages=find_packages(exclude=("tests","tests.*","misc","misc.*")))
+      packages=find_packages(exclude=("tests","tests.*","misc","misc.*")),
+      entry_points={'console_scripts': ['vlcp-start = vlcp.start:default_start']})
