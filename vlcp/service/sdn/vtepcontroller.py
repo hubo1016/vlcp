@@ -401,28 +401,28 @@ class VtepController(Module):
                         set_operates.append(ovsdb.update('Logical_Switch',
                                                [["_uuid", "==", ovsdb.uuid(lsuuid)]],
                                                {"tunnel_key": vni}))
-                    for r in result[2:len(check_operates)]:
+                    for r,ip in zip(result[2:len(check_operates)], using_ips):
                         if r['rows']:
                             locator = r['rows'][0]
                             # This locator is already created
-                            locator_uuid_dict[locator['dst_ip']] = locator['_uuid']
+                            locator_uuid_dict[ip] = locator['_uuid']
                             wait_operates.append(ovsdb.wait('Physical_Locator',
                                                        [["_uuid", "==", locator['_uuid']]],
                                                        ["dst_ip", "encapsulation_type"],
-                                                       [{"dst_ip": locator['dst_ip'],
+                                                       [{"dst_ip": ip,
                                                          "encapsulation_type": "vxlan_over_ipv4"}],
                                                         True, 0))
                         else:
                             # Create the locator
                             wait_operates.append(ovsdb.wait('Physical_Locator',
-                                                            [["dst_ip", "==", locator['dst_ip']],
+                                                            [["dst_ip", "==", ip],
                                                              ["encapsulation_type", "==", "vxlan_over_ipv4"]],
                                                             ["_uuid"],
                                                             [], True, 0))
-                            name = 'locator_uuid_' + locator['dst_ip']
-                            locator_uuid_dict[locator['dst_ip']] = ovsdb.named_uuid(name)
+                            name = 'locator_uuid_' + ip
+                            locator_uuid_dict[ip] = ovsdb.named_uuid(name)
                             set_operates.append(ovsdb.insert('Physical_Locator',
-                                                             {"dst_ip": locator['dst_ip'],
+                                                             {"dst_ip": ip,
                                                               "encapsulation_type": "vxlan_over_ipv4"},
                                                              name))
                     if result[1]['rows'] and (not update or add_broadcasts or remove_broadcasts):
