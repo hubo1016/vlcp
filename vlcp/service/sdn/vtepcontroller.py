@@ -448,9 +448,9 @@ class VtepController(Module):
                             if update:
                                 mutators = []
                                 if add_broadcasts:
-                                    mutators.append(["locators", "insert", ovsdb.oset(*add_broadcasts)])
+                                    mutators.append(["locators", "insert", ovsdb.oset(*[locator_uuid_dict[ip] for ip in add_broadcasts])])
                                 if remove_broadcasts:
-                                    mutators.append(["locators", "delete", ovsdb.oset(*remove_broadcasts)])
+                                    mutators.append(["locators", "delete", ovsdb.oset(*[locator_uuid_dict[ip] for ip in remove_broadcasts])])
                                 if mutators:
                                     set_operates.append(ovsdb.mutate('Physical_Locator_Set',
                                                                  [["_uuid", "==", mcast_uuid]],
@@ -458,7 +458,7 @@ class VtepController(Module):
                             else:
                                 set_operates.append(ovsdb.update('Physical_Locator_Set',
                                                                  [["_uuid", "==", mcast_uuid]],
-                                                                 {"locators": ovsdb.oset(*add_broadcasts)}))
+                                                                 {"locators": ovsdb.oset(*[locator_uuid_dict[ip] for ip in add_broadcasts])}))
                     else:
                         if broadcast_ips:
                             wait_operates.append(ovsdb.wait('Mcast_Macs_Remote',
@@ -468,7 +468,7 @@ class VtepController(Module):
                                                           [],
                                                           True, 0))
                             set_operates.append(ovsdb.insert('Physical_Locator_Set',
-                                                             {"locators": ovsdb.oset(*add_broadcasts)},
+                                                             {"locators": ovsdb.oset(*[locator_uuid_dict[ip] for ip in add_broadcasts])},
                                                              'mcast_unknown_uuid'))
                             mcast_uuid = ovsdb.named_uuid('mcast_unknown_uuid')
                             set_operates.append(ovsdb.insert('Mcast_Macs_Remote',
