@@ -19,6 +19,7 @@ import vlcp.service.kvdb.objectdb as objectdb
 from vlcp.utils.networkmodel import LogicalNetwork, VXLANEndpointSet,\
     LogicalNetworkMap, LogicalPortVXLANInfo, LogicalPort
 from vlcp.utils.dataobject import multiwaitif
+from vlcp.utils.ethernet import ip4_addr
 
 @withIndices('connection')
 class VtepConnectionSynchronized(Event):
@@ -35,6 +36,13 @@ class VtepPhysicalSwitchStateChanged(Event):
 class _DataUpdateEvent(Event):
     pass
 
+def _check_transact_result(result, operations):
+    if any('error' in r for r in result if r is not None):
+        err_info = next((r['error'],
+                     operations[i] if i < len(operations) else None)
+                    for i,r in enumerate(result)
+                    if r is not None and 'error' in r)
+        raise JsonRPCErrorResultException('Error in OVSDB select operation: %r. Corresponding operation: %r' % err_info)
 
 @defaultconfig
 @depend(jsonrpcserver.JsonRPCServer, objectdb.ObjectDB)
@@ -381,12 +389,7 @@ class VtepController(Module):
                     for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                         yield m
                     result = self.apiroutine.jsonrpc_result
-                    if any('error' in r for r in result):
-                        err_info = [(r['error'],
-                                     check_operates[i] if i < len(check_operates) else None)
-                                    for i,r in enumerate(result)
-                                    if 'error' in r][0]
-                        raise JsonRPCErrorResultException('Error in OVSDB select operation: %r. Corresponding operation: %r' % err_info)
+                    _check_transact_result(result, check_operates)
                     if not result[0]['rows']:
                         # Logical switch is removed
                         break
@@ -419,7 +422,7 @@ class VtepController(Module):
                                                              ["encapsulation_type", "==", "vxlan_over_ipv4"]],
                                                             ["_uuid"],
                                                             [], True, 0))
-                            name = 'locator_uuid_' + ip
+                            name = 'locator_uuid_' + hex(ip4_addr(ip))
                             locator_uuid_dict[ip] = ovsdb.named_uuid(name)
                             set_operates.append(ovsdb.insert('Physical_Locator',
                                                              {"dst_ip": ip,
@@ -499,15 +502,10 @@ class VtepController(Module):
                     for m in protocol.querywithreply(method, params, conn, self.apiroutine):
                         yield m
                     result = self.apiroutine.jsonrpc_result
-                    if any('error' in r for r in result[:len(wait_operates)]):
+                    if any(r is None or 'error' in r for r in result[:len(wait_operates)]):
                         # Some wait operates failed, retry
                         continue
-                    if any('error' in r for r in result[len(wait_operates):]):
-                        err_info = [(r['error'],
-                                     set_operates[i] if i < len(set_operates) else None)
-                                    for i,r in enumerate(result[len(wait_operates):])
-                                    if 'error' in r][0]
-                        raise JsonRPCErrorResultException('Error in OVSDB update operation: %r. Corresponding operation: %r' % err_info)
+                    _check_transact_result(result[len(wait_operates):], set_operates)
                     break
             except Exception:
                 self._logger.warning('Update hardware_vtep failed with exception', exc_info = True)
@@ -882,13 +880,7 @@ class VtepController(Module):
                 if any(r for r in result[:3] if 'error' in r):
                     # Wait failed, the OVSDB is modified, retry
                     continue
-                for i,r in enumerate(result[3:]):
-                    if 'error' in r:
-                        if i + 3 >= len(operations):
-                            raise JsonRPCErrorResultException('Transact failed with error: %r' % (r['error'],))
-                        else:
-                            raise JsonRPCErrorResultException(('Transact failed with error: %r, '\
-                                    'corresponding operation: %r') % (r['error'], operations[i + 3]))
+                _check_transact_result(result[3:], operations[3:])
                 break
             except ConnectionResetException:
                 for m in self.apiroutine.waitWithTimeout(1):
@@ -1010,13 +1002,7 @@ class VtepController(Module):
                 if any(r for r in result[:3] if 'error' in r):
                     # Wait failed, the OVSDB is modified, retry
                     continue
-                for i,r in enumerate(result[3:]):
-                    if 'error' in r:
-                        if i + 3 >= len(operations):
-                            raise JsonRPCErrorResultException('Transact failed with error: %r' % (r['error'],))
-                        else:
-                            raise JsonRPCErrorResultException(('Transact failed with error: %r, '\
-                                    'corresponding operation: %r') % (r['error'], operations[i + 3]))
+                _check_transact_result(result[3:], operations[3:])
                 break
             except ConnectionResetException:
                 for m in self.apiroutine.waitWithTimeout(1):
@@ -1098,13 +1084,7 @@ class VtepController(Module):
                 if any(r for r in result[:2] if 'error' in r):
                     # Wait failed, the OVSDB is modified, retry
                     continue
-                for i,r in enumerate(result[2:]):
-                    if 'error' in r:
-                        if i + 2 >= len(operations):
-                            raise JsonRPCErrorResultException('Transact failed with error: %r' % (r['error'],))
-                        else:
-                            raise JsonRPCErrorResultException(('Transact failed with error: %r, '\
-                                    'corresponding operation: %r') % (r['error'], operations[i + 2]))
+                _check_transact_result(result[2:], operations[2:])
                 break
             except ConnectionResetException:
                 for m in self.apiroutine.waitWithTimeout(1):
