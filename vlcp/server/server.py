@@ -80,6 +80,18 @@ class Server(Configurable):
     _default_logging = None
     # Use logging.config.fileConfig with this file to configure the logging system.
     _default_loggingconfig = None
+    # Force polling the sockets even if there are still unfinished events after processing
+    # this number of events. May be helpful for very high stress. Should be set together
+    # with server.queuemaxsize or/and server.queuedefaultsize to prevent memory overflow.
+    _default_processevents = None
+    # Limit the default queue size, so more events will be blocked until some events are
+    # processed. This further limit the processing speed for producers to keep the system
+    # stable on very high stress, but may slightly reduce the performance.
+    _default_queuedefaultsize = None
+    # Limit the total size of the event queue, so more events will be blocked until some events are
+    # processed. This further limit the processing speed for producers to keep the system
+    # stable on very high stress, but may slightly reduce the performance.
+    _default_queuemaxsize = None
     def __init__(self):
         '''
         Constructor
