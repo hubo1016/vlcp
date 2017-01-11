@@ -439,7 +439,7 @@ class VtepController(Module):
                         else:
                             # Check for the set
                             wait_operates.append(ovsdb.wait('Mcast_Macs_Remote',
-                                                           [["_uuid", "==", result[1]['rows']['_uuid']]],
+                                                           [["_uuid", "==", result[1]['rows'][0]['_uuid']]],
                                                            ["MAC", "logical_switch"],
                                                            [{"MAC": "unknown-dst",
                                                              "logical_switch": ovsdb.uuid(lsuuid),
