@@ -152,6 +152,12 @@ This creates the test bridge and the OpenFlow connection to the VLCP controller.
           Usually the SDN controller is deployed on the same server with OpenvSwitch, in that case the default OVSDB
           UNIX socket is used, so we do not need to configure OVSDB connections with ``ovs-vsctl set-manager``
 
+From now on, if you run into some problems, or you want to retry this toturial, you can delete the whole bridge::
+   
+   ovs-vsctl del-br testbr0
+   
+And cleanup or re-install the central database.
+
 .. _createphysicalnetwork:
 
 -----------------------------
@@ -182,6 +188,8 @@ familar with this type of ranges.
           \`\` quoted expression is a VLCP-specified extension. Some APIs need data types other than strings for its
           parameters. When a string parameter is quoted by \`\`, VLCP recognizes it as a literal expression in Python.
           You may use numbers, string, tuples, list, dictionary, sets and any combinations of them in a quoted expression.
+          
+          '\[\]' have special meanings in *curl*, that is way we use ``-g`` option to turn it off.
 
 .. _createphysicalport:
 
@@ -200,7 +208,7 @@ to create a physical port:
           
 First create a vxlan tunnel port in each server::
    
-   ovs-vsctl add-port dockerbr0 vxlan0 -- set interface vxlan0 type=vxlan options:local_ip=10.0.1.2 options:remote_ip=flow options:key=flow
+   ovs-vsctl add-port testbr0 vxlan0 -- set interface vxlan0 type=vxlan options:local_ip=10.0.1.2 options:remote_ip=flow options:key=flow
    
 Replace the IP address ``10.0.1.2`` to an external IP address on this server, it should be different for each server.
 VLCP will use this configuration to discover other nodes in the same cluster.
@@ -225,3 +233,181 @@ command.
 Create Logical Network and Subnets
 ----------------------------------
 
+In this tutorial, we will create two logical networks:
+   
+   * **Network A**: CIDR 192.168.1.0/24, network ID: network_a, gateway: 192.168.1.1
+   * **Network B**: CIDR 192.168.2.0/24, network ID: network_b, gateway: 192.168.2.1
+
+The steps are simple and direct. In VLCP, Ethernet related configurations are provided when createing a **Logical Network**,
+and IP related configurations are provided when creating a **Subnet**. First create two logical networks::
+
+   curl -g 'http://localhost:8081/viperflow/createlogicalnetwork?physicalnetwork=vxlan&id=network_a&mtu=1450'
+   curl -g 'http://localhost:8081/viperflow/createlogicalnetwork?physicalnetwork=vxlan&id=network_b&mtu=1450'
+
+.. note:: VXLAN introduces extra overlay packet header into the packet, so we leave 50 bytes for the header
+          and set MTU=1450. If your underlay network supports larger MTU, you can set a larger MTU instead.
+          The embedded DHCP service uses this configuration to generate a DHCP Option to set MTU on the
+          logical port (vNIC in a virtual machine). *vlcp-docker-plugin* also uses this to generate MTU
+          configurations for docker.
+          
+          You may use an extra parameter ``vni=10001`` to explictly specify the VNI used by this logical network.
+          If ommited, VLCP automatically assign a free VNI from the physical network VNI ranges. The creation fails
+          if all the VNIs in VNI ranges are used, or the specified VNI is used.
+
+Then, create a *Subnet* for each logical network::
+
+   curl -g 'http://localhost:8081/viperflow/createsubnet?logicalnetwork=network_a&cidr=192.168.1.0/24&gateway=192.168.1.1&id=subnet_a'
+   curl -g 'http://localhost:8081/viperflow/createsubnet?logicalnetwork=network_b&cidr=192.168.2.0/24&gateway=192.168.2.1&id=subnet_b'
+
+.. note:: There are also batch create APIs like ``createlogicalnetworks`` and ``createsubnets``, which accepts
+          a list of dictionaries to create multiple objects in one transact. A batch create operation is an
+          atomic operation, if one of the object is not created successfully, all the other created objects roll
+          back.
+
+.. _createlogicalports:
+          
+--------------------
+Create Logical Ports
+--------------------
+
+We will create one logical port for each logical network and each physical server - means 4 logical ports if you have
+two physical servers.
+
+Run following commands on each server::
+   
+   SERVER_ID=1
+   ip netns add vlcp_ns1
+   LOGPORT_ID=lgport-${SERVER_ID}-1
+   ovs-vsctl add-port testbr0 vlcp-port1 -- set interface vlcp-port1 type=internal external_ids:iface-id=${LOGPORT_ID}
+   MAC_ADDRESS=`ip link show dev vlcp-port1 | grep -oP 'link/ether \S+' | awk '{print $2}'`
+   curl -g "http://localhost:8081/viperflow/createlogicalport?id=${LOGPORT_ID}&logicalnetwork=network_a&subnet=subnet_a&mac_address=${MAC_ADDRESS}"
+   ip link set dev vlcp-port1 netns vlcp_ns1
+   ip netns exec vlcp_ns1 ip link set dev vlcp-port1 up
+   ip netns exec vlcp_ns1 dhclient -pf /var/run/dhclient-vlcp-port1.pid -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
+   
+   ip netns add vlcp_ns2
+   LOGPORT_ID=lgport-${SERVER_ID}-2
+   ovs-vsctl add-port testbr0 vlcp-port2 -- set interface vlcp-port2 type=internal external_ids:iface-id=${LOGPORT_ID}
+   MAC_ADDRESS=`ip link show dev vlcp-port2 | grep -oP 'link/ether \S+' | awk '{print $2}'`
+   curl -g "http://localhost:8081/viperflow/createlogicalport?id=${LOGPORT_ID}&logicalnetwork=network_b&subnet=subnet_b&mac_address=${MAC_ADDRESS}"
+   ip link set dev vlcp-port2 netns vlcp_ns2
+   ip netns exec vlcp_ns2 ip link set dev vlcp-port2 up
+   ip netns exec vlcp_ns2 dhclient -pf /var/run/dhclient-vlcp-port2.pid -lf /var/lib/dhclient/dhclient-vlcp-port2.leases vlcp-port2
+   
+Change ``SERVER_ID`` to a different number for each of your server to prevent the logical port ID conflicts with
+each other.
+
+A quick description:
+
+For each port
+   
+   1. Create a namespace to simulate a logical endpoint with separated devices, IP addresses and routing.
+   2. Create an ovs internal port to simutate a vNIC. "external_ids:iface-id" is set to the logical port id.
+   3. Use the logical port ID, logical network ID, subnet ID and the MAC address to create a new logical port configuration.
+   4. Move the internal port to the created namespace.
+   5. Start DHCP client in the namespace to acquire IP address configurations.
+
+.. note:: When creating logical ports, you can specify an extra parameter like ``ip_address=192.168.1.2`` to
+          explictly assign an IP address for the logical port; if omitted, a free IP address is automatically
+          choosen from the subnet CIDR. See API references for details.
+
+          *dhclient* is used to use DHCP to retrieve IP address and MTU configurations from embedded DHCP server.
+          
+          Use::
+          
+            ip netns exec vlcp_ns1 dhclient -x -pf /var/run/dhclient-vlcp-port1.pid -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
+          
+          to stop it.
+          
+          You may also configure the IP addresses and MTU yourself, instead of acquiring from DHCP.
+          
+          It is not necessary to call ``createlogicalport`` API on the same server where the ovs port is created.
+          The order is also not matter (if you use a fixed MAC address). If you delete the ovs port and re-create
+          it on another server, all configurations are still in effect, so you can easily migrate a virtual machine
+          or docker container easily without network loss.
+          
+          You may also choose to omit the ``id`` parameter to let VLCP generate an UUID for you. Then you can
+          set the UUID to ``external_ids:iface-id`` of the ovs port.
+
+Now you should see the logical ports in the same logical networks can ping each other, while logical ports from
+different logical networks cannot ping each other. Try it yourself::
+   
+   ip netns exec vlcp_ns1 ping 192.168.1.3
+
+.. _createvirtualrouter:
+
+---------------------
+Create Virtual Router
+---------------------
+
+As you can see, logical ports in different logical networks cannot access each other with L2 packets. But you can
+connect different logical networks with a **Virtual Router**, to provide L3 connectivity between logical networks.
+This keeps the broadcast range of logical networks in a reasonable scale.
+
+Let's create a virtual router and put subnet_a, subnet_b inside it::
+
+   curl -g 'http://localhost:8081/vrouterapi/createvirtualrouter?id=subnetrouter'
+   curl -g 'http://localhost:8081/vrouterapi/addrouterinterfaces?interfaces=`[{"router":"subnetrouter","subnet":"subnet_a"},{"router":"subnetrouter","subnet":"subnet_b"}]`'
+   
+Now the logical ports should be enabled to ping each other no matter which logical network they are in:
+
+   ip netns exec vlcp_ns1 ping 192.168.2.2
+
+.. _createvlanphysicalnetworks:
+
+----------------------------------------
+(Optional) Create VLAN Physical Networks
+----------------------------------------
+
+If your server are connected to physical switches, and the ports your server connected to are configured to
+"trunk mode", and there are VLANs correctly configured and permitted in the physical switches, you may
+create a VLAN physical network to connect your vNICs through VLAN network. Usually it is an easy way to
+connect your vNICs to traditional networks.
+
+It is not that different to create a VLAN physical network from creating a VXLAN physical network. We will
+assume your VLAN network is connected by a physical NIC or bonding device named ``bond0``::
+
+   curl -g 'http://localhost:8081/viperflow/createphysicalnetwork?type=vlan&vlanrange=`[[1000,2000]]`&id=vlan'
+   curl -g 'http://localhost:8081/viperflow/createphysicalport?physicalnetwork=vlan&name=bond0'
+
+And on each server::
+
+   ovs-vsctl add-port testbr0 bond0
+
+Creating logical networks and other parts of the network is same.
+
+.. note:: If your VLAN network has external gateways, you may want to specify ``is_external=`True``` when creating
+          subnets. When this subnet is connected to a virtual router, virtual router uses the external gateway
+          as the default gateway. Static routes should be configured on the external gateway for other logical
+          networks connected to the virtual router. Or you may use NAT instead, though current version does not
+          support NAT yet, it is not too difficult to implement a simple source NAT solution with *iptables*.
+
+.. _removenetworkobjects:
+
+----------------------
+Remove Network Objects
+----------------------
+
+When removing configurations from VLCP, use a reversed order: **Logical Ports**, **Virtual Router**, **Subnet**,
+**Logical Network**, **Physical Ports**, **Physical Network**::
+
+   SERVER_ID=1
+   curl -g 'http://localhost:8081/viperflow/deletelogicalports?ports=`[{"id":"'"lgport-${SERVER_ID}-1"'"},{"id":"'"lgport-${SERVER_ID}-2"'"}]`'
+
+   curl -g 'http://localhost:8081/vrouterapi/removerouterinterfaces?interfaces=`[{"router":"subnetrouter","subnet":"subnet_a"},{"router":"subnetrouter","subnet":"subnet_b"}]`'
+   curl -g 'http://localhost:8081/vrouterapi/deletevirtualrouter?id=subnetrouter'
+      
+   curl -g 'http://localhost:8081/viperflow/deletesubnet?id=subnet_a'
+   curl -g 'http://localhost:8081/viperflow/deletesubnet?id=subnet_b'
+   curl -g 'http://localhost:8081/viperflow/deletelogicalnetwork?id=network_a'
+   curl -g 'http://localhost:8081/viperflow/deletelogicalnetwork?id=network_b'
+   curl -g 'http://localhost:8081/viperflow/deletephysicalport?name=vxlan0'
+   curl -g 'http://localhost:8081/viperflow/deletephysicalnetwork?id=vxlan'
+   
+After this you can remove the ovs bridge and namespace created on each server to restore the environment::
+
+   ip netns exec vlcp_ns1 dhclient -x -pf /var/run/dhclient-vlcp-port1.pid -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
+   ip netns exec vlcp_ns2 dhclient -x -pf /var/run/dhclient-vlcp-port2.pid -lf /var/lib/dhclient/dhclient-vlcp-port2.leases vlcp-port2
+   ovs-vsctl del-br testbr0   
+   ip netns del vlcp_ns1
+   ip netns del vlcp_ns2

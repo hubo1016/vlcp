@@ -132,7 +132,7 @@ To setup a new network, elements in the following figure should be created in or
       
             1. An asynchronous network programming framework with dynamic module mangement functions
             2. An OpenFlow controller framework friendly for extending
-            3. A product-ready controller for standard virtual network environment supported by default modules
+            3. A product-ready controller for standard virtual network environment, supported by default modules
          
          Loading different modules can give VLCP completely different functions. In this document, we assume
          users would like to use the standard network model (also named as "ViperFlow" model) to implement
