@@ -13,7 +13,8 @@ you can still use VXLAN isolation, in that case, you may use virtual machines (e
 physical servers.
 
 Most of the setup steps should be done on both servers, or every server in the cluster, except
-*Setup Central Database*.
+::ref:`centraldatabase`, and all the API calls with *curl* which create global objects (physical networks,
+physical ports, logical networks, subnets, virtual routers).
 
 .. _installovs:
 
