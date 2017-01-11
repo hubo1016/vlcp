@@ -739,6 +739,19 @@ class ZooKeeperDB(TcpServerBase):
         if client is None:
             raise ValueError('vhost ' + repr(vhost) + ' is not defined')
         sorted_keys = sorted(keys)
+        # Current implementation cannot accept duplicated keys
+        for i in range(0, len(sorted_keys) -1):
+            if sorted_keys[i] == sorted_keys[i+1]:
+                self._logger.warning('Duplicated keys are provided: %r. They should not appear normally. This is a BUG.', repr(sorted_keys[i]))
+                self._logger.warning('All keys: %r', keys)
+                # Create a wrapper
+                unique_keys = list(set(keys))
+                def _unique_keys_updater(uniq_keys, values, timestamp):
+                    value_dict = dict(zip(uniq_keys, values))
+                    return updater(keys, [value_dict[k] for k in keys], timestamp)
+                for m in self.updateallwithtime(unique_keys, _unique_keys_updater, timeout, vhost):
+                    yield m
+                return
         locks = [Lock((k, 'zookeeperdb_writelock'), self.apiroutine.scheduler) for k in sorted_keys]
         try:
             for l in locks:
@@ -1023,8 +1036,20 @@ class ZooKeeperDB(TcpServerBase):
                     values = []
                 try:
                     new_keys, new_values = updater(keys, [self._decode(v) for v in values], server_time)
-                    keys_deleted = [k for k,v in izip(new_keys, new_values) if v is None]
-                    values_encoded = [(k,self._encode(v)) for k,v in izip(new_keys, new_values) if v is not None]
+                    keys_deleted = []
+                    values_encoded = []
+                    key_dup_test_set = set()
+                    kv_set_list = list(izip(new_keys, new_values))
+                    kv_set_list.reverse()
+                    for k,v in kv_set_list:
+                        if k in key_dup_test_set:
+                            self._logger.warning('Updater returns duplicated keys %r, this is a BUG.', k)
+                            continue
+                        key_dup_test_set.add(k)
+                        if v is None:
+                            keys_deleted.append(k)
+                        else:
+                            values_encoded.append((k, self._encode(v)))
                 except Exception:
                     raise
                 # Write the result
