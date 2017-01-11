@@ -137,7 +137,7 @@ class VRouterApi(Module):
     def updatevirtualrouter(self,id,**kwargs):
         "update virtual router"
         if not id:
-            raise ValueError(" must special id")
+            raise ValueError(" must specify id")
         router = {"id":id}
         router.update(kwargs)
 
@@ -149,7 +149,7 @@ class VRouterApi(Module):
         idset = set()
         for router in routers:
             if 'id' not in router:
-                raise ValueError(" must special id")
+                raise ValueError(" must specify id")
             else:
                 if router['id'] in idset:
                     raise ValueError(" id repeat " + router['id'])
@@ -184,7 +184,7 @@ class VRouterApi(Module):
                         else:
                             setattr(values[i],k,v)
                 else:
-                    raise ValueError(" router object not existe " + routers[i]['id'])
+                    raise ValueError("router object not exists " + routers[i]['id'])
             
             return keys,values
         try:
@@ -201,7 +201,7 @@ class VRouterApi(Module):
     def deletevirtualrouter(self,id):
         "delete virtual router"
         if not id:
-            raise ValueError(" must special id")
+            raise ValueError("must specify id")
 
         router = {"id":id}
 
@@ -213,7 +213,7 @@ class VRouterApi(Module):
         idset = set()
         for router in routers:
             if 'id' not in router:
-                raise ValueError(" must special id")
+                raise ValueError(" must specify id")
             else:
                 if router['id'] in idset:
                     raise ValueError(" id repeat " + router['id'])
@@ -228,7 +228,7 @@ class VRouterApi(Module):
 
             for i in range(0,len(routers)):
                 if values[i+1].interfaces.dataset():
-                    raise ValueError("there interface in router, delete it first")
+                    raise ValueError("there are still interface(s) in this router, delete them first")
                 routerset.set.dataset().discard(values[i+1].create_weakreference())
 
             return keys,[routerset] + [None] * len(routers)
@@ -301,10 +301,10 @@ class VRouterApi(Module):
             id = str(uuid1())
 
         if not router:
-            raise ValueError(" must special routerid")
+            raise ValueError(" must specify routerid")
 
         if not subnet:
-            raise ValueError(" must special subnetid")
+            raise ValueError(" must specify subnetid")
 
         interface = {"id":id,"router":router,"subnet":subnet}
 
@@ -327,10 +327,10 @@ class VRouterApi(Module):
                 interface['id'] = str(uuid1())
 
             if 'router' not in interface:
-                raise ValueError(" must special router id")
+                raise ValueError("must specify router id")
 
             if 'subnet' not in interface:
-                raise ValueError(" must special subnet id")
+                raise ValueError("must specify subnet id")
 
             newinterfaces.append(interface)
 
@@ -443,10 +443,10 @@ class VRouterApi(Module):
     def removerouterinterface(self,router,subnet):
         "remvoe interface from router"
         if not router:
-            raise ValueError("must special router id")
+            raise ValueError("must specify router id")
 
         if not subnet:
-            raise ValueError("must special subnet id")
+            raise ValueError("must specify subnet id")
 
         interface = {"router":router,"subnet":subnet}
 
@@ -463,12 +463,12 @@ class VRouterApi(Module):
         for interface in interfaces:
             interface = copy.deepcopy(interface)
             if "router" not in interface:
-                raise ValueError(" must special router=id")
+                raise ValueError(" must specify router=id")
             if "subnet" not in interface:
-                raise ValueError(" must special subnet=id")
+                raise ValueError(" must specify subnet=id")
             else:
                 if interface["subnet"] in idset:
-                    raise ValueError(" special repeat subnet id " + interface["subnet"])
+                    raise ValueError("repeated subnet id " + interface["subnet"])
                 else:
                     idset.add(interface["subnet"])
 
@@ -497,10 +497,16 @@ class VRouterApi(Module):
                     raise ValueError("subnet " + interface["subnet"] + " not plugin into router" )
 
 
+        subnetkeys = list(set(subnetkeys))
+        
         routerportkeys = [s.router.getkey() for s in subnetobjs]
-
+        
+        routerportkeys = list(set(routerportkeys))
+        
         routerkeys = [VRouter.default_key(interface["router"]) for interface in delete_interfaces]
 
+        routerkeys = list(set(routerkeys))
+        
         def delete_interface(keys,values):
             rkeys = keys[0:len(routerkeys)]
             robjs = values[0:len(routerkeys)]
