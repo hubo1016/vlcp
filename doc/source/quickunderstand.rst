@@ -19,7 +19,7 @@ The physical view of the network can be described with the following figure:
 .. figure:: _static/images/physicalnetwork.png
    :alt: Physical View of the Network
    
-   *fig 1. Physical View of the Network*
+   Physical View of the Network
    
 In this figure, two physical servers are connected with an external network. On each server, two endpoints
 (virtual machines or docker containers) are connected to an OVS bridge with a **Logical Port** for each
@@ -66,7 +66,7 @@ they are connected to physical isolated networks. The logical view of the networ
 .. figure:: _static/images/logicalnetwork.png
    :alt: Logical View of the Network
    
-   *fig 2. Logical View of the Network*
+   Logical View of the Network
    
 
 --------------------------
@@ -112,7 +112,7 @@ They are almost the same as other server nodes except a few configurations are m
 .. figure:: _static/images/forwarding.png
    :alt: L3 Network with Forwarding Nodes
    
-   *fig 3. L3 Network with Forwarding Nodes*
+   L3 Network with Forwarding Nodes
    
 --------------------------
 Network Settings Structure
