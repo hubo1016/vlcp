@@ -351,8 +351,7 @@ class VtepController(Module):
             if _last_endpoints[2] == ps:
                 # Update
                 update = True
-                add_broadcasts = broadcast_ips.difference(_last_endpoints[0])
-                remove_broadcasts = _last_endpoints[0].difference(broadcast_ips)
+                broadcasts_updated = (broadcast_ips != _last_endpoints[0])
                 add_ucasts = dict((m, mac_ip_dict[m])
                                   for m in mac_ip_dict
                                   if m not in _last_endpoints[1] or \
@@ -362,11 +361,11 @@ class VtepController(Module):
                                      if m not in mac_ip_dict)
             else:
                 update = False
-                add_broadcasts = broadcast_ips
+                broadcasts_updated = True
                 remove_broadcasts = set()
                 add_ucasts = mac_ip_dict
                 remove_ucasts = {}
-            using_ips = list(add_broadcasts.union(add_ucasts.values()))
+            using_ips = list(broadcast_ips.union(add_ucasts.values()))
             try:
                 while True:
                     # Check and set
@@ -428,7 +427,8 @@ class VtepController(Module):
                                                              {"dst_ip": ip,
                                                               "encapsulation_type": "vxlan_over_ipv4"},
                                                              name))
-                    if result[1]['rows'] and (not update or add_broadcasts or remove_broadcasts):
+                    if result[1]['rows'] and (not update or broadcasts_updated):
+                        # locator set cannot be modified, it can only be replaced with a new set
                         mcast_uuid = result[1]['rows'][0]['locator_set']
                         # locator set is already created
                         if not broadcast_ips:
@@ -437,28 +437,20 @@ class VtepController(Module):
                                                              [["MAC", "==", "unknown-dst"],
                                                               ["logical_switch", "==", ovsdb.uuid(lsuuid)]]))
                         else:
-                            # Check for the set
                             wait_operates.append(ovsdb.wait('Mcast_Macs_Remote',
-                                                           [["_uuid", "==", result[1]['rows'][0]['_uuid']]],
-                                                           ["MAC", "logical_switch"],
-                                                           [{"MAC": "unknown-dst",
-                                                             "logical_switch": ovsdb.uuid(lsuuid),
-                                                             "locator_set": mcast_uuid}],
-                                                           True, 0))
-                            if update:
-                                mutators = []
-                                if add_broadcasts:
-                                    mutators.append(["locators", "insert", ovsdb.oset(*[locator_uuid_dict[ip] for ip in add_broadcasts])])
-                                if remove_broadcasts:
-                                    mutators.append(["locators", "delete", ovsdb.oset(*[locator_uuid_dict[ip] for ip in remove_broadcasts])])
-                                if mutators:
-                                    set_operates.append(ovsdb.mutate('Physical_Locator_Set',
-                                                                 [["_uuid", "==", mcast_uuid]],
-                                                                 mutators))
-                            else:
-                                set_operates.append(ovsdb.update('Physical_Locator_Set',
-                                                                 [["_uuid", "==", mcast_uuid]],
-                                                                 {"locators": ovsdb.oset(*[locator_uuid_dict[ip] for ip in add_broadcasts])}))
+                                                          [["MAC", "==", "unknown-dst"],
+                                                          ["logical_switch", "==", ovsdb.uuid(lsuuid)]],
+                                                          ["_uuid"],
+                                                          [{"_uuid": result[1]['rows'][0]['_uuid']}],
+                                                          True, 0))
+                            # Create a new set
+                            set_operates.append(ovsdb.insert('Physical_Locator_Set',
+                                                             {"locators": ovsdb.oset(*[locator_uuid_dict[ip] for ip in broadcast_ips])},
+                                                             'mcast_unknown_uuid'))
+                            mcast_uuid = ovsdb.named_uuid('mcast_unknown_uuid')
+                            set_operates.append(ovsdb.update('Mcast_Macs_Remote',
+                                                            [["_uuid", "==", result[1]['rows'][0]['_uuid']]],
+                                                             {"locator_set": mcast_uuid}))
                     else:
                         if broadcast_ips:
                             wait_operates.append(ovsdb.wait('Mcast_Macs_Remote',
@@ -468,7 +460,7 @@ class VtepController(Module):
                                                           [],
                                                           True, 0))
                             set_operates.append(ovsdb.insert('Physical_Locator_Set',
-                                                             {"locators": ovsdb.oset(*[locator_uuid_dict[ip] for ip in add_broadcasts])},
+                                                             {"locators": ovsdb.oset(*[locator_uuid_dict[ip] for ip in broadcast_ips])},
                                                              'mcast_unknown_uuid'))
                             mcast_uuid = ovsdb.named_uuid('mcast_unknown_uuid')
                             set_operates.append(ovsdb.insert('Mcast_Macs_Remote',
@@ -968,7 +960,7 @@ class VtepController(Module):
                     break
                 ls_uuid = ls_list[0]['_uuid'][1]
                 curr_network = ovsdb.omap_getvalue(port['vlan_bindings'], vlanid)
-                if curr_network[1] != ls_uuid:
+                if curr_network is None or curr_network[1] != ls_uuid:
                     # Not binded
                     break
                 operations = []
