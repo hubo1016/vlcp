@@ -12,6 +12,9 @@ VLAN networks, you may need to configure the physical switch port to "trunk mode
 you can still use VXLAN isolation, in that case, you may use virtual machines (even in public cloud) to replace
 physical servers.
 
+This toturial assumes you are using root account, if you run into priviledge problems with a non-root account,
+you may need ``sudo``.
+
 Most of the setup steps should be done on both servers, or every server in the cluster, except
 ::ref:`centraldatabase`, and all the API calls with *curl* which create global objects (physical networks,
 physical ports, logical networks, subnets, virtual routers).
@@ -111,7 +114,8 @@ Create VLCP Configuration
 Download example configuration file from `GitHub <https://github.com/hubo1016/vlcp/tree/master/example/config>`_
 and save it to ``/etc/vlcp.conf`` as a start. In this tutorial, we will use genericl3.conf::
 
-   curl https://raw.githubusercontent.com/hubo1016/vlcp/master/example/config/genericl3.conf > /etc/vlcp.conf
+   curl https://raw.githubusercontent.com/hubo1016/vlcp/master/example/config/genericl3.conf\
+        > /etc/vlcp.conf
    
 Modify the ``module.zookeeperdb.url`` line with your ZooKeeper server addresses, or if you are using Redis,
 following the comments in the configuration file.
@@ -132,6 +136,8 @@ or::
    nohup python -m vlcp.start &
 
 To stop the service, run command ``fg`` and press Ctrl+C, or use *kill* command on the process.
+
+.. note:: You should start the controller with root priviledge (``sudo`` if necessary).
 
 .. _configureopenvswitch:
 
@@ -168,7 +174,8 @@ Create VXLAN Physical Network
 There is only one step to create a physical network. The example configuration open a management API port at
 ``http://localhost/8081``. We will call the management API with curl::
 
-   curl -g 'http://localhost:8081/viperflow/createphysicalnetwork?type=vxlan&vnirange=`[[10000,20000]]`&id=vxlan'
+   curl -g -d 'type=vxlan&vnirange=`[[10000,20000]]`&id=vxlan' \
+              'http://localhost:8081/viperflow/createphysicalnetwork?'
 
 You may run this command on any of your server nodes. All server nodes share the same data storage, so you create
 the network configuration once and they can be used anywhere.
@@ -182,7 +189,7 @@ familar with this type of ranges.
 
  
 .. note:: By default, the management API supports HTTP GET (with query string), HTTP POST (with standard form data),
-          and HTTP POST with JSON-format POST data. Though use the HTTP GET format is usually the easiest way to
+          and HTTP POST with JSON-format POST data. Though use the HTTP GET/POST format is usually the easiest way to
           call the API in Shell command-line, when integrating with other systems JSON-format POST may be more
           convient.
           
@@ -209,7 +216,8 @@ to create a physical port:
           
 First create a vxlan tunnel port in each server::
    
-   ovs-vsctl add-port testbr0 vxlan0 -- set interface vxlan0 type=vxlan options:local_ip=10.0.1.2 options:remote_ip=flow options:key=flow
+   ovs-vsctl add-port testbr0 vxlan0 -- set interface vxlan0 type=vxlan \
+             options:local_ip=10.0.1.2 options:remote_ip=flow options:key=flow
    
 Replace the IP address ``10.0.1.2`` to an external IP address on this server, it should be different for each server.
 VLCP will use this configuration to discover other nodes in the same cluster.
@@ -219,11 +227,12 @@ The port name ``vxlan0`` can be replaced to other names, but you should use the 
 .. note:: VXLAN uses UDP port 4789 for overlay tunneling. You must configure your *iptables* or firewall to allow UDP
           traffic on this port. If there are other VXLAN services on this server (for example, overlay network driver
           in docker uses this port for its own networking), you may specify another port by appending
-          ``option:dst_port=9999`` to the commandline. Make sure all your servers are using the same UDP port.
+          ``option:dst_port=4999`` to the commandline. Make sure all your servers are using the same UDP port.
 
 Then create the physical port configuration (only once, on any server node)::
    
-   curl -g 'http://localhost:8081/viperflow/createphysicalport?physicalnetwork=vxlan&name=vxlan0'
+   curl -g -d 'physicalnetwork=vxlan&name=vxlan0'\
+           'http://localhost:8081/viperflow/createphysicalport'
    
 The ``physicalnetwork`` parameter is the physical network ID, and the ``name`` parameter is the port name in above
 command.
@@ -242,8 +251,10 @@ In this tutorial, we will create two logical networks:
 The steps are simple and direct. In VLCP, Ethernet related configurations are provided when createing a **Logical Network**,
 and IP related configurations are provided when creating a **Subnet**. First create two logical networks::
 
-   curl -g 'http://localhost:8081/viperflow/createlogicalnetwork?physicalnetwork=vxlan&id=network_a&mtu=1450'
-   curl -g 'http://localhost:8081/viperflow/createlogicalnetwork?physicalnetwork=vxlan&id=network_b&mtu=1450'
+   curl -g -d 'physicalnetwork=vxlan&id=network_a&mtu=`1450`'\
+         'http://localhost:8081/viperflow/createlogicalnetwork'
+   curl -g -d 'physicalnetwork=vxlan&id=network_b&mtu=`1450`'\
+         'http://localhost:8081/viperflow/createlogicalnetwork'
 
 .. note:: VXLAN introduces extra overlay packet header into the packet, so we leave 50 bytes for the header
           and set MTU=1450. If your underlay network supports larger MTU, you can set a larger MTU instead.
@@ -257,8 +268,10 @@ and IP related configurations are provided when creating a **Subnet**. First cre
 
 Then, create a *Subnet* for each logical network::
 
-   curl -g 'http://localhost:8081/viperflow/createsubnet?logicalnetwork=network_a&cidr=192.168.1.0/24&gateway=192.168.1.1&id=subnet_a'
-   curl -g 'http://localhost:8081/viperflow/createsubnet?logicalnetwork=network_b&cidr=192.168.2.0/24&gateway=192.168.2.1&id=subnet_b'
+   curl -g -d 'logicalnetwork=network_a&cidr=192.168.1.0/24&gateway=192.168.1.1&id=subnet_a'\
+         'http://localhost:8081/viperflow/createsubnet'
+   curl -g -d 'logicalnetwork=network_b&cidr=192.168.2.0/24&gateway=192.168.2.1&id=subnet_b'\
+         'http://localhost:8081/viperflow/createsubnet'
 
 .. note:: There are also batch create APIs like ``createlogicalnetworks`` and ``createsubnets``, which accepts
           a list of dictionaries to create multiple objects in one transact. A batch create operation is an
@@ -279,21 +292,29 @@ Run following commands on each server::
    SERVER_ID=1
    ip netns add vlcp_ns1
    LOGPORT_ID=lgport-${SERVER_ID}-1
-   ovs-vsctl add-port testbr0 vlcp-port1 -- set interface vlcp-port1 type=internal external_ids:iface-id=${LOGPORT_ID}
-   MAC_ADDRESS=`ip link show dev vlcp-port1 | grep -oP 'link/ether \S+' | awk '{print $2}'`
-   curl -g "http://localhost:8081/viperflow/createlogicalport?id=${LOGPORT_ID}&logicalnetwork=network_a&subnet=subnet_a&mac_address=${MAC_ADDRESS}"
+   ovs-vsctl add-port testbr0 vlcp-port1 -- set interface vlcp-port1 \
+         type=internal external_ids:iface-id=${LOGPORT_ID}
+   MAC_ADDRESS=`ip link show dev vlcp-port1 | grep -oP 'link/ether \S+'\
+          | awk '{print $2}'`
+   curl -g -d "id=${LOGPORT_ID}&logicalnetwork=network_a&subnet=subnet_a&mac_address=${MAC_ADDRESS}"\
+          "http://localhost:8081/viperflow/createlogicalport"
    ip link set dev vlcp-port1 netns vlcp_ns1
    ip netns exec vlcp_ns1 ip link set dev vlcp-port1 up
-   ip netns exec vlcp_ns1 dhclient -pf /var/run/dhclient-vlcp-port1.pid -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
+   ip netns exec vlcp_ns1 dhclient -pf /var/run/dhclient-vlcp-port1.pid\
+          -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
    
    ip netns add vlcp_ns2
    LOGPORT_ID=lgport-${SERVER_ID}-2
-   ovs-vsctl add-port testbr0 vlcp-port2 -- set interface vlcp-port2 type=internal external_ids:iface-id=${LOGPORT_ID}
-   MAC_ADDRESS=`ip link show dev vlcp-port2 | grep -oP 'link/ether \S+' | awk '{print $2}'`
-   curl -g "http://localhost:8081/viperflow/createlogicalport?id=${LOGPORT_ID}&logicalnetwork=network_b&subnet=subnet_b&mac_address=${MAC_ADDRESS}"
+   ovs-vsctl add-port testbr0 vlcp-port2 -- set interface vlcp-port2 \
+         type=internal external_ids:iface-id=${LOGPORT_ID}
+   MAC_ADDRESS=`ip link show dev vlcp-port2 | grep -oP 'link/ether \S+'\
+         | awk '{print $2}'`
+   curl -g -d "id=${LOGPORT_ID}&logicalnetwork=network_b&subnet=subnet_b&mac_address=${MAC_ADDRESS}" \
+         "http://localhost:8081/viperflow/createlogicalport"
    ip link set dev vlcp-port2 netns vlcp_ns2
    ip netns exec vlcp_ns2 ip link set dev vlcp-port2 up
-   ip netns exec vlcp_ns2 dhclient -pf /var/run/dhclient-vlcp-port2.pid -lf /var/lib/dhclient/dhclient-vlcp-port2.leases vlcp-port2
+   ip netns exec vlcp_ns2 dhclient -pf /var/run/dhclient-vlcp-port2.pid \
+         -lf /var/lib/dhclient/dhclient-vlcp-port2.leases vlcp-port2
    
 Change ``SERVER_ID`` to a different number for each of your server to prevent the logical port ID conflicts with
 each other.
@@ -316,7 +337,8 @@ For each port
           
           Use::
           
-            ip netns exec vlcp_ns1 dhclient -x -pf /var/run/dhclient-vlcp-port1.pid -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
+            ip netns exec vlcp_ns1 dhclient -x -pf /var/run/dhclient-vlcp-port1.pid \
+                  -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
           
           to stop it.
           
@@ -348,7 +370,9 @@ This keeps the broadcast range of logical networks in a reasonable scale.
 Let's create a virtual router and put subnet_a, subnet_b inside it::
 
    curl -g 'http://localhost:8081/vrouterapi/createvirtualrouter?id=subnetrouter'
-   curl -g 'http://localhost:8081/vrouterapi/addrouterinterfaces?interfaces=`[{"router":"subnetrouter","subnet":"subnet_a"},{"router":"subnetrouter","subnet":"subnet_b"}]`'
+   curl -g -d 'interfaces=`[{"router":"subnetrouter","subnet":"subnet_a"},\
+                             {"router":"subnetrouter","subnet":"subnet_b"}]`'\
+           'http://localhost:8081/vrouterapi/addrouterinterfaces'
    
 Now the logical ports should be enabled to ping each other no matter which logical network they are in:
 
@@ -368,8 +392,10 @@ connect your vNICs to traditional networks.
 It is not that different to create a VLAN physical network from creating a VXLAN physical network. We will
 assume your VLAN network is connected by a physical NIC or bonding device named ``bond0``::
 
-   curl -g 'http://localhost:8081/viperflow/createphysicalnetwork?type=vlan&vlanrange=`[[1000,2000]]`&id=vlan'
-   curl -g 'http://localhost:8081/viperflow/createphysicalport?physicalnetwork=vlan&name=bond0'
+   curl -g -d 'type=vlan&vlanrange=`[[1000,2000]]`&id=vlan'\
+          'http://localhost:8081/viperflow/createphysicalnetwork'
+   curl -g -d 'physicalnetwork=vlan&name=bond0'\
+          'http://localhost:8081/viperflow/createphysicalport'
 
 And on each server::
 
@@ -393,9 +419,13 @@ When removing configurations from VLCP, use a reversed order: **Logical Ports**,
 **Logical Network**, **Physical Ports**, **Physical Network**::
 
    SERVER_ID=1
-   curl -g 'http://localhost:8081/viperflow/deletelogicalports?ports=`[{"id":"'"lgport-${SERVER_ID}-1"'"},{"id":"'"lgport-${SERVER_ID}-2"'"}]`'
+   curl -g -d 'ports=`[{"id":"'"lgport-${SERVER_ID}-1"'"},
+                       {"id":"'"lgport-${SERVER_ID}-2"'"}]`'\
+         'http://localhost:8081/viperflow/deletelogicalports'
 
-   curl -g 'http://localhost:8081/vrouterapi/removerouterinterfaces?interfaces=`[{"router":"subnetrouter","subnet":"subnet_a"},{"router":"subnetrouter","subnet":"subnet_b"}]`'
+   curl -g -d 'interfaces=`[{"router":"subnetrouter","subnet":"subnet_a"},
+                           {"router":"subnetrouter","subnet":"subnet_b"}]`'\
+         'http://localhost:8081/vrouterapi/removerouterinterfaces'
    curl -g 'http://localhost:8081/vrouterapi/deletevirtualrouter?id=subnetrouter'
       
    curl -g 'http://localhost:8081/viperflow/deletesubnet?id=subnet_a'
@@ -407,8 +437,10 @@ When removing configurations from VLCP, use a reversed order: **Logical Ports**,
    
 After this you can remove the ovs bridge and namespace created on each server to restore the environment::
 
-   ip netns exec vlcp_ns1 dhclient -x -pf /var/run/dhclient-vlcp-port1.pid -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
-   ip netns exec vlcp_ns2 dhclient -x -pf /var/run/dhclient-vlcp-port2.pid -lf /var/lib/dhclient/dhclient-vlcp-port2.leases vlcp-port2
+   ip netns exec vlcp_ns1 dhclient -x -pf /var/run/dhclient-vlcp-port1.pid\
+         -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
+   ip netns exec vlcp_ns2 dhclient -x -pf /var/run/dhclient-vlcp-port2.pid\
+         -lf /var/lib/dhclient/dhclient-vlcp-port2.leases vlcp-port2
    ovs-vsctl del-br testbr0   
    ip netns del vlcp_ns1
    ip netns del vlcp_ns2
