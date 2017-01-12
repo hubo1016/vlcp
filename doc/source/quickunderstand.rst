@@ -104,7 +104,7 @@ Virtual router service with both *internal networks* and *external networks* for
 external gateways with static routes or technologies like OSPF, or use NAT (not yet supported).
 
 Sometimes *internal networks* and *external networks* are in different **Physical Networks**, and not all server nodes
-have **Physical Ports** for **Physical Network** of the *external network**. For example, *internal networks* are
+have **Physical Ports** for **Physical Network** of the *external network*. For example, *internal networks* are
 connected through VXLAN, while *external networks* are using VLAN for isolation. In this situation, some
 *forwarding nodes* should be created to forward the traffic from *internal networks* to *external networks*.
 They are almost the same as other server nodes except a few configurations are modified.
