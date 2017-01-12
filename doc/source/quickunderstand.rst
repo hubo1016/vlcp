@@ -14,7 +14,9 @@ Layer-2 Network (Ethernet)
 With the standard network model [#f1]_, VLCP assumes you connect your virtual machines or docker containers
 with OpenvSwitch (or OVS) [#f2]_. 
 
-The physical view of the network can be described with the following figure:
+The physical view of the network can be described with the figure ::ref:`figure_physicalnetwork`.
+
+.. _figure_physicalnetwork:
 
 .. figure:: _static/images/physicalnetwork.png
    :alt: Physical View of the Network
@@ -61,7 +63,10 @@ as a standard Ethernet for endpoints.
 With the isolation function of the **Logcial Network**, endpoints can be grouped into virtual networks, no matter
 what their physical locations are. Endpoints on different physical servers can access each other as if they are
 connected to the same L2 switch. At the same time, endpoints on the same physical server can be isolated as if
-they are connected to physical isolated networks. The logical view of the network looks like the following figure:
+they are connected to physical isolated networks. The logical view of the network looks like the figure
+::ref:`figure_logicalnetwork`:
+
+.. _figure_logicalnetwork:
 
 .. figure:: _static/images/logicalnetwork.png
    :alt: Logical View of the Network
@@ -107,7 +112,10 @@ Sometimes *internal networks* and *external networks* are in different **Physica
 have **Physical Ports** for **Physical Network** of the *external network*. For example, *internal networks* are
 connected through VXLAN, while *external networks* are using VLAN for isolation. In this situation, some
 *forwarding nodes* should be created to forward the traffic from *internal networks* to *external networks*.
-They are almost the same as other server nodes except a few configurations are modified.
+They are almost the same as other server nodes except a few configurations are modified. The figure
+::ref:`figure_forwarding` shows the structure.
+
+.. _figure_forwarding:
 
 .. figure:: _static/images/forwarding.png
    :alt: L3 Network with Forwarding Nodes
@@ -118,7 +126,9 @@ They are almost the same as other server nodes except a few configurations are m
 Network Settings Structure
 --------------------------
 
-To setup a new network, elements in the following figure should be created in order from top to bottom.
+To setup a new network, elements in the figure ::ref:`figure_settings` should be created in order from top to bottom.
+
+.. _figure_settings:
 
 .. figure:: _static/images/settings.png
    :alt: Network Settings Structure
