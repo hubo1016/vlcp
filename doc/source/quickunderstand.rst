@@ -133,7 +133,7 @@ To setup a new network, elements in the figure ::ref:`figure_settings` should be
 .. figure:: _static/images/settings.png
    :alt: Network Settings Structure
    
-   *fig 3. Network Settings Structure*
+   Network Settings Structure
    
 
 .. rubric:: Footnotes
