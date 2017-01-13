@@ -56,6 +56,7 @@ class RemoteCall(Module):
                     continue
                 else:
                     success = True
+                    break
 
         else:
             self._logger.warning(" target (%r) url not existed, ignore it ",remote_module)
