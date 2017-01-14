@@ -890,12 +890,15 @@ class VXLANCast(FlowBase):
     # Enable learning on VXLAN tunnel IP destination.
     # VXLAN model must know every destination for each unicast MAC address. There are three
     # working mode the VXLANCast module:
+    # 
     # 1. prepush = True, necessary MAC-tunneldst information will be pushed to the logical switch.
     #    learning = True may also be enabled so that external VXLAN MAC addresses may use learning
     #    strategy. If learning = False, unknown MAC addresses cannot be forwarded.
+    # 
     # 2. learning = True, prepush = False. When a packet is received from a destination, its
     #    destination tunnel IP address is recorded, a flow is created for this MAC address;
     #    every packet with an unknown unicast MAC address as its destination will be broadcasted.
+    # 
     # 3. learning = False, prepush = False. This enables a first-packet-to-controller strategy:
     #    When the first packet is going out from the switch, it is transmitted to the controller,
     #    and the controller queries ObjectDB for the tunnel destination, creates the fast-path

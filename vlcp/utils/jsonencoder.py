@@ -93,6 +93,9 @@ def decode_object(obj):
 
 @config('jsonformat')
 class JsonFormat(Configurable):
+    '''
+    This is an extended JSON formatter used by WebAPI module
+    '''
     # Enable special format for namedstruct (https://pypi.python.org/pypi/nstruct)
     _default_namedstruct = True
     # Use human read format, so:

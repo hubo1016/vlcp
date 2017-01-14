@@ -50,6 +50,9 @@ _should_add_watch = set(((zk.CREATED_EVENT_DEF, zk.ZOO_ERR_NONODE),))
 
 @config('zookeeperclient')
 class ZooKeeperClient(Configurable):
+    """
+    ZooKeeper client to send requests to a cluster
+    """
     # Default ZooKeeper server list, should be a list contains connection URLs
     _default_serverlist = []
     # Chroot to a child node instead of the root node. All paths used in the program

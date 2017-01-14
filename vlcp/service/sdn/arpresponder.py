@@ -408,7 +408,7 @@ class ARPResponder(FlowBase):
     def createproxyarp(self, connection, arpentries):
         '''
         Create ARP respond flow for specified ARP entries, each is a tuple
-        (ip_address, mac_address, logical_network_id, local). When local is True,
+        ``(ip_address, mac_address, logical_network_id, local)``. When local is True,
         only respond to ARP request from logical port; when local is False,
         only respond to ARP request from physical port; respond to both else. 
         '''

@@ -21,6 +21,19 @@ class Server(Configurable):
     '''
     Create a server with all necessary parts
     '''
+    # Startup modules list. Should be a tuple of "package.classname" like::
+    # 
+    #    ('vlcp.service.sdn.viperflow.ViperFlow',
+    #    'vlcp.service.sdn.vrouterapi.VRouterApi')
+    #
+    # Startup modules automatically load their dependencies, so it is not necessary
+    # (though not an error) to write them explicitly.
+    # 
+    # If server.startup is null or empty, server tries to load modules
+    # in __main__. 
+    _default_startup = ()
+    # enable debugging log for scheduler
+    _default_debugging = False
     # File-can-write event priority, usually means socket send() can be used
     _default_pollwritepriority = 700
     # ConnectionWrite events priority
@@ -71,10 +84,6 @@ class Server(Configurable):
     _default_resolverpoolsize = 64
     # try to set open files limit (ulimit -n) to this number if it is smaller
     _default_ulimitn = 32768
-    # startup modules list
-    _default_startup = ()
-    # enable debugging log for scheduler
-    _default_debugging = False
     # Use logging.config.dictConfig with this dictionary to configure the logging system.
     # It is supported in Python 2.7+
     _default_logging = None

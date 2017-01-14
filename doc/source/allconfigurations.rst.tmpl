@@ -1,0 +1,34 @@
+{% for config_root, config_value in data_input.items() %}
+
+.. _configkey_{{ config_root.replace('.','_') }}:
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+{{ config_root }}
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. note::
+   Refering :py:class:`{{ config_value['class'] }}`:
+   
+      {{ config_value['classdescription']|default('(No description)',true)|indent(6, false) }}
+
+.. list-table:: Configurations Summary
+   :widths: 10 10 60
+   :class: configtable
+   :header-rows: 1
+   
+   * - Configuration Key
+     - Default Value
+     - Description
+     
+{% for config_key, config_item in config_value['configs'].items() %}
+   * - {{ config_key }}
+   
+     - ::
+          
+          {{ config_item.get('default','')|indent(10,false) }}
+
+     - {{ config_item.get('description','(inherited)')|indent(7,false) }}
+     
+{% endfor -%}
+
+{% endfor %}

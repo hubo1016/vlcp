@@ -372,6 +372,9 @@ class ICMPResponderUpdater(FlowUpdater):
 @defaultconfig
 @depend(ofpportmanager.OpenflowPortManager,objectdb.ObjectDB)
 class ICMPResponder(FlowBase):
+    """
+    Respond ICMP echo (ping) requests to the gateway
+    """
     _tablerequest = (
         ("l3input",("l2input",),""),
         ("l2output",("l3input",),"")

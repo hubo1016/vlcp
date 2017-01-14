@@ -10,7 +10,7 @@ from vlcp.service.connection.tcpserver import TcpServerBase
 @defaultconfig
 class OpenflowServer(TcpServerBase):
     '''
-    Create HTTP server on specified URLs, vHosts are supported.
+    Create OpenFlow server on specified URLs, vHosts are supported.
     '''
     # Enable connection management
     _default_connmanage = True

@@ -10,12 +10,17 @@ from vlcp.utils.ethernet import ip4_addr
 from vlcp.utils.netutils import format_network_cidr,check_ip_address, parse_ip4_network, ip_in_network
 
 import vlcp.service.kvdb.objectdb as objectdb
+from vlcp.config.config import defaultconfig
 
 logger = logging.getLogger("vrouterapi")
 
 
 @depend(objectdb.ObjectDB)
+@defaultconfig
 class VRouterApi(Module):
+    """
+    Standard network model for L3 SDN
+    """
     def __init__(self,server):
         super(VRouterApi,self).__init__(server)
 
@@ -62,7 +67,15 @@ class VRouterApi(Module):
             pass
 
     def createvirtualrouter(self,id=None,**kwargs):
-        "create virtual router "
+        """
+        Create a virtual router
+        
+        :param id: Virtual router id. If omitted, an UUID is generated.
+        
+        :param \*\*kwargs: extra attributes for creation.
+        
+        :return: A dictionary of information of the virtual router.
+        """
         if not id:
             id = str(uuid1())
 
@@ -73,7 +86,9 @@ class VRouterApi(Module):
             yield m
 
     def createvirtualrouters(self,routers):
-        "create virutal routers"
+        """
+        Create multiple virtual routers in a transaction
+        """
         idset = set()
         newrouters = []
         for router in routers:
@@ -135,7 +150,9 @@ class VRouterApi(Module):
         return router
 
     def updatevirtualrouter(self,id,**kwargs):
-        "update virtual router"
+        """
+        Update virtual router
+        """
         if not id:
             raise ValueError(" must specify id")
         router = {"id":id}
@@ -145,7 +162,7 @@ class VRouterApi(Module):
             yield m
 
     def updatevirtualrouters(self,routers):
-        "update virtual routers"
+        "Update multiple virtual routers"
         idset = set()
         for router in routers:
             if 'id' not in router:
@@ -199,7 +216,7 @@ class VRouterApi(Module):
                 yield m
 
     def deletevirtualrouter(self,id):
-        "delete virtual router"
+        "Delete virtual router"
         if not id:
             raise ValueError("must specify id")
 
@@ -209,7 +226,7 @@ class VRouterApi(Module):
             yield m
 
     def deletevirtualrouters(self,routers):
-        "delete virtual routers"
+        "Delete multiple virtual routers"
         idset = set()
         for router in routers:
             if 'id' not in router:
@@ -242,7 +259,15 @@ class VRouterApi(Module):
             self.app_routine.retvalue = {"status":"OK"}
 
     def listvirtualrouters(self,id=None,**kwargs):
-        "list virtual routers info"
+        """
+        Query virtual router
+        
+        :param id: if specified, only return virtual router with this ID
+        
+        :param \*\*kwargs: customized filter
+        
+        :return: a list of dictionaries each stands for a matched virtual router.
+        """
         if id:
             routerkey = [VRouter.default_key()]
 
@@ -296,7 +321,19 @@ class VRouterApi(Module):
                 self.app_routine.retvalue = [dump(r) for r in values]
 
     def addrouterinterface(self,router,subnet,id=None,**kwargs):
-        "add interface into router"
+        """
+        Connect virtual router to a subnet
+        
+        :param router: virtual router ID
+        
+        :param subnet: subnet ID
+        
+        :param id: router port ID
+        
+        :param \*\*kwargs: customized options
+        
+        :return: A dictionary of information of the created router port
+        """
         if not id:
             id = str(uuid1())
 
@@ -313,7 +350,9 @@ class VRouterApi(Module):
             yield m
 
     def addrouterinterfaces(self,interfaces):
-        "add interfaces into routers"
+        """
+        Create multiple router interfaces
+        """
         idset = set()
         newinterfaces = []
         for interface in interfaces:
@@ -441,7 +480,15 @@ class VRouterApi(Module):
         return routerport
 
     def removerouterinterface(self,router,subnet):
-        "remvoe interface from router"
+        """
+        Remote a subnet from the router
+        
+        :param router: virtual router ID
+        
+        :param subnet: subnet ID
+        
+        :return: ``{"status": "OK"}``
+        """
         if not router:
             raise ValueError("must specify router id")
 
@@ -454,7 +501,9 @@ class VRouterApi(Module):
             yield m
 
     def removerouterinterfaces(self,interfaces):
-        """remove interfaces from router"""
+        """
+        Remote multiple subnets from routers
+        """
 
         # idset use to check repeat subnet!
         idset = set()
@@ -494,7 +543,7 @@ class VRouterApi(Module):
                     routerportid = RouterPort._getIndices(snobj.router.getkey())[1][0]
                     interface['routerport'] = routerportid
                 else:
-                    raise ValueError("subnet " + interface["subnet"] + " not plugin into router" )
+                    raise ValueError("subnet " + interface["subnet"] + " is not plugged to router" )
 
 
         subnetkeys = list(set(subnetkeys))
@@ -562,8 +611,15 @@ class VRouterApi(Module):
         self.app_routine.retvalue = {'status': 'OK'}
 
     def listrouterinterfaces(self,id,**kwargs):
-        "list interfaces info plugin in router"
-
+        """
+        Query router ports from a virtual router
+        
+        :param id: virtual router ID
+        
+        :param \*\*kwargs: customized filters on router interfaces
+        
+        :return: a list of dictionaries each stands for a matched router interface
+        """
         if not id:
             raise ValueError(" must special router id")
 

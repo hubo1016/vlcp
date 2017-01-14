@@ -1,0 +1,26 @@
+.. _configkey_proxy:
+
+^^^^^^
+proxy
+^^^^^^
+
+.. note::
+   ``proxy`` is a special type of configurations that route abstract API calls to
+   different implementations. The value of each item should be a loading path
+   of a module ``<package>.<classname>`` like ``vlcp.service.sdn.viperflow.ViperFlow``
+
+.. list-table:: Configurations Summary
+   :widths: 20 60
+   :class: configtable
+   :header-rows: 1
+   
+   * - Configuration Key
+     - Default Value
+
+{% for proxy_key, proxy_default in data_input.items() %}
+
+   * - {{proxy_key}}
+   
+     - ``{{proxy_default}}``
+
+{% endfor %}

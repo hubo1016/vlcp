@@ -179,7 +179,7 @@ class OpenflowPortManager(Module):
         else:
             self.apiroutine.retvalue = list(r.values())
     def getallports(self, vhost = None):
-        "Return all (datapathid, port, vhost) tuples, optionally filterd by vhost"
+        "Return all ``(datapathid, port, vhost)`` tuples, optionally filterd by vhost"
         for m in self._wait_for_sync():
             yield m
         if vhost is None:
@@ -187,7 +187,7 @@ class OpenflowPortManager(Module):
         else:
             self.apiroutine.retvalue = [(dpid, p, vh) for (vh, dpid),v in self.managed_ports.items() if vh == vhost for p in v.values()]
     def getportbyno(self, datapathid, portno, vhost = ''):
-        "Return port with specified portno"
+        "Return port with specified OpenFlow portno"
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = self._getportbyno(datapathid, portno, vhost)
@@ -198,6 +198,9 @@ class OpenflowPortManager(Module):
         else:
             return ports.get(portno)
     def waitportbyno(self, datapathid, portno, timeout = 30, vhost = ''):
+        """
+        Wait for the specified OpenFlow portno to appear, or until timeout.
+        """
         for m in self._wait_for_sync():
             yield m
         def waitinner():
@@ -222,7 +225,7 @@ class OpenflowPortManager(Module):
         if self.apiroutine.timeout:
             raise OpenflowPortNotAppearException('Port %d does not appear on datapath %016x' % (portno, datapathid))
     def getportbyname(self, datapathid, name, vhost = ''):
-        "Return port with specified portno"
+        "Return port with specified port name"
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = self._getportbyname(datapathid, name, vhost)
@@ -238,6 +241,9 @@ class OpenflowPortManager(Module):
                     return p
             return None
     def waitportbyname(self, datapathid, name, timeout = 30, vhost = ''):
+        """
+        Wait for a port with the specified port name to appear, or until timeout
+        """
         for m in self._wait_for_sync():
             yield m
         if not isinstance(name, bytes):

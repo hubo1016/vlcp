@@ -161,7 +161,7 @@ class RedisDB(TcpServerBase):
             return c.make_connobj(self.apiroutine)
         return _create_client
     def getclient(self, vhost = ''):
-        "Return a tuple of (redisclient, encoder, decoder) for specified vhost"
+        "Return a tuple of ``(redisclient, encoder, decoder)`` for specified vhost"
         return (self._redis_clients.get(vhost), self._encode, self._decode)
     def get(self, key, timeout = None, vhost = ''):
         "Get value from key"
@@ -203,6 +203,7 @@ class RedisDB(TcpServerBase):
                 yield m
         self.apiroutine.retvalue = None
     def delete(self, key, vhost = ''):
+        "Delete a key from the storage"
         c = self._redis_clients.get(vhost)
         for m in c.execute_command(self.apiroutine, 'DEL', key):
             yield m
@@ -328,7 +329,7 @@ class RedisDB(TcpServerBase):
         
         :param key: key to update
         
-        :param updater: func(k,v), should return a new value to update, or return None to delete. The function
+        :param updater: ``func(k,v)``, should return a new value to update, or return None to delete. The function
                         may be call more than once.
         
         :param timeout: new timeout
@@ -426,7 +427,12 @@ class RedisDB(TcpServerBase):
             for m in g:
                 yield m
     def updateall(self, keys, updater, timeout = None, vhost = ''):
-        "Update multiple keys in-place, with a function updater(keys, values) which returns (updated_keys, updated_values). Either all success or all fail"
+        """
+        Update multiple keys in-place, with a function ``updater(keys, values)``
+        which returns ``(updated_keys, updated_values)``.
+        
+        Either all success or all fail
+        """
         def _process(newconn):
             if keys:
                 for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
@@ -486,7 +492,14 @@ class RedisDB(TcpServerBase):
             for m in g:
                 yield m
     def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
-        "Update multiple keys in-place, with a function updater(keys, values, timestamp) which returns (updated_keys, updated_values). Either all success or all fail. Timestamp is a integer standing for current time in microseconds."
+        """
+        Update multiple keys in-place, with a function ``updater(keys, values, timestamp)``
+        which returns ``(updated_keys, updated_values)``.
+        
+        Either all success or all fail.
+        
+        Timestamp is a integer standing for current time in microseconds.
+        """
         def _process(newconn):
             if keys:
                 for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):

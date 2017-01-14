@@ -508,7 +508,7 @@ class OVSDBPortManager(Module):
             yield m
         self.apiroutine.retvalue = [p for _,p in self.managed_ports.get((vhost, datapathid), [])]
     def getallports(self, vhost = None):
-        "Return all (datapathid, port, vhost) tuples, optionally filterd by vhost"
+        "Return all ``(datapathid, port, vhost)`` tuples, optionally filterd by vhost"
         for m in self._wait_for_sync():
             yield m
         if vhost is None:
@@ -602,7 +602,7 @@ class OVSDBPortManager(Module):
         if self.apiroutine.timeout:
             raise OVSDBPortNotAppearException('Port ' + repr(name) + ' does not appear before timeout')
     def getportbyid(self, id, vhost = ''):
-        "Return port with the specified id. The return value is a pair: (datapath_id, port)"
+        "Return port with the specified id. The return value is a pair: ``(datapath_id, port)``"
         for m in self._wait_for_sync():
             yield m
         self.apiroutine = self._getportbyid(id, vhost)
@@ -613,7 +613,7 @@ class OVSDBPortManager(Module):
         else:
             return None
     def waitportbyid(self, id, timeout = 30, vhost = ''):
-        "Wait for port with the specified id. The return value is a pair (datapath_id, port)"
+        "Wait for port with the specified id. The return value is a pair ``(datapath_id, port)``"
         for m in self._wait_for_sync():
             yield m
         def waitinner():

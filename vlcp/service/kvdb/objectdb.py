@@ -56,6 +56,9 @@ class _NeedMoreKeysException(Exception):
 @defaultconfig
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
 class ObjectDB(Module):
+    """
+    Abstract transaction layer for KVDB
+    """
     service = True
     # Priority for object update event
     _default_objectupdatepriority = 450
@@ -538,7 +541,10 @@ class ObjectDB(Module):
             raise StaleResultException(self.apiroutine.event.result)
         self.apiroutine.retvalue = self.apiroutine.event.result
     def get(self, key, requestid, nostale = False):
-        "Get an object from specified key, and manage the object. Return a reference to the object or None if not exists."
+        """
+        Get an object from specified key, and manage the object.
+        Return a reference to the object or None if not exists.
+        """
         for m in self.mget([key], requestid, nostale):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
@@ -563,13 +569,16 @@ class ObjectDB(Module):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
     def watch(self, key, requestid, nostale = False):
-        "Try to find an object and return a reference. Use reference.isdeleted() to test whether the object exists. "\
-        "Use reference.wait(container) to wait for the object to be existed."
+        """
+        Try to find an object and return a reference. Use ``reference.isdeleted()`` to test
+        whether the object exists.
+        Use ``reference.wait(container)`` to wait for the object to be existed.
+        """
         for m in self.mwatch([key], requestid, nostale):
             yield m
         self.apiroutine.retvalue = self.apiroutine.retvalue[0]
     def mwatch(self, keys, requestid, nostale = False):
-        "Try to return all the references, see watch()"
+        "Try to return all the references, see ``watch()``"
         keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
@@ -607,9 +616,14 @@ class ObjectDB(Module):
             raise self.apiroutine.event.exception
         self.apiroutine.retvalue = None
     def transact(self, keys, updater, withtime = False):
-        "Try to update keys in a transact, with an updater(keys, values), which returns (updated_keys, updated_values). "\
-        "The updater may be called more than once. If withtime = True, the updater should take three parameters: "\
-        "(keys, values, timestamp) with timestamp as the server time"
+        """
+        Try to update keys in a transact, with an ``updater(keys, values)``,
+        which returns ``(updated_keys, updated_values)``.
+        
+        The updater may be called more than once. If ``withtime = True``,
+        the updater should take three parameters:
+        ``(keys, values, timestamp)`` with timestamp as the server time
+        """
         keys = tuple(_str2(k) for k in keys)
         updated_ref = [None, None]
         extra_keys = []
@@ -842,10 +856,16 @@ class ObjectDB(Module):
         for m in self._notifier.publish(updated_ref[0], updated_ref[1]):
             yield m
     def watchlist(self, requestid = None):
-        "Return a dictionary whose keys are database keys, and values are lists of request ids. Optionally filtered by request id"
+        """
+        Return a dictionary whose keys are database keys, and values are lists of request ids.
+        Optionally filtered by request id
+        """
         return dict((k,list(v)) for k,v in self._watches.items() if requestid is None or requestid in v)
     def walk(self, keys, walkerdict, requestid, nostale = False):
-        "Recursively retrieve keys with customized functions. walkerdict is a dictionary key->walker(key, obj, walk, save)."
+        """
+        Recursively retrieve keys with customized functions.
+        walkerdict is a dictionary ``key->walker(key, obj, walk, save)``.
+        """
         keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()

@@ -1,0 +1,48 @@
+{% for module_name, module_info in data_input.items() %}
+
+.. _module_{{ module_name }}:
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+{{ module_name }}
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+.. list-table::
+   :widths: 20 40
+   :class: configtable
+   
+   * - Loading Path
+     - ``{{module_info['class']}}``
+   
+   * - Class Reference
+     - :py:class:`{{module_info['class']}}`
+     
+   * - Dependencies
+     - 
+       {% if module_info['dependencies'] -%}
+       {%- for d in module_info['dependencies'] -%}
+       | :ref:`module_{{d}}`
+       {% endfor -%}
+       {% else -%}
+       (None)
+       {%- endif %}
+
+{{ module_info['classdescription']|default('(No description)',true) }}
+
+{% if module_info['apis'] %}.. rubric:: API List{% endif %}
+
+{% for api_name, api_params in module_info['apis'] %}
+{% set param_sep = joiner() %}
+.. py:method:: {{module_name}}/{{api_name}} (
+               {%- for p in api_params['parameters'] -%}
+               {{param_sep()}}{{p['name']}}{% if p['optional'] %}={{'%r'|format(p['default'])}}{% endif %}
+               {%- endfor -%}
+               {%- if api_params['extraparameters'] %}{{param_sep()}}\*\*kwargs{% endif -%}
+               )
+   :noindex:
+   
+   {{ api_params['description']|indent(3,false) }}
+   
+{% endfor -%}
+
+{% endfor %}

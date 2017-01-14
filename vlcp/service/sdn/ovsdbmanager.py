@@ -50,6 +50,7 @@ class OVSDBManager(Module):
     Manage Openflow Connections
     '''
     service = True
+    # Bind to JsonRPCServer vHosts. If not None, should be a list of vHost names e.g. ``['']``
     _default_vhostbind = None
     # Only acquire information from bridges with this names
     _default_bridgenames = None
@@ -317,7 +318,7 @@ class OVSDBManager(Module):
             yield m
         self.apiroutine.retvalue = [k[1] for k in self.managed_conns.keys() if k[0] == vhost]
     def getalldatapathids(self):
-        "Get all datapath IDs from any vhost. Return (vhost, datapathid) pair."
+        "Get all datapath IDs from any vhost. Return ``(vhost, datapathid)`` pair."
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = list(self.managed_conns.keys())
@@ -330,7 +331,7 @@ class OVSDBManager(Module):
         else:
             self.apiroutine.retvalue = list(k for k in self.managed_bridges.keys() if k.protocol.vhost == vhost)
     def getbridges(self, connection):
-        "Get all (dpid, name, _uuid) tuple on this connection"
+        "Get all ``(dpid, name, _uuid)`` tuple on this connection"
         for m in self._wait_for_sync():
             yield m
         bridges = self.managed_bridges.get(connection)
@@ -339,7 +340,7 @@ class OVSDBManager(Module):
         else:
             self.apiroutine.retvalue = None
     def getallbridges(self, vhost = None):
-        "Get all (dpid, name, _uuid) tuple for all connections, optionally filtered by vhost"
+        "Get all ``(dpid, name, _uuid)`` tuple for all connections, optionally filtered by vhost"
         for m in self._wait_for_sync():
             yield m
         if vhost is not None:
@@ -428,7 +429,7 @@ class OVSDBManager(Module):
             yield m
         self.apiroutine.retvalue = [k[1] for k in self.managed_systemids.keys() if k[0] == vhost]
     def getallsystemids(self):
-        "Get all system-ids from any vhost. Return (vhost, system-id) pair."
+        "Get all system-ids from any vhost. Return ``(vhost, system-id)`` pair."
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = list(self.managed_systemids.keys())
@@ -498,12 +499,12 @@ class OVSDBManager(Module):
             yield m
         self.apiroutine.retvalue = [k[1] for k in self.endpoint_conns if k[0] == vhost]
     def getallendpoints(self):
-        "Get all endpoints from any vhost. Return (vhost, endpoint) pairs."
+        "Get all endpoints from any vhost. Return ``(vhost, endpoint)`` pairs."
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = list(self.endpoint_conns.keys())
     def getbridgeinfo(self, datapathid, vhost = ''):
-        "Get (bridgename, systemid, bridge_uuid) tuple from bridge datapathid"
+        "Get ``(bridgename, systemid, bridge_uuid)`` tuple from bridge datapathid"
         for m in self.getconnection(datapathid, vhost):
             yield m
         if self.apiroutine.retvalue is not None:
@@ -518,7 +519,7 @@ class OVSDBManager(Module):
             else:
                 self.apiroutine.retvalue = None
     def waitbridgeinfo(self, datapathid, timeout = 30, vhost = ''):
-        "Wait for bridge with datapathid, and return (bridgename, systemid, bridge_uuid) tuple"
+        "Wait for bridge with datapathid, and return ``(bridgename, systemid, bridge_uuid)`` tuple"
         for m in self.getbridgeinfo(datapathid, vhost):
             yield m
         if self.apiroutine.retvalue is None:

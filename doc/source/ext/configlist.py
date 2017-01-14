@@ -8,8 +8,16 @@ Automatically acquire all the configurations and their default values
 from __future__ import print_function
 from pkgutil import walk_packages
 from vlcp.config import Configurable
-from inspect import getsourcelines, cleandoc
+from inspect import getsourcelines, cleandoc, getdoc
+try:
+    from collections import OrderedDict
+except Exception:
+    OrderedDict = dict
+    _dict_ordered = False
+else:
+    _dict_ordered = True
 import argparse
+from pprint import pformat
 
 def list_config(root_package = 'vlcp'):
     '''
@@ -17,16 +25,17 @@ def list_config(root_package = 'vlcp'):
     list their available configurations through _default_ prefix
     '''
     pkg = __import__(root_package, fromlist=['_'])
-    return_dict = {}
+    return_dict = OrderedDict()
     for imp, module, _ in walk_packages(pkg.__path__, root_package + '.'):
         m = __import__(module, fromlist = ['_'])
         for name, v in vars(m).items():
             if v is not None and isinstance(v, type) and issubclass(v, Configurable) \
                     and v is not Configurable \
-                    and hasattr(v, '__dict__') and 'configkey' in v.__dict__:
+                    and hasattr(v, '__dict__') and 'configkey' in v.__dict__ \
+                    and v.__module__ == module:
                 configkey = v.__dict__['configkey']
                 if configkey not in return_dict:
-                    configs = {}
+                    configs = OrderedDict()
                     v2 = v
                     parents = [v2]
                     while True:
@@ -42,10 +51,15 @@ def list_config(root_package = 'vlcp'):
                         else:
                             break
                     for v2 in reversed(parents):
+                        tmp_configs = {}
                         for k, default_value in v2.__dict__.items():
                             if k.startswith('_default_'):
-                                configname = configkey + '.' + k[len('_default_'):]
-                                configs.setdefault(configname, {})['default'] = repr(default_value)
+                                config_attr = k[len('_default_'):]
+                                if config_attr in v.__dict__:
+                                    continue
+                                configname = configkey + '.' + config_attr
+                                tmp_configs.setdefault(configname, OrderedDict())['default'] = \
+                                    pformat(default_value, width=10)
                         # Inspect the source lines to find remarks for these configurations
                         lines, _ = getsourcelines(v2)
                         last_remark = []
@@ -60,11 +74,18 @@ def list_config(root_package = 'vlcp'):
                                     key, sep, _ = l.partition('=')
                                     if sep and key.startswith('_default_'):
                                         configname = configkey + '.' +  key[len('_default_'):].strip()
+                                        if configname in tmp_configs and configname not in configs:
+                                            configs[configname] = tmp_configs.pop(configname)
                                         if configname in configs and last_remark:
                                             configs[configname]['description'] = cleandoc('\n' + '\n'.join(last_remark))
                                 del last_remark[:]
+                        for key in tmp_configs:
+                            if key not in configs:
+                                configs[key] = tmp_configs[key]
                     if configs:
-                        return_dict[configkey] = {'class': v.__module__ + '.' + name , 'configs': configs}
+                        return_dict[configkey] = OrderedDict((('class', v.__module__ + '.' + name),
+                                                             ('classdescription', getdoc(v)),
+                                                             ('configs', configs)))
     return return_dict
 
 if __name__ == '__main__':
@@ -82,4 +103,4 @@ if __name__ == '__main__':
         print(template.render(config=config_dict))
     else:
         import json
-        print(json.dumps(config_dict, sort_keys=True, indent=2))
+        print(json.dumps(config_dict, sort_keys=(not _dict_ordered), indent=2))

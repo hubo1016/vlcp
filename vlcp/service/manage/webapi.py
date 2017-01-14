@@ -96,15 +96,19 @@ class WebAPI(Module):
     Call module API from web. Free access to any module APIs may create serious security problems,
     make sure to configure this module properly.
     '''
-    # Default bind HttpServer vHost to 'api', so you should use
+    # Default bind HttpServer vHost to 'api', so you should use::
+    # 
     #     module.httpserver.vhost.api.url='http://localhost:8080/'
+    # 
     # to create the API endpoint
     _default_vhostbind = 'api'
     # Bind to a specified Host (HTTP "Host: " header)
     _default_hostbind = None
-    # Bind API endpoint under this path. Each endpoint would be <rootpath>/<targetname>/<methodname>.
-    # e.g. Manager.reloadmodules would be
-    #     http://*serverurl*/*rootpath*/manager/reloadmodules
+    # Bind API endpoint under this path. Each endpoint would be \<rootpath\>/\<targetname\>/\<methodname\>.
+    # e.g. Manager.reloadmodules would be::
+    # 
+    #     http://<serverurl>/<rootpath>/manager/reloadmodules
+    # 
     # targetname and methodnames are always in lower case
     _default_rootpath = '/'
     # Allowed HTTP method, GET/POST or both
@@ -116,7 +120,7 @@ class WebAPI(Module):
     _default_authtarget = 'public'
     # If authenticate is enabled, WebAPI module uses an extra API call to authenticate the request.
     # This is the method name. The params will be {'env': *env*, 'targetname':*targetname*,
-    #     'name': *methodname*, 'params': *parameters*}
+    # 'name': *methodname*, 'params': *parameters*}
     _default_authmethod = None
     # Only allow API calls on specified targets (usually a target name is the lower-cased module name)
     _default_allowtargets = None

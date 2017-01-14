@@ -8,6 +8,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
 from vlcp.utils.ethernet import ETHERTYPE_8021Q 
+from vlcp.config.config import defaultconfig
 
 logger = logging.getLogger('NetworkNativeDriver')
 """
@@ -16,7 +17,13 @@ logger = logging.getLogger('NetworkNativeDriver')
     logicalnetwork not have vni or vlanid attr        
 """
 
+@defaultconfig
 class NetworkNativeDriver(Module):
+    """
+    Network driver for native networks. Native network is a physical network
+    provides only one logical network capacity. Packets from the logical network
+    is directly forwarded to the physical network.
+    """
     def __init__(self,server):
         super(NetworkNativeDriver,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)

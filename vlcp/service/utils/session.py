@@ -57,6 +57,17 @@ class Session(Module):
                        api(self.get, self.apiroutine),
                        api(self.destroy, self.apiroutine))
     def start(self, cookies, cookieopts = None):
+        """
+        Session start operation. First check among the cookies to find existed sessions;
+        if there is not an existed session, create a new one.
+        
+        :param cookies: cookie header from the client
+        
+        :param cookieopts: extra options used when creating a new cookie
+        
+        :return: ``(session_handle, cookies)`` where session_handle is a SessionHandle object,
+                 and cookies is a list of created Set-Cookie headers (may be empty)
+        """
         c = SimpleCookie(cookies)
         sid = c.get(self.cookiename)
         create = True
@@ -82,15 +93,36 @@ class Session(Module):
             m.update(opts)
             self.apiroutine.retvalue = (sh, [m])
     def get(self, sessionid, refresh = True):
+        """
+        Get the seesion object of the session id
+        
+        :param sessionid: a session ID
+        
+        :param refresh: if True, refresh the expiration time of this session
+        
+        :return: Session object or None if not exists
+        """
         for m in callAPI(self.apiroutine, 'memorystorage', 'get', {'key': __name__ + '.' + sessionid, 'timeout': self.timeout if refresh else None}):
             yield m
     def create(self):
+        """
+        Create a new session object
+        
+        :return: Session handle for the created session object.
+        """
         sid = uuid4().hex
         sobj = self.SessionObject(sid)
         for m in callAPI(self.apiroutine, 'memorystorage', 'set', {'key': __name__ + '.' + sid, 'value': sobj, 'timeout': self.timeout}):
             yield m
         self.apiroutine.retvalue = self.SessionHandle(sobj, self.apiroutine)
     def destroy(self, sessionid):
+        """
+        Destroy a session
+        
+        :param sessionid: session ID
+        
+        :return: a list of Set-Cookie headers to be sent to the client
+        """
         for m in callAPI(self.apiroutine, 'memorystorage', 'delete', {'key': __name__ + '.' + sessionid}):
             yield m
         m = Morsel()

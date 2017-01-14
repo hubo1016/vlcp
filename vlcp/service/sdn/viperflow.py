@@ -30,6 +30,9 @@ class UpdateConflictException(Exception):
 @defaultconfig
 @depend(objectdb.ObjectDB)
 class ViperFlow(Module):
+    """
+    Standard network model for L2 SDN
+    """
     def __init__(self,server):
         super(ViperFlow,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)
@@ -109,7 +112,27 @@ class ViperFlow(Module):
             pass
 
     def createphysicalnetwork(self,type = 'vlan',id = None, **kwargs):
-        "create physicalnetwork , return created info"
+        """
+        Create physical network.
+        
+        :param type: Network type, usually one of *vlan*, *vxlan*, *local*, *native*
+        
+        :param id: Specify the created physical network ID. If omitted or None, an UUID is
+                   generated.
+        
+        :param \*\*kwargs: extended creation parameters. Look for the document of the corresponding
+                           driver. Common options include:
+                           
+                           vnirange
+                              list of ``[start,end]`` ranges like ``[[1000,2000]]``. Both *start* and
+                              *end* are included. It specifies the usable VNI ranges for VXLAN network.
+                              
+                           vlanrange
+                              list of ``[start,end]`` ranges like ``[[1000,2000]]``. Both *start* and
+                              *end* are included. It specifies the usable VLAN tag ranges for VLAN network.
+        
+        :return: A dictionary of information of the created physical network.
+        """
         if not id:
             id = str(uuid1())
 
@@ -119,7 +142,13 @@ class ViperFlow(Module):
         for m in self.createphysicalnetworks([network]):
             yield m
     def createphysicalnetworks(self,networks):
-        "create multi physicalnetworks, return created infos"
+        """
+        Create multiple physical networks in a transaction.
+        
+        :param networks: each should be a dictionary contains all the parameters in ``createphysicalnetwork``
+        
+        :return: A list of dictionaries of information of the created physical networks.
+        """
         #networks [{type='vlan' or 'vxlan',id = None or uuid1(),'vlanrange':[(100,200),(400,401)],kwargs}]
 
         typenetworks = dict()
@@ -209,7 +238,15 @@ class ViperFlow(Module):
             yield m
 
     def updatephysicalnetwork(self,id,**kwargs):
-        "update physicalnetwork that id info,return updated info"
+        """
+        Update physical network with the specified ID.
+        
+        :param id: physical network ID
+        
+        :param \*\*kwargs: attributes to be updated, usually the same attributes for creating.
+        
+        :return: A dictionary of information of the updated physical network.        
+        """
 
         if id is None:
             raise ValueError("update must be special id")
@@ -221,7 +258,13 @@ class ViperFlow(Module):
             yield m
 
     def updatephysicalnetworks(self,networks):
-        "update multi physicalnetworks that id info,return updated infos"
+        """
+        Update multiple physical networks in a transaction
+        
+        :param networks: a list of dictionaries, each contains parameters of ``updatephysicalnetwork``
+        
+        :return: A list of dictionaries of information of the updated physical network.
+        """
 
         # networks [{"id":phynetid,....}]
 
@@ -321,7 +364,13 @@ class ViperFlow(Module):
             for m in self._dumpkeys(dumpkeys):
                 yield m
     def deletephysicalnetwork(self,id):
-        "delete physicalnetwork that id,return status OK"
+        """
+        Delete physical network with specified ID
+        
+        :param id: Physical network ID
+        
+        :return: ``{"status": "OK"}``
+        """
         if id is None:
             raise ValueError("delete netwrok must special id")
         network = {"id":id}
@@ -329,7 +378,13 @@ class ViperFlow(Module):
         for m in self.deletephysicalnetworks([network]):
             yield m
     def deletephysicalnetworks(self,networks):
-        "delete physicalnetworks that ids,return status OK"
+        """
+        Delete multiple physical networks with a transaction
+        
+        :param networks: a list of ``{"id": <id>}`` dictionaries.
+        
+        :return: ``{"status": "OK"}``
+        """
         # networks [{"id":id},{"id":id}]
 
         typenetworks = dict()
@@ -425,7 +480,17 @@ class ViperFlow(Module):
             self.app_routine.retvalue = {"status":'OK'}
 
     def listphysicalnetworks(self,id = None,**kwargs):
-        "list physcialnetwork infos"
+        """
+        Query physical network information
+        
+        :param id: If specified, only return the physical network with the specified ID.
+        
+        :param \*\*kwargs: customized filters, only return a physical network if
+                           the attribute value of this physical network matches
+                           the specified value.
+        
+        :return: A list of dictionaries each stands for a matched physical network
+        """
         def set_walker(key,set,walk,save):
             if set is None:
                 return
@@ -476,14 +541,36 @@ class ViperFlow(Module):
 
 
     def createphysicalport(self,physicalnetwork,name,vhost='',systemid='%',bridge='%',**kwargs):
-        "create physicalport,return created info"
+        """
+        Create physical port
+        
+        :param physicalnetwork: physical network this port is in.
+        
+        :param name: port name of the physical port, should match the name in OVSDB
+        
+        :param vhost: only match ports for the specified vHost
+        
+        :param systemid: only match ports on this systemid; or '%' to match all systemids.
+        
+        :param bridge: only match ports on bridges with this name; or '%' to match all bridges.
+        
+        :param \*\*kwargs: customized creation options, check the driver document
+        
+        :return: A dictionary containing information of the created physical port.
+        """
         port = {'physicalnetwork':physicalnetwork,'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
         port.update(kwargs)
 
         for m in self.createphysicalports([port]):
             yield m
     def createphysicalports(self,ports):
-        "create multi physicalport, return created infos"
+        """
+        Create multiple physical ports in a transaction
+        
+        :param ports: A list of dictionaries, each contains all parameters for ``createphysicalport``
+        
+        :return: A list of dictionaries of information of the created physical ports
+        """
         # ports [{'physicalnetwork':id,'name':eth0,'vhost':'',systemid:'%'},{.....}]
 
         phynetkeys = []
@@ -599,7 +686,21 @@ class ViperFlow(Module):
                 yield m
 
     def updatephysicalport(self,name,vhost='',systemid='%',bridge='%',**args):
-        "update physicalport info that id, return updated info"
+        """
+        Update physical port
+        
+        :param name: Update physical port with this name.
+        
+        :param vhost: Update physical port with this vHost.
+        
+        :param systemid: Update physical port with this systemid.
+        
+        :param bridge: Update physical port with this bridge name.
+        
+        :param \*\*kwargs: Attributes to be updated
+        
+        :return: Updated result as a dictionary.
+        """
         if not name:
             raise ValueError("must speclial physicalport name")
 
@@ -610,7 +711,13 @@ class ViperFlow(Module):
             yield m
 
     def updatephysicalports(self,ports):
-        "update multi physicalport info that ids, return updated infos"
+        """
+        Update multiple physical ports with a transaction
+        
+        :param ports: a list of ``updatephysicalport`` parameters
+                
+        :return: Updated result as a list of dictionaries.
+        """
         # ports [{'name':eth0,'vhost':'',systemid:'%'},{.....}]
 
         self._reqid += 1
@@ -728,7 +835,19 @@ class ViperFlow(Module):
                 yield m
 
     def deletephysicalport(self,name,vhost='',systemid='%',bridge='%'):
-        "delete physicalport that id, return status OK"
+        """
+        Delete a physical port
+        
+        :param name: physical port name.
+        
+        :param vhost: physical port vHost.
+        
+        :param systemid: physical port systemid.
+        
+        :param bridge: physcial port bridge.
+        
+        :return: ``{"status": "OK"}``
+        """
         if not name:
             raise ValueError("must speclial physicalport name")
         port = {'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
@@ -736,7 +855,15 @@ class ViperFlow(Module):
         for m in self.deletephysicalports([port]):
             yield m
     def deletephysicalports(self,ports):
-        "delete physicalports that ids, return status OK"
+        """
+        Delete multiple physical ports in a transaction
+        
+                Delete a physical port
+        
+        :param ports: a list of ``deletephysicalport`` parameters
+        
+        :return: ``{"status": "OK"}``
+        """
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
         max_try = 1
@@ -860,7 +987,26 @@ class ViperFlow(Module):
 
     def listphysicalports(self,name = None,physicalnetwork = None,vhost='',
             systemid='%',bridge='%',**kwargs):
-        "list physicalports info"
+        """
+        Query physical port information
+        
+        :param name: If specified, only return the physical port with the specified name.
+        
+        :param physicalnetwork: If specified, only return physical ports in that physical network
+        
+        :param vhost: If specified, only return physical ports for that vHost.
+        
+        :param systemid: If specified, only return physical ports for that systemid.
+        
+        :param bridge: If specified, only return physical ports for that bridge. 
+        
+        :param \*\*kwargs: customized filters, only return a physical network if
+                           the attribute value of this physical network matches
+                           the specified value.
+        
+        :return: A list of dictionaries each stands for a matched physical network
+        """
+
         if name:
             phyportkey = PhysicalPort.default_key(vhost,systemid,bridge,name)
 
@@ -932,7 +1078,25 @@ class ViperFlow(Module):
                     self.app_routine.retvalue = [dump(r) for r in values]
 
     def createlogicalnetwork(self,physicalnetwork,id = None,**kwargs):
-        "create logicalnetwork info,return creared info"
+        """
+        Create logical network
+        
+        :param physicalnetwork: physical network ID that contains this logical network
+        
+        :param id: logical network ID. If ommited an UUID is generated.
+        
+        :param \*\*kwargs: customized options for logical network creation.
+                           Common options include:
+                           
+                           vni/vxlan
+                              Specify VNI / VLAN tag for VXLAN / VLAN network. If omitted,
+                              an unused VNI / VLAN tag is picked automatically.
+                           
+                           mtu
+                              MTU value for this network. You can use 1450 for VXLAN networks.
+        
+        :return: A dictionary of information of the created logical port
+        """
         if not id:
             id = str(uuid1())
         network = {'physicalnetwork':physicalnetwork,'id':id}
@@ -941,7 +1105,13 @@ class ViperFlow(Module):
         for m in self.createlogicalnetworks([network]):
             yield m
     def createlogicalnetworks(self,networks):
-        "create logicalnetworks info,return creared infos"
+        """
+        Create multiple logical networks in a transaction.
+        
+        :param networks: a list of ``createlogicalnetwork`` parameters.
+        
+        :return: a list of dictionaries for the created logical networks.
+        """
         # networks [{'physicalnetwork':'id','id':'id' ...},{'physicalnetwork':'id',...}]
 
         idset = set()
@@ -1067,7 +1237,9 @@ class ViperFlow(Module):
             yield m
 
     def updatelogicalnetwork(self,id,**kwargs):
-        "update logicalnetwork info that id, return updated info"
+        """
+        Update logical network attributes of the ID
+        """
         # update phynetid is disabled
 
         if not id:
@@ -1079,7 +1251,9 @@ class ViperFlow(Module):
         for m in self.updatelogicalnetworks([network]):
             yield m
     def updatelogicalnetworks(self,networks):
-        "update logicalnetworks info that ids, return updated infos"
+        """
+        Update multiple logical networks in a transaction
+        """
         #networks [{'id':id,....},{'id':id,....}]
 
         self._reqid += 1
@@ -1197,7 +1371,9 @@ class ViperFlow(Module):
                 yield m
 
     def deletelogicalnetwork(self,id):
-        "delete logicalnetwork that id,return status OK"
+        """
+        Delete logical network
+        """
         if not id:
             raise ValueError("must special id")
 
@@ -1206,7 +1382,13 @@ class ViperFlow(Module):
             yield m
 
     def deletelogicalnetworks(self,networks):
-        "delete logicalnetworks that ids,return status OK"
+        """
+        Delete logical networks
+        
+        :param networks: a list of ``{"id":id}``
+        
+        :return: ``{"status": "OK"}``
+        """
         # networks [{"id":id},{"id":id}]
 
         self._reqid += 1
@@ -1344,7 +1526,20 @@ class ViperFlow(Module):
             self.app_routine.retvalue = {"status":'OK'}
 
     def listlogicalnetworks(self,id = None,physicalnetwork = None,**kwargs):
-        "list logcialnetworks infos"
+        """
+        Query logical network information
+        
+        :param id: If specified, only return the logical network with the specified ID.
+        
+        :param physicalnetwork: If specified, only return logical networks in this physical network.
+        
+        :param \*\*kwargs: customized filters, only return a logical network if
+                           the attribute value of this logical network matches
+                           the specified value.
+        
+        :return: A list of dictionaries each stands for a matched logical network
+        """
+
         if id:
             # special id ,, find it,, filter it
             lgnetkey = LogicalNetwork.default_key(id)
@@ -1415,7 +1610,26 @@ class ViperFlow(Module):
                     self.app_routine.retvalue = [dump(r) for r in values]
 
     def createlogicalport(self,logicalnetwork,id=None,subnet=None,**args):
-        "create logicalport info,return created info"
+        """
+        Create logical port
+        
+        :param logicalnetwork: logical network containing this port
+        
+        :param id: logical port id. If omitted an UUID is created.
+        
+        :param subnet: subnet containing this port
+        
+        :param \*\*kwargs: customized options for creating logical ports.
+                           Common options are:
+                           
+                           mac_address
+                              port MAC address
+                           
+                           ip_address
+                              port IP address
+        
+        :return: a dictionary for the logical port
+        """
         if not id:
             id = str(uuid1())
         
@@ -1430,9 +1644,9 @@ class ViperFlow(Module):
             yield m
 
     def createlogicalports(self,ports):
-
-        "create multi logicalport info,return created infos"
-
+        """
+        Create multiple logical ports in a transaction
+        """
         idset = set()
         newports = []
         subnetids = []
@@ -1567,7 +1781,7 @@ class ViperFlow(Module):
         return lgport
 
     def updatelogicalport(self,id,**kwargs):
-        "update logicalport that id,return updated info"
+        "Update attributes of the specified logical port"
         if not id :
             raise ValueError("must special id")
 
@@ -1577,7 +1791,7 @@ class ViperFlow(Module):
         for m in self.updatelogicalports([port]):
             yield m
     def updatelogicalports(self,ports):
-        "update logicalports that ids,return updated info"
+        "Update multiple logcial ports"
         # ports [{"id":id,...},{...}]
         lgportkeys = set()
         updatesubnets = set()
@@ -1690,14 +1904,14 @@ class ViperFlow(Module):
                 yield m
 
     def deletelogicalport(self,id):
-        "delete logcialport that id, return status OK"
+        "Delete logical port"
         if not id:
             raise ValueError("must special id")
         p = {"id":id}
         for m in self.deletelogicalports([p]):
             yield m
     def deletelogicalports(self,ports):
-        "delete logcialports that ids, return status OK"
+        "Delete multiple logical ports"
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
         maxtry = 1
@@ -1799,7 +2013,17 @@ class ViperFlow(Module):
             self.app_routine.retvalue = {"status":'OK'}
 
     def listlogicalports(self,id = None,logicalnetwork = None,**kwargs):
-        "list logicalports infos"
+        """
+        Query logical port
+        
+        :param id: If specified, returns only logical port with this ID.
+        
+        :param logicalnetwork: If specified, returns only logical ports in this network.
+        
+        :param \*\*kwargs: customzied filters
+        
+        :return: return matched logical ports
+        """
         if id:
             # special id ,  find it ,, filter it
             lgportkey = LogicalPort.default_key(id)
@@ -1869,7 +2093,33 @@ class ViperFlow(Module):
                     self.app_routine.retvalue = [dump(r) for r in values]
 
     def createsubnet(self,logicalnetwork,cidr,id=None,**kwargs):
-        "create subnet info"
+        """
+        Create a subnet for the logical network.
+        
+        :param logicalnetwork: The logical network is subnet is in.
+        
+        :param cidr: CIDR of this subnet like ``"10.0.1.0/24"``
+        
+        :param id: subnet ID. If omitted, an UUID is generated.
+        
+        :param \*\*kwargs: customized creating options. Common options are:
+                           
+                           gateway
+                              Gateway address for this subnet
+                           
+                           allocated_start
+                              First IP of the allowed IP range.
+                           
+                           allocated_end
+                              Last IP of the allowed IP range.
+                           
+                           host_routes
+                              A list of ``[dest_cidr, via]`` like
+                              ``[["192.168.1.0/24", "192.168.2.3"],["192.168.3.0/24","192.168.2.4"]]``.
+                              This creates static routes on the subnet.
+        
+        :return: A dictionary of information of the subnet.
+        """
         if not id:
             id = str(uuid1())
         subnet = {'id':id,'logicalnetwork':logicalnetwork,'cidr':cidr}
@@ -1879,7 +2129,9 @@ class ViperFlow(Module):
             yield m
 
     def createsubnets(self,subnets):
-        "create subnets info"
+        """
+        Create multiple subnets in a transaction.
+        """
         idset = set()
         newsubnets = list()
         for subnet in subnets:
@@ -1995,7 +2247,9 @@ class ViperFlow(Module):
         return subnetobj,subnetmapobj
 
     def updatesubnet(self,id,**kwargs):
-        "update subnet info"
+        """
+        Update subnet attributes
+        """
         if not id:
             raise ValueError("must special subnet id when updatesubnet")
         subnet = {"id":id}
@@ -2005,7 +2259,9 @@ class ViperFlow(Module):
             yield m
 
     def updatesubnets(self,subnets):
-        "update subnets info"
+        """
+        Update multiple subnets
+        """
         idset = set()
         for subnet in subnets:
             if 'cidr' in subnet:
@@ -2072,7 +2328,9 @@ class ViperFlow(Module):
                 yield m
 
     def deletesubnet(self,id):
-        "delete subnet info"
+        """
+        Delete subnet
+        """
         if not id:
             raise ValueError("must special id")
 
@@ -2082,7 +2340,9 @@ class ViperFlow(Module):
             yield m
 
     def deletesubnets(self,subnets):
-        "delete subnets info"
+        """
+        Delete multiple subnets
+        """
         self._reqid += 1
         reqid = ('viperflow',self._reqid)
         maxtry = 1
@@ -2184,7 +2444,17 @@ class ViperFlow(Module):
             self.app_routine.retvalue = {"status":'OK'}
 
     def listsubnets(self,id = None,logicalnetwork=None,**kwargs):
-        "list subnets infos"
+        """
+        Query subnets
+        
+        :param id: if specified, only return subnet with this ID
+        
+        :param logicalnetwork: if specified, only return subnet in the network
+        
+        :param \*\*kwargs: customized filters
+        
+        :return: A list of dictionaries each stands for a matched subnet.
+        """
         if id:
             # special id , find it ,, filter it
             subnet_key = SubNet.default_key(id)

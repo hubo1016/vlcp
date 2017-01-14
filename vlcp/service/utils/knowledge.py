@@ -82,6 +82,7 @@ class Knowledge(Module):
         self._set(key, value, time(), timeout)
         return None
     def delete(self, key):
+        "Delete a key"
         try:
             del self.db[key]
         except KeyError:
@@ -112,7 +113,7 @@ class Knowledge(Module):
         
         :param key: key to update
         
-        :param updater: func(k,v), should return a new value to update, or return None to delete
+        :param updater: ``func(k,v)``, should return a new value to update, or return None to delete
         
         :param timeout: new timeout
         
@@ -141,7 +142,11 @@ class Knowledge(Module):
                 self.delete(k)
         return newvs
     def updateall(self, keys, updater, timeout = None):
-        "Update multiple keys in-place, with a function updater(keys, values) which returns (updated_keys, updated_values). Either all success or all fail"
+        """
+        Update multiple keys in-place, with a function ``updater(keys, values)`` which returns
+        ``(updated_keys, updated_values)``.
+        Either all success or all fail
+        """
         t = time()
         vs = [v[0] if v is not None else None  for v in (self._get(k, t) for k in keys)]
         newkeys, newvs = updater(keys, vs)
@@ -152,7 +157,12 @@ class Knowledge(Module):
                 self.delete(k)
         return (newkeys, newvs)
     def updateallwithtime(self, keys, updater, timeout = None):
-        "Update multiple keys in-place, with a function updater(keys, values, timestamp) which returns (updated_keys, updated_values). Either all success or all fail.  Timestamp is a integer standing for current time in microseconds."
+        """
+        Update multiple keys in-place, with a function ``updater(keys, values, timestamp)``
+        which returns ``(updated_keys, updated_values)``. Either all success or all fail.
+        
+        Timestamp is a integer standing for current time in microseconds.
+        """
         t = time()
         vs = [v[0] if v is not None else None  for v in (self._get(k, t) for k in keys)]
         newkeys, newvs = updater(keys, vs, int(t * 1000000))

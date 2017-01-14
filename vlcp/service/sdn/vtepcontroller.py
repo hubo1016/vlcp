@@ -47,6 +47,9 @@ def _check_transact_result(result, operations):
 @defaultconfig
 @depend(jsonrpcserver.JsonRPCServer, objectdb.ObjectDB)
 class VtepController(Module):
+    """
+    Controll a physical switch which supports OVSDB hardware_vtep protocol.
+    """
     # Default bind controller to OVSDB vHost
     _default_vhostbind = ['vtep']
     # Recycle unused logical switches from hardware_vtep OVSDB
@@ -690,7 +693,7 @@ class VtepController(Module):
         :param physicalswitch: physicalswitch name. Return all switches if is None.
         
         :return: dictionary: {physicalswitch: {key: value}} keys include: management_ips,
-        tunnel_ips, description, switch_fault_status
+                             tunnel_ips, description, switch_fault_status
         '''
         for m in self._wait_for_sync():
             yield m

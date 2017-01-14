@@ -341,7 +341,7 @@ class OpenflowManager(Module):
             yield m
         self.apiroutine.retvalue = [k[1] for k in self.managed_conns.keys() if k[0] == vhost]
     def getalldatapathids(self):
-        "Get all datapath IDs from any vhost. Return (vhost, datapathid) pair."
+        "Get all datapath IDs from any vhost. Return ``(vhost, datapathid)`` pair."
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = list(self.managed_conns.keys())
@@ -400,7 +400,7 @@ class OpenflowManager(Module):
             yield m
         self.apiroutine.retvalue = [k[1] for k in self.endpoint_conns if k[0] == vhost]
     def getallendpoints(self):
-        "Get all endpoints from any vhost. Return (vhost, endpoint) pairs."
+        "Get all endpoints from any vhost. Return ``(vhost, endpoint)`` pairs."
         for m in self._wait_for_sync():
             yield m
         self.apiroutine.retvalue = list(self.endpoint_conns.keys())

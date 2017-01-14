@@ -13,6 +13,7 @@ import functools
 import copy
 from vlcp.config.config import manager
 from vlcp.event.core import QuitException
+from inspect import cleandoc
 
 try:
     reload
@@ -77,7 +78,7 @@ def create_discover_info(func):
     else:
         requires = arguments[:]
         optionals = []
-    return {'description': func.__doc__,
+    return {'description': cleandoc(func.__doc__) if func.__doc__ is not None else '',
             'parameters':
                 [{'name':n,'optional':False} for n in requires]
                 + [{'name':optionals[i],'optional':True,'default':func.__defaults__[i]}
@@ -171,11 +172,11 @@ class ModuleAPIHandler(RoutineContainer):
         '''
         handlers = [self._createHandler(*apidef) for apidef in apidefs]
         self.handler.registerAllHandlers(handlers)
-        self.discoverinfo.update((apidef[0], apidef[3] if len(apidef) > 3 else {'description':apidef[1].__doc__}) for apidef in apidefs)
+        self.discoverinfo.update((apidef[0], apidef[3] if len(apidef) > 3 else {'description':cleandoc(apidef[1].__doc__)}) for apidef in apidefs)
     def registerAPI(self, name, handler, container = None, discoverinfo = None, criteria = None):
         self.handler.registerHandler(*self._createHandler(name, handler, container, criteria))
         if discoverinfo is None:
-            self.discoverinfo[name] = {'description': handler.__doc__}
+            self.discoverinfo[name] = {'description': cleandoc(handler.__doc__)}
         else:
             self.discoverinfo[name] = discoverinfo
     def unregisterAPI(self, name):

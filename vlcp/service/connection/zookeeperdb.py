@@ -441,8 +441,10 @@ class ZooKeeperDB(TcpServerBase):
     '''
     Create zookeeper clients to connect to redis server
     '''
-    # This URL is special comparing to other connection URLs, it should be like:
+    # This URL is special comparing to other connection URLs, it should be like::
+    # 
     #     zk://server1[:port1],server2[:port2],server3[:port3]/[chroot]
+    # 
     # Firstly there may be multiple hosts (and ports) in the connection URL, they
     # form a ZooKeeper cluster; secondly, there can be a "chroot" path in the URL
     # path. If "chroot" path apears, ZooKeeperDB uses a child node as the root node,
@@ -622,7 +624,7 @@ class ZooKeeperDB(TcpServerBase):
             return client
         return _create_client
     def getclient(self, vhost = ''):
-        "Return a tuple of (zookeeperclient, encoder, decoder) for specified vhost"
+        "Return a tuple of ``(zookeeperclient, encoder, decoder)`` for specified vhost"
         return (self._zookeeper_clients.get(vhost), self._encode, self._decode)
     def get(self, key, timeout = None, vhost = ''):
         "Get value from key"
@@ -636,6 +638,7 @@ class ZooKeeperDB(TcpServerBase):
             yield m
         self.apiroutine.retvalue = None
     def delete(self, key, vhost = ''):
+        "Delete a key from the storage"
         def updater(keys, values, server_time):
             return ((key,), (None,))
         for m in self.updateallwithtime((), updater, None, vhost):
@@ -710,7 +713,7 @@ class ZooKeeperDB(TcpServerBase):
         
         :param key: key to update
         
-        :param updater: func(k,v), should return a new value to update, or return None to delete. The function
+        :param updater: ``func(k,v)``, should return a new value to update, or return None to delete. The function
                         may be call more than once.
         
         :param timeout: new timeout
@@ -721,20 +724,36 @@ class ZooKeeperDB(TcpServerBase):
             yield m
         (self.apiroutine.retvalue,) = self.apiroutine.retvalue
     def mupdate(self, keys, updater, timeout = None, vhost = ''):
-        "Update multiple keys in-place with a custom function, see update. Either all success, or all fail."
+        """
+        Update multiple keys in-place with a custom function, see update.
+        
+        Either all success, or all fail.
+        """
         def new_updater(keys, values, server_time):
             return (keys, [updater(k,v) for k,v in izip(keys, values)])
         for m in self.updateallwithtime(keys, new_updater, timeout, vhost):
             yield m
         _, self.apiroutine.retvalue = self.apiroutine.retvalue
     def updateall(self, keys, updater, timeout = None, vhost = ''):
-        "Update multiple keys in-place, with a function updater(keys, values) which returns (updated_keys, updated_values). Either all success or all fail"
+        """
+        Update multiple keys in-place, with a function ``updater(keys, values)``
+        which returns ``(updated_keys, updated_values)``.
+        
+        Either all success or all fail
+        """
         def new_updater(keys, values, server_time):
             return updater(keys, values)
         for m in self.updateallwithtime(keys, new_updater, timeout, vhost):
             yield m
     def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
-        "Update multiple keys in-place, with a function updater(keys, values, timestamp) which returns (updated_keys, updated_values). Either all success or all fail. Timestamp is a integer standing for current time in microseconds."
+        """
+        Update multiple keys in-place, with a function ``updater(keys, values, timestamp)``
+        which returns ``(updated_keys, updated_values)``.
+        
+        Either all success or all fail.
+        
+        Timestamp is a integer standing for current time in microseconds.
+        """
         client = self._zookeeper_clients.get(vhost)
         if client is None:
             raise ValueError('vhost ' + repr(vhost) + ' is not defined')

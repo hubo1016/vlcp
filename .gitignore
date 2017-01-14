@@ -57,3 +57,4 @@ docs/_build/
 target/
 /.project
 /.pydevproject
+/doc/source/gensrc

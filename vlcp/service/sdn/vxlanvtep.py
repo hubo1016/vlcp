@@ -461,6 +461,9 @@ class VXLANHandler(RoutineContainer):
 
 @defaultconfig
 class VXLANVtep(FlowBase):
+    """
+    Use hardware_vtep instead of software VXLAN
+    """
     # Use these VLANs for vtep configuration. Must not be conflicted with VLAN networks.
     _default_vlanid_pool = ((3000, 4000),)
 

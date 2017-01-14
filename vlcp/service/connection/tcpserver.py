@@ -13,31 +13,43 @@ class TcpServerBase(Module):
     Generic tcp server on specified URLs, vHosts are supported.
     '''
     # Default server URL.
+    # 
     # If there are multiple endpoints to listen, use .urls configuration instead of .url,
     # it should be a list of endpoint URLs.
-    # The URL (and also any "connection URL" in other part of VLCP) should be like:
-    # <protocol>://[<address>[:port]]/
+    # 
+    # The URL (and also any "connection URL" in other part of VLCP) should be like::
+    # 
+    #    <protocol>://[<address>[:port]]/
+    # 
     # For server socket (the listening part), the protocol should be tcp(or ltcp), ssl(or lssl)
     # The address should be the binding address of the server.
+    # 
     # For client sockets (the connecting part), the protocol should be tcp, udp, ssl, ptcp, pudp, pssl
+    # 
     # The ptcp, pudp, pssl protocols are passive connections: they start listen and accept only one socket.
     # The address (if specified) should be the IP address of the remote endpoint.
+    # 
     # The tcp, udp, ssl protocols are normal connections which begins by connecting to the specified address.
+    # 
     # If .urls and .url are both specified, they are both used.
     #
     # For SSL connections, use .key, .certificate, .ca_certs configurations to specify private key, public key,
     # CA files for the SSL connection. If .ca_certs is not specified, the SSL certificate is not verified which
     # may introduce security holes.
     #
-    # the .protocol configuration node may be used to override the global protocol configurations, e.g. use
+    # the .protocol configuration node may be used to override the global protocol configurations, e.g. use::
+    # 
     #     module.redisdb.protocol.connect_timeout = 20
+    # 
     # to override the protocol.redis.connect_timeout configuration
     #
     # Any TCPServer module can use .vhost node to create multiple servers for different uses.
-    # For example, use
+    # For example, use::
+    # 
     #     module.httpserver.url='tcp://localhost:80/'
     #     module.httpserver.vhost.api.url='tcp://localhost:8080/'
     #     module.httpserver.vhost.api.protocol.fastfail=True
+    # 
     # to create two different HTTP servers, potentially with different configurations. Some modules can be
     # configured to bind to specified vhosts.
     #
@@ -128,6 +140,7 @@ class TcpServerBase(Module):
     def getservers(self, vhost = None):
         '''
         Return current servers
+        
         :param vhost: return only servers of vhost if specified. '' to return only default servers.
                       None for all servers.
         '''
@@ -138,6 +151,7 @@ class TcpServerBase(Module):
     def stoplisten(self, vhost = None):
         '''
         Stop listen on current servers
+        
         :param vhost: return only servers of vhost if specified. '' to return only default servers.
                       None for all servers.
         '''
@@ -149,6 +163,7 @@ class TcpServerBase(Module):
     def startlisten(self, vhost = None):
         '''
         Start listen on current servers
+        
         :param vhost: return only servers of vhost if specified. '' to return only default servers.
                       None for all servers.
         '''

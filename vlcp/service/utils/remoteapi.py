@@ -10,7 +10,10 @@ from vlcp.server.module import Module,callAPI, api
 
 @defaultconfig
 class RemoteCall(Module):
-    # URL list for every target, should be {*target*: [*url*, *url*, ...]}
+    """
+    Route local API calls to remote management API.
+    """
+    # URL list for every target, should be ``{target: [url, url, ...]}``
     _default_target_url_map = {}
 
     def __init__(self,server):
@@ -31,6 +34,19 @@ class RemoteCall(Module):
             self.wc.endtask()
 
     def call(self,remote_module,method,timeout,params):
+        """
+        Call remote API
+        
+        :param remote_module: target name for the remote module
+        
+        :param method: method name of the API
+        
+        :param timeout: timeout for the call
+        
+        :param params: A dictionary contains all the parameters need for the call
+        
+        :return: Return result from the remote call
+        """
         self._logger.info("remote call remote_module %r",remote_module)
         self._logger.info("remote call method %r", method)
         self._logger.info("remote call kwargs %r", params)

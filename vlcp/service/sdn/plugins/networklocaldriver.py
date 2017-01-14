@@ -8,6 +8,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
 from vlcp.utils.ethernet import ETHERTYPE_8021Q 
+from vlcp.config.config import defaultconfig
 
 logger = logging.getLogger('NetworkLocalDriver')
 
@@ -15,7 +16,13 @@ logger = logging.getLogger('NetworkLocalDriver')
     local type physicalnetwork, there no physicalport,  no xxxrange,have logicalnetwork as much as
 """
 
+@defaultconfig
 class NetworkLocalDriver(Module):
+    """
+    Network driver for local networks. Local networks cannot have physical ports; logical networks
+    in local networks do not have external connectivities, only endpoints on the same server can
+    access each other.
+    """
     def __init__(self,server):
         super(NetworkLocalDriver,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)

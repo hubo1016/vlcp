@@ -10,6 +10,9 @@ from vlcp.event.connection import ConnectionResetException
 
 @defaultconfig
 class OVSDB(JsonRPC):
+    '''
+    OVSDB protocol, this is a specialized JSON-RPC 1.0 protocol
+    '''
     _default_defaultport = 6632
     # Only accept "echo" requests
     _default_allowedrequests = ('echo',)

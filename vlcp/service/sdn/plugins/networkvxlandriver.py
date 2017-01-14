@@ -8,10 +8,16 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.dataobject import updater,set_new,ReferenceObject,dump
 from vlcp.utils.networkmodel import *
 import itertools
+from vlcp.config.config import defaultconfig
 
 logger = logging.getLogger('NetworkVxlanDriver')
 
+@defaultconfig
 class NetworkVxlanDriver(Module):
+    """
+    Network driver for VXLAN networks. When creating a VXLAN type physical network,
+    you must specify an extra option ``vnirange``.
+    """
     def __init__(self,server):
         super(NetworkVxlanDriver,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)

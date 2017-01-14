@@ -2073,6 +2073,9 @@ class RouterUpdater(FlowUpdater):
 @defaultconfig
 @depend(arpresponder.ARPResponder,icmpresponder.ICMPResponder,objectdb.ObjectDB)
 class L3Router(FlowBase):
+    """
+    L3 connectivities with virtual router.
+    """
     _tablerequest = (
         ("l3router", ("l3input",), "router"),
         ("l3output", ("l3router",), "l3"),

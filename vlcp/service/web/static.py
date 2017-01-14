@@ -178,12 +178,12 @@ class Static(Module):
     # 
     # Static module supports multiple directories with different configurations, just
     # like vHosts. Use .vdir node to create separated configurations for different
-    # folders, e.g.
+    # folders, e.g.::
     #
     #     module.static.vdir.rewrite.dir="rewrite"
     #     module.static.vdir.rewrite.rewriteonly=True
     # 
-    # You may also specify multiple directories with .dirs configuration instead, e.g.
+    # You may also specify multiple directories with .dirs configuration instead, e.g.::
     #
     #     module.static.dir=None
     #     module.static.dirs=["js","css","images","download"]
@@ -194,10 +194,11 @@ class Static(Module):
     # *relativeroot*/*dir*/*subpath*. The *subpath* may be a file in sub directories.
     # ".", ".." is also accepted as current folder/parent folder, but it always map to a path inside
     # *relativeroot*/*dir*, which means:
-    #     /*dir*/*subpath*/a => *relativeroot*/*dir*/a
-    #     /*dir*/*subpath*/b/a => *relativeroot*/*dir*/b/a
-    #     /*dir*/*subpath*/b/../a => *relativeroot*/*dir*/a
-    #     /*dir*/*subpath*/b/../../a => *relativeroot*/*dir*/a
+    # 
+    #     /*dir*/*subpath*/a         =>     *relativeroot*/*dir*/a
+    #     /*dir*/*subpath*/b/a       =>     *relativeroot*/*dir*/b/a
+    #     /*dir*/*subpath*/b/../a    =>     *relativeroot*/*dir*/a
+    #     /*dir*/*subpath*/b/../../a =>     *relativeroot*/*dir*/a
     #     
     # So it is not possible to use a static file map to access files outside the mapped folder.
     #
@@ -231,12 +232,14 @@ class Static(Module):
     # 
     # The .map configuration should be a dictionary {*http-path*: *file-path*, ...}
     # where *file-path* may be:
-    #     - a tuple (*directory*, *filename*), where *directory* is a directory name similar
+    # 
+    #     * a tuple (*directory*, *filename*), where *directory* is a directory name similar
     #       to names in .dir or .dirs, and *filename* is a filename or subpath. This maps
     #       *http-path* to *directory*/*filename*. *http-path* and *filename* may use
     #       regular expressions, you may use group capture (brackets in regular expressions)
     #       to capture values, and use them in *filename* with \1, \2, etc.
-    #     - a directory name, in which case *http-path*=>*directory* is equal to
+    # 
+    #     * a directory name, in which case *http-path*=>*directory* is equal to
     #       *http-path*/(.\*) => (*directory*, "\1")
     _default_map = {}
     # Use a configured Content-Type, instead of guessing MIME types from file names

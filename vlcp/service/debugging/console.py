@@ -83,13 +83,21 @@ class Waiter(object):
 
 @defaultconfig
 class Console(Module):
-    '''VLCP debugging console.
-Besides the normal functions of Python interactive console,
-Following variables are provided for debugging purpose:
- server, manager, container
-Following functions can be used to control VLCP running:
- callapi, capture, sendevent, subroutine, execute, breakpoint, syscall, resume, debug, restore_console, console_help
-For details call console_help()'''
+    '''
+    VLCP debugging console.
+    
+    Besides the normal functions of Python interactive console,
+    Following variables are provided for debugging purpose:
+    
+       server, manager, container
+        
+    Following functions can be used to control VLCP running:
+    
+       callapi, capture, sendevent, subroutine, execute, breakpoint, syscall,
+       resume, debug, restore_console, console_help
+       
+    For details call console_help()
+    '''
     _full_help = '''
 VLCP debugging console.
 Besides the normal functions of python interactive console,
@@ -147,8 +155,10 @@ console_help()
     # telnet server and wait for a connection. The console can be used in the telnet session.
     # With startinconsole = True, the module uses stdin/stdout to create the console.
     _default_startinconsole = False
-    # Default telnet connection URL, this is a passive connection on port 9923, so use
+    # Default telnet connection URL, this is a passive connection on port 9923, so use::
+    # 
     #     telnet localhost 9923
+    # 
     # to connect to the console.
     _default_telnetconsole = 'ptcp://localhost:9923/'
     # If SSL is configured (with pssl://...), specify the private key file
