@@ -41,7 +41,7 @@
                )
    :noindex:
    
-   {{ api_params['description']|indent(3,false) }}
+   {{ api_params['description']|default('',true)|indent(3,false) }}
    
 {% endfor -%}
 
