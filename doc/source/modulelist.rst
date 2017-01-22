@@ -129,3 +129,15 @@ These are modules currently shipped with VLCP and vlcp-docker-plugin.
    :local:
 
 .. include:: gensrc/allmodulelist.inc
+
+.. _proxymodulelist:
+
+==================
+Proxy Module List
+==================
+
+Proxy modules are configurable modules that proxy abstract API requests to different implementations. See
+:ref:`configkey_proxy` for more information.
+
+.. include:: gensrc/allproxymodules.inc
+

@@ -27,7 +27,9 @@ except Exception:
         def subtree(self, matcher, create = False):
             '''
             Find a subtree from a matcher
+            
             :param matcher: the matcher to locate the subtree. If None, return the root of the tree.
+            
             :param create: if True, the subtree is created if not exists; otherwise return None if not exists
             '''
             if matcher is None:
@@ -63,7 +65,9 @@ except Exception:
         def insert(self, matcher, obj):
             '''
             Insert a new matcher
+            
             :param matcher: an EventMatcher
+            
             :param obj: object to return
             '''
             current = self.subtree(matcher, True)
@@ -72,7 +76,9 @@ except Exception:
         def remove(self, matcher, obj):
             '''
             Remove the matcher
+            
             :param matcher: an EventMatcher
+            
             :param obj: the object to remove
             '''
             current = self.subtree(matcher, False)
@@ -93,6 +99,7 @@ except Exception:
         def matchesWithMatchers(self, event):
             '''
             Return all matches for this event. The first matcher is also returned for each matched object.
+            
             :param event: an input event
             '''
             ret = []
@@ -101,6 +108,7 @@ except Exception:
         def matches(self, event):
             '''
             Return all matches for this event. The first matcher is also returned for each matched object.
+            
             :param event: an input event
             '''
             ret = []
@@ -123,6 +131,7 @@ except Exception:
         def matchfirst(self, event):
             '''
             Return first match for this event
+            
             :param event: an input event
             '''
             # 1. matches(self.index[ind], event)

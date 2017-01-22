@@ -21,7 +21,26 @@ class LockedEvent(Event):
     pass
 
 class Lock(object):
+    """
+    An lock object. Normal usage::
+        
+        my_lock = Lock(lock_obj, container.scheduler)
+        for m in my_lock.lock(container):
+            yield m
+        with my_lock:
+            ...
+    """
     def __init__(self, key, scheduler, context = 'default'):
+        """
+        Create a lock object. You do not need to share this object with other routines;
+        all locks with the same *key* and *context* are mutual exclusive.
+        
+        :param key: Any hashable value.
+        
+        :param scheduler: The scheduler
+        
+        :param context: An extra object to separate keys into different context
+        """
         self.key = key
         self.context = context
         self.scheduler = scheduler
@@ -82,8 +101,26 @@ class Lock(object):
         
 
 class Semaphore(object):
-    "Change the default behavior of Lock for specified context and key from lock to semaphore."
+    """
+    Change the default behavior of Lock for specified context and key from lock to semaphore. The default
+    behavior of Lock allows only one routine for a specified key; when a semaphore is created, limited number
+    of routines can retrieve the Lock at the same time.
+    """
     def __init__(self, key, size, scheduler, context = 'default', priority = 1000):
+        """
+        Prepare to change locks on *key* and *context* to a semaphore.
+        
+        :param key: Hashable object used by locks.
+        
+        :param size: Semaphore size, which means the maximum allowed routines to retrieve the lock
+                     at the same time
+                     
+        :param scheduler: The scheduler
+        
+        :param context: context object used by locks.
+        
+        :param priority: priority for the created queue.
+        """
         self.context = context
         self.key = key
         self.scheduler = scheduler
@@ -91,9 +128,15 @@ class Semaphore(object):
         self.size = size
         self.queue = None
     def create(self):
+        """
+        Create the subqueue to change the default behavior of Lock to semaphore.
+        """
         self.queue = self.scheduler.queue.addSubQueue(self.priority, LockEvent.createMatcher(self.context, self.key),
                                          maxdefault = self.size, defaultQueueClass = CBQueue.AutoClassQueue.initHelper('locker', subqueuelimit = 1))
     def destroy(self, container):
+        """
+        Destroy the created subqueue to change the behavior back to Lock
+        """
         if self.queue is not None:
             for m in container.syscall_noreturn(syscall_removequeue(self.scheduler.queue, self.queue)):
                 yield m

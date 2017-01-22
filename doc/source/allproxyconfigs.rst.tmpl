@@ -19,8 +19,8 @@ proxy
 
 {% for proxy_key, proxy_default in data_input.items() %}
 
-   * - {{proxy_key}}
+   * - proxy.{{proxy_key}}
    
-     - ``{{proxy_default}}``
+     - ``{{proxy_default['class']}}``
 
 {% endfor %}

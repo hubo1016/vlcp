@@ -321,9 +321,13 @@ class Redis(Protocol):
     def send_command(self, connection, container, *args):
         '''
         Send command to Redis server.
+        
         :param connection: Redis connection
+        
         :param container: routine container
-        :param *args: command paramters, begin with command name, e.g. 'SET','key','value'
+        
+        :param \*args: command paramters, begin with command name, e.g. `'SET'`,`'key'`,`'value'`
+        
         :returns: Event matcher to wait for reply. The value is returned from container.retvalue
         '''
         with closing(container.delegateOther(self._send_command(connection, container, *args),
@@ -345,9 +349,13 @@ class Redis(Protocol):
     def send_batch(self, connection, container, *cmds):
         '''
         Send multiple commands to redis server at once
+        
         :param connection: redis connection
+        
         :param container: routine container
-        :param *cmds: commands to send. Each command is a tuple/list of bytes/str.
+        
+        :param \*cmds: commands to send. Each command is a tuple/list of bytes/str.
+        
         :returns: list of reply event matchers (from container.retvalue)
         '''
         with closing(container.delegateOther(self._send_batch(connection, container, *cmds),
@@ -379,10 +387,15 @@ class Redis(Protocol):
     def execute_command(self, connection, container, *args):
         '''
         Send command to Redis server and wait for response
+        
         :param connection: Redis connection
+        
         :param container: routine container
-        :param *args: command paramters, begin with command name, e.g. 'SET','key','value'
+        
+        :param \*args: command paramters, begin with command name, e.g. `'SET'`,`'key'`,`'value'`
+        
         :returns: Response from Redis server. The value is returned from container.retvalue
+        
         :raises RedisReplyException: Redis server returns an error (e.g. "-ERR ...")
         '''
         for m in self.send_command(connection, container, *args):
@@ -401,9 +414,13 @@ class Redis(Protocol):
     def batch_execute(self, connection, container, *cmds):
         '''
         Send multiple commands to redis server at once, and get responses
+        
         :param connection: redis connection
+        
         :param container: routine container
-        :param *cmds: commands to send. Each command is a tuple/list of bytes/str.
+        
+        :param \*cmds: commands to send. Each command is a tuple/list of bytes/str.
+        
         :returns: list of replies (from container.retvalue). Exceptions are NOT raised.
         '''
         if not cmds:

@@ -17,7 +17,18 @@ else:
     _dict_ordered = True
 import argparse
 from pprint import pformat
+from functools import wraps
 
+def _cached(func):
+    cache_map = {}
+    @wraps(func)
+    def f(*args):
+        if args not in cache_map:
+            cache_map[args] = func(*args)
+        return cache_map[args]
+    return f
+
+@_cached
 def list_proxy(root_package = 'vlcp'):
     '''
     Walk through all the sub modules, find subclasses of vlcp.server.module._ProxyModule,
@@ -32,11 +43,13 @@ def list_proxy(root_package = 'vlcp'):
                     and v is not _ProxyModule \
                     and v.__module__ == module \
                     and hasattr(v, '_default'):
-                name = 'proxy.' + v.__name__.lower()
+                name = v.__name__.lower()
                 if name not in proxy_dict:
-                    proxy_dict[name] = repr(v._default.__module__ + '.' + v._default.__name__)
+                    proxy_dict[name] = {'defaultmodule': v._default.__name__.lower(),
+                                        'class': repr(v._default.__module__ + '.' + v._default.__name__)}
     return proxy_dict
 
+@_cached
 def list_modules(root_package = 'vlcp'):
     '''
     Walk through all the sub modules, find subclasses of vlcp.server.module.Module,

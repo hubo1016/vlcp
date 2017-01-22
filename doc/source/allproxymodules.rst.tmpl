@@ -1,0 +1,17 @@
+{% for proxy_name, proxy_info in data_input.items() %}
+
+.. _module_{{ proxy_name }}:
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+{{ proxy_name }}
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+.. list-table::
+   :widths: 20 40
+   :class: configtable
+   
+   * - Default
+     - :ref:`module_{{proxy_info['defaultmodule']}}`
+   
+{% endfor %}

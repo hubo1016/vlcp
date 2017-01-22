@@ -33,6 +33,9 @@ class FutureEvent(Event):
 
 
 class Future(object):
+    """
+    Basic future object
+    """
     def __init__(self, scheduler):
         self._scheduler = scheduler
     def done(self):
@@ -43,8 +46,8 @@ class Future(object):
     def result(self):
         '''
         :return: None if the result is not ready, the result from set_result, or raise the exception
-                from set_exception. If the result can be None, it is not possible to tell if the result is
-                available; use done() to determine that.
+                 from set_exception. If the result can be None, it is not possible to tell if the result is
+                 available; use done() to determine that.
         '''
         try:
             r = getattr(self, '_result')

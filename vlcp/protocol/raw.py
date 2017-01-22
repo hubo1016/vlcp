@@ -113,11 +113,15 @@ class Raw(Protocol):
     def client_connect(self, container, url, *args, **kwargs):
         '''
         Create a connection with raw protocol
+        
         :param container: current routine container
+        
         :param url: url to connect to (see Client)
-        :param *args, **kwargs: other parameters to create a Client (except url, protocol and scheduler)
-        :returns: (connection, inputstream, outputstream) where client is the created connection, inputstream
-            is the stream to read from the socket, outputstream is the stream to write to socket
+        
+        :param \*args, \*\*kwargs: other parameters to create a Client (except url, protocol and scheduler)
+        
+        :returns: `(connection, inputstream, outputstream)` where client is the created connection, inputstream
+                  is the stream to read from the socket, outputstream is the stream to write to socket
         '''
         c = Client(url, self, container.scheduler, *args, **kwargs)
         c.start()

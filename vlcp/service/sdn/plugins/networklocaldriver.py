@@ -1,5 +1,9 @@
 #! /usr/bin/python
 #! --*-- utf-8 --*--
+"""
+local type physicalnetwork without physicalports. Can have unlimited logical networks.
+"""
+
 import logging
 from uuid import uuid1
 
@@ -11,10 +15,6 @@ from vlcp.utils.ethernet import ETHERTYPE_8021Q
 from vlcp.config.config import defaultconfig
 
 logger = logging.getLogger('NetworkLocalDriver')
-
-"""
-    local type physicalnetwork, there no physicalport,  no xxxrange,have logicalnetwork as much as
-"""
 
 @defaultconfig
 class NetworkLocalDriver(Module):
@@ -81,27 +81,6 @@ class NetworkLocalDriver(Module):
         return createphynetworks
     
     def _createphysicalnetwork(self,type,id,**args):
-        
-        """
-        if 'vlanrange' not in args:
-            raise ValueError('must specify vlanrange with network type vlan')
-
-        
-        #
-        # vlanrange [(1,100),(200,500)]
-        #
-        try:
-            lastend = 0
-            for start,end in args.get('vlanrange'):
-                if start > end or start <= lastend:
-                    raise ValueError('vlan sequences overlapped or disorder')
-                if end > 4095:
-                    raise ValueError('vlan out of range (0 -- 4095)')  
-                lastend = end
-        except:
-            raise ValueError('vlanrange format error,[(1,100),(200,500)]')
-        """
-
         # create an new physical network
         new_network = PhysicalNetwork.create_instance(id)
         new_network.type = type
@@ -188,36 +167,10 @@ class NetworkLocalDriver(Module):
             return keys,[values[0]]+[None]*(len(keys)-1)
         
         return deletephynetwork
+    
     def createphysicalports(self,type,ports):
-        """
-        portobjs = [self._createphysicalport(**n) for n in ports]
-        
-        def createpyports(keys,values):
-            phynetlen = (len(keys) - 1 - len(portobjs))//2
-            
-            phynetkeys = keys[1+len(portobjs):1+len(portobjs)+phynetlen]
-            phynetvalues = values[1+len(portobjs):1+len(portobjs)+phynetlen]
-            
-            phynetmapkeys = keys[1+len(portobjs)+phynetlen:]
-            phynetmapvalues = values[1+len(portobjs)+phynetlen:]
-            
-            phynetdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
-
-            for i in range(0,len(portobjs)):
-                values[i + 1] = set_new(values[i + 1],portobjs[i])
-                
-                key = portobjs[i].physicalnetwork.getkey()
-                phynet,phymap = phynetdict.get(key)
-                if not phynet or not phymap:
-                    raise ValueError("key object not existed "+ key) 
-
-                phymap.ports.dataset().add(portobjs[i].create_weakreference())
-                values[0].set.dataset().add(portobjs[i].create_weakreference())
-
-            return keys[0:1+len(ports)] + phynetmapkeys,values[0:1+len(ports)] + phynetmapvalues
-        return createpyports
-        """
         raise ValueError("local physicalnetwork no need physical port")
+    
     def _createphysicalport(self,physicalnetwork,name,vhost,systemid,bridge,**args):
 
         p = PhysicalPort.create_instance(vhost,systemid,bridge,name)
@@ -290,67 +243,6 @@ class NetworkLocalDriver(Module):
             
             phynetmapdict = dict(zip(phynetkeys,zip(phynetvalues,phynetmapvalues)))
             
-            """
-            #
-            # have an problem ,  when [{...},{... sid is least or last+1}]
-            # first one will allocate least one vlanid,second will conflict  
-            #
-            # so set new lgnet that have user defind 'vlanid' first
-            for i in range(0,len(networks)):
-                if hasattr(networkmap[i][0],'sid'):
-
-                    sid = int(networkmap[i][0].sid)
-                    networkmap[i][0].sid = sid
-                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-
-                    if not phynet or not phymap:
-                        raise ValueError("physicalnetwork key object not existed "+\
-                                networkmap[i][0].physicalnetwork.getkey()) 
-
-                    if _isavaliablesid(phymap.network_allocation.keys(),sid):
-                        phymap.network_allocation[str(sid)] = networkmap[i][0].create_weakreference()
-                    else:
-                        raise ValueError("user defind sid has been used or out of range!" + sid)
-                    
-                    # set lgnetwork
-                    values[1+i] = set_new(values[i + 1],networkmap[i][0])
-                    # set lgnetworkmap
-                    values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
-                    # set phynetmap
-                  
-                    #_,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-                    phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
-
-                    values[0].set.dataset().add(networkmap[i][0].create_weakreference())
-
-
-            for i in range(0,len(networks)):
-                if not getattr(networkmap[i][0],'sid',None):
-                    # there is no 'sid' in lgnetwork
-                    # allocate it max in allocate + 1
-                    phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-                    
-                    if not phynet or not phymap:
-                        raise ValueError("physicalnetwork key object not existed "+\
-                                networkmap[i][0].physicalnetwork.getkey()) 
-
-                    sid = _findavaliablesid(phymap.network_allocation.keys())
-                    if not sid:
-                        raise ValueError("there is no avaliable sid")
-                    setattr(networkmap[i][0],'sid',sid)
-                    phymap.network_allocation[str(sid)] = networkmap[i][0].create_weakreference()
-                    
-                    # set lgnetwork
-                    values[1+i] = set_new(values[i + 1],networkmap[i][0])
-                    # set lgnetworkmap
-                    values[1+i+len(networks)] = set_new(values[i + 1 + len(networks)],networkmap[i][1])
-                    # set phynetmap
-                  
-                    #_,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())
-                    phymap.logicnetworks.dataset().add(networkmap[i][0].create_weakreference())
-
-                    values[0].set.dataset().add(networkmap[i][0].create_weakreference())
-            """
 
             for i in range(0,len(networks)):
                 phynet,phymap = phynetmapdict.get(networkmap[i][0].physicalnetwork.getkey())

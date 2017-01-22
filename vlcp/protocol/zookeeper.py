@@ -230,7 +230,7 @@ class ZooKeeper(Protocol):
     def async_requests(self, connection, requests, container, priority = 0):
         '''
         :return: (matchers, generator), where matchers are event matchers for the requests; generator
-        is the routine to send to requests.
+                 is the routine to send to requests.
         '''
         matchers = []
         for r in requests:
@@ -267,13 +267,13 @@ class ZooKeeper(Protocol):
         
         :params container: routine container of current routine
         
-        :params callback: if not None, callback(request, response) is called immediately after
-        each response received
+        :params callback: if not None, `callback(request, response)` is called immediately after
+                          each response received
         
-        :return: (responses, lost_responses, retry_requests), where responses is a list of responses corresponded
-        to the requests (None if response is not received); lost_responses is a list of requests that are sent
-        but the responses are lost due to connection lost, it is the caller's responsibility to determine whether
-        the call is succeeded or failed; retry_requests are the requests which are not sent and are safe to retry. 
+        :return: `(responses, lost_responses, retry_requests)`, where responses is a list of responses corresponded
+                    to the requests (None if response is not received); lost_responses is a list of requests that are sent
+                    but the responses are lost due to connection lost, it is the caller's responsibility to determine whether
+                    the call is succeeded or failed; retry_requests are the requests which are not sent and are safe to retry. 
         '''
         matchers, routine = self.async_requests(connection, requests, container, priority)
         requests_dict = dict((m,r) for m,r in zip(matchers, requests))

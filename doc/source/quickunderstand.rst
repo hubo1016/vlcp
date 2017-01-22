@@ -148,7 +148,7 @@ To setup a new network, elements in the figure ::ref:`figure_settings` should be
          users would like to use the standard network model (also named as "ViperFlow" model) to implement
          a quick SDN environment highly compatible with traditional networks. You may also want to develope
          your own SDN controller, possibly supporting OpenFlow 1.0, or targeting physical OpenFlow switches.
-         In that situation, you do not need to be bounded to this model. Refer to :ref:`developementguide`
+         In that situation, you do not need to be bounded to this model. Refer to :ref:`development`
          for more informations on developing your own controller with VLCP framework, or learn more about the
          implementation details of the standard model.
 

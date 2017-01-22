@@ -13,6 +13,9 @@ from vlcp.utils.ethernet import ip4_addr
 
 
 def lognet_vxlan_walker(prepush = True):
+    """
+    Return a walker function to retrieve necessary information from ObjectDB
+    """
     def _walk_lognet(key, value, walk, save):
         save(key)
         if value is None:
@@ -76,7 +79,7 @@ def update_vxlaninfo(container, network_ip_dict, created_ports, removed_ports,
     :param bridge: identifier for the bridge, bridge name
     
     :param allowedmigrationtime: time allowed for port migration, secondary endpoint info will be removed
-    after this time
+                                 after this time
     
     :param refreshinterval: refreshinterval * 2 will be the timeout for network endpoint
     '''
@@ -165,8 +168,8 @@ def get_broadcast_ips(vxlan_endpointset, local_ip, ovsdb_vhost, system_id, bridg
     
     :param bridge: identifier, bridge name
     
-    :return: [(ip, ipnum)] list where IPs are the original string of the IP address, and ipnum
-    are 32-bit numeric IPv4 address.
+    :return: `[(ip, ipnum)]` list where IPs are the original string of the IP address, and ipnum
+             are 32-bit numeric IPv4 address.
     '''
     localip_addr = _get_ip(local_ip)
     allips = [(ip, ipnum) for ip, ipnum in ((ep[0], _get_ip(ep[0])) for ep in vxlan_endpointset.endpointlist

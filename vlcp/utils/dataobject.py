@@ -449,8 +449,8 @@ def list_updater(*args):
     """
     Decorate a function with named lists into updater for transact.
     
-    :params args: parameter list sizes. -1 means all other items. None means a single item instead of a list.
-    only one -1 is allowed.
+    :params \*args: parameter list sizes. -1 means all other items. None means a single item instead of a list.
+                    only one -1 is allowed.
     """
     neg_index = [i for v,i in izip(args, itertools.count()) if v is not None and v < 0]
     if len(neg_index) > 1:

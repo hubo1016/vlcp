@@ -150,8 +150,9 @@ class RedisClientBase(Configurable):
     def register_script(self, container, script):
         '''
         register a script to this connection.
+        
         :returns: registered script. This is a tuple (sha1, script). Pass the tuple to
-                eval_registered, ensure_registerd as registerd_script parameter.
+                  eval_registered, ensure_registerd as registerd_script parameter.
         '''
         if len(script) < 43:
             container.retvalue = (None, script)
@@ -180,7 +181,7 @@ class RedisClientBase(Configurable):
         '''
         Ensure that these scripts are cached on the server. Important when using scripts with batch_execute.
         :param container: routine container.
-        :param *scripts: registered script tuples, return value of register_script 
+        :param \*scripts: registered script tuples, return value of register_script 
         '''
         loading = dict((s[0], s[1]) for s in scripts if s[0])
         if loading:
@@ -370,7 +371,9 @@ class RedisClient(RedisClientBase):
     def punsubscribe(self, container, *keys):
         '''
         Unsubscribe specified globs. Every subscribed glob should be unsubscribed exactly once, even if duplicated subscribed.
+        
         :param container: routine container
+        
         :param *keys: subscribed globs
         '''
         for m in self._get_subscribe_connection(container):

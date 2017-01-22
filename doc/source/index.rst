@@ -17,7 +17,7 @@ Contents:
    
    quickguide
    usermanual
-   developer
+   development
    reference
 
 Indices and tables

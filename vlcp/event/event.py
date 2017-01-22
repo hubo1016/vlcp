@@ -49,6 +49,9 @@ except:
                 repr(self.indices) + '>'
         
     def withIndices(*args):
+        '''
+        Create indices for an event class. Every event class must be decorated with this decorator.
+        '''
         def decorator(cls):
             for c in cls.__bases__:
                 if hasattr(c, '_indicesNames'):
@@ -66,21 +69,29 @@ except:
         return decorator
 
     class Event(object):
-        canignore = True
-        _indicesNames = ()
-        _classnameIndex = -1
         '''
         A generated event with indices
         '''
+        canignore = True
+        _indicesNames = ()
+        _classnameIndex = -1
         def __init__(self, *args, **kwargs):
             '''
-            :param args: indices like 12,"read",... content are type-depended.
+            :param args: index values like 12,"read",... content are type-depended.
+            
             :param kwargs:
-                <indices>: input indices by name
-                canignore: if the event is not processed, whether it is safe to ignore the event.
-                            If it is not, the processing queue might be blocked to wait for a proper event processor.
-                            Default to True.
-                <others>: the properties will be set on the created event
+            
+                *indices*
+                    input indices by name
+                    
+                canignore
+                    if the event is not processed, whether it is safe to ignore the event.
+                    
+                    If it is not, the processing queue might be blocked to wait for a proper event processor.
+                    Default to True.
+                    
+                *others*
+                    the properties will be set on the created event
             '''
             indicesNames = self.indicesNames()
             if kwargs and not args:
@@ -148,9 +159,9 @@ except:
         @classmethod
         def createMatcher(cls, *args, **kwargs):
             '''
-            @keyword _ismatch: user-defined function ismatch(event) for matching test
-            :param *: indices
-            @keyword **: index_name=index_value for matching criteria
+            :param _ismatch: user-defined function ismatch(event) for matching test
+            :param \*args: indices
+            :param \*\*kwargs: index_name=index_value for matching criteria
             '''
             if kwargs and not args:
                 return EventMatcher(tuple(getattr(cls, ind) if ind[:10] == '_classname' else kwargs.get(ind) for ind in cls.indicesNames()), kwargs.get('_ismatch'))
