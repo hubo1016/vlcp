@@ -17,25 +17,42 @@ import zlib
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class HttpConnectionStateEvent(Event):
+    """
+    HTTP connection state changed
+    """
+    # Connection established from the client side
     CLIENT_CONNECTED = 'clientconnect'
+    # Connection down from the client side
     CLIENT_CLOSE = 'clientclose'
+    # Cannot connect to server
     CLIENT_NOTCONNECTED = 'clientnotconnected'
+    # A connection is established to server side
     SERVER_CONNECTED = 'serverconnect'
+    # A connection is down from the server side
     SERVER_CLOSE = 'serverclose'
     
 
 @withIndices('host', 'path', 'method', 'connection', 'connmark', 'xid', 'createby')
 class HttpRequestEvent(Event):
+    """
+    A HTTP request is received from the connection
+    """
     canignore = False
     def canignorenow(self):
         return not self.connection.connected or self.connection.connmark != self.connmark
 
 @withIndices('connection', 'connmark', 'xid', 'isfinal', 'iserror')
 class HttpResponseEvent(Event):
+    """
+    A HTTP response is received from the connection
+    """
     pass
 
 @withIndices('connection', 'connmark', 'xid', 'keepalive')
 class HttpResponseEndEvent(Event):
+    """
+    A HTTP response is fully received
+    """
     pass
 
 @withIndices('connection', 'connmark', 'type')
@@ -45,6 +62,9 @@ class HttpStateChange(Event):
 
 @withIndices('stream')
 class HttpTrailersReceived(Event):
+    """
+    Trailers are received on an HTTPResponseStream
+    """
     pass
 
 try:
@@ -53,9 +73,15 @@ except:
     _long = int
 
 class HttpProtocolException(Exception):
+    """
+    Critical protocol break on HTTP connections
+    """
     pass
 
 class HttpConnectionClosedException(HttpProtocolException):
+    """
+    Connection is closed
+    """
     pass
 
 linedelimiter = re.compile(br'\r\n')
@@ -755,6 +781,10 @@ class Http(Protocol):
                 return HttpStateChange(connection, connection.connmark, HttpStateChange.NEXTOUTPUT)
         return None
     def startResponse(self, connection, xid, status, headers, outputstream, disabledeflate = False):
+        """
+        Start to response to a request with the specified xid on the connection, with status code
+        and headers. The output stream is used to output the response body.
+        """
         resp = self.createResponse(connection, xid, status, headers, outputstream)
         resp.disabledeflate = disabledeflate
         event = self.responseTo(connection, xid, resp)
@@ -804,7 +834,9 @@ class Http(Protocol):
         '''
         If you do not provide a content-length header, the stream will be transfer-encoded with chunked, and it is not
         always acceptable by servers.
+        
         You may provide a MemoryStream, and it will provide a content-length header automatically
+        
         Return xid
         '''
         method = method.upper()
@@ -817,10 +849,21 @@ class Http(Protocol):
             connection.scheduler.emergesend(HttpStateChange(connection, connection.connmark, HttpStateChange.NEXTOUTPUT))
         return connection.xid + len(connection.http_requestbuffer) - 1
     def responsematcher(self, connection, xid, isfinal = None, iserror = None):
+        """
+        Create an event matcher to match the response
+        """
         return HttpResponseEvent.createMatcher(connection, connection.connmark, xid, isfinal, iserror)
     def statematcher(self, connection, state = HttpConnectionStateEvent.CLIENT_CLOSE, currentconn = True):
+        """
+        Create an event matcher to match the connection state
+        """
         return HttpConnectionStateEvent.createMatcher(state, connection, connection.connmark if currentconn else None)
     def requestwithresponse(self, container, connection, host, path = b'/', method = b'GET', headers = [], stream = None, keepalive = True):
+        """
+        Send a HTTP request, and wait for the response. The last (usually wanted) response is stored in
+        `container.http_finalresponse`. There may be multiple responses (1xx) for this request, they are
+        stored in `container.http_responses`
+        """
         xid = self.sendRequest(connection, host, path, method, headers, stream, keepalive)
         resp = self.responsematcher(connection, xid)
         stat = self.statematcher(connection)

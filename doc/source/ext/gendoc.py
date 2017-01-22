@@ -11,6 +11,7 @@ import os
 import os.path
 import shutil
 from pkgutil import walk_packages
+from vlcp.event import Event
 
 def _merge_all(func):
     def _func():
@@ -102,6 +103,8 @@ def generate_references(app, env, added, changed, removed):
 def skip_members(app, what, name, obj, skip, options):
     if not skip and name == '__weakref__':
         return True
+    elif what == 'module' and isinstance(obj, type) and issubclass(obj, Event):
+        return False
     else:
         return skip
 

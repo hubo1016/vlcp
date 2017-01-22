@@ -17,29 +17,52 @@ from namedstruct import dump
 
 @withIndices('datapathid', 'auxiliaryid', 'state', 'connection', 'connmark', 'createby')
 class OpenflowConnectionStateEvent(Event):
+    """
+    Event when connection state changes
+    """
+    # Connection Setup
     CONNECTION_SETUP = 'setup'
+    # Connection Down
     CONNECTION_DOWN = 'down'
 
 @withIndices('datapathid', 'auxiliaryid', 'connection', 'connmark', 'xid', 'iserror', 'createby')
 class OpenflowResponseEvent(Event):
+    """
+    Event for an OpenFlow response is received
+    """
     pass
 
 @withIndices('type', 'datapathid', 'auxiliaryid', 'tableid', 'cookie', 'connection', 'connmark', 'createby')
 class OpenflowAsyncMessageEvent(Event):
+    """
+    Event for an async message is received
+    """
     pass
 
 @withIndices('connection', 'type', 'connmark', 'createby')
 class OpenflowPresetupMessageEvent(Event):
+    """
+    Event for messages before connection setup
+    """
     pass
 
 @withIndices('experimenter', 'exptype', 'datapathid', 'auxiliaryid', 'connection', 'connmark', 'createby')
 class OpenflowExperimenterMessageEvent(Event):
+    """
+    Event for experimenter messages
+    """
     pass
 
 class OpenflowProtocolException(Exception):
+    """
+    Critical protocol break exception
+    """
     pass
 
 class OpenflowErrorResultException(Exception):
+    """
+    OpenFlow returns error
+    """
     pass
 
 @defaultconfig
@@ -75,6 +98,8 @@ class Openflow(Protocol):
     def __init__(self, allowedVersions = None):
         '''
         Constructor
+        
+        :param allowedVersions: if specified, should be a tuple of allowed OpenFlow versions.
         '''
         Protocol.__init__(self)
         if allowedVersions is not None:
@@ -217,17 +242,27 @@ class Openflow(Protocol):
             self._logger.debug('message formatted: %r', common.dump(request))
         return c
     def replymatcher(self, request, connection, iserror = None):
+        """
+        Create an event matcher to match a reply to this request
+        """
         matcherparam = {'datapathid': connection.openflow_datapathid, 'auxiliaryid': connection.openflow_auxiliaryid, 'connection' : connection, 'connmark': connection.connmark, 
                         'xid': request.header.xid}
         if iserror is not None:
             matcherparam['iserror'] = iserror
         return OpenflowResponseEvent.createMatcher(**matcherparam)
     def statematcher(self, connection, state = OpenflowConnectionStateEvent.CONNECTION_DOWN, currentconn = True):
+        """
+        Create an event matcher to match the connection state of this connection
+        """
         if currentconn:
             return OpenflowConnectionStateEvent.createMatcher(connection.openflow_datapathid, connection.openflow_auxiliaryid, state, connection, connection.connmark)
         else:
             return OpenflowConnectionStateEvent.createMatcher(connection.openflow_datapathid, connection.openflow_auxiliaryid, state)
     def querywithreply(self, request, connection, container, raiseonerror = True):
+        """
+        Send an OpenFlow normal request, wait for the response of this request. The request must have
+        exactly one response. The reply is stored to `container.openflow_reply`
+        """
         for m in connection.write(self.formatrequest(request, connection), False):
             yield m
         reply = self.replymatcher(request, connection)
@@ -239,6 +274,10 @@ class Openflow(Protocol):
         if container.event.iserror:
             raise OpenflowErrorResultException('An error message is returned: ' + repr(dump(container.event.message)))
     def querymultipart(self, request, connection, container, raiseonerror = True):
+        """
+        Send a multipart request, wait for all the responses. Return a list of reply messages
+        by `container.openflow_reply`
+        """
         for m in connection.write(self.formatrequest(request, connection), False):
             yield m
         reply = self.replymatcher(request, connection)
@@ -257,6 +296,11 @@ class Openflow(Protocol):
                 break
         container.openflow_reply = messages
     def batch(self, requests, connection, container, raiseonerror = True):
+        """
+        Send multiple requests, return when all the requests are done. Requests can have no responses.
+        `container.openflow_reply` is the list of messages in receiving order. `container.openflow_replydict`
+        is the dictionary `{request:reply}`. The attributes are set even if an OpenflowErrorResultException is raised.
+        """
         for r in requests:
             self.assignxid(r, connection)
         replymatchers = dict((self.replymatcher(r, connection), r) for r in requests)

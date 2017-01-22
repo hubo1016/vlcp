@@ -14,22 +14,36 @@ import re
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class JsonRPCConnectionStateEvent(Event):
+    """
+    Connection state change
+    """
+    # Connection up
     CONNECTION_UP = 'up'
+    # Connection down
     CONNECTION_DOWN = 'down'
 
 
 @withIndices('method', 'connection', 'connmark', 'createby')
 class JsonRPCRequestEvent(Event):
+    """
+    Request received from the connection
+    """
     canignore = False
     def canignorenow(self):
         return not self.connection.connected or self.connection.connmark != self.connmark
 
 @withIndices('connection', 'connmark', 'id', 'iserror', 'createby')
 class JsonRPCResponseEvent(Event):
+    """
+    Response received from the connection
+    """
     pass
 
 @withIndices('method', 'connection', 'connmark', 'createby')
 class JsonRPCNotificationEvent(Event):
+    """
+    Notification received from the connection
+    """
     pass
 
 class JsonFormatException(Exception):
@@ -133,19 +147,32 @@ class JsonRPC(Protocol):
             self._logger.debug('message formatted: %r', msg)
         return c
     def replymatcher(self, requestid, connection, iserror = None):
+        """
+        Create a matcher to match a reply
+        """
         matcherparam = {'connection' : connection, 'connmark': connection.connmark, 
                         'id': requestid}
         if iserror is not None:
             matcherparam['iserror'] = iserror
         return JsonRPCResponseEvent.createMatcher(**matcherparam)
     def notificationmatcher(self, method, connection):
+        """
+        Create an event matcher to match specified notifications
+        """
         return JsonRPCNotificationEvent.createMatcher(method = method, connection = connection, connmark = connection.connmark)
     def statematcher(self, connection, state = JsonRPCConnectionStateEvent.CONNECTION_DOWN, currentconn = True):
+        """
+        Create an event matcher to match the connection state
+        """
         if currentconn:
             return JsonRPCConnectionStateEvent.createMatcher(state, connection, connection.connmark)
         else:
             return JsonRPCConnectionStateEvent.createMatcher(state, connection)
     def querywithreply(self, method, params, connection, container, raiseonerror = True):
+        """
+        Send a JSON-RPC request and wait for the reply. The reply result is stored at
+        `container.jsonrpc_result` and the reply error is stored at `container.jsonrpc_error`.
+        """
         (c, rid) = self.formatrequest(method, params, connection)
         for m in connection.write(c, False):
             yield m
@@ -159,6 +186,9 @@ class JsonRPC(Protocol):
         if raiseonerror and container.event.error:
             raise JsonRPCErrorResultException(str(container.event.error))
     def waitfornotify(self, method, connection, container):
+        """
+        Wait for next notification
+        """
         notify = self.notificationmatcher(method, connection)
         conndown = self.statematcher(connection)
         yield (notify, conndown)

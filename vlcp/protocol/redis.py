@@ -268,6 +268,9 @@ class Redis(Protocol):
         for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
             yield m
     def replymatcher(self, requestid, connection, iserror = None):
+        """
+        Create an event matcher to match 
+        """
         matcherparam = [connection, connection.connmark, requestid]
         if iserror is not None:
             matcherparam.append(iserror)
