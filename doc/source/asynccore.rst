@@ -13,7 +13,7 @@ Event Objects
 
 The most principal synchronizing method in VLCP is **Event Object**/**Event Matcher**.
 
-**Event Objects** are instances of event classes. An event class is a subclass of :py:class::`vlcp.event.event.Event`.
+**Event Objects** are instances of event classes. An event class is a subclass of :py:class:`vlcp.event.event.Event`.
 When defining an event class, the decorator :py:func:`withIndices` is used to create 0, 1 or more indices for
 this event class. When an event object is created, one value for each index must be assigned from the arguments.
 For example::
@@ -92,7 +92,7 @@ yielded event matchers. When this event object appears, scheduler wake up the ro
 An event object can wake up multiple routines, and the routines will be executed in order.
 
 Each routine is associated with a **Routine Container**. The routine container is an object of type
-:py:class::`vlcp.event.runnable.RoutineContainer`. It is used as the executing context of the routine.
+:py:class:`vlcp.event.runnable.RoutineContainer`. It is used as the executing context of the routine.
 When the routine awakes, the matched event object is saved to `container.event` and the matcher which
 matches this event is saved to `container.matcher`. Routines use these variables to determine what to do next.
 
@@ -133,7 +133,7 @@ If a coroutine method must be executed in a specified container, you can call it
        
    retvalue = container.retvalue[0]
 
-See :py:class::`vlcp.event.runnable.RoutineContainer` for all the useful methods.
+See :py:class:`vlcp.event.runnable.RoutineContainer` for all the useful methods.
 
 .. _vlcpscheduler:
 
@@ -222,7 +222,7 @@ these events, the event class can provide an `canignorenow()` function to make t
 processes an event object with `canignore=False` and also `canignorenow()`, it executes `canignorenow()` which returns
 a boolean value. If `canignorenow()` returns True, scheduler set `canignore=True` on the event object and ignore it.
 This only happens when an event object is take out from the event queue, so events which are already blocking the
-subqueues cannot be ignored. A routine should use scheduler method :py:method::`vlcp.event.core.Scheduler.ignore`
+subqueues cannot be ignored. A routine should use scheduler method :py:meth:`vlcp.event.core.Scheduler.ignore`
 together with `canignorenow()` to correctly ignore these events.
 
 .. _connectionprocessing:
@@ -233,15 +233,15 @@ Connection Processing
 
 VLCP processes all sockets (including TCP connections and UNIX connections) with routines.
 
-The :py:class::`vlcp.event.connection.Connection` class is responsible for all the lower-level socket operations.
+The :py:class:`vlcp.event.connection.Connection` class is responsible for all the lower-level socket operations.
 It creates a reading routine, a writing routine and a controlling routine for each connection.
 
-Reading routine uses a protocol class (subclass of :py:class::`vlcp.protocol.protocol.Protocol`) to parse the
+Reading routine uses a protocol class (subclass of :py:class:`vlcp.protocol.protocol.Protocol`) to parse the
 byte stream into event objects. When sending the event objects, queue size limit may cause the routine to stop
 to wait for event processing, thus stop receiving on the socket. For streaming sockets (TCP, UNIX), traffic control
 on this connection makes the remote side stop sending more data.
 
-Writing routine waits for :py:class::`vlcp.event.connection.ConnectionWriteEvent` event objects for this connection.
+Writing routine waits for :py:class:`vlcp.event.connection.ConnectionWriteEvent` event objects for this connection.
 Data retrieved from the event objects are sent to the socket. `ConnectionWriteEvent` objects are blocking events,
 so when the writing routine cannot write more data to the socket, it will start to wait for the polling event for
 socket write, so routines generating the `ConnectionWriteEvent` are blocked until more data can be written to the
@@ -259,6 +259,6 @@ A connector is a bridge between VLCP schedulers and other threads or processes. 
 from a thread-safe queue, and receives events from a pipe. With connectors it is quite easy to create a thread pool
 to execute methods in a multi-threaded way.
 
-A specialized connector *TaskPool* (:py:class::`vlcp.utils.connector.TaskPool`) is a simple thread pool implementation
+A specialized connector *TaskPool* (:py:class:`vlcp.utils.connector.TaskPool`) is a simple thread pool implementation
 for executing tasks in other threads.
 

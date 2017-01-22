@@ -86,6 +86,9 @@ class ConnectionControlEvent(Event):
 
 @withIndices('connection', 'connmark')
 class ConnectionWriteEvent(Event):
+    """
+    Event used to send data to a connection
+    """
     canignore = False
     def canignorenow(self):
         return not self.connection.connected or self.connection.connmark != self.connmark
