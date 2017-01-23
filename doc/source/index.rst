@@ -24,6 +24,7 @@ server; 16+ Gbps traffic; 200 endpoint changes (creations and deletions) per min
    usermanual
    development
    reference
+   articles
 
 Indices and tables
 ==================
