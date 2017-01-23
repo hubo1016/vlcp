@@ -45,7 +45,8 @@ class::
    # Matches any PortCreatedEvent
    my_matcher4 = PortCreatedEvent.createMatcher()
    # Use a customized function to test events
-   my_matcher5 = PortCreatedEvent.createMatcher('new_port', _ismatch = lambda x: x.network.startswith('my_'))
+   my_matcher5 = PortCreatedEvent.createMatcher('new_port',
+                     _ismatch = lambda x: x.network.startswith('my_'))
 
 An event matcher matches an event object when:
 
