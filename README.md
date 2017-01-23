@@ -1,100 +1,67 @@
 # VLCP
-A full stack framework for SDN Controller, support Openflow 1.0, Openflow 1.3, and Nicira extensions.
 
-VLCP 1.0 is now released, it is a fully functional SDN controller framework, with an asynchonous IO framework embedded as the core,
-and shipped with the necessary modules to form a powerful L2 SDN controller. You may benefit from this project either as an end user
-or as a developer of your own controller.
+VLCP is a modern SDN controller able to be integrated with OpenStack, Docker and other virtualization environments.
+It is designed to be highly scalable, highly available and have very low overhead for virtual networking. 
+Currently it is ready for production, and has been verified, tested and in use in clusters with about 10 physical
+servers. Tests show that the controller stays stable for more than a week under high pressure as: 1000 endpoints per
+server; 16+ Gbps traffic; 200 endpoint changes (creations and deletions) per minute per server.
 
-Since there is an embedded asynchonous IO framework, the VLCP itself is a powerful coroutine-based web server. It is quite easy to
-deploy a web service or a full web site with this framework. An empty page with session enabled benchmarks 700qps in CPython and
-2000qps in PyPy. It is especially useful for comet (long-poll) services.
+## Why VLCP
 
-See examples/webIM for a simple Web Chat example.
+## Functions
 
-# Try
+VLCP provides the ability to create both L2 and L3 SDN networks. All the elements in the SDN network like physical networks (infrastructures), logical networks and endpoints can be modified at any time and take an immediate effect.
+Logical networks are fully isolated with each other, including the abilities to use the same MAC addresses or IP
+addresses. It is very easy to create multi-tenant networks with VLCP controllers. VLCP supports both VLAN and VXLAN
+for isolation; it is even possible to use them for different logical networks at the same time.
 
-To install the latest release version, use pip:
-```bash
-pip install vlcp
-```
+VLCP provides easy-to-use web APIs for configurations. The APIs can be used anywhere with a connection to the central
+database, and multiple instances can be deployed to provide load balancing or high-availabilities.
 
-You will need at least two host servers (or virtual machines, for test purpose) with OpenvSwitch 2.3+ installed, connected by a
-local network. VLCP uses Redis as the main database, so you should install Redis server on one of the host servers
-(or another server which is accessable from any of the host servers), and configure it to be accessible from other
-servers and persistence (AOF or RDB) enabled.
+For VXLAN, VLCP supports software implementation on OpenvSwitch, and hardware implementation with hardware_vtep
+interface on physical switches (the same interface used by NSX). Software VXLAN implementation provides about
+6+Gbps for each server. With physical switches supporting hardware_vtep, it is usually 20+Gbps.
 
-more configurations - TBD
+### Stabilities
 
-# Technical details
+VLCP has a modern software architecture. It is designed to be stable under the worst situations. Usually the
+controller is deployed on each server, working independently. Server failures only affects traffic to and from
+this server. As long as the servers containing the source endpoint and the destination endpoint stay alive, network
+traffic between these two endpoints is not affected.
 
-VLCP processes all the Openflow messages, Ethernet packets, DHCP messages and other binary structures in a standard way,
-it is now a separated library namedstruct (https://github.com/hubo1016/namedstruct, nstruct in PyPI). It is like a
-*regular expression* in binary data. It allows you create a definition of the struct just like what is in openflow.h:
+VLCP uses a ZooKeeper cluster for configuration management. ZooKeeper provides consistency for all the nodes easily.
+All nodes are equal to each other when reading from and writing to the central storage. They use a transaction layer
+to provide ACID on multiple keys, so any change to the central storage either success or fail at once. Nodes use the
+Watch mechanism of ZooKeeper to subscribe and update informations related to the local endpoints. There is not any
+middle-states, any critical failures like power failures, system core dumps, network disconnections are recoverable.
+The hardest recover operations of VLCP controllers are no more than restarting the controller. Usually it recovers
+as soon as the network/system problems are solved.
 
-```Python
-'''
-/* Description of a port */
-'''
-ofp_port = nstruct(
-    (ofp_port_no, 'port_no'),
-    (uint8[4],),
-    (mac_addr, 'hw_addr'),
-    (uint8[2],),                #  /* Align to 64 bits. */
-    (char[OFP_MAX_PORT_NAME_LEN], 'name'), # /* Null-terminated */
+There are multiple guarantees for the SDN network connectivities:
 
-    (ofp_port_config, 'config'),     #   /* Bitmap of OFPPC_* flags. */
-    (ofp_port_state, 'state'),      #   /* Bitmap of OFPPS_* flags. */
+1. Partial failures (less than half of the servers) on the ZooKeeper cluster do not affect any operations
 
-#    /* Bitmaps of OFPPF_* that describe features.  All bits zeroed if
-#     * unsupported or unavailable. */
-    (ofp_port_features, 'curr'),       #   /* Current features. */
-    (ofp_port_features, 'advertised'), #   /* Features being advertised by the port. */
-    (ofp_port_features, 'supported'),  #   /* Features supported by the port. */
-    (ofp_port_features, 'peer'),       #   /* Features advertised by peer. */
+2. A full failure on the ZooKeeper cluster makes it impossible to create/delete/modify endpoints, but the
+   existed endpoints are not affected.
 
-    (uint32, 'curr_speed'), #   /* Current port bitrate in kbps. */
-    (uint32, 'max_speed'),  #   /* Max port bitrate in kbps */
-    name = 'ofp_port'
-)
-```
+3. Controller crashes on one server makes it stop responding to network structure changes (endpoint
+   creation/deletion etc.), but the existed endpoints are not affected.
 
-See documents of namedstruct for more information.
+4. OpenvSwitch crashes, server crashes disconnect the endpoints on this server with other endpoints, but
+   connectivities between endpoints on other servers are not affected.
+   
+5. Failures are always recoverable. No components would stay in a middle-state.
+   
+With these guarantees, any disasters can be keep in the smallest scope to reduce the impact to the
+production environment.
 
-The coroutine core is an special-designed and easy-to-use one. It uses a pub/sub logic for synchronization. Comparing to other
-sychronization logic like locks, Futures and channels, the pub/sub events are easy to understand, easy to use and easy to extend.
+## Highly Extensible
 
-Coroutines in VLCP are generators. With each yield statement, the coroutine waits for some type of events, and continue to execute.
-A simple example looks like this:
+VLCP is designed to be both a production-ready SDN controller and an extensible SDN framework. Most functions
+in the SDN networks are split into smaller modules, each provides an independent function. Every module can
+be loaded, unloaded or reloaded even without a restarting. You can rearrange the modules to add or remove functions.
+It is also possible to develop new functions with separated modules, and integrate them with the SDN controller.
 
-```Python
+# Learn More
 
-@withIndices('type')
-class MyEvent(Event):
-    pass
-
-container = RoutineContainer(scheduler)
-    
-def routineA():
-    for m in container.waitForSend(MyEvent(type = 1, message = 'event1')):
-        yield m
-    for m in container.waitWithTimeout(2):
-        yield m
-    for m in container.waitForSend(MyEvent(type = 2, message = 'event2')):
-        yield m
-
-def routineB():
-    # Match for event of type 'MyEvent'
-    my_matcher = MyEvent.createMatcher()
-    while True:
-        yield (my_matcher,)
-        print(container.event.type, container.event.message)
-
-def routineC():
-    # The event is broadcasted to all the matchers, so there can be more than one coroutine to process it
-    # You can specify index value to classify the event and match only a part of them
-    my_matcher = MyEvent.createMatcher(type = 2)
-    while True:
-        yield (my_matcher,)
-        print(container.event.type, container.event.message)
-        
-```
+The full document is on http://vlcp.readthedocs.io/en/latest/
