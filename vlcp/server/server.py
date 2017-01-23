@@ -140,6 +140,9 @@ class Server(Configurable):
         self.resolver = Resolver(self.scheduler, self.resolverpoolsize)
         self.moduleloader = ModuleLoader(self)
     def serve(self):
+        """
+        Start the server
+        """
         if self.ulimitn is not None:
             try:
                 import resource
@@ -167,6 +170,24 @@ class Server(Configurable):
         self.scheduler.main()
 
 def main(configpath = None, startup = None, daemon = False, pidfile = None, fork = None):
+    """
+    The most simple way to start the VLCP framework
+    
+    :param configpath: path of a configuration file to be loaded
+    
+    :param startup: startup modules list. If None, `server.startup` in the configuration files
+                    is used; if `server.startup` is not configured, any module defined or imported
+                    into __main__ is loaded.
+    
+    :param daemon: if True, use python-daemon to fork and start at background. `python-daemon` must be
+                   installed::
+                    
+                       pip install python-daemon
+    
+    :param pidfile: if daemon=True, this file is used for the pidfile.
+    
+    :param fork: use extra fork to start multiple instances
+    """
     if configpath is not None:
         manager.loadfrom(configpath)
     if startup is not None:

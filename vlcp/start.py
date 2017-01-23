@@ -14,6 +14,8 @@ import sys
 import os.path
 # No argparse
 import getopt
+
+# Document
 doc = '''Run VLCP server from command line
 [python|pypy] vlcp.py [-f <configfile>] [-d] [-p <pidfile>] [-F <fork>] [startmodule] ...
 [python|pypy] vlcp.py --help
@@ -57,6 +59,9 @@ def parsearg():
         usage()
 
 def default_start():
+    """
+    Use `sys.argv` for starting parameters. This is the entry-point of `vlcp-start`
+    """
     (config, daemon, pidfile, startup, fork) = parsearg()
     if config is None:
         if os.path.isfile('/etc/vlcp.conf'):

@@ -25,6 +25,17 @@ except:
 
 
 def depend(*args):
+    """
+    Decorator to declare dependencies to other modules. Recommended usage is::
+    
+        import other_module
+        
+        @depend(other_module.ModuleClass)
+        class MyModule(Module):
+            ...
+    
+    :param \*args: depended module classes.
+    """
     def decfunc(cls):
         if not 'depends' in cls.__dict__:
             cls.depends = []
@@ -90,18 +101,41 @@ def create_discover_info(func):
 def api(func, container = None, criteria = None):
     '''
     Return an API def for a generic function
+    
+    :param func: a function or bounded method
+    
+    :param container: if None, this is used as a synchronous method, the return value of the method
+                      is used for the return value. If not None, this is used as an asynchronous method,
+                      the return value should be a generator, and it is executed in `container` as a routine.
+                      The return value should be set to `container.retvalue`.
+    
+    :param criteria: An extra function used to test whether this function should process the API. This allows
+                     multiple API definitions to use the same API method name.
     '''
     return (func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container,
             create_discover_info(func), criteria)
 
 def publicapi(func, container = None, criteria = None):
     '''
-    Create an API def for public API processing
+    Create an API def for public API processing. Target name of a public API is `'public'`.
+
+    :param func: a function or bounded method
+    
+    :param container: if None, this is used as a synchronous method, the return value of the method
+                      is used for the return value. If not None, this is used as an asynchronous method,
+                      the return value should be a generator, and it is executed in `container` as a routine.
+                      The return value should be set to `container.retvalue`.
+    
+    :param criteria: An extra function used to test whether this function should process the API. This allows
+                     multiple API definitions to use the same API method name.
     '''
     return ("public/" + func.__name__.lower(), functools.update_wrapper(lambda n,p: func(**p), func), container,
             create_discover_info(func), criteria)
 
 class ModuleAPIHandler(RoutineContainer):
+    """
+    API Handler for modules
+    """
     def __init__(self, moduleinst, apidefs = None, allowdiscover = True, rejectunknown = True):
         RoutineContainer.__init__(self, scheduler=moduleinst.scheduler, daemon=False)
         self.handler = EventHandler(self.scheduler)
@@ -156,17 +190,22 @@ class ModuleAPIHandler(RoutineContainer):
         return (matcher, event_handler)
     def registerAPIs(self, apidefs):
         '''
-        API definition is in format: (name, handler, container, discoverinfo)
+        API definition is in format: `(name, handler, container, discoverinfo)`
+        
         if the handler is a generator, container should be specified
-        handler should accept two arguments:
-        def handler(name, params):
-            ...
-        name is the method name, params is a dictionary contains the parameters.
+        handler should accept two arguments::
+        
+            def handler(name, params):
+                ...
+        
+        `name` is the method name, `params` is a dictionary contains the parameters.
+        
         the handler can either return the result directly, or be a generator (async-api),
         and write the result to container.retvalue on exit.
-        e.g.
-        ('method1', self.method1),    # method1 directly returns the result
-        ('method2', self.method2, self) # method2 is an async-api
+        e.g::
+        
+            ('method1', self.method1),    # method1 directly returns the result
+            ('method2', self.method2, self) # method2 is an async-api
         
         Use api() to automatically generate API definitions.
         '''
@@ -174,12 +213,18 @@ class ModuleAPIHandler(RoutineContainer):
         self.handler.registerAllHandlers(handlers)
         self.discoverinfo.update((apidef[0], apidef[3] if len(apidef) > 3 else {'description':cleandoc(apidef[1].__doc__)}) for apidef in apidefs)
     def registerAPI(self, name, handler, container = None, discoverinfo = None, criteria = None):
+        """
+        Append new API to this handler
+        """
         self.handler.registerHandler(*self._createHandler(name, handler, container, criteria))
         if discoverinfo is None:
             self.discoverinfo[name] = {'description': cleandoc(handler.__doc__)}
         else:
             self.discoverinfo[name] = discoverinfo
     def unregisterAPI(self, name):
+        """
+        Remove an API from this handler
+        """
         if name.startswith('public/'):
             target = 'public'
             name = name[len('public/'):]
@@ -237,6 +282,12 @@ class Module(Configurable):
     def getFullPath(cls):
         return cls.__module__ + '.' + cls.__name__
     def createAPI(self, *apidefs):
+        """
+        Create API definitions on this module. This creates a ModuleAPIHandler and register
+        these `apidefs` to it.
+        
+        :param \*apidefs: should be return values of `api()` or `publicapi()` functions.
+        """
         if hasattr(self, 'apiHandler'):
             self.appendAPI(*apidefs)
         self.apiHandler = ModuleAPIHandler(self, apidefs)
@@ -246,6 +297,9 @@ class Module(Configurable):
         t.extend(apidefs)
         self.apiHandler.apidefs = t
     def getServiceName(self):
+        """
+        Return the targetname (or servicename) for this module
+        """
         if hasattr(self, 'servicename'):
             return self.servicename
         else:
@@ -306,6 +360,9 @@ class Module(Configurable):
                  (ModuleLoadStateChanged.FAILED, ModuleLoadStateChanged.UNLOADING),
                  (ModuleLoadStateChanged.UNLOADING, ModuleLoadStateChanged.UNLOADED)))
     def changestate(self, state, container):
+        """
+        Change the current load state.
+        """
         if self.state != state:
             if not (self.state, state) in self._changeMap:
                 raise ValueError('Cannot change state from %r to %r' % (self.state, state))
@@ -315,6 +372,9 @@ class Module(Configurable):
 
 
 class ModuleLoadException(Exception):
+    """
+    Raised when module loading failed.
+    """
     pass
 
 def findModule(path, autoimport = True):
@@ -391,11 +451,19 @@ class _ProxyModule(Module):
         scheduler.emergesend(ModuleAPICall(event.handle, self._targetname, event.name, params = event.params))        
 
 def proxy(name, default = None):
+    """
+    Create a proxy module. A proxy module has a default implementation, but can be redirected to other
+    implementations with configurations. Other modules can depend on proxy modules.
+    """
     proxymodule = _ProxyMetaClass(name, (_ProxyModule,), {'_default': default})
     proxymodule.__module__ = sys._getframe(1).f_globals.get('__name__')
     return proxymodule
 
 class ModuleLoader(RoutineContainer):
+    """
+    Module loader to load modules. The server object creates this instance automatically, usually
+    you can retrieve the pre-created object from `server.moduleloader`
+    """
     _logger = logging.getLogger(__name__ + '.ModuleLoader')
     def __init__(self, server):
         self.server = server
@@ -424,7 +492,7 @@ class ModuleLoader(RoutineContainer):
             self.subroutine(self.unloadmodule(depend), False)
     def loadmodule(self, module):
         '''
-        Need delegate
+        Load a module class. Need delegate to call from other containers.
         '''
         if hasattr(module, '_instance'):
             if module._instance.state == ModuleLoadStateChanged.UNLOADING or module._instance.state == ModuleLoadStateChanged.UNLOADED:
@@ -499,7 +567,7 @@ class ModuleLoader(RoutineContainer):
                 raise ModuleLoadException('Module load failed for %r' % (module,))
     def unloadmodule(self, module, ignoreDependencies = False):
         '''
-        Need delegate
+        Unload a module class. Need delegate to call from other containers.
         '''
         if hasattr(module, '_instance'):
             inst = module._instance
@@ -535,6 +603,9 @@ class ModuleLoader(RoutineContainer):
                     if hasattr(d, '_instance') and module in d._instance.dependedBy:
                         self._removeDepend(module, d)
     def loadByPath(self, path):
+        """
+        Load a module by full path. If there are dependencies, they are also loaded.
+        """
         try:
             p, module = findModule(path, True)
         except KeyError as exc:
@@ -546,12 +617,19 @@ class ModuleLoader(RoutineContainer):
         for m in self.loadmodule(module):
             yield m
     def unloadByPath(self, path):
+        """
+        Unload a module by full path. Dependencies are automatically unloaded if they are marked to be
+        services.
+        """
         p, module = findModule(path, False)
         if module is None:
             raise ModuleLoadException('Cannot find module: ' + repr(path))
         for m in self.unloadmodule(module):
             yield m
     def reloadModules(self, pathlist):
+        """
+        Reload modules with a full path in the pathlist
+        """
         loadedModules = []
         failures = []
         for path in pathlist:
@@ -633,6 +711,9 @@ class ModuleLoader(RoutineContainer):
         if failures:
             raise ModuleLoadException('Following errors occurred during reloading, check log for more details:\n' + '\n'.join(failures))
     def getModuleByName(self, targetname):
+        """
+        Return the module instance for a target name.
+        """
         if targetname == 'public':
             target = None
         elif not targetname not in self.activeModules:
@@ -642,6 +723,18 @@ class ModuleLoader(RoutineContainer):
         return target
 
 def callAPI(container, targetname, name, params = {}, timeout = 60.0):
+    """
+    Call module API `targetname/name` with parameters. The return value is stored at `container.retvalue`.
+    
+    :param targetname: module targetname. Usually the lower-cased name of the module class, or 'public' for
+                       public APIs.
+    
+    :param name: method name
+    
+    :param params: module API parameters, should be a dictionary of `{parameter: value}`
+    
+    :param timeout: raise an exception if the API call is not returned for a long time
+    """
     handle = object()
     apiEvent = ModuleAPICall(handle, targetname, name, params = params)
     for m in container.waitForSend(apiEvent):
@@ -656,6 +749,7 @@ def callAPI(container, targetname, name, params = {}, timeout = 60.0):
         raise ModuleAPICallTimeoutException('API call timeout')
     else:
         container.retvalue = getAPIResult(container.event)
+
 def batchCallAPI(container, apis, timeout = 60.0):
     apiHandles = [(object(), api) for api in apis]
     apiEvents = [ModuleAPICall(handle, targetname, name, params = params)
@@ -679,6 +773,8 @@ def batchCallAPI(container, apis, timeout = 60.0):
             e.canignore = True
             container.scheduler.ignore(ModuleAPICall.createMatcher(e.handle))
     container.retvalue = [eventdict.get(handle, None) for handle, _ in apiHandles]
+
+
 def getAPIResult(event):
     if hasattr(event, 'exception'):
         raise event.exception
