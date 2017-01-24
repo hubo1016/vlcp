@@ -1,5 +1,8 @@
 # VLCP
 
+[![Build Status](https://travis-ci.org/hubo1016/vlcp.svg?branch=master)](https://travis-ci.org/hubo1016/vlcp)
+[![PyPI](https://img.shields.io/pypi/v/vlcp.svg)](https://pypi.python.org/pypi/vlcp)
+
 VLCP is a modern SDN controller able to be integrated with OpenStack, Docker and other virtualization environments.
 It is designed to be highly scalable, highly available and have very low overhead for virtual networking. 
 Currently it is ready for production, and has been verified, tested and in use in clusters with about 10 physical
