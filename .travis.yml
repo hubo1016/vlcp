@@ -8,6 +8,6 @@ python:
   - "3.6"
   - "pypy"
 # command to install dependencies
-install: "pip install nstruct hiredis"
+install: "sudo pip install nstruct hiredis"
 # command to run tests
 script: sudo python -m unittest discover
