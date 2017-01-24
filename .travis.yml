@@ -10,4 +10,4 @@ python:
 # command to install dependencies
 install: "pip install nstruct hiredis"
 # command to run tests
-script: python -m unittest discover
+script: sudo python -m unittest discover
