@@ -12,4 +12,4 @@ services:
 # command to install dependencies
 install: "sudo pip install nstruct hiredis"
 # command to run tests
-script: bash -xe ci_test.sh
+script: sudo bash -xe ci_test.sh
