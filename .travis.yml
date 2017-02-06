@@ -7,7 +7,9 @@ python:
   - "3.5"
   - "3.6"
   - "pypy"
+services:
+  - docker
 # command to install dependencies
 install: "sudo pip install nstruct hiredis"
 # command to run tests
-script: sudo python -m unittest discover
+script: bash -xe ci_test.sh
