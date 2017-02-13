@@ -1,15 +1,22 @@
 #!/bin/bash -xe
 
+# This is a hack. We are running in sudo, must start the virtualenv manually
+
+if [ "${TRAVIS_PYTHON_VERSION}" == "pypy" ]; then
+	venv=pypy
+else
+	venv=python$${TRAVIS_PYTHON_VERSION}
+fi
+
+[ -f "~/virtualenv/${venv}/bin/activate" ] && source ~/virtualenv/${venv}/bin/activate
+
 python --version
-sudo python --version
-sudo python -m unittest discover
-python --version
-sudo python --version
+python -m unittest discover
 if [ "${TRAVIS_EVENT_TYPE}" == "cron" -o "${TRAVIS_EVENT_TYPE}" == "pull_request" ]; then
 	python setup.py bdist_wheel
 	wget https://github.com/hubo1016/vlcp-controller-test/archive/master.tar.gz -O ./vlcp-controller-test.tar.gz
 	tar -xzvf vlcp-controller-test.tar.gz
 	cp dist/*.whl vlcp-controller-test-master/
 	pushd vlcp-controller-test-master/
-	sudo bash -xe starttest.sh
+	bash -xe starttest.sh
 fi
