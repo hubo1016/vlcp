@@ -10,6 +10,6 @@ python:
 services:
   - docker
 # command to install dependencies
-install: "sudo pip install nstruct hiredis"
+install: "pip install nstruct hiredis"
 # command to run tests
 script: sudo bash -xe ci_test.sh
