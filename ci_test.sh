@@ -8,7 +8,7 @@ else
 	venv=python${TRAVIS_PYTHON_VERSION}
 fi
 
-[ -f "~/virtualenv/${venv}/bin/activate" ] && source ~/virtualenv/${venv}/bin/activate
+[ -f "/home/travis/virtualenv/${venv}/bin/activate" ] && source /home/travis/virtualenv/${venv}/bin/activate
 
 python --version
 python -m unittest discover
