@@ -5,7 +5,7 @@
 if [ "${TRAVIS_PYTHON_VERSION}" == "pypy" ]; then
 	venv=pypy
 else
-	venv=python$${TRAVIS_PYTHON_VERSION}
+	venv=python${TRAVIS_PYTHON_VERSION}
 fi
 
 [ -f "~/virtualenv/${venv}/bin/activate" ] && source ~/virtualenv/${venv}/bin/activate
