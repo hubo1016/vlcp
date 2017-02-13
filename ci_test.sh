@@ -1,5 +1,9 @@
 #!/bin/bash -xe
+python --version
+sudo python --version
 sudo python -m unittest discover
+python --version
+sudo python --version
 if [ "${TRAVIS_EVENT_TYPE}" == "cron" -o "${TRAVIS_EVENT_TYPE}" == "pull_request" ]; then
 	python setup.py bdist_wheel
 	wget https://github.com/hubo1016/vlcp-controller-test/archive/master.tar.gz -O ./vlcp-controller-test.tar.gz
