@@ -1,4 +1,5 @@
 #!/bin/bash -xe
+
 python --version
 sudo python --version
 sudo python -m unittest discover
