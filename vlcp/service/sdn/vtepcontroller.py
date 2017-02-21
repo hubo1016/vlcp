@@ -529,7 +529,7 @@ class VtepController(Module):
                 removekeys = tuple(lastkeys.difference(_savedkeys))
                 if removekeys:
                     # Unwatch unnecessary keys
-                    for m in callAPI(self, 'objectdb', 'munwatch', {'keys': removekeys,
+                    for m in callAPI(self.apiroutine, 'objectdb', 'munwatch', {'keys': removekeys,
                                                                     'requestid': requestid}):
                         yield m
                 for m in _update_hardware_vtep(_savedresult):
