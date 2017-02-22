@@ -41,7 +41,7 @@ class WebAPIHandler(HttpHandler):
                     charset = m.get_content_charset('utf-8')
                     for m in env.inputstream.read(self):
                         yield m
-                    params = json.loads(_str(self.data, charset), charset, object_hook=decode_object)
+                    params = json.loads(_str(self.data, charset), encoding=charset, object_hook=decode_object)
         elif parent.typeextension:
             for k in params.keys():
                 v = params[k]
