@@ -269,7 +269,7 @@ class VRouterApi(Module):
         :return: a list of dictionaries each stands for a matched virtual router.
         """
         if id:
-            routerkey = [VRouter.default_key()]
+            routerkey = [VRouter.default_key(id)]
 
             for m in self._getkeys([routerkey]):
                 yield m
