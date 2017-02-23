@@ -271,7 +271,7 @@ class VRouterApi(Module):
         if id:
             routerkey = [VRouter.default_key(id)]
 
-            for m in self._getkeys([routerkey]):
+            for m in self._getkeys(routerkey):
                 yield m
 
             retobj = self.app_routine.retvalue
