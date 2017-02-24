@@ -436,9 +436,14 @@ class Connection(RoutineContainer):
                     else:
                         break
         finally:
+            need_close = self.connected
             self._close()
-            self.subroutine(self._final(), False)
-    def _final(self):
+            self.subroutine(self._final(need_close), False)
+    def _final(self, need_close = False):
+        if need_close:
+            self.logger.debug('System is quitting, close connection, call protocol.closed()')
+            for m in self.protocol.closed(self):
+                yield m
         for m in self.protocol.final(self):
             yield m
     def shutdown(self, force = False, connmark = -1):

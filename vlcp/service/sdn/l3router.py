@@ -1077,7 +1077,7 @@ class RouterUpdater(FlowUpdater):
                 for k, v in currentsubnetinfo.items():
                     if v[1] and v[7]:
                         # this subnet is external , we should allocate ip from cidr
-                        if k in lastsubnetinfo and lastsubnetinfo[k][1]:
+                        if k in lastsubnetinfo and lastsubnetinfo[k][1] and lastsubnetinfo[k][5]:
                             #this subnet have allocated ip in last
                             allocated_ip_address = lastsubnetinfo[k][5]
 
@@ -1384,7 +1384,7 @@ class RouterUpdater(FlowUpdater):
                         network,mask = parse_ip4_network(cidr)
                         if ip_in_network(parse_ip4_address(nexthop),network,mask):
                             currentstaticroutes.setdefault(r,set()).add((prefix,nexthop,v[6]))
-                    if v[1]:
+                    if v[1] and v[7]:
                         currentstaticroutes.setdefault(r, set()).add(("0.0.0.0/0", v[2], v[6]))
 
             self._laststaticroutes = currentstaticroutes

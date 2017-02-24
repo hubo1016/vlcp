@@ -310,6 +310,33 @@ class Scheduler(object):
         try:
             if sendinit:
                 self.queue.append(SystemControlEvent(SystemControlEvent.INIT), True)
+
+            def processSyscall():
+                while self.syscallfunc is not None:
+                    r = getattr(self, 'syscallrunnable', None)
+                    if r is None:
+                        self.syscallfunc = None
+                        break
+                    try:
+                        try:
+                            retvalue = self.syscallfunc(self, processEvent)
+                        except:
+                            (t, v, tr) = sys.exc_info()
+                            self.syscallfunc = None
+                            self.syscallrunnable = None
+                            r.send((SyscallReturnEvent(exception=(t, v, tr)), self.syscallmatcher))
+                        else:
+                            self.syscallfunc = None
+                            self.syscallrunnable = None
+                            r.send((SyscallReturnEvent(retvalue=retvalue), self.syscallmatcher))
+                    except StopIteration:
+                        self.unregisterall(r)
+                    except QuitException:
+                        self.unregisterall(r)
+                    except:
+                        self.logger.exception('processing syscall failed with exception')
+                        self.unregisterall(r)
+
             def processEvent(event, emptys = ()):
                 if self.debugging:
                     self.logger.debug('Processing event %s', repr(event))
@@ -328,30 +355,7 @@ class Scheduler(object):
                     except:
                         self.logger.exception('processing event %s failed with exception', repr(event))
                         self.unregisterall(r)
-                    while self.syscallfunc is not None:
-                        r = getattr(self, 'syscallrunnable', None)
-                        if r is None:
-                            self.syscallfunc = None
-                            break
-                        try:
-                            try:
-                                retvalue = self.syscallfunc(self, processEvent)
-                            except:
-                                (t, v, tr) = sys.exc_info()
-                                self.syscallfunc  = None
-                                self.syscallrunnable = None
-                                r.send((SyscallReturnEvent(exception = (t, v, tr)), self.syscallmatcher))
-                            else:
-                                self.syscallfunc = None
-                                self.syscallrunnable = None
-                                r.send((SyscallReturnEvent(retvalue = retvalue), self.syscallmatcher))
-                        except StopIteration:
-                            self.unregisterall(r)
-                        except QuitException:
-                            self.unregisterall(r)
-                        except:
-                            self.logger.exception('processing syscall failed with exception')
-                            self.unregisterall(r)
+                    processSyscall()
                 if not event.canignore and not event.canignorenow():
                     self.eventtree.insert(event)
                     self.queue.block(event, emptys)
@@ -403,6 +407,7 @@ class Scheduler(object):
                             except:
                                 self.logger.exception('Runnable quit failed with exception')
                                 self.unregisterall(r)
+                            processSyscall()
                     processedEvents += 1
                 if len(self.registerIndex) <= len(self.daemons):
                     break
