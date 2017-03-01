@@ -99,7 +99,12 @@ Module API Discovery
 
 Every module supports a special API ``discovery``. When discovery is called, a list of supported endpoints
 and their descriptions are returned. With an extra parameter ``details=true``, it also returns information
-for arguments and their default values. For example, you can call
+for arguments and their default values. For example, you can call::
+
+   curl -g 'http://localhost:8081/viperflow/discover?details=true' | python -m json.tool
+
+To view the API details of module `viperflow`.
+
 
 .. _reloadmodules:
 
