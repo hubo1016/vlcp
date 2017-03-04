@@ -323,29 +323,52 @@ two physical servers.
 Run following commands on each server::
    
    SERVER_ID=1
+   
+   # create namespace
    ip netns add vlcp_ns1
+   
+   # create logicalport id
    LOGPORT_ID=lgport-${SERVER_ID}-1
+   
+   # add internal ovs interface set iface-id logicalport id
    ovs-vsctl add-port testbr0 vlcp-port1 -- set interface vlcp-port1 \
          type=internal external_ids:iface-id=${LOGPORT_ID}
+   
+   # get interface mac address used to create logical port
    MAC_ADDRESS=`ip link show dev vlcp-port1 | grep -oP 'link/ether \S+'\
           | awk '{print $2}'`
    curl -g -d "id=${LOGPORT_ID}&logicalnetwork=network_a&subnet=subnet_a&mac_address=${MAC_ADDRESS}"\
           "http://localhost:8081/viperflow/createlogicalport"
+   
+   # move interface link to namespace and up it
    ip link set dev vlcp-port1 netns vlcp_ns1
    ip netns exec vlcp_ns1 ip link set dev vlcp-port1 up
+   
+   # start dhcp to get ip address
    ip netns exec vlcp_ns1 dhclient -pf /var/run/dhclient-vlcp-port1.pid\
           -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
-   
+
+   # create another namespace
    ip netns add vlcp_ns2
+
+   # create another logical port id
    LOGPORT_ID=lgport-${SERVER_ID}-2
+
+   # add internal ovs interface set iface-id logicalport id
    ovs-vsctl add-port testbr0 vlcp-port2 -- set interface vlcp-port2 \
          type=internal external_ids:iface-id=${LOGPORT_ID}
+   
+   # get interface mac address used to create logical port
    MAC_ADDRESS=`ip link show dev vlcp-port2 | grep -oP 'link/ether \S+'\
          | awk '{print $2}'`
    curl -g -d "id=${LOGPORT_ID}&logicalnetwork=network_b&subnet=subnet_b&mac_address=${MAC_ADDRESS}" \
          "http://localhost:8081/viperflow/createlogicalport"
+   
+   # move interface link to namespace and up it
    ip link set dev vlcp-port2 netns vlcp_ns2
    ip netns exec vlcp_ns2 ip link set dev vlcp-port2 up
+   
+   # start dhcp to get ip address
    ip netns exec vlcp_ns2 dhclient -pf /var/run/dhclient-vlcp-port2.pid \
          -lf /var/lib/dhclient/dhclient-vlcp-port2.leases vlcp-port2
    

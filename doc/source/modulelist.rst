@@ -89,7 +89,16 @@ Call Module API from Debugging Console
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 When using debugging console module :ref:`module_console`, you can use callapi() method to call module
-APIs easily in the debugging console. This method accepts keyword-arguments. 
+APIs easily in the debugging console as other modules. This method accepts keyword-arguments. for example::
+
+    for m in callapi(container, "objectdb", "getonce",key="xx"):
+        yield m
+
+will call objectdb module api getonce. 
+
+.. note:: debugging console module will also start telnet server on localhost:9923
+          you can choose telnet it when server run in daemon mode.
+
 
 .. _moduleapidiscovery:
 
