@@ -52,7 +52,6 @@ If you are using old versions of pip, you may also want to upgrade pip, setuptoo
    
    pip install --upgrade pip setuptools wheel
 
-
 .. _installvlcp:
 
 ------------
