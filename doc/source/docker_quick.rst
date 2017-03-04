@@ -65,6 +65,8 @@ or ``/etc/docker/docker.conf``, to enable multi-host networks with an external K
    ------------------   -----------------------------------------  --------------------------------------------------
    cluster-advertise    Advertise the TCP socket endpoint          ``10.0.1.2:2375``
    ==================   =========================================  ==================================================
+   
+``cluster-advertise 10.0.1.2:2375`` special server ip communicate with other server in cluster.
 
 .. caution:: It is very dangerous to expose a docker API endpoint to untrust network without protection.
              Configure *iptables* or enable tls to secure your service.
@@ -133,6 +135,8 @@ but replace the OpenvSwitch bridge name with ``dockerbr0``.
           in Docker Engine also uses VXLAN port UDP 4789 for its own networking. If you use *overlay* network
           and VLCP network in the same time, the network drivers conflict with each other and make either or
           both stop working.
+          Must replace OpenvSwitch bridge name with ``dockerbr0`` because vlcp docker plugin attach link to
+          this bridge name.
 
 You may also create VLAN networks as mentioned in ::ref:`createvlanphysicalnetworks`.
 
