@@ -195,7 +195,15 @@ class OVSDBPortManager(Module):
             try:
                 nv = uo['new']
                 if 'datapath_id' in nv:
-                    datapath_id = int(nv['datapath_id'], 16)
+                    if ovsdb.getoptional(nv['datapath_id']) is None:
+                        # This bridge is not initialized. Wait for the bridge to be initialized.
+                        for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitbridge', {'connection': connection,
+                                                                        'name': nv['name'],
+                                                                        'timeout': 5}):
+                            yield m
+                        datapath_id = self.apiroutine.retvalue
+                    else:
+                        datapath_id = int(nv['datapath_id'], 16)
                     self.bridge_datapathid[buuid] = datapath_id
                 elif buuid in self.bridge_datapathid:
                     datapath_id = self.bridge_datapathid[buuid]
@@ -206,6 +214,7 @@ class OVSDBPortManager(Module):
                                                                     'timeout': 5}):
                         yield m
                     datapath_id = self.apiroutine.retvalue
+                    self.bridge_datapathid[buuid] = datapath_id
                 if 'ports' in nv:
                     nset = set((p for _,p in ovsdb.getlist(nv['ports'])))
                 else:
@@ -218,7 +227,7 @@ class OVSDBPortManager(Module):
                         # new ports are not really added; it is only sent because datapath_id is modified
                         nset = set()
                         oset = set()
-                    if 'datapath_id' in ov:
+                    if 'datapath_id' in ov and ovsdb.getoptional(ov['datapath_id']) is not None:
                         old_datapathid = int(ov['datapath_id'], 16)
                     else:
                         old_datapathid = datapath_id
