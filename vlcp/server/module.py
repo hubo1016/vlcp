@@ -64,6 +64,7 @@ class ModuleAPICallTimeoutException(Exception):
 
 @withIndices('module', 'state', 'instance')
 class ModuleLoadStateChanged(Event):
+    NOTLOADED = 'notloaded'
     LOADING = 'loading'
     LOADED = 'loaded'
     SUCCEEDED = 'succeeded'
@@ -275,7 +276,7 @@ class Module(Configurable):
         self.connections = []
         self.routines = []
         self.dependedBy = set()
-        self.state = ModuleLoadStateChanged.UNLOADED
+        self.state = ModuleLoadStateChanged.NOTLOADED
         self.target = type(self)
         self._logger = logging.getLogger(type(self).__module__ + '.' + type(self).__name__)
     @classmethod
@@ -309,8 +310,6 @@ class Module(Configurable):
         Load module
         '''
         self.target._instance = self
-        for m in self.changestate(ModuleLoadStateChanged.LOADING, container):
-            yield m
         try:
             for r in self.routines:
                 r.start()
@@ -350,7 +349,7 @@ class Module(Configurable):
             yield m
         if hasattr(self.target, '_instance') and self.target._instance is self:
             del self.target._instance
-    _changeMap = set(((ModuleLoadStateChanged.UNLOADED, ModuleLoadStateChanged.LOADING),
+    _changeMap = set(((ModuleLoadStateChanged.NOTLOADED, ModuleLoadStateChanged.LOADING),
                  (ModuleLoadStateChanged.LOADING, ModuleLoadStateChanged.LOADED),
                  (ModuleLoadStateChanged.LOADING, ModuleLoadStateChanged.SUCCEEDED),
                  (ModuleLoadStateChanged.LOADED, ModuleLoadStateChanged.SUCCEEDED),
@@ -503,7 +502,7 @@ class ModuleLoader(RoutineContainer):
                 pass
             elif module._instance.state == ModuleLoadStateChanged.FAILED:
                 raise ModuleLoadException('Cannot load module %r before unloading the failed instance' % (module,))
-            elif module._instance.state == ModuleLoadStateChanged.LOADED or module._instance.state == ModuleLoadStateChanged.LOADING:
+            elif module._instance.state == ModuleLoadStateChanged.NOTLOADED or module._instance.state == ModuleLoadStateChanged.LOADED or module._instance.state == ModuleLoadStateChanged.LOADING:
                 # Wait for succeeded or failed
                 sm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.SUCCEEDED)
                 fm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.FAILED)
@@ -553,6 +552,8 @@ class ModuleLoader(RoutineContainer):
             for d in preloads:
                 d._instance.dependedBy.add(module)
             self.activeModules[inst.getServiceName()] = module
+            for m in module._instance.changestate(ModuleLoadStateChanged.LOADING, self):
+                yield m
             for m in module._instance.load(self):
                 yield m
             if module._instance.state == ModuleLoadStateChanged.LOADED or module._instance.state == ModuleLoadStateChanged.LOADING:
