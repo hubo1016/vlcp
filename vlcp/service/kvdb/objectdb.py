@@ -101,7 +101,7 @@ class ObjectDB(Module):
             yield m
         self.routines.append(self._notifier)
     def unload(self, container, force=False):
-        for m in self.apiroutine.syscall(syscall_removequeue(self.scheduler.queue, 'dataobjectupdate')):
+        for m in container.syscall(syscall_removequeue(self.scheduler.queue, 'dataobjectupdate')):
             yield m
         for m in Module.unload(self, container, force=force):
             yield m
