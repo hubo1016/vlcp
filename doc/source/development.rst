@@ -14,4 +14,5 @@ interested in the working theories or would like to be a contributor.
    asynccore
    objectdb
    sdndesign
+   configurationdesign
    
