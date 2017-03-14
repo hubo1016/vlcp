@@ -52,9 +52,29 @@ If you are using old versions of pip, you may also want to upgrade pip, setuptoo
    
    pip install --upgrade pip setuptools wheel
 
-Install VLCP::
+.. _installvlcp:
 
-   pip install vlcp
+------------
+INSTALL VLCP
+------------
+
+^^^^^^^^^^^^^^^^^
+Install from pypy
+^^^^^^^^^^^^^^^^^
+Use pip tool auto install from pypy::
+
+    pip install vlcp
+
+^^^^^^^^^^^^^^^^^^^
+Install from source
+^^^^^^^^^^^^^^^^^^^
+Git clone from github::
+    
+    git clone https://github.com/hubo1016/vlcp.git
+
+Install use setup.py::
+    
+    cd vlcp && python setup.py install
 
 Some optional packages can be used by VLCP, install them as needed:
 
@@ -64,6 +84,7 @@ Some optional packages can be used by VLCP, install them as needed:
    python-daemon
       Support daemonize with "-d" option to create system service for VLCP. But it is usually more convient to use
       with *systemd* in CentOS 7.
+
 
 .. _centraldatabase:
 
@@ -120,6 +141,11 @@ and save it to ``/etc/vlcp.conf`` as a start. In this tutorial, we will use gene
 Modify the ``module.zookeeperdb.url`` line with your ZooKeeper server addresses, or if you are using Redis,
 following the comments in the configuration file.
 
+
+.. note:: ``module.jsonrpcserver.url='unix://var/run/openvswitch/db.sock'`` special where the UNIX socket
+         which communicate with ovs. if install ovs from source , the UNIX socket file mybe
+         ``unix://usr/local/var/run/openvswitch/db.sock``.
+
 .. _startvlcpservice:
 
 ------------------
@@ -157,7 +183,11 @@ This creates the test bridge and the OpenFlow connection to the VLCP controller.
 
 .. note:: VLCP communicates with OpenvSwitch in two protocols: OpenFlow and OVSDB (a specialized JSON-RPC protocol).
           Usually the SDN controller is deployed on the same server with OpenvSwitch, in that case the default OVSDB
-          UNIX socket is used, so we do not need to configure OVSDB connections with ``ovs-vsctl set-manager``
+          UNIX socket is used, so we do not need to configure OVSDB connections with ``ovs-vsctl set-manager``.
+          
+          ovs fail-mode secure means ovs disconnect with controller, ovs will not set up flows on its own
+          another fail-mode standalone ovs will set up flows cause the datapath to act link an ordinary MAC-learning
+          switch.
 
 From now on, if you run into some problems, or you want to retry this toturial, you can delete the whole bridge::
    
@@ -221,6 +251,9 @@ First create a vxlan tunnel port in each server::
    
 Replace the IP address ``10.0.1.2`` to an external IP address on this server, it should be different for each server.
 VLCP will use this configuration to discover other nodes in the same cluster.
+
+.. note:: ``options:remote_ip=flow`` means vxlan dst server ip , will set use flow dynamic
+         ``options:key=flow`` means vxlan tunnel id , will set use flow dynamic.
 
 The port name ``vxlan0`` can be replaced to other names, but you should use the same name for each server.
 
@@ -290,29 +323,52 @@ two physical servers.
 Run following commands on each server::
    
    SERVER_ID=1
+   
+   # create namespace
    ip netns add vlcp_ns1
+   
+   # create logicalport id
    LOGPORT_ID=lgport-${SERVER_ID}-1
+   
+   # add internal ovs interface set iface-id logicalport id
    ovs-vsctl add-port testbr0 vlcp-port1 -- set interface vlcp-port1 \
          type=internal external_ids:iface-id=${LOGPORT_ID}
+   
+   # get interface mac address used to create logical port
    MAC_ADDRESS=`ip link show dev vlcp-port1 | grep -oP 'link/ether \S+'\
           | awk '{print $2}'`
    curl -g -d "id=${LOGPORT_ID}&logicalnetwork=network_a&subnet=subnet_a&mac_address=${MAC_ADDRESS}"\
           "http://localhost:8081/viperflow/createlogicalport"
+   
+   # move interface link to namespace and up it
    ip link set dev vlcp-port1 netns vlcp_ns1
    ip netns exec vlcp_ns1 ip link set dev vlcp-port1 up
+   
+   # start dhcp to get ip address
    ip netns exec vlcp_ns1 dhclient -pf /var/run/dhclient-vlcp-port1.pid\
           -lf /var/lib/dhclient/dhclient-vlcp-port1.leases vlcp-port1
-   
+
+   # create another namespace
    ip netns add vlcp_ns2
+
+   # create another logical port id
    LOGPORT_ID=lgport-${SERVER_ID}-2
+
+   # add internal ovs interface set iface-id logicalport id
    ovs-vsctl add-port testbr0 vlcp-port2 -- set interface vlcp-port2 \
          type=internal external_ids:iface-id=${LOGPORT_ID}
+   
+   # get interface mac address used to create logical port
    MAC_ADDRESS=`ip link show dev vlcp-port2 | grep -oP 'link/ether \S+'\
          | awk '{print $2}'`
    curl -g -d "id=${LOGPORT_ID}&logicalnetwork=network_b&subnet=subnet_b&mac_address=${MAC_ADDRESS}" \
          "http://localhost:8081/viperflow/createlogicalport"
+   
+   # move interface link to namespace and up it
    ip link set dev vlcp-port2 netns vlcp_ns2
    ip netns exec vlcp_ns2 ip link set dev vlcp-port2 up
+   
+   # start dhcp to get ip address
    ip netns exec vlcp_ns2 dhclient -pf /var/run/dhclient-vlcp-port2.pid \
          -lf /var/lib/dhclient/dhclient-vlcp-port2.leases vlcp-port2
    

@@ -64,6 +64,7 @@ class ModuleAPICallTimeoutException(Exception):
 
 @withIndices('module', 'state', 'instance')
 class ModuleLoadStateChanged(Event):
+    NOTLOADED = 'notloaded'
     LOADING = 'loading'
     LOADED = 'loaded'
     SUCCEEDED = 'succeeded'
@@ -275,7 +276,7 @@ class Module(Configurable):
         self.connections = []
         self.routines = []
         self.dependedBy = set()
-        self.state = ModuleLoadStateChanged.UNLOADED
+        self.state = ModuleLoadStateChanged.NOTLOADED
         self.target = type(self)
         self._logger = logging.getLogger(type(self).__module__ + '.' + type(self).__name__)
     @classmethod
@@ -309,8 +310,6 @@ class Module(Configurable):
         Load module
         '''
         self.target._instance = self
-        for m in self.changestate(ModuleLoadStateChanged.LOADING, container):
-            yield m
         try:
             for r in self.routines:
                 r.start()
@@ -350,7 +349,7 @@ class Module(Configurable):
             yield m
         if hasattr(self.target, '_instance') and self.target._instance is self:
             del self.target._instance
-    _changeMap = set(((ModuleLoadStateChanged.UNLOADED, ModuleLoadStateChanged.LOADING),
+    _changeMap = set(((ModuleLoadStateChanged.NOTLOADED, ModuleLoadStateChanged.LOADING),
                  (ModuleLoadStateChanged.LOADING, ModuleLoadStateChanged.LOADED),
                  (ModuleLoadStateChanged.LOADING, ModuleLoadStateChanged.SUCCEEDED),
                  (ModuleLoadStateChanged.LOADED, ModuleLoadStateChanged.SUCCEEDED),
@@ -367,6 +366,7 @@ class Module(Configurable):
             if not (self.state, state) in self._changeMap:
                 raise ValueError('Cannot change state from %r to %r' % (self.state, state))
             self.state = state
+            self._logger.debug('Module state changed to %r', state)
             for m in container.waitForSend(ModuleLoadStateChanged(self.target, state, self)):
                 yield m
 
@@ -494,7 +494,9 @@ class ModuleLoader(RoutineContainer):
         '''
         Load a module class. Need delegate to call from other containers.
         '''
+        self._logger.debug('Try to load module %r', module)
         if hasattr(module, '_instance'):
+            self._logger.debug('Module is already initialized, module state is: %r', module._instance.state)
             if module._instance.state == ModuleLoadStateChanged.UNLOADING or module._instance.state == ModuleLoadStateChanged.UNLOADED:
                 # Wait for unload
                 um = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.UNLOADED)
@@ -503,7 +505,7 @@ class ModuleLoader(RoutineContainer):
                 pass
             elif module._instance.state == ModuleLoadStateChanged.FAILED:
                 raise ModuleLoadException('Cannot load module %r before unloading the failed instance' % (module,))
-            elif module._instance.state == ModuleLoadStateChanged.LOADED or module._instance.state == ModuleLoadStateChanged.LOADING:
+            elif module._instance.state == ModuleLoadStateChanged.NOTLOADED or module._instance.state == ModuleLoadStateChanged.LOADED or module._instance.state == ModuleLoadStateChanged.LOADING:
                 # Wait for succeeded or failed
                 sm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.SUCCEEDED)
                 fm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.FAILED)
@@ -513,6 +515,7 @@ class ModuleLoader(RoutineContainer):
                 else:
                     raise ModuleLoadException('Module load failed for %r' % (module,))
         if not hasattr(module, '_instance'):
+            self._logger.info('Loading module %r', module)
             inst = module(self.server)
             # Avoid duplicated loading
             module._instance = inst
@@ -545,6 +548,7 @@ class ModuleLoader(RoutineContainer):
                 for d in module.depends:
                     if hasattr(d, '_instance') and module in d._instance.dependedBy:
                         self._removeDepend(module, d)
+                self._logger.warning('Loading module %r stopped', module, exc_info=True)
                 # Not loaded, send a message to notify that parents can not 
                 for m in self.waitForSend(ModuleLoadStateChanged(module, ModuleLoadStateChanged.UNLOADED, inst)):
                     yield m
@@ -553,6 +557,8 @@ class ModuleLoader(RoutineContainer):
             for d in preloads:
                 d._instance.dependedBy.add(module)
             self.activeModules[inst.getServiceName()] = module
+            for m in module._instance.changestate(ModuleLoadStateChanged.LOADING, self):
+                yield m
             for m in module._instance.load(self):
                 yield m
             if module._instance.state == ModuleLoadStateChanged.LOADED or module._instance.state == ModuleLoadStateChanged.LOADING:
@@ -562,14 +568,17 @@ class ModuleLoader(RoutineContainer):
                 if self.matcher is sm:
                     pass
                 else:
-                    raise ModuleLoadException('Module load failed for %r' % (module,))                
+                    raise ModuleLoadException('Module load failed for %r' % (module,))
+            self._logger.info('Loading module %r completed, module state is %r', module, module._instance.state)
             if module._instance.state == ModuleLoadStateChanged.FAILED:
                 raise ModuleLoadException('Module load failed for %r' % (module,))
     def unloadmodule(self, module, ignoreDependencies = False):
         '''
         Unload a module class. Need delegate to call from other containers.
         '''
+        self._logger.debug('Try to unload module %r', module)
         if hasattr(module, '_instance'):
+            self._logger.debug('Module %r is loaded, module state is %r', module, module._instance.state)
             inst = module._instance
             if inst.state == ModuleLoadStateChanged.LOADING or inst.state == ModuleLoadStateChanged.LOADED:
                 # Wait for loading
@@ -582,7 +591,7 @@ class ModuleLoader(RoutineContainer):
                 yield (um,)
         if hasattr(module, '_instance') and (module._instance.state == ModuleLoadStateChanged.SUCCEEDED or
                                              module._instance.state == ModuleLoadStateChanged.FAILED):
-            
+            self._logger.info('Unloading module %r', module)
             inst = module._instance
             # Change state to unloading to prevent more dependencies
             for m in inst.changestate(ModuleLoadStateChanged.UNLOADING, self):
@@ -598,6 +607,7 @@ class ModuleLoader(RoutineContainer):
             for m in inst.unload(self):
                 yield m
             del self.activeModules[inst.getServiceName()]
+            self._logger.info('Module %r is unloaded', module)
             if not ignoreDependencies:
                 for d in module.depends:
                     if hasattr(d, '_instance') and module in d._instance.dependedBy:

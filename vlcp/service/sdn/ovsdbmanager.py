@@ -165,8 +165,10 @@ class OVSDBManager(Module):
                 raise
             else:
                 # Process initial bridges
-                init_subprocesses = [self._update_bridge(connection, protocol, buuid, vhost)
-                                    for buuid in self.apiroutine.jsonrpc_result['Bridge'].keys()]
+                init_subprocesses = []
+                if self.apiroutine.jsonrpc_result and 'Bridge' in self.apiroutine.jsonrpc_result:
+                    init_subprocesses = [self._update_bridge(connection, protocol, buuid, vhost)
+                                        for buuid in self.apiroutine.jsonrpc_result['Bridge'].keys()]
                 def init_process():
                     try:
                         with closing(self.apiroutine.executeAll(init_subprocesses, retnames = ())) as g:

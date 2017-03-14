@@ -249,6 +249,7 @@ console_help()
                             sock = self.telnet_socket
                             sock.setblocking(True)
                             self.telnet_socket = None
+                            _console_connect_event.clear()
                             t = threading.Thread(target=self._telnet_server, args=(pstdin_w, pstdout_r, sock, orig_stdout))
                             t.daemon = True
                             t.start()
