@@ -413,7 +413,7 @@ class RedisClient(RedisClientBase):
         def shutdown(self):
             if self._client:
                 try:
-                    for m in self._client.shutdown(self._container):
+                    for m in self._container.delegate(self._client.shutdown(self._container), True):
                         yield m
                 finally:
                     self._client = None
