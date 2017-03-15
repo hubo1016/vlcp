@@ -42,7 +42,7 @@ class AutoLoad(Module):
             for m in container.executeAll([self.server.moduleloader.loadmodule(m) for m in loadmodules],
                                           self.server.moduleloader, ()):
                 yield m
-        for m in self.changestate(ModuleLoadStateChanged.LOADED, container):
+        for m in self.changestate(ModuleLoadStateChanged.SUCCEEDED, container):
             yield m
     def unload(self, container, force=False):
         for m in Module.unload(self, container, force=force):
