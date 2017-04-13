@@ -63,8 +63,6 @@ class L2FlowUpdater(FlowUpdater):
     def updateflow(self, conn, addvalues, removevalues, updatedvalues):
         ofdef = conn.openflowdef
         vhost = conn.protocol.vhost
-        l2 = self._parent._gettableindex('l2input', vhost)
-        l2_next = self._parent._getnexttable('', 'l2input', vhost = vhost)
         l2out = self._parent._gettableindex('l2output', vhost)
         l2out_next = self._parent._getnexttable('', 'l2output', vhost = vhost)
         def _create_flows(networkid, macaddr, portid):
@@ -240,10 +238,24 @@ class L2FlowUpdater(FlowUpdater):
                                                     )
                                     ),)
         try:
-            allresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
-            currentlognetinfo = dict((n, (nid, n.physicalnetwork)) for n, nid in self._lastlognets
-                                     if n in allresult)
+
             lastlognetinfo = self._lastlognetinfo
+            lastlogportinfo = self._lastlogportinfo
+            allresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
+
+            # Select one physical port for each physical network, remove others
+            currentphynets = dict(sorted(((p.physicalnetwork, p) for p, _ in self._lastphyports if p in allresult),
+                                         key=lambda x: x[1].getkey()))
+
+            currentphyportinfo = dict((p,(p.physicalnetwork, pid)) for p,pid in self._lastphyports
+                                      if p in allresult and p.physicalnetwork in currentphynets
+                                      and currentphynets[p.physicalnetwork] == p)
+
+            phynet_to_phyport_id_info = dict((p.physicalnetwork,v[1]) for p,v in currentphyportinfo.items())
+            currentlognetinfo = dict((n, (nid, phynet_to_phyport_id_info.get(n.physicalnetwork,None)))
+                                     for n, nid in self._lastlognets
+                                     if n in allresult)
+
             def _try_create_macaddress(port):
                 mac_address = getattr(port, 'mac_address', None)
                 if mac_address is None:
@@ -253,92 +265,74 @@ class L2FlowUpdater(FlowUpdater):
                         return ofdef.mac_addr(mac_address)
                     except Exception:
                         return None
-            currentlogportinfo = dict((logport, (_try_create_macaddress(logport), logportid, currentlognetinfo.get(logport.network)))
-                                   for logport, logportid in self._lastlogports if logport in allresult)
-            lastlogportinfo = self._lastlogportinfo
-            # Select one physical port for each physical network, remove others
-            currentphynets = dict(sorted(((p.physicalnetwork,p) for p,_ in self._lastphyports if p in allresult), key = lambda x: x[1].getkey()))
-            currentphyportinfo = dict((p, (p.physicalnetwork, pid))
-                                      for p, pid in self._lastphyports
-                                      if p in allresult and currentphynets[p.physicalnetwork] == p)
-            lastphyportinfo = self._lastphyportinfo
-            self._lastlogportinfo = currentlogportinfo
-            self._lastphyportinfo = currentphyportinfo
+            currentlogportinfo = dict((logport, (_try_create_macaddress(logport), logportid,
+                                                 currentlognetinfo.get(logport.network)[0]))
+                                      for logport, logportid in self._lastlogports
+                                      if logport in allresult
+                                      and logport.network in currentlognetinfo)
+
             self._lastlognetinfo = currentlognetinfo
-            # We push two flows to the tables, one flow stops learning, one flow sets the port no
+            self._lastlogportinfo = currentlogportinfo
+
             cmds = []
-            for obj in removevalues:
-                if obj.isinstance(LogicalPort):
-                    portinfo = lastlogportinfo.get(obj)
-                    if portinfo is not None and portinfo[0] is not None and portinfo[2] is not None:
-                        cmds.extend(_delete_flows(portinfo[2][0], portinfo[0]))
-                elif obj.isinstance(PhysicalPort):
-                    if obj in lastphyportinfo:
-                        phynet, _ = lastphyportinfo[obj]
-                        for lognet, lognetinfo in lastlognetinfo.items():
-                            if lognetinfo[1] == phynet and lognet not in removevalues:
-                                cmds.extend(_delete_default_flows(lognetinfo[0]))
-                elif obj.isinstance(LogicalNetwork):
-                    if obj in lastlognetinfo:
-                        cmds.extend(_delete_default_flows(lastlognetinfo[obj][0]))
-            # If the portinfo of a logical port is changed, delete the flow and recreate it later
-            for obj in updatedvalues:
-                if obj.isinstance(LogicalPort):
-                    portinfo = currentlogportinfo.get(obj)
-                    lastportinfo = lastlogportinfo.get(obj)
-                    if lastportinfo is not None and lastportinfo != portinfo and lastportinfo[2] is not None and lastportinfo[0] is not None:
-                        cmds.extend(_delete_flows(lastportinfo[2][0], lastportinfo[0]))
-                elif obj.isinstance(LogicalNetwork):
-                    if obj in lastlognetinfo and lastlognetinfo[obj] != currentlognetinfo.get(obj):
-                        netid, _ = lastlognetinfo.get(obj)
-                        cmds.extend(_delete_default_flows(netid))
-                elif obj.isinstance(PhysicalPort):
-                    if obj in lastphyportinfo and lastphyportinfo[obj] != currentphyportinfo.get(obj):
-                        phynet, _ = lastphyportinfo[obj]
-                        for lognet, lognetinfo in lastlognetinfo.items():
-                            if lognetinfo[1] == phynet and not lognet in removevalues:
-                                cmds.extend(_delete_default_flows(lognetinfo[0]))
+            for lognet in lastlognetinfo.keys():
+                if lognet not in currentlognetinfo:
+                    # this lognet has been removed
+                    network_id , _ = lastlognetinfo[lognet]
+                    cmds.extend(_delete_default_flows(network_id))
+                elif lognet in currentlognetinfo and currentlognetinfo[lognet] != lastlognetinfo[lognet]:
+                    # some info has been changed , remove old
+                    network_id, _ = lastlognetinfo[lognet]
+                    cmds.extend(_delete_default_flows(network_id))
+
+
+            for logport in lastlogportinfo.keys():
+                if logport not in currentlogportinfo:
+                    # this logport has been removed
+                    mac, _, network_id = lastlogportinfo[logport]
+
+                    if mac:
+                        cmds.extend(_delete_flows(network_id, mac))
+                elif logport in currentlogportinfo and currentlogportinfo[logport] != lastlogportinfo[logport]:
+                    # some info has been changed , remove old
+                    mac, _ , network_id = lastlogportinfo[logport]
+
+                    if mac:
+                        cmds.extend(_delete_flows(network_id, mac))
+
             for m in self.execute_commands(conn, cmds):
                 yield m
+
             del cmds[:]
-            for obj in addvalues:
-                if obj.isinstance(LogicalPort):
-                    portinfo = currentlogportinfo.get(obj)
-                    if portinfo is not None and portinfo[0] is not None and portinfo[2] is not None:
-                        cmds.extend(_create_flows(portinfo[2][0], portinfo[0], portinfo[1]))
-                elif obj.isinstance(PhysicalPort):
-                    if obj in currentphyportinfo:
-                        for lognet, lognetinfo in currentlognetinfo.items():
-                            netid, phynet = lognetinfo
-                            if phynet == obj.physicalnetwork and not lognet in addvalues:
-                                cmds.extend(_create_default_flow(netid, currentphyportinfo[obj][1]))
-                elif obj.isinstance(LogicalNetwork):
-                    if obj in currentlognetinfo:
-                        netid, phynet = currentlognetinfo[obj]
-                        for p, portinfo in currentphyportinfo.items():
-                            if portinfo[0] == phynet:
-                                cmds.extend(_create_default_flow(netid, portinfo[1]))
-            # If the portinfo of a logical port changed, recreate the flow
-            for obj in updatedvalues:
-                if obj.isinstance(LogicalPort):
-                    portinfo = currentlogportinfo.get(obj)
-                    lastportinfo = lastlogportinfo.get(obj)
-                    if portinfo is not None and lastportinfo != portinfo and portinfo[2] is not None and portinfo[0] is not None:
-                        cmds.extend(_create_flows(portinfo[2][0], portinfo[0], portinfo[1]))
-                elif obj.isinstance(LogicalNetwork):
-                    if obj in currentlognetinfo and lastlognetinfo.get(obj) != currentlognetinfo[obj]:
-                        netid, phynet = currentlognetinfo[obj]
-                        for p, portinfo in currentphyportinfo.items():
-                            if portinfo[0] == phynet:
-                                cmds.extend(_create_default_flow(netid, portinfo[1]))
-                elif obj.isinstance(PhysicalPort):
-                    if obj in currentphyportinfo and lastphyportinfo.get(obj) != currentphyportinfo[obj]:
-                        for lognet, lognetinfo in currentlognetinfo.items():
-                            netid, phynet = lognetinfo
-                            if phynet == obj.physicalnetwork and not lognet in addvalues:
-                                cmds.extend(_create_default_flow(netid, currentphyportinfo[obj][1]))
-            for m in self.execute_commands(conn, cmds):
+
+            for lognet in currentlognetinfo.keys():
+                if lognet not in lastlognetinfo:
+                    # this lognet is new add
+                    network_id, phyport_id = currentlognetinfo[lognet]
+                    if phyport_id:
+                        cmds.extend(_create_default_flow(network_id,phyport_id))
+                elif lognet in lastlognetinfo and lastlognetinfo[lognet] != currentlognetinfo[lognet]:
+                    # this lognet info changed , add new info
+                    network_id, phyport_id = currentlognetinfo[lognet]
+
+                    if phyport_id:
+                        cmds.extend(_create_default_flow(network_id, phyport_id))
+
+            for logport in currentlogportinfo.keys():
+                if logport not in lastlogportinfo:
+                    # this logport is new add
+                    mac, port_id, network_id = currentlogportinfo[logport]
+                    if mac:
+                        cmds.extend(_create_flows(network_id, mac,port_id))
+                elif logport in lastlogportinfo and lastlogportinfo[logport] != currentlogportinfo[logport]:
+                    # this logport info changed, add new info
+                    mac, port_id, network_id = currentlogportinfo[logport]
+                    if mac:
+                        cmds.extend(_create_flows(network_id, mac, port_id))
+
+            for m in self.execute_commands(conn,cmds):
                 yield m
+
         except Exception:
             self._parent._logger.warning("Update l2switch flow for connection %r failed with exception", conn, exc_info = True)
             # We don't want the whole flow update stops, so ignore the exception and continue
