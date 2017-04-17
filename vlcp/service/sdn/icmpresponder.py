@@ -185,9 +185,7 @@ class ICMPResponderUpdater(FlowUpdater):
                     return ofdef.create_oxm(ofdef.NXM_NX_REG4, nid)
 
             # prepush or not ,, it is same , so ..
-            def _deleteicmpflows(subnetinfo):
-                    ipaddress,macaddress,_,networkid = subnetinfo
-
+            def _deleteicmpflows(ipaddress, macaddress, networkid):
                     return [
                         ofdef.ofp_flow_mod(
                             cookie = 0x2,
@@ -213,8 +211,7 @@ class ICMPResponderUpdater(FlowUpdater):
                     ]
 
             if not self.parent.prepush:
-                def _createicmpflows(subnetinfo):
-                    ipaddress,macaddress,_,networkid = subnetinfo
+                def _createicmpflows(ipaddress, macaddress, networkid):
                     return [
                         ofdef.ofp_flow_mod(
                             cookie = 0x2,
@@ -251,8 +248,7 @@ class ICMPResponderUpdater(FlowUpdater):
                         )
                     ]
             else:
-                def _createicmpflows(subnetinfo):
-                    ipaddress,macaddress,_,networkid = subnetinfo
+                def _createicmpflows(ipaddress, macaddress, networkid):
                     return [
                         ofdef.ofp_flow_mod(
                             cookie = 0x2,
@@ -319,53 +315,38 @@ class ICMPResponderUpdater(FlowUpdater):
                         )
                     ]
 
-            for obj in removevalues:
-                
-                if obj in lastsubnetsinfo:
+            for subnet in lastsubnetsinfo.keys():
+                if subnet not in currentsubnetsinfo\
+                        or (subnet in currentsubnetsinfo and lastsubnetsinfo[subnet] != currentsubnetsinfo[subnet]):
+                    # subnet remove  or subnet info changed , remove flow info
+                    ip_address, mac_address, networkid, nid = lastsubnetsinfo[subnet]
 
-                    remove_arp = set([(lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)])
-                    for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
-                                                                          'arpentries': remove_arp}):
+                    remove_arp = {(ip_address,mac_address,networkid,True),}
+                    for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection':connection,
+                                                                              'arpentries': remove_arp}):
                         yield m
-                    cmds.extend(_deleteicmpflows(lastsubnetsinfo[obj]))
 
-            for obj in updatedvalues:
-               
-                if obj in lastsubnetsinfo and (obj not in currentsubnetsinfo or
-                                                lastsubnetsinfo[obj] != currentsubnetsinfo[obj]):
+                    cmds.extend(_deleteicmpflows(ip_address,mac_address,nid))
 
-                    remove_arp = set([(lastsubnetsinfo[obj][0],lastsubnetsinfo[obj][1],lastsubnetsinfo[obj][2],True)])
-                    for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
-                                                                          'arpentries': remove_arp}):
-                        yield m
-                    cmds.extend(_deleteicmpflows(lastsubnetsinfo[obj]))
-
-            for m in self.execute_commands(connection,cmds):
+            for m in self.execute_commands(connection, cmds):
                 yield m
 
-            del cmds[:]
-            for obj in addvalues:
-                if obj in currentsubnetsinfo and obj not in lastsubnetsinfo:
-                    
-                    add_arp = set([(currentsubnetsinfo[obj][0],currentsubnetsinfo[obj][1],currentsubnetsinfo[obj][2],True)])
-                    for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
-                                                                          'arpentries': add_arp}):
-                        yield m
-                    cmds.extend(_createicmpflows(currentsubnetsinfo[obj]))
+            for subnet in currentsubnetsinfo.keys():
+                if subnet not in lastsubnetsinfo\
+                        or (subnet in lastsubnetsinfo and lastsubnetsinfo[subnet] != currentsubnetsinfo[subnet]):
 
-            for obj in updatedvalues:
-                if obj in currentsubnetsinfo and (obj not in lastsubnetsinfo or
-                                                  currentsubnetsinfo[obj] != lastsubnetsinfo[obj]):
+                    ip_address, mac_address, networkid, nid = currentsubnetsinfo[subnet]
 
-                    add_arp = set([(currentsubnetsinfo[obj][0],currentsubnetsinfo[obj][1],currentsubnetsinfo[obj][2],True)])
+                    add_arp = {(ip_address,mac_address,networkid,True),}
                     for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
-                                                                          'arpentries': add_arp}):
+                                                                               'arpentries': add_arp}):
                         yield m
 
-                    cmds.extend(_createicmpflows(currentsubnetsinfo[obj]))
+                    cmds.extend(_createicmpflows(ip_address,mac_address,nid))
 
-            for m in self.execute_commands(connection,cmds):
+            for m in self.execute_commands(connection, cmds):
                 yield m
+
         except Exception:
             self._logger.warning("Unexpected exception in icmp_flow_updater, ignore it! Continue",exc_info=True)
 
