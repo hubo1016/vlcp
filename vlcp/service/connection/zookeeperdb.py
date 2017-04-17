@@ -145,11 +145,9 @@ class _Notifier(RoutineContainer):
         try:
             sub_id = '%s-%016x' % (self._subscribekey, self._subscribeno)
             self._subscribeno += 1
-            watch_key = key + b'/' + b'watcher' + _bytes(sub_id)
             while True:
                 for m in client.requests([zk.setdata(key, b''),
-                                          zk.create(key, b''),
-                                          zk.create(watch_key, b'', True)],
+                                          zk.create(key, b'')],
                                          self):
                     yield m
                 completes, lost, retries, _ = self.retvalue
@@ -171,8 +169,7 @@ class _Notifier(RoutineContainer):
                             # Insert a barrier in case there are updates
                             self._insert_barrier(key, last_zxid)
                             for m in client.requests([zk.setdata(key, b''),
-                                                      zk.create(key, b''),
-                                                      zk.create(watch_key, b'', True)],
+                                                      zk.create(key, b'')],
                                                      self):
                                 yield m
                             completes, lost, retries, _ = self.retvalue
@@ -190,8 +187,28 @@ class _Notifier(RoutineContainer):
                         last_children = current_children
                         def _watcher_update(watcher):
                             try:
-                                for m in watcher.wait(self):
-                                    yield m
+                                while True:
+                                    with closing(self.executeWithTimeout(60, watcher.wait(self))) as g:
+                                        for m in g:
+                                            yield m
+                                    if self.timeout:
+                                        for i in range(0, 3):
+                                            # Update the watcher key to prevent it from being recycled
+                                            for m in client.requests([zk.setdata(key, b'')],
+                                                                     self):
+                                                yield m
+                                            completes, lost, retries, _ = self.retvalue
+                                            if lost or retries:
+                                                continue
+                                            else:
+                                                self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
+                                                if completes[0].err == zk.ZOO_ERR_NONODE:
+                                                    raise ZooKeeperSessionUnavailable
+                                        else:
+                                            raise ZooKeeperSessionUnavailable
+                                        continue
+                                    else:
+                                        break
                             except ZooKeeperSessionUnavailable:
                                 self.retvalue = -1
                             else:
@@ -249,20 +266,6 @@ class _Notifier(RoutineContainer):
                             yield m
         finally:
             self._remove_barrier(key, last_zxid)
-            def clearup():
-                try:
-                    while True:
-                        for m in client.requests([zk.delete(watch_key)],
-                                                 self, None, client.session_id):
-                            yield m
-                        completes, lost, retries, _ = self.retvalue
-                        if lost or retries:
-                            continue
-                        else:
-                            break
-                except ZooKeeperSessionUnavailable:
-                    pass
-            self.subroutine(clearup())
     def _create_poller(self, key):
         self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + _escape_path(key), self._decoder))
     def main(self):
@@ -1256,8 +1259,8 @@ class ZooKeeperDB(TcpServerBase):
                     recycle_all_counter = 0
                     self._logger.info('Starting full recycling, vhost = %r', vhost)
                     # Do a full recycling to all keys
-                    # We want to keep the unrecycled nodes under 25%
-                    # which means when we random select 4N keys,
+                    # We want to keep the unrecycled nodes under 10%
+                    # which means when we random select 10N keys,
                     # the expectation of recycled keys are less than N
                     try:
                         for m in client.requests([zk.getchildren(b'/vlcp/kvdb'),
@@ -1277,9 +1280,9 @@ class ZooKeeperDB(TcpServerBase):
                         self._logger.info('Full recycling started on %d keys, vhost = %r', len(all_path), vhost)
                         _total_try = 0
                         _total_succ = 0
-                        for i in range(0, len(all_path), 20):
+                        for i in range(0, len(all_path), 50):
                             step_succ = 0
-                            for p in all_path[i:i+20]:
+                            for p in all_path[i:i+50]:
                                 for m in _recycle_key(p):
                                     yield m
                                 _total_try += 1
@@ -1299,11 +1302,11 @@ class ZooKeeperDB(TcpServerBase):
                                 estimate_p = float(_total_succ) / float(_total_try)
                                 if estimate_p < 0.01:
                                     estimate_p = 0.01
-                                recycle_all_freq = int(recycle_all_freq * 0.25 / estimate_p)
+                                recycle_all_freq = int(recycle_all_freq * 0.1 / estimate_p)
                                 if recycle_all_freq <= 1:
                                     recycle_all_freq = 1
-                                elif recycle_all_freq >= 100:
-                                    recycle_all_freq = 100
+                                elif recycle_all_freq >= 50:
+                                    recycle_all_freq = 50
                         self._logger.info('Next full recycling starts in %d turns, vhost = %r', recycle_all_freq, vhost)
                         if last_req * 2 <= recycle_all_freq:
                             # Redistribute the recycling time
