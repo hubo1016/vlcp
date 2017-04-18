@@ -203,9 +203,10 @@ class _Notifier(RoutineContainer):
                                             else:
                                                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                                                 if completes[0].err == zk.ZOO_ERR_NONODE:
-                                                    raise ZooKeeperSessionUnavailable
+                                                    raise ZooKeeperSessionUnavailable('expired')
+                                                break
                                         else:
-                                            raise ZooKeeperSessionUnavailable
+                                            raise ZooKeeperSessionUnavailable('expired')
                                         continue
                                     else:
                                         break
