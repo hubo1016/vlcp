@@ -9,6 +9,12 @@ python:
   - "pypy"
 services:
   - docker
+
+env:
+  matrix:
+    - KV_DB=redis
+    - KV_DB=zookeeper
+
 # command to install dependencies
 install: "pip install nstruct hiredis"
 # command to run tests

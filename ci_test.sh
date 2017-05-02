@@ -18,5 +18,5 @@ if [ "${TRAVIS_EVENT_TYPE}" == "cron" -o "${TRAVIS_EVENT_TYPE}" == "pull_request
 	tar -xzvf vlcp-controller-test.tar.gz
 	cp dist/*.whl vlcp-controller-test-master/
 	pushd vlcp-controller-test-master/
-	bash -xe starttest.sh $venv
+	bash -xe starttest.sh $venv ${KV_DB}
 fi
