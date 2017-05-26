@@ -40,7 +40,7 @@ class ReferenceObject(object):
     def kvdb_internalref(self):
         return set((self._key,))
     def kvdb_detach(self):
-        self._ref = None
+        pass
     def isdeleted(self):
         return self._ref is None or self._ref._deleted
     def __getattr__(self, key):
