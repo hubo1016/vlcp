@@ -361,9 +361,11 @@ class VXLANUpdater(FlowUpdater):
                                     and hasattr(otherlogports[obj.id].network, 'vni') \
                                     and otherlogports[obj.id].network in currentlognetinfo
                                     and otherlogports[obj.id].network.physicalnetwork in unique_phyports)
-        self._parent._logger.debug("VXLAN info updated:\n%s\nLast VXLAN info:\n%s",
-                                   pformat(currentvxlaninfo),
-                                   pformat(lastvxlaninfo))
+        self._parent._logger.debug("VXLAN info updated:\n%s\n\nLast VXLAN info:\n%s",
+                                   '\n'.join("%s (%s, %r) -> %s" % (k.id, v[4], v[3], v[5]['tunnel_dst'])
+                                             for k,v in currentvxlaninfo.items()),
+                                   '\n'.join("%s (%s, %r) -> %s" % (k.id, v[4], v[3], v[5]['tunnel_dst'])
+                                             for k,v in lastvxlaninfo.items()))
         self._lastvxlaninfo = currentvxlaninfo
         self._lastphyportinfo = currentphyportinfo
         self._lastlognetinfo = currentlognetinfo
@@ -864,7 +866,7 @@ class VXLANUpdater(FlowUpdater):
                                                    endpoint['tunnel_dst'],
                                                    nid,
                                                    pid,
-                                                   lognet,
+                                                   lognet.id,
                                                    vni)
                         remove_cmds.extend(_delete_flow(pid, nid, mac_address, lognet))
                     else:
@@ -876,38 +878,38 @@ class VXLANUpdater(FlowUpdater):
                                                        endpoint['tunnel_dst'],
                                                        nid,
                                                        pid,
-                                                       lognet,
+                                                       lognet.id,
                                                        vni)
                             remove_cmds.extend(_delete_flow(pid, nid, mac_address, lognet))
-                            self._parent._logger.debug("Found new VXLAN endpoint: %r (%r), nid = %r, pid = %r, lognet = %r (vni = %r)",
+                            self._parent._logger.debug("Found new VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
                                                        vxlaninfo,
                                                        mac_address2,
                                                        endpoint2['tunnel_dst'],
                                                        nid2,
                                                        pid2,
-                                                       lognet2,
+                                                       lognet2.id,
                                                        vni2)
                             add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst'], lognet2))
                         else:
-                            self._parent._logger.debug("Found modified VXLAN endpoint: %r (%r), nid = %r, pid = %r, lognet = %r (vni = %r)",
+                            self._parent._logger.debug("Found modified VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
                                                        vxlaninfo,
                                                        mac_address2,
                                                        endpoint2['tunnel_dst'],
                                                        nid2,
                                                        pid2,
-                                                       lognet2,
+                                                       lognet2.id,
                                                        vni2)
                             add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst'], lognet2, True))
                 for vxlaninfo, value in currentvxlaninfo.items():
                     if vxlaninfo not in lastvxlaninfo:
                         _, lognet, nid, vni, mac_address, endpoint, _, pid = value
-                        self._parent._logger.debug("Found new VXLAN endpoint: %r (%r), nid = %r, pid = %r, lognet = %r (vni = %r)",
+                        self._parent._logger.debug("Found new VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
                                                    vxlaninfo,
                                                    mac_address,
                                                    endpoint['tunnel_dst'],
                                                    nid,
                                                    pid,
-                                                   lognet,
+                                                   lognet.id,
                                                    vni)
                         add_cmds.extend(_create_flow(pid, nid, mac_address, vni, endpoint['tunnel_dst'], lognet))
                 self._parent._logger.debug("Send %d remove commands and %d add commands", len(remove_cmds), len(add_cmds))
