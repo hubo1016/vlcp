@@ -893,6 +893,8 @@ class VXLANUpdater(FlowUpdater):
                                                        vni2)
                             add_cmds.extend(_create_flow(pid2, nid2, mac_address2, vni2, endpoint2['tunnel_dst'], lognet2))
                         else:
+                            if vni == vni2 and endpoint['tunnel_dst'] == endpoint2['tunnel_dst']:
+                                continue
                             self._parent._logger.debug("Found modified VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
                                                        vxlaninfo,
                                                        mac_address2,
