@@ -863,7 +863,7 @@ class VXLANUpdater(FlowUpdater):
                     _, lognet, nid, vni, mac_address, endpoint, _, pid = value
                     if vxlaninfo not in currentvxlaninfo:
                         self._parent._logger.debug("Found removed VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
-                                                   vxlaninfo,
+                                                   vxlaninfo.id,
                                                    mac_address,
                                                    endpoint['tunnel_dst'],
                                                    nid,
@@ -875,7 +875,7 @@ class VXLANUpdater(FlowUpdater):
                         _, lognet2, nid2, vni2, mac_address2, endpoint2, _, pid2 = currentvxlaninfo[vxlaninfo]
                         if (pid2, nid2, mac_address2) != (pid, nid, mac_address):
                             self._parent._logger.debug("Found removed VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
-                                                       vxlaninfo,
+                                                       vxlaninfo.id,
                                                        mac_address,
                                                        endpoint['tunnel_dst'],
                                                        nid,
@@ -884,7 +884,7 @@ class VXLANUpdater(FlowUpdater):
                                                        vni)
                             remove_cmds.extend(_delete_flow(pid, nid, mac_address, lognet))
                             self._parent._logger.debug("Found new VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
-                                                       vxlaninfo,
+                                                       vxlaninfo.id,
                                                        mac_address2,
                                                        endpoint2['tunnel_dst'],
                                                        nid2,
@@ -896,7 +896,7 @@ class VXLANUpdater(FlowUpdater):
                             if vni == vni2 and endpoint['tunnel_dst'] == endpoint2['tunnel_dst']:
                                 continue
                             self._parent._logger.debug("Found modified VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
-                                                       vxlaninfo,
+                                                       vxlaninfo.id,
                                                        mac_address2,
                                                        endpoint2['tunnel_dst'],
                                                        nid2,
@@ -908,7 +908,7 @@ class VXLANUpdater(FlowUpdater):
                     if vxlaninfo not in lastvxlaninfo:
                         _, lognet, nid, vni, mac_address, endpoint, _, pid = value
                         self._parent._logger.debug("Found new VXLAN endpoint: %r (%r -> %s), nid = %r, pid = %r, lognet = %r (vni = %r)",
-                                                   vxlaninfo,
+                                                   vxlaninfo.id,
                                                    mac_address,
                                                    endpoint['tunnel_dst'],
                                                    nid,
