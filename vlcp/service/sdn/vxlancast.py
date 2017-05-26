@@ -361,11 +361,13 @@ class VXLANUpdater(FlowUpdater):
                                     and hasattr(otherlogports[obj.id].network, 'vni') \
                                     and otherlogports[obj.id].network in currentlognetinfo
                                     and otherlogports[obj.id].network.physicalnetwork in unique_phyports)
-        self._parent._logger.debug("VXLAN info updated:\n%s\n\nLast VXLAN info:\n%s",
-                                   '\n'.join("%s (%s, %r) -> %s" % (k.id, v[4], v[3], v[5]['tunnel_dst'])
-                                             for k,v in currentvxlaninfo.items()),
-                                   '\n'.join("%s (%s, %r) -> %s" % (k.id, v[4], v[3], v[5]['tunnel_dst'])
-                                             for k,v in lastvxlaninfo.items()))
+        #=======================================================================
+        # self._parent._logger.debug("VXLAN info updated:\n%s\n\nLast VXLAN info:\n%s",
+        #                            '\n'.join("%s (%s, %r) -> %s" % (k.id, v[4], v[3], v[5]['tunnel_dst'])
+        #                                      for k,v in currentvxlaninfo.items()),
+        #                            '\n'.join("%s (%s, %r) -> %s" % (k.id, v[4], v[3], v[5]['tunnel_dst'])
+        #                                      for k,v in lastvxlaninfo.items()))
+        #=======================================================================
         self._lastvxlaninfo = currentvxlaninfo
         self._lastphyportinfo = currentphyportinfo
         self._lastlognetinfo = currentlognetinfo
