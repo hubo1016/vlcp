@@ -8,7 +8,6 @@ import sys
 from .core import QuitException, TimerEvent, SystemControlEvent
 from .event import Event, withIndices
 from contextlib import closing
-import logging
 
 class EventHandler(object):
     '''
@@ -608,7 +607,7 @@ class RoutineContainer(object):
                 e.canignore = True
                 for m in container.waitForSend(e):
                     yield m
-                raise
+                raise val
             else:
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine,
                                         result = tuple(getattr(container, n, None) for n in retnames))
