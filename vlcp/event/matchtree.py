@@ -84,7 +84,7 @@ except Exception:
             current = self.subtree(matcher, False)
             if current is None:
                 return
-            current.matchers = list(t for t in current.matchers if t[1] is not obj)
+            current.matchers = list(t for t in current.matchers if t[0] is not matcher or t[1] is not obj)
             while not current.matchers and not hasattr(current,'any') \
                     and not current.index and current.parent is not None:
                 # remove self from parents

@@ -175,6 +175,7 @@ class ZooKeeperClient(Configurable):
                                         # Split set_watches
                                         set_watches.append(current_set_watches)
                                         current_set_watches = zk.SetWatches(relativeZxid = last_zxid)
+                                        current_length = 0
                                 if current_set_watches.dataWatches or current_set_watches.existWatches \
                                         or current_set_watches.childWatches:
                                     set_watches.append(current_set_watches)
