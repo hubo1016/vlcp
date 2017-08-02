@@ -370,10 +370,14 @@ class ObjectDB(Module):
                                     w(k, v, create_walker(k), save)
                                 except Exception as exc:
                                     # if one walker failed, the whole request is failed, remove all walkers
+                                    self._logger.warning("A walker raises an exception which rolls back the whole walk process %r. "
+                                                         "walker = %r, start key = %r, new_retrieve_keys = %r, used_keys = %r",
+                                                         w, k, r[1], new_retrieve_keys, used_keys, exc_info=True)
                                     for orig_k in r[0]:
                                         if orig_k in walkers:
                                             walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
                                     processing_requests[:] = [r0 for r0 in processing_requests if r0[1] != r[1]]
+                                    savelist.pop(r[1])
                                     for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
                                         yield m
                                 else:

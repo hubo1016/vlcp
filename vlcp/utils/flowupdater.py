@@ -136,6 +136,11 @@ class FlowUpdater(RoutineContainer):
                             self._updatedset.clear()
                             self.scheduler.emergesend(FlowUpdaterNotification(self, FlowUpdaterNotification.FLOWUPDATE))
                     yield (dataupdate, startwalk)
+        except GeneratorExit:
+            raise
+        except Exception:
+            self._logger.exception("Flow updater %r stops update by an exception, conn = %r", self, self._connection)
+            raise
         finally:
             self.subroutine(callAPI(self, 'objectdb', 'munwatch', {'keys': self._savedkeys,
                                                                    'requestid': self._requstid}))
