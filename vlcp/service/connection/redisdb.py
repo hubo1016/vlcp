@@ -230,17 +230,36 @@ class RedisDB(TcpServerBase):
                 yield m
         else:
             if timeout is None:
-                for m in c.execute_command(self.apiroutine, 'MSET', *list(itertools.chain.from_iterable(d))):
+                for m in c.execute_command(self.apiroutine, 'MSET',
+                                           *list(
+                                               itertools.chain.from_iterable(
+                                                   (k, self._encode(v)) for (k,v) in d
+                                                )
+                                            )
+                                           ):
                     yield m
             else:
                 # Use a transact
                 ptimeout = int(timeout * 1000)
                 
-                for m in c.batch_execute(self.apiroutine, *((('MULTI',),
-                                                             ('MSET',) + tuple(itertools.chain.from_iterable(d))) + \
-                                                            tuple(('PEXPIRE', k, ptimeout) for k, _ in d) + \
-                                                            (('EXEC',),))
-                                                        ):
+                for m in c.batch_execute(self.apiroutine,
+                                         *(
+                                             (
+                                                 ('MULTI',),
+                                                 ('MSET',) + \
+                                                    tuple(itertools.chain.from_iterable(
+                                                            (k, self._encode(v)) for (k,v) in d
+                                                          )
+                                                        )
+                                              ) + \
+                                              tuple(
+                                                  ('PEXPIRE', k, ptimeout) for k, _ in d
+                                              ) + \
+                                              (
+                                                  ('EXEC',),
+                                              )
+                                           )
+                                        ):
                     yield m
         self.apiroutine.retvalue = None
     def _retry_write(self, process, vhost):
