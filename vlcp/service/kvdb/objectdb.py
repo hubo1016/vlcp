@@ -152,6 +152,15 @@ class ObjectDB(Module):
             update_result = {}
             # key => [(walker_func, original_keys, rid), ...]
             walkers = {}
+            # Use the loop count as a revision identifier, then the valid revisions of the value
+            # in update_result is a range, from the last loop count the value changed
+            # (or -1 if not changed), to the last loop count the value is retrieved
+            #
+            # each walker can only walk on keys that shares at least one revision to ensure the
+            # values are consistent. If no revision could be shared, all the keys must be retrieved
+            # again to get a consistent view
+            revision_min = {}
+            revision_max = {}
             self._loopCount = 0
             # A request-id -> retrieve set dictionary to store the saved keys
             savelist = {}
@@ -237,7 +246,8 @@ class ObjectDB(Module):
                             # Retry update later
                             self._updatekeys.update(update_list)
                             #break
-                            changed_set = set()
+                            revision_min.clear()
+                            revision_max.clear()
                         else:
                             result = self.apiroutine.retvalue
                             self._stale = False
@@ -246,75 +256,72 @@ class ObjectDB(Module):
                                     v.setkey(k)
                                 if k in self._watchedkeys and k not in self._update_version:
                                     self._update_version[k] = getversion(v)
-                            changed_set = set(k for k,v in zip(get_list, result) if k not in update_result or getversion(v) != getversion(update_result[k]))
+                            for k,v in zip(get_list, result):
+                                # Update revision information
+                                revision_max[k] = self._loopCount
+                                if k not in update_result:
+                                    if k not in self._managed_objs:
+                                        # A newly retrieved key
+                                        revision_min[k] = self._loopCount
+                                        continue
+                                    else:
+                                        old_value = self._managed_objs[k]
+                                else:
+                                    old_value = update_result[k]
+                                # Check if the value is changed
+                                if getversion(old_value) != getversion(v):
+                                    revision_min[k] = self._loopCount
+                                else:
+                                    if k not in revision_min:
+                                        revision_min[k] = -1
                             update_result.update(zip(get_list, result))
-                    else:
-                        changed_set = set()
                     # All keys which should be retrieved in next loop
                     new_retrieve_list = set()
                     # Keys which should be retrieved in next loop for a single walk
                     new_retrieve_keys = set()
                     # Keys that are used in current walk will be retrieved again in next loop
                     used_keys = set()
-                    # We separate the original data and new retrieved data space, and do not allow
-                    # cross usage, to prevent discontinue results 
-                    def walk_original(key):
-                        if hasattr(key, 'getkey'):
-                            key = key.getkey()
-                        key = _str(key)
-                        if key not in self._watchedkeys:
-                            # This key is not retrieved, raise a KeyError, and record this key
-                            new_retrieve_keys.add(key)
-                            raise KeyError('Not retrieved')
-                        elif self._stale:
-                            if key not in self._managed_objs:
+                    # We separate the data with revisions to prevent inconsistent result
+                    def create_walker(orig_key):
+                        revision_range = [revision_min.get(orig_key, -1), revision_max.get(orig_key, -1)]
+                        def _walk_with_revision(key):
+                            if hasattr(key, 'getkey'):
+                                key = key.getkey()
+                            key = _str(key)
+                            if key not in self._watchedkeys:
+                                # This key is not retrieved, raise a KeyError, and record this key
                                 new_retrieve_keys.add(key)
+                                raise KeyError('Not retrieved')
+                            elif self._stale:
+                                if key not in self._managed_objs:
+                                    new_retrieve_keys.add(key)
+                                else:
+                                    used_keys.add(key)
+                                return self._managed_objs.get(key)
+                            elif key not in update_result and key not in self._managed_objs:
+                                # This key is not retrieved, raise a KeyError, and record this key
+                                new_retrieve_keys.add(key)
+                                raise KeyError('Not retrieved')
+                            # Check revision
+                            current_revision = (
+                                max(revision_min.get(key, -1), revision_range[0]),
+                                min(revision_max.get(key, -1), revision_range[1])
+                            )
+                            if current_revision[1] < current_revision[0]:
+                                # revisions cannot match
+                                used_keys.add(key)
+                                new_retrieve_keys.add(key)
+                                raise KeyError('Not retrieved')
+                            else:
+                                # update revision range
+                                revision_range[:] = current_revision
+                            if key in update_result:
+                                used_keys.add(key)
+                                return update_result[key]
                             else:
                                 used_keys.add(key)
-                            return self._managed_objs.get(key)
-                        elif key in changed_set:
-                            # We are retrieving from the old result, do not allow to use new data
-                            used_keys.add(key)
-                            new_retrieve_keys.add(key)
-                            raise KeyError('Not retrieved')
-                        elif key in update_result:
-                            used_keys.add(key)
-                            return update_result[key]
-                        elif key in self._managed_objs:
-                            used_keys.add(key)
-                            return self._managed_objs[key]
-                        else:
-                            # This key is not retrieved, raise a KeyError, and record this key
-                            new_retrieve_keys.add(key)
-                            raise KeyError('Not retrieved')
-                    def walk_new(key):
-                        if hasattr(key, 'getkey'):
-                            key = key.getkey()
-                        key = _str(key)
-                        if key not in self._watchedkeys:
-                            # This key is not retrieved, raise a KeyError, and record this key
-                            new_retrieve_keys.add(key)
-                            raise KeyError('Not retrieved')
-                        elif key in get_list_set:
-                            # We are retrieving from the new data
-                            used_keys.add(key)
-                            return update_result[key]
-                        elif key in self._managed_objs or key in update_result:
-                            # Do not allow the old data
-                            used_keys.add(key)
-                            new_retrieve_keys.add(key)
-                            raise KeyError('Not retrieved')
-                        else:
-                            # This key is not retrieved, raise a KeyError, and record this key
-                            new_retrieve_keys.add(key)
-                            raise KeyError('Not retrieved')
-                    def create_walker(orig_key):
-                        if self._stale:
-                            return walk_original
-                        elif orig_key in changed_set:
-                            return walk_new
-                        else:
-                            return walk_original
+                                return self._managed_objs[key]
+                        return _walk_with_revision
                     walker_set = set()
                     def default_walker(key, obj, walk):
                         if key in walker_set:
@@ -370,9 +377,9 @@ class ObjectDB(Module):
                                     w(k, v, create_walker(k), save)
                                 except Exception as exc:
                                     # if one walker failed, the whole request is failed, remove all walkers
-                                    self._logger.warning("A walker raises an exception which rolls back the whole walk process %r. "
+                                    self._logger.warning("A walker raises an exception which rolls back the whole walk process. "
                                                          "walker = %r, start key = %r, new_retrieve_keys = %r, used_keys = %r",
-                                                         w, k, r[1], new_retrieve_keys, used_keys, exc_info=True)
+                                                         w, k, new_retrieve_keys, used_keys, exc_info=True)
                                     for orig_k in r[0]:
                                         if orig_k in walkers:
                                             walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
