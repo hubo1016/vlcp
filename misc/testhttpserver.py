@@ -3,7 +3,6 @@ Created on 2015/8/27
 
 :author: hubo
 '''
-from pprint import pprint
 from vlcp.server import Server
 from vlcp.event import RoutineContainer, Stream, TcpServer, MemoryStream
 from vlcp.protocol.http import Http, HttpRequestEvent, escape_b, escape

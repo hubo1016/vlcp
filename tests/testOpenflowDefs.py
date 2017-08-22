@@ -7,7 +7,7 @@ from __future__ import print_function
 import unittest
 from vlcp.protocol.openflow import common, openflow10, openflow13
 from namedstruct import nstruct, dump
-from pprint import pprint
+import json
 import vlcp.utils.ethernet as ethernet
 
 class Test(unittest.TestCase):
@@ -63,8 +63,8 @@ class Test(unittest.TestCase):
         self.assertTrue(r is not None, 'Cannot parse message')
         obj2, size = r
         self.assertEqual(size, len(s), 'Cannot parse message')
-        pprint(dump(fm))
-        pprint(dump(obj2))
+        print(json.dumps(dump(fm), indent=2))
+        print(json.dumps(dump(obj2), indent=2))
         self.assertEqual(dump(fm), dump(obj2), 'message changed after parsing')
     def testDefs13Size(self):
         # From openflow.h

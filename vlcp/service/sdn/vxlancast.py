@@ -21,7 +21,6 @@ from vlcp.utils.ethernet import ethernet_l2, mac_addr, mac_addr_bytes
 import vlcp.service.sdn.ioprocessing as iop
 import itertools
 from namedstruct.namedstruct import dump
-from pprint import pformat
 from vlcp.event.event import Event, withIndices
 from vlcp.service.sdn import ovsdbportmanager
 from vlcp.utils import ovsdb
@@ -29,7 +28,12 @@ from vlcp.utils.dataobject import updater, ReferenceObject
 from time import time
 import vlcp.utils.vxlandiscover as vxlandiscover
 from vlcp.utils.vxlandiscover import get_broadcast_ips
-from pprint import pformat
+import json
+try:
+    reduce
+except Exception:
+    from functools import reduce
+
 
 @withIndices('connection', 'logicalnetworkid', 'type')
 class VXLANGroupChanged(Event):
@@ -522,7 +526,8 @@ class VXLANUpdater(FlowUpdater):
                 except Exception:
                     self._parent._logger.warning("Some Openflow commands return error result on connection %r, will ignore and continue.\n"
                                                  "Details:\n%s", conn,
-                                                 "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (pformat(dump(k)), pformat(dump(v)))
+                                                 "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (json.dumps(dump(k), indent=2),
+                                                                                                json.dumps(dump(v), indent=2))
                                                            for k,v in self.openflow_replydict.items()))
                 # Some groups are not modified, but the physical port may change, we should also send VXLANGroupChanged
                 for lognet in currentlognetinfo:

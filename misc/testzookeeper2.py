@@ -14,7 +14,11 @@ import vlcp.utils.zookeeper as zk
 from vlcp.utils.zkclient import ZooKeeperClient, ZooKeeperSessionStateChanged
 from vlcp.event.runnable import RoutineContainer
 from namedstruct import dump
-from pprint import pprint
+# from pprint import pprint
+import json
+def pprint(v):
+    print(json.dumps(v, indent=2))
+
 
 @defaultconfig
 class TestModule(Module):

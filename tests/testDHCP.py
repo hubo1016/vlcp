@@ -6,7 +6,6 @@ Created on 2016/6/23
 import unittest
 from vlcp.utils.dhcp import *
 from namedstruct import dump
-from pprint import pprint
 class Test(unittest.TestCase):
 
     def testOptions(self):

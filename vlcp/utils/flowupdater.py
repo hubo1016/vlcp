@@ -10,7 +10,7 @@ from vlcp.event.event import Event, withIndices
 from vlcp.utils.dataobject import multiwaitif
 from vlcp.protocol.openflow.openflow import OpenflowErrorResultException
 from namedstruct.namedstruct import dump
-from pprint import pformat
+import json
 import logging
 
 @withIndices('updater', 'type')
@@ -158,5 +158,6 @@ class FlowUpdater(RoutineContainer):
             except OpenflowErrorResultException:
                 self._logger.warning("Some Openflow commands return error result on connection %r, will ignore and continue.\n"
                                              "Details:\n%s", conn,
-                                             "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (pformat(dump(k)), pformat(dump(v)))
+                                             "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (json.dumps(dump(k), indent=2),
+                                                                                            json.dumps(dump(v), indent=2))
                                                        for k,v in self.openflow_replydict.items()))

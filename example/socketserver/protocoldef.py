@@ -58,7 +58,7 @@ message10_sum_reply = nstruct((int32, 'result'),
                                 init = packvalue(SUM_REPLY, 'type'))
 
 if __name__ == '__main__':
-    from pprint import pprint
+    from json import dumps
     def test_protocol():
         messages = [message10_sum_request(xid = 0, numbers = [1,2,3]),
                     message_echo(xid = 1),
@@ -66,5 +66,5 @@ if __name__ == '__main__':
         messages_data = b''.join(m._tobytes() for m in messages)
         print(repr(messages_data))
         messages2 = message[0].create(messages_data)
-        pprint(dump(messages2))
+        print(dumps(dump(messages2), indent=2))
     test_protocol()

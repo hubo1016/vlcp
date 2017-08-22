@@ -3,7 +3,6 @@ Created on 2015/8/27
 
 :author: hubo
 '''
-from pprint import pprint
 from vlcp.server import main
 from vlcp.server.module import Module, depend
 import vlcp.service.utils.session

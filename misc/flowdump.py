@@ -3,7 +3,11 @@ Created on 2015/7/30
 
 :author: hubo
 '''
-from pprint import pprint
+from __future__ import print_function
+# from pprint import pprint
+import json
+def pprint(v):
+    print(json.dumps(v, indent=2))
 from vlcp.server import Server
 from vlcp.event import Client, RoutineContainer
 from vlcp.protocol.openflow import Openflow, OpenflowConnectionStateEvent, Openflow
