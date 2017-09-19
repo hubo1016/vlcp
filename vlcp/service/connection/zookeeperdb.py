@@ -556,7 +556,8 @@ class ZooKeeperDB(TcpServerBase):
                        api(self.updateallwithtime, self.apiroutine),
                        api(self.recycle),
                        api(self.createnotifier),
-                       api(self.listallkeys, self.apiroutine))
+                       api(self.listallkeys, self.apiroutine),
+                       api(self.status))
         self.apiroutine.main = self._main
         self.routines.append(self.apiroutine)
         self._recycle_list = {}
@@ -1363,3 +1364,12 @@ class ZooKeeperDB(TcpServerBase):
             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
         self._check_completes(completes)
         self.apiroutine.retvalue = [_str(k) for k in completes[0].children]
+    def status(self, vhost = ''):
+        client = self._zookeeper_clients.get(vhost)
+        if client is None:
+            raise ValueError('vhost ' + repr(vhost) + ' is not defined')
+        return {'last_zxid': client.get_last_zxid(),
+                'last_watch_zxid': client.get_last_watch_zxid(),
+                'session_id': client.session_id,
+                'session_state': client.session_state,
+                'current_server': getattr(client, 'currentserver', None)}

@@ -101,6 +101,7 @@ class ZooKeeperClient(Configurable):
         self.certificate = None
         self.ca_certs = None
         self._last_zxid = 0
+        self._last_watch_zxid = 0
     def start(self, asyncstart = False):
         self._connmanage_routine = self._container.subroutine(self._connection_manage(), asyncstart)
     def reset(self):
@@ -118,6 +119,7 @@ class ZooKeeperClient(Configurable):
         try:
             failed = 0
             self._last_zxid = last_zxid = 0
+            self._last_watch_zxid = last_watch_zxid = 0
             session_id = 0
             passwd = b'\x00' * 16
             last_conn_time = None
@@ -159,7 +161,10 @@ class ZooKeeperClient(Configurable):
                             data_watches, exists_watches, child_watches = \
                                     self._container.event.restore_watches
                             if data_watches or exists_watches or child_watches:
-                                current_set_watches = zk.SetWatches(relativeZxid = last_zxid)
+                                restore_watch_zxid = last_watch_zxid
+                                if restore_watch_zxid > 1:
+                                    restore_watch_zxid = restore_watch_zxid - 1
+                                current_set_watches = zk.SetWatches(relativeZxid = restore_watch_zxid)
                                 current_length = 0
                                 for d, e, c in izip_longest(data_watches, exists_watches, child_watches):
                                     if d is not None:
@@ -174,7 +179,7 @@ class ZooKeeperClient(Configurable):
                                     if current_length > _MAX_SETWATCHES_SIZE:
                                         # Split set_watches
                                         set_watches.append(current_set_watches)
-                                        current_set_watches = zk.SetWatches(relativeZxid = last_zxid)
+                                        current_set_watches = zk.SetWatches(relativeZxid = restore_watch_zxid)
                                         current_length = 0
                                 if current_set_watches.dataWatches or current_set_watches.existWatches \
                                         or current_set_watches.childWatches:
@@ -352,6 +357,7 @@ class ZooKeeperClient(Configurable):
                                 else:
                                     self._logger.info('Rebalance to next server')
                                 self._last_zxid = last_zxid = conn.zookeeper_lastzxid
+                                self._last_watch_zxid = last_watch_zxid = conn.zookeeper_last_watch_zxid
                                 last_conn_time = time()
                                 self.session_state = ZooKeeperSessionStateChanged.DISCONNECTED
                                 for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
@@ -554,3 +560,11 @@ class ZooKeeperClient(Configurable):
             return self._last_zxid
         else:
             return getattr(self.current_connection, 'zookeeper_lastzxid', self._last_zxid)
+    def get_last_watch_zxid(self):
+        '''
+        Return the latest zxid seen from servers
+        '''
+        if not self.current_connection:
+            return self._last_watch_zxid
+        else:
+            return getattr(self.current_connection, 'zookeeper_last_watch_zxid', self._last_watch_zxid)
