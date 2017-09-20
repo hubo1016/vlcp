@@ -167,7 +167,7 @@ class _Notifier(RoutineContainer):
                         if completes[0].err == zk.ZOO_ERR_NONODE:
                             last_zxid = completes[0].zxid
                             # Insert a barrier in case there are updates
-                            self._insert_barrier(key, last_zxid)
+                            # self._insert_barrier(key, last_zxid)
                             for m in client.requests([zk.setdata(key, b''),
                                                       zk.create(key, b'')],
                                                      self):
@@ -217,8 +217,8 @@ class _Notifier(RoutineContainer):
                             else:
                                 watcher_event = self.retvalue
                                 # Insert a barrier
-                                self._insert_barrier(key, watcher_event.zxid)
-                                self.retvalue = watcher_event.zxid
+                                self._insert_barrier(key, watcher_event.last_zxid)
+                                self.retvalue = watcher_event.last_zxid
                             finally:
                                 watcher.close()
                         def _get_transacts(last_zxid, new_children):
@@ -245,7 +245,7 @@ class _Notifier(RoutineContainer):
                                     except Exception:
                                         self._logger.warning('Error while decoding data: %r, will ignore. key = %r',
                                                              c.data, key, exc_info = True)
-                            except Exception:
+                            except:
                                 self._remove_barrier(key, last_zxid)
                                 raise
                             else:
