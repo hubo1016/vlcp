@@ -187,11 +187,13 @@ class _Notifier(RoutineContainer):
                         last_children = current_children
                         def _watcher_update(watcher):
                             try:
+                                wait_timeout = 900 + randrange(0, 900)
                                 while True:
-                                    with closing(self.executeWithTimeout(60, watcher.wait(self))) as g:
+                                    with closing(self.executeWithTimeout(wait_timeout, watcher.wait(self))) as g:
                                         for m in g:
                                             yield m
                                     if self.timeout:
+                                        wait_timeout = 1800
                                         for i in range(0, 3):
                                             # Update the watcher key to prevent it from being recycled
                                             for m in client.requests([zk.setdata(key, b'')],
@@ -1174,6 +1176,8 @@ class ZooKeeperDB(TcpServerBase):
             self._check_completes(completes)
             # time limit is 2 minutes ago
             time_limit = completes[1].stat.mtime - 120000
+            # recycle parent after 60 minutes
+            parent_time_limit = completes[1].stat.mtime - 3600000
             # Get the children list
             for m in client.requests([zk.getchildren2(recycle_key)],
                                      self.apiroutine, 60):
@@ -1185,7 +1189,7 @@ class ZooKeeperDB(TcpServerBase):
             if completes[0].err == zk.ZOO_ERR_NONODE:
                 self.apiroutine.retvalue = False
                 return
-            can_recycle_parent = (completes[0].stat.mtime < time_limit)
+            can_recycle_parent = (completes[0].stat.mtime < parent_time_limit)
             recycle_parent_version = completes[0].stat.version
             children = [name for name in completes[0].children if name.startswith(b'data') or name.startswith(b'notify')]
             other_children = completes[0].stat.numChildren - len(children)
