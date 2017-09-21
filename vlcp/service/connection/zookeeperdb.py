@@ -167,7 +167,7 @@ class _Notifier(RoutineContainer):
                         if completes[0].err == zk.ZOO_ERR_NONODE:
                             last_zxid = completes[0].zxid
                             # Insert a barrier in case there are updates
-                            self._insert_barrier(key, last_zxid)
+                            # self._insert_barrier(key, last_zxid)
                             for m in client.requests([zk.setdata(key, b''),
                                                       zk.create(key, b'')],
                                                      self):
@@ -187,11 +187,13 @@ class _Notifier(RoutineContainer):
                         last_children = current_children
                         def _watcher_update(watcher):
                             try:
+                                wait_timeout = 900 + randrange(0, 900)
                                 while True:
-                                    with closing(self.executeWithTimeout(60, watcher.wait(self))) as g:
+                                    with closing(self.executeWithTimeout(wait_timeout, watcher.wait(self))) as g:
                                         for m in g:
                                             yield m
                                     if self.timeout:
+                                        wait_timeout = 1800
                                         for i in range(0, 3):
                                             # Update the watcher key to prevent it from being recycled
                                             for m in client.requests([zk.setdata(key, b'')],
@@ -215,8 +217,8 @@ class _Notifier(RoutineContainer):
                             else:
                                 watcher_event = self.retvalue
                                 # Insert a barrier
-                                self._insert_barrier(key, watcher_event.zxid)
-                                self.retvalue = watcher_event.zxid
+                                self._insert_barrier(key, watcher_event.last_zxid)
+                                self.retvalue = watcher_event.last_zxid
                             finally:
                                 watcher.close()
                         def _get_transacts(last_zxid, new_children):
@@ -243,7 +245,7 @@ class _Notifier(RoutineContainer):
                                     except Exception:
                                         self._logger.warning('Error while decoding data: %r, will ignore. key = %r',
                                                              c.data, key, exc_info = True)
-                            except Exception:
+                            except:
                                 self._remove_barrier(key, last_zxid)
                                 raise
                             else:
@@ -556,7 +558,8 @@ class ZooKeeperDB(TcpServerBase):
                        api(self.updateallwithtime, self.apiroutine),
                        api(self.recycle),
                        api(self.createnotifier),
-                       api(self.listallkeys, self.apiroutine))
+                       api(self.listallkeys, self.apiroutine),
+                       api(self.status))
         self.apiroutine.main = self._main
         self.routines.append(self.apiroutine)
         self._recycle_list = {}
@@ -1173,6 +1176,8 @@ class ZooKeeperDB(TcpServerBase):
             self._check_completes(completes)
             # time limit is 2 minutes ago
             time_limit = completes[1].stat.mtime - 120000
+            # recycle parent after 60 minutes
+            parent_time_limit = completes[1].stat.mtime - 3600000
             # Get the children list
             for m in client.requests([zk.getchildren2(recycle_key)],
                                      self.apiroutine, 60):
@@ -1184,7 +1189,7 @@ class ZooKeeperDB(TcpServerBase):
             if completes[0].err == zk.ZOO_ERR_NONODE:
                 self.apiroutine.retvalue = False
                 return
-            can_recycle_parent = (completes[0].stat.mtime < time_limit)
+            can_recycle_parent = (completes[0].stat.mtime < parent_time_limit)
             recycle_parent_version = completes[0].stat.version
             children = [name for name in completes[0].children if name.startswith(b'data') or name.startswith(b'notify')]
             other_children = completes[0].stat.numChildren - len(children)
@@ -1363,3 +1368,12 @@ class ZooKeeperDB(TcpServerBase):
             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
         self._check_completes(completes)
         self.apiroutine.retvalue = [_str(k) for k in completes[0].children]
+    def status(self, vhost = ''):
+        client = self._zookeeper_clients.get(vhost)
+        if client is None:
+            raise ValueError('vhost ' + repr(vhost) + ' is not defined')
+        return {'last_zxid': client.get_last_zxid(),
+                'last_watch_zxid': client.get_last_watch_zxid(),
+                'session_id': client.session_id,
+                'session_state': client.session_state,
+                'current_server': getattr(client, 'currentserver', None)}

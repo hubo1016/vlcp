@@ -9,12 +9,14 @@ from vlcp.config import defaultconfig
 from vlcp.event import Event, withIndices, ConnectionWriteEvent
 from collections import deque
 from vlcp.utils.zookeeper import ZooKeeperRequest, ZooKeeperReply, CONNECT_PACKET, HEADER_PACKET,\
-        WATCHER_EVENT_XID
+        WATCHER_EVENT_XID, ZOO_SYNC_CONNECTED_STATE
 import vlcp.utils.zookeeper as zk
 import logging
 import os
 from vlcp.event.connection import ConnectionResetException
 from contextlib import closing
+from namedstruct import dump
+from json import dumps
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class ZooKeeperConnectionStateEvent(Event):
@@ -115,6 +117,7 @@ class ZooKeeper(Protocol):
         connection.zookeeper_requests = {}
         connection.zookeeper_handshake = False
         connection.zookeeper_lastzxid = 0
+        connection.zookeeper_last_watch_zxid = 0
         for m in connection.waitForSend(ZooKeeperConnectionStateEvent(ZooKeeperConnectionStateEvent.UP,
                                                                       connection,
                                                                       connection.connmark,
@@ -150,6 +153,10 @@ class ZooKeeper(Protocol):
                     reply.zookeeper_request_type = request_type
                     reply._autosubclass()
                 if reply.xid == WATCHER_EVENT_XID:
+                    connection.zookeeper_last_watch_zxid = connection.zookeeper_lastzxid
+                    reply.last_zxid = connection.zookeeper_lastzxid
+                    if reply.state != ZOO_SYNC_CONNECTED_STATE:
+                        self._logger.warning("Receive abnormal watch event: %s", dumps(dump(reply)))
                     events.append(ZooKeeperWatcherEvent(connection, connection.connmark,
                                                         self, reply.type, reply.state, b'' if reply.path is None else reply.path,
                                                         message = reply))
