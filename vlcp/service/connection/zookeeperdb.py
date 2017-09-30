@@ -142,6 +142,7 @@ class _Notifier(RoutineContainer):
             return
         last_children = None
         last_zxid = 0
+        barriers = set()
         try:
             sub_id = '%s-%016x' % (self._subscribekey, self._subscribeno)
             self._subscribeno += 1
@@ -218,6 +219,7 @@ class _Notifier(RoutineContainer):
                                 watcher_event = self.retvalue
                                 # Insert a barrier
                                 self._insert_barrier(key, watcher_event.last_zxid)
+                                barriers.add(watcher_event.last_zxid)
                                 self.retvalue = watcher_event.last_zxid
                             finally:
                                 watcher.close()
@@ -247,9 +249,11 @@ class _Notifier(RoutineContainer):
                                                              c.data, key, exc_info = True)
                             except:
                                 self._remove_barrier(key, last_zxid)
+                                barriers.discard(last_zxid)
                                 raise
                             else:
                                 self._remove_barrier(key, last_zxid, *result)
+                                barriers.discard(last_zxid)
                                 self.retvalue = None
                         with closing(self.executeAll([_watcher_update(watchers[0]),
                                                   _get_transacts(last_zxid, new_children)])) as g:
@@ -268,7 +272,8 @@ class _Notifier(RoutineContainer):
                         for m in self.waitWithTimeout(1):
                             yield m
         finally:
-            self._remove_barrier(key, last_zxid)
+            for zxid in barriers:
+                self._remove_barrier(key, zxid)
     def _create_poller(self, key):
         self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + _escape_path(key), self._decoder))
     def main(self):

@@ -52,7 +52,7 @@ class IndexedHeap(object):
         ret = self.heap[0]
         del self.index[ret[1]]
         self.heap[0] = (priority, value)
-        self.index[value] = priority
+        self.index[value] = 0
         self._siftdown(0)
         return ret[1]
     def pushpop(self, value, priority):
@@ -71,6 +71,7 @@ class IndexedHeap(object):
         pos = self.index[value]
         del self.index[value]
         self.heap[pos] = (self.heap[pos][0], value2)
+        self.index[value2] = pos
     def clear(self):
         self.index.clear()
         del self.heap[:]
