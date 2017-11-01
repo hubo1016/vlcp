@@ -415,7 +415,10 @@ class VRouterApi(Module):
                 
                 if routerobj and subnetobj and subnetmapobj:
 
-                    # now subnet only have one router ,,so check it
+                    if newrouterport.create_weakreference in routerobj.interfaces.dataset():
+                        raise ValueError(" subnet " + subnet + " has been added in router" + subnetobj.router.getkey())
+
+                    # now subnet only have one router ,,so check it (external subnet mybe add more router)
                     if not hasattr(subnetobj,'router'):
 
                         # new router port special ip address , we check it in subnetmap
@@ -451,7 +454,12 @@ class VRouterApi(Module):
                                     values[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys) + i],
                                     routerportobjects[i]
                                 )
-                        subnetobj.router = newrouterport.create_weakreference()
+
+                        # is subnet is external , don't set router attr
+                        # because it mybe add more one router
+                        if not hasattr(subnetobj, "isexternal"):
+                            subnetobj.router = newrouterport.create_weakreference()
+
                         routerobj.interfaces.dataset().add(newrouterport.create_weakreference())
                     else:
                         raise ValueError(" subnet " + subnet + " have router port " + subnetobj.router.getkey())
@@ -588,6 +596,7 @@ class VRouterApi(Module):
                         del snm.allocated_ips[str(ipaddress)]
 
                     # one subnet only have one router , so del this attr
+                    # when subnet is external , it do not has router attr
                     if hasattr(sn,'router'):
                         delattr(sn,'router')
 
