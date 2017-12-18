@@ -71,6 +71,8 @@ class OVSDBPortManager(Module):
                                             ovsdb.wait('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
                                                        ["ofport"], [{"ofport":ovsdb.oset()}], False, 5000),
                                             ovsdb.wait('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
+                                                       ["ofport"], [{"ofport":-1}], False, 0),
+                                            ovsdb.wait('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
                                                        ["ifindex"], [{"ifindex":ovsdb.oset()}], False, 5000),
                                             ovsdb.select('Interface', [["_uuid", "==", ovsdb.uuid(interface_uuid)]],
                                                                          ["_uuid", "name", "ifindex", "ofport", "type", "external_ids"]))
@@ -83,6 +85,11 @@ class OVSDBPortManager(Module):
             if 'error' in r:
                 raise JsonRPCErrorResultException('Error while acquiring interface: ' + repr(r['error']))            
             r = self.apiroutine.jsonrpc_result[2]
+            if 'error' in r:
+                # Ignore this port because it is in an error state
+                self.apiroutine.retvalue = []
+                return
+            r = self.apiroutine.jsonrpc_result[3]
             if 'error' in r:
                 raise JsonRPCErrorResultException('Error while acquiring interface: ' + repr(r['error']))
             if not r['rows']:

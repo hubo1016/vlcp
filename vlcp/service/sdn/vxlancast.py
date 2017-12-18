@@ -15,6 +15,7 @@ from vlcp.utils.networkmodel import PhysicalPort, LogicalPort, LogicalNetwork, V
 import vlcp.service.kvdb.objectdb as objectdb
 import vlcp.service.sdn.ofpportmanager as ofpportmanager
 from vlcp.event.runnable import RoutineContainer
+from vlcp.event.connection import ConnectionResetException
 from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent,\
     OpenflowAsyncMessageEvent, OpenflowErrorResultException
 from vlcp.utils.ethernet import ethernet_l2, mac_addr, mac_addr_bytes
@@ -74,15 +75,20 @@ class VXLANUpdater(FlowUpdater):
         # LogicalNetworkID -> PhysicalPortNo map
         self._current_groups = {}
         self._walk_lognet = vxlandiscover.lognet_vxlan_walker(self._parent.prepush)
-    def wait_for_group(self, container, networkid, timeout = 30):
+    def wait_for_group(self, container, networkid, timeout = 120):
         if networkid in self._current_groups:
             container.retvalue = self._current_groups[networkid]
         else:
+            if not self._connection.connected:
+                raise ConnectionResetException
             groupchanged = VXLANGroupChanged.createMatcher(self._connection, networkid, VXLANGroupChanged.UPDATED)
-            for m in container.waitWithTimeout(timeout, groupchanged):
+            conn_down = self._connection.protocol.statematcher(self._connection)
+            for m in container.waitWithTimeout(timeout, groupchanged, conn_down):
                 yield m
             if container.timeout:
                 raise ValueError('VXLAN group is still not created after a long time')
+            elif container.matcher is conn_down:
+                raise ConnectionResetException
             else:
                 container.retvalue = container.event.physicalportid
     def main(self):
@@ -979,6 +985,8 @@ class VXLANCast(FlowBase):
     # instances of the logical port on different or same nodes. This is the maximum time
     # allowed for the migration.
     _default_allowedmigrationtime = 120
+    # Timeout waiting for group creation
+    _default_grouptimeout = 120
     def __init__(self, server):
         FlowBase.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)
@@ -1071,8 +1079,11 @@ class VXLANCast(FlowBase):
             # Wait for group creation
             vxlanupdater = self._flowupdaters[connection]
             try:
-                for m in vxlanupdater.wait_for_group(self.apiroutine, logicalnetworkid):
+                for m in vxlanupdater.wait_for_group(self.apiroutine, logicalnetworkid, self.grouptimeout):
                     yield m
+            except ConnectionResetException:
+                # connection aborted, ignore
+                pass
             except Exception:
                 self._logger.warning("Group is not created, connection = %r, logicalnetwork = %r, logicalnetworkid = %r", connection, logicalnetwork, logicalnetworkid, exc_info = True)
             else:

@@ -85,15 +85,20 @@ class JsonRPC(Protocol):
         for m in Protocol.init(self, connection):
             yield m
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
-                self.messagepriority, JsonRPCRequestEvent.createMatcher(connection = connection), ('request', connection), self.messagequeuesize))
+                self.messagepriority + 2, JsonRPCRequestEvent.createMatcher(connection = connection), ('request', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, JsonRPCConnectionStateEvent.createMatcher(connection = connection), ('connstate', connection)))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority + 1, JsonRPCResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, JsonRPCNotificationEvent.createMatcher(connection = connection), ('notification', connection), self.messagequeuesize))
+        for m in self._extra_queues(connection):
+            yield  m
         for m in self.reconnect_init(connection):
             yield m
+    def _extra_queues(self, connection):
+        if False:
+            yield
     def reconnect_init(self, connection):
         connection.xid = ord(os.urandom(1)) + 1
         connection.jsonrpc_parserlevel = 0
