@@ -5,8 +5,9 @@ Created on 2016/2/19
 '''
 
 from vlcp.config import defaultconfig
-from vlcp.protocol.jsonrpc import JsonRPC, JsonRPCRequestEvent
-from vlcp.event.connection import ConnectionResetException
+from vlcp.protocol.jsonrpc import JsonRPC, JsonRPCRequestEvent,\
+    JsonRPCNotificationEvent
+from vlcp.event.connection import ConnectionResetException, ConnectionWriteEvent
 
 @defaultconfig
 class OVSDB(JsonRPC):
@@ -30,12 +31,20 @@ class OVSDB(JsonRPC):
                 if connection.matcher is request_matcher:
                     connection.event.canignore = True
                     reply = self.formatreply(connection.event.params, connection.event.id, connection)
+                    reply.echoreply = True
                     for m in connection.write(reply, False):
                         yield m
                 else:
                     break
         except ConnectionResetException:
             pass
+        
+    def _extra_queues(self, connection):
+        connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
+                self.writepriority + 10, ConnectionWriteEvent.createMatcher(connection = connection, _ismatch = lambda x: hasattr(x, 'echoreply') and x.echoreply), ('echoreply', connection)))
+        if False:
+            yield
+        
     def reconnect_init(self, connection):
         for m in JsonRPC.reconnect_init(self, connection):
             yield m

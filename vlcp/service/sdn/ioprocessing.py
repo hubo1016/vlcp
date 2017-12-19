@@ -18,6 +18,7 @@ from vlcp.utils.networkmodel import PhysicalPort, LogicalPort, PhysicalPortSet, 
 from vlcp.utils.flowupdater import FlowUpdater
 
 import itertools
+from functools import partial
 
 @withIndices('datapathid', 'vhost', 'connection', 'logicalportchanged', 'physicalportchanged',
                                                     'logicalnetworkchanged', 'physicalnetworkchanged')
@@ -62,7 +63,7 @@ class IOFlowUpdater(FlowUpdater):
         FlowUpdater.__init__(self, connection, (PhysicalPortSet.default_key(),),
                                             ('ioprocessing', connection),
                                             parent._logger)
-        self._walkerdict = {PhysicalPortSet.default_key(): self._physicalport_walker}
+        self._walkerdict = {PhysicalPortSet.default_key(): partial(self._physicalport_walker, _portnames={})}
         self._systemid = systemid
         self._bridgename = bridgename
         self._portnames = {}
@@ -83,26 +84,33 @@ class IOFlowUpdater(FlowUpdater):
         self._append_initialkeys = []
         self._parent = parent
     def update_ports(self, ports, ovsdb_ports):
+        new_port_names = dict((p['name'], _to32bitport(p['ofport'])) for p in ovsdb_ports)
+        new_port_ids = dict((p['id'], _to32bitport(p['ofport'])) for p in ovsdb_ports if p['id'])
+        if new_port_names == self._portnames and new_port_ids == self._portids:
+            return
         self._portnames.clear()
-        self._portnames.update((p['name'], _to32bitport(p['ofport'])) for p in ovsdb_ports)
+        self._portnames.update(new_port_names)
         self._portids.clear()
-        self._portids.update((p['id'], _to32bitport(p['ofport'])) for p in ovsdb_ports if p['id'])
+        self._portids.update(new_port_ids)
 
         logicalportkeys = [LogicalPort.default_key(id) for id in self._portids]
 
         self._original_initialkeys = logicalportkeys + [PhysicalPortSet.default_key()]
         self._initialkeys = tuple(itertools.chain(self._original_initialkeys, self._append_initialkeys))
+        phy_walker = partial(self._physicalport_walker, _portnames=new_port_names)
+        log_walker = partial(self._logicalport_walker, _portids=new_port_ids)
         self._walkerdict = dict(itertools.chain(
-            ((PhysicalPortSet.default_key(),self._physicalport_walker),),
-            ((lgportkey,self._logicalport_walker) for lgportkey in logicalportkeys)
+            ((PhysicalPortSet.default_key(),phy_walker),),
+            ((lgportkey,log_walker) for lgportkey in logicalportkeys)
         ))
-
+        self._portnames = new_port_names
+        self._portids = new_port_ids
         for m in self.restart_walk():
             yield m
 
-    def _logicalport_walker(self, key, value, walk, save):
+    def _logicalport_walker(self, key, value, walk, save, _portids):
         _, (id,) = LogicalPort._getIndices(key)
-        if id not in self._portids:
+        if id not in _portids:
             return
         save(key)
         if value is None:
@@ -160,12 +168,12 @@ class IOFlowUpdater(FlowUpdater):
                                                     pass
                                                 else:
                                                     save(lgnet.getkey())
-    def _physicalport_walker(self, key, value, walk, save):
+    def _physicalport_walker(self, key, value, walk, save, _portnames):
         save(key)
         if value is None:
             return
         physet = value.set
-        for name in self._portnames:
+        for name in _portnames:
             phyports = physet.find(PhysicalPort, self._connection.protocol.vhost, self._systemid, self._bridgename, name)
             # There might be more than one match physical port rule for one port, pick the most specified one
             namedict = {}

@@ -81,6 +81,7 @@ class OpenflowPortManager(Module):
             if update:
                 for m in self.apiroutine.waitForSend(OpenflowPortSynchronized(connection)):
                     yield m
+                self._logger.info("Openflow port synchronized on connection %r", connection)
                 for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'update',
                                                                          datapathid = connection.openflow_datapathid,
                                                                          connection = connection,
@@ -99,6 +100,7 @@ class OpenflowPortManager(Module):
             for m in g:
                 yield m
         self._synchronized = True
+        self._logger.info("Openflow ports synchronized")
         for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):
             yield m
     def _wait_for_sync(self):
