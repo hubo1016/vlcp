@@ -63,7 +63,7 @@ class IOFlowUpdater(FlowUpdater):
         FlowUpdater.__init__(self, connection, (PhysicalPortSet.default_key(),),
                                             ('ioprocessing', connection),
                                             parent._logger)
-        self._walkerdict = {PhysicalPortSet.default_key(): self._physicalport_walker}
+        self._walkerdict = {PhysicalPortSet.default_key(): partial(self._physicalport_walker, _portnames={})}
         self._systemid = systemid
         self._bridgename = bridgename
         self._portnames = {}
