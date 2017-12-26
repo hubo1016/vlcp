@@ -84,7 +84,8 @@ def generate_references(app, env, added, changed, removed):
                 package_path = 'gensrc/ref/' + module.replace('.', '/')
                 module_path = os.path.join(package_path, '__init__')
                 result = package_template.render(package_name = module,
-                                                 package_path = '/' + package_path,
+                                                 #package_path = '/' + package_path,
+                                                 package_path = '.',
                                                  githubproject = githubproj,
                                                  branch = branch)
             else:
