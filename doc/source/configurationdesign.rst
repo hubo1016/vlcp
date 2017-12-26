@@ -1,4 +1,4 @@
-.. _configurationdesign
+.. _configurationdesign:
 
 VLCP Configuration Desigin and Implementations
 ==============================================

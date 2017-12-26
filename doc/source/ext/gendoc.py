@@ -94,8 +94,10 @@ def generate_references(app, env, added, changed, removed):
                                                 githubproject = githubproj,
                                                 branch = branch)
             if not os.path.isdir(os.path.join(env.srcdir, package_path)):
+                app.info('Creating directory ' + os.path.join(env.srcdir, package_path))
                 os.makedirs(os.path.join(env.srcdir, package_path))
             with open(os.path.join(env.srcdir, module_path + '.rst'), 'w') as f:
+                app.info('Writing ' + os.path.join(env.srcdir, module_path + '.rst'))
                 f.write(result)
             yield '/' + module_path
     return ['reference'] + list(_build_package('vlcp', 'hubo1016/vlcp')) + list(_build_package('vlcp_docker', 'hubo1016/vlcp-docker-plugin'))
