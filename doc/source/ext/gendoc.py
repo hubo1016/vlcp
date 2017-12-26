@@ -98,7 +98,7 @@ def generate_references(app, env, added, changed, removed):
             with open(os.path.join(env.srcdir, module_path + '.rst'), 'w') as f:
                 f.write(result)
             yield '/' + module_path
-    return [reference] + list(_build_package('vlcp', 'hubo1016/vlcp')) + list(_build_package('vlcp_docker', 'hubo1016/vlcp-docker-plugin'))
+    return ['reference'] + list(_build_package('vlcp', 'hubo1016/vlcp')) + list(_build_package('vlcp_docker', 'hubo1016/vlcp-docker-plugin'))
 
 def skip_members(app, what, name, obj, skip, options):
     if not skip and name == '__weakref__':
