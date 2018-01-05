@@ -3,7 +3,9 @@ Created on 2016/10/18
 
 :author: hubo
 '''
+from logging import getLogger
 
+_logger = getLogger(__name__)
 
 class IndexedHeap(object):
     '''
@@ -93,22 +95,37 @@ class IndexedHeap(object):
         self.heap[pos] = temp
         self.index[temp[1]] = pos
     def _siftdown(self, pos):
-        temp = self.heap[pos]
-        l = len(self.heap)
-        while pos * 2 + 1 < l:
-            cindex = pos * 2 + 1
-            pt = self.heap[cindex]
-            if cindex + 1 < l and self.heap[cindex+1][0] < pt[0]:
-                cindex = cindex + 1
+        try:
+            temp = self.heap[pos]
+            l = len(self.heap)
+            while pos * 2 + 1 < l:
+                cindex = pos * 2 + 1
                 pt = self.heap[cindex]
-            if pt[0] < temp[0]:
-                self.heap[pos] = pt
-                self.index[pt[1]] = pos
-            else:
-                break
-            pos = cindex
-        self.heap[pos] = temp
-        self.index[temp[1]] = pos
+                if cindex + 1 < l and self.heap[cindex+1][0] < pt[0]:
+                    cindex = cindex + 1
+                    pt = self.heap[cindex]
+                if pt[0] < temp[0]:
+                    self.heap[pos] = pt
+                    self.index[pt[1]] = pos
+                else:
+                    break
+                pos = cindex
+            self.heap[pos] = temp
+            self.index[temp[1]] = pos
+        except IndexError:
+            # Track this mysterious exception
+            _logger.critical("Very unexpected IndexError raised, collecting information\n"
+                             "Locals = %r\n\nself.heap = %r\n\n"
+                             "len(self.heap) = %d\n\n"
+                             "self.index = %r\n\n"
+                             "len(self.index) = %d\n\n",
+                             locals(),
+                             self.heap,
+                             len(self.heap),
+                             self.index,
+                             len(self.index),
+                             exc_info=True)
+            raise
     def __len__(self):
         return len(self.heap)
     def __nonzero__(self):
