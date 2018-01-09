@@ -12,7 +12,13 @@ fi
 
 python --version
 coverage --version
-coverage run -m unittest discover
+
+# run in pypy , never run coverage 
+if [ "${TRAVIS_PYTHON_VERSION:0:4}" == "pypy" ]; then
+	python -m unittest discover
+else
+	coverage run -m unittest discover
+fi
 
 if [ "${TRAVIS_EVENT_TYPE}" == "cron" -o "${TRAVIS_EVENT_TYPE}" == "pull_request" -o "${TRAVIS_TAG:-}" != "" ]; then
 	python setup.py bdist_wheel
@@ -20,5 +26,10 @@ if [ "${TRAVIS_EVENT_TYPE}" == "cron" -o "${TRAVIS_EVENT_TYPE}" == "pull_request
 	tar -xzvf vlcp-controller-test.tar.gz
 	cp dist/*.whl vlcp-controller-test-master/
 	pushd vlcp-controller-test-master/
-	bash -xe starttest.sh $venv ${KV_DB} "coverage"
+    
+    if [ "${TRAVIS_PYTHON_VERSION:0:4}" == "pypy" ]; then
+        bash -xe starttest.sh $venv ${KV_DB}
+    else
+        bash -xe starttest.sh $venv ${KV_DB} "coverage"
+    fi
 fi
