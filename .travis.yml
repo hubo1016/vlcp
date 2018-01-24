@@ -7,6 +7,7 @@ python:
   - "3.5"
   - "3.6"
   - "pypy-5.4"
+ 
 services:
   - docker
 
@@ -16,6 +17,15 @@ env:
     - KV_DB=zookeeper
 
 # command to install dependencies
-install: "pip install nstruct hiredis"
+install: 
+  - "pip install nstruct hiredis"
+  - pip install coverage
+
+
 # command to run tests
-script:  sudo -E bash -xe ci_test.sh
+script: 
+  - sudo -E bash -xe ci_test.sh
+
+
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
