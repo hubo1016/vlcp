@@ -424,8 +424,10 @@ class OVSDBPortManager(Module):
                         yield m
                 r = self.apiroutine.jsonrpc_result
             except:
-                for m in self.apiroutine.waitForSend(OVSDBConnectionPortsSynchronized(connection)):
-                    yield m
+                def _msg():
+                    for m in self.apiroutine.waitForSend(OVSDBConnectionPortsSynchronized(connection)):
+                        yield m
+                self.apiroutine.subroutine(_msg(), False)
                 raise
             # This is the initial state, it should contains all the ids of ports and interfaces
             self.apiroutine.subroutine(self._update_interfaces(connection, protocol, r, False))

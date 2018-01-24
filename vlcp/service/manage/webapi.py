@@ -48,7 +48,7 @@ class WebAPIHandler(HttpHandler):
                 if v[:1] == '`' and v[-1:] == '`':
                     try:
                         params[k] = ast.literal_eval(v[1:-1])
-                    except:
+                    except Exception:
                         pass
         if parent.allowtargets is not None:
             if targetname not in parent.allowtargets:

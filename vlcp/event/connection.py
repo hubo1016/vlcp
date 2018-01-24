@@ -32,7 +32,7 @@ else:
 
 try:
     _memoryview = memoryview
-except:
+except Exception:
     class memoryview(object):              # Fake a memoryview interface
         def __init__(self, buf):
             self._buffer = buf
@@ -205,7 +205,7 @@ class Connection(RoutineContainer):
                     if currPos >= len(buf):
                         try:
                             (events, keep) = self.protocol.parse(self, _buffer(buf, view, 0, currPos), lastPos)
-                        except:
+                        except Exception:
                             # An exception in parse means serious protocol break, drop the connection
                             # Shutdown will prevent further data been sent in the socket and break the connection
                             self.socket.shutdown(socket.SHUT_RDWR)
@@ -377,11 +377,11 @@ class Connection(RoutineContainer):
         try:
             try:
                 self.localaddr = self.socket.getsockname()
-            except:
+            except Exception:
                 pass
             try:
                 self.remoteaddr = self.socket.getpeername()
-            except:
+            except Exception:
                 pass
             self.connmark = 0
             self.connected = True
@@ -424,11 +424,11 @@ class Connection(RoutineContainer):
                     if self.connected:
                         try:
                             self.localaddr = self.socket.getsockname()
-                        except:
+                        except Exception:
                             pass
                         try:
                             self.remoteaddr = self.socket.getpeername()
-                        except:
+                        except Exception:
                             pass
                         self.connmark += 1
                         for m in self.protocol.reconnect_init(self):
@@ -452,24 +452,27 @@ class Connection(RoutineContainer):
         '''
         if connmark is None:
             connmark = self.connmark
-        for m in self.waitForSend(ConnectionControlEvent(self, ConnectionControlEvent.SHUTDOWN, force, connmark)):
-            yield m
+        self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.SHUTDOWN, force, connmark))
+        if False:
+            yield
     def reconnect(self, force = True, connmark = None):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
-        for m in self.waitForSend(ConnectionControlEvent(self, ConnectionControlEvent.RECONNECT, force, connmark)):
-            yield m
+        self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.RECONNECT, force, connmark))
+        if False:
+            yield
     def reset(self, force = True, connmark = None):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
-        for m in self.waitForSend(ConnectionControlEvent(self, ConnectionControlEvent.RESET, force, connmark)):
-            yield m
+        self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.RESET, force, connmark))
+        if False:
+            yield
     def write(self, event, ignoreException = True):
         '''
         Can call without delegate
@@ -726,8 +729,13 @@ class Client(Connection):
                                     raise IOError('socket error: ' + str(err))
                         elif err != 0:
                             raise IOError('socket error: ' + str(err))
-                    except:
+                    except Exception:
                         self.logger.debug('Failed to connect to remote address: ' + repr(addr), exc_info = True)
+                        self.scheduler.unregisterPolling(self.socket)
+                        self.socket.close()
+                        self.socket = None
+                        raise
+                    except:
                         self.scheduler.unregisterPolling(self.socket)
                         self.socket.close()
                         self.socket = None
@@ -796,7 +804,7 @@ class Client(Connection):
                 self.socket = None
                 try:
                     self.socket = socket.socket(family, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM)
-                except:
+                except Exception:
                     self.logger.debug('Failed to create socket for family: ' + repr(family), exc_info = True)
                     continue
                 if not self.unix and not self.udp and self.nodelay:
@@ -816,11 +824,15 @@ class Client(Connection):
                             self.socket.bind(('::',0))
                     self.socket.setblocking(False)
                     self.scheduler.registerPolling(self.socket)
-                except:
+                except Exception:
                     self.logger.debug('Failed to bind to local address: ' + repr(self.bindaddress), exc_info = True)
                     self.socket.close()
                     self.socket = None
                     continue
+                except:
+                    self.socket.close()
+                    self.socket = None
+                    raise
                 try:
                     err = self.socket.connect_ex(addr)
                     if err == errno.EINPROGRESS or err == errno.EWOULDBLOCK or err == errno.EAGAIN:
@@ -839,12 +851,17 @@ class Client(Connection):
                         raise Exception('socket error: ' + errno.errorcode.get(err, str(err)))
                     else:
                         break
-                except:
+                except Exception:
                     self.logger.debug('Failed to connect to remote address: ' + repr(addr), exc_info = True)
                     self.scheduler.unregisterPolling(self.socket)
                     self.socket.close()
                     self.socket = None
                     continue
+                except:
+                    self.scheduler.unregisterPolling(self.socket)
+                    self.socket.close()
+                    self.socket = None
+                    raise
         if self.socket is None:
             raise IOError('Cannot create connection')
         if self.ssl:
@@ -1068,7 +1085,7 @@ class TcpServer(RoutineContainer):
             self.listening = True
             try:
                 self.localaddr = self.socket.getsockname()
-            except:
+            except Exception:
                 pass
             m = PollEvent.createMatcher(self.socket.fileno())
             while True:
@@ -1092,8 +1109,11 @@ class TcpServer(RoutineContainer):
                             else:
                                 new_proto = self.protocol
                             self.subroutine(self._connection(new_socket, new_proto)) 
+                        except Exception:
+                            new_socket.close()
                         except:
-                            new_socket.close() 
+                            new_socket.close()
+                            raise
                 else:
                     self.logger.warning('Error polling status received: ' + repr(self.event))
                     break
@@ -1146,24 +1166,27 @@ class TcpServer(RoutineContainer):
         '''
         if connmark is None:
             connmark = self.connmark
-        for m in self.waitForSend(ConnectionControlEvent(self, ConnectionControlEvent.SHUTDOWN, True, connmark)):
-            yield m
+        self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.SHUTDOWN, True, connmark))
+        if False:
+            yield
     def stoplisten(self, connmark = -1):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
-        for m in self.waitForSend(ConnectionControlEvent(self, ConnectionControlEvent.STOPLISTEN, True, connmark)):
-            yield m    
+        self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.STOPLISTEN, True, connmark))
+        if False:
+            yield    
     def startlisten(self, connmark = -1):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
-        for m in self.waitForSend(ConnectionControlEvent(self, ConnectionControlEvent.STARTLISTEN, True, connmark)):
-            yield m    
+        self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.STARTLISTEN, True, connmark))
+        if False:
+            yield    
     def _final(self):
         for m in self.protocol.serverfinal(self):
             yield m

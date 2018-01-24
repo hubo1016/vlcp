@@ -7,7 +7,7 @@ from __future__ import print_function, absolute_import, division
 
 try:
     from vlcp_event_cython.pqueue import *
-except:
+except Exception:
 
     from collections import deque
     from .matchtree import MatchTree

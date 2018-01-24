@@ -9,17 +9,17 @@ import os
 
 try:
     reload
-except:
+except Exception:
     try:
         from importlib import reload
-    except:
+    except Exception:
         from imp import reload
 
 def removeCache(module):
     if hasattr(module, '__cached__'):
         try:
             os.remove(module.__cached__)
-        except:
+        except Exception:
             pass
     else:
         f = module.__file__
@@ -28,6 +28,6 @@ def removeCache(module):
                 os.remove(f)
             elif f.endswith('.py'):
                 os.remove(f + 'c')
-        except:
+        except Exception:
             pass
 

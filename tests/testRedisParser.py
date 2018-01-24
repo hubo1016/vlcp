@@ -29,11 +29,8 @@ class Test(unittest.TestCase):
     def testException(self):
         p = RedisParser()
         p.feed(b':abc\r\n')
-        try:
+        with self.assertRaises(Exception):
             p.gets()
-            self.assertTrue(False)
-        except:
-            pass
     def testContinue(self):
         p = RedisParser()
         p.feed(b'$5\r\nabcde\r')

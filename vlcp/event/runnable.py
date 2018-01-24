@@ -100,6 +100,7 @@ class RoutineControlEvent(Event):
 class IllegalMatchersException(Exception):
     pass
 
+
 class generatorwrapper(object):
     '''
     Default __repr__ of a generator is not readable, use a wrapper to improve the readability
@@ -137,9 +138,9 @@ class generatorwrapper(object):
                 return '<%s %r of %r at 0x%016X>' % (self.classname, iterator,
                                                        iterator.gi_frame.f_locals['self'],
                                                        id(iterator))
-            except:
+            except Exception:
                 return '<%s %r at 0x%016X>' % (self.classname, iterator, id(iterator))
-        except:
+        except Exception:
             return repr(self.run)
     def close(self):
         return self.run.close()
@@ -167,7 +168,7 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
             matchers = next(iterator)
             try:
                 scheduler.register(matchers, iterself)
-            except:
+            except Exception:
                 iterator.throw(IllegalMatchersException(matchers))
                 raise
             while True:
@@ -194,7 +195,7 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                 try:
                     scheduler.unregister(set(lmatchers).difference(matchers), iterself)
                     scheduler.register(set(matchers).difference(lmatchers), iterself)
-                except:
+                except Exception:
                     iterator.throw(IllegalMatchersException(matchers))
                     raise
         finally:
@@ -567,8 +568,7 @@ class RoutineContainer(object):
                 typ, val, tb = sys.exc_info()
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine)
                 e.canignore = True
-                for m in self.waitForSend(e):
-                    yield m
+                self.scheduler.emergesend(e)
                 raise
             else:
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine)
@@ -605,9 +605,8 @@ class RoutineContainer(object):
                 typ, val, tb = sys.exc_info()
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine, exception = val)
                 e.canignore = True
-                for m in container.waitForSend(e):
-                    yield m
-                raise val
+                container.scheduler.emergesend(e)
+                raise
             else:
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine,
                                         result = tuple(getattr(container, n, None) for n in retnames))
@@ -682,5 +681,5 @@ class RoutineContainer(object):
                 for d in delegates:
                     try:
                         container.terminate(d[1])
-                    except:
+                    except Exception:
                         pass

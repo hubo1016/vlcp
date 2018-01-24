@@ -200,11 +200,13 @@ class BaseStream(object):
                     except IOError:
                         break
             except:
-                try:
-                    for m in dest.error(container):
-                        yield m
-                except IOError:
-                    pass
+                def _cleanup():
+                    try:
+                        for m in dest.error(container):
+                            yield m
+                    except IOError:
+                        pass
+                container.subroutine(_cleanup(), False)
                 raise
             finally:
                 self.close(container.scheduler)
@@ -366,7 +368,7 @@ class FileStream(BaseStream):
             self.size -= fobj.tell()
             if self.size > size:
                 self.size = size
-        except:
+        except Exception:
             if size:
                 self.size = size
         self.readlimit = readlimit
@@ -387,7 +389,7 @@ class FileStream(BaseStream):
                 eof = not data
                 if self.size is not None and self.totalbuffered >= self.size:
                     eof = True
-            except:
+            except Exception:
                 self._parsedata(b'', False, True)
             else:
                 self._parsedata(data, eof, False)
@@ -407,7 +409,7 @@ class FileWriter(object):
                 self.fobj.write(data)
             if eof:
                 self.fobj.close()
-        except:
+        except Exception:
             if not ignoreexception:
                 raise
         if False:
@@ -415,7 +417,7 @@ class FileWriter(object):
     def error(self, container, ignoreexception = False):
         try:
             self.fobj.close()
-        except:
+        except Exception:
             if not ignoreexception:
                 raise
         if False:

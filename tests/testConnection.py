@@ -419,7 +419,7 @@ class TestConnection(unittest.TestCase):
             return
         try:
             os.remove('/var/run/unixsocktest.sock')
-        except:
+        except Exception:
             pass
         c1 = Client('unix:/var/run/unixsocktest.sock', self.protocolClient, self.scheduler)
         c2 = Client('punix:/var/run/unixsocktest.sock', self.protocolServer, self.scheduler)
@@ -449,11 +449,11 @@ class TestConnection(unittest.TestCase):
             return
         try:
             os.remove('/var/run/unixsocktestudp1.sock')
-        except:
+        except Exception:
             pass
         try:
             os.remove('/var/run/unixsocktestudp2.sock')
-        except:
+        except Exception:
             pass
         c1 = Client('dunix:/var/run/unixsocktestudp2.sock', self.protocolClient, self.scheduler, bindaddress = ((socket.AF_UNIX, '/var/run/unixsocktestudp1.sock'),))
         c2 = Client('pdunix:/var/run/unixsocktestudp2.sock', self.protocolServer, self.scheduler)

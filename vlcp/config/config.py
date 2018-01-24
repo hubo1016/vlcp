@@ -237,7 +237,7 @@ class Manager(ConfigTree):
                     # Process buffered lines
                     try:
                         value = ast.literal_eval(''.join(line_buffer))
-                    except:
+                    except Exception:
                         typ, val, tb = sys.exc_info()
                         raise ValueError('Error format in line %d(%s: %s):\n%s' % (last_line_no, typ.__name__, str(val), ''.join(line_buffer)))
                     self[line_key] = value
@@ -253,7 +253,7 @@ class Manager(ConfigTree):
             # Process buffered lines
             try:
                 value = ast.literal_eval(''.join(line_buffer))
-            except:
+            except Exception:
                 typ, val, tb = sys.exc_info()
                 raise ValueError('Error format in line %d(%s: %s):\n%s' % (last_line_no, typ.__name__, str(val), ''.join(line_buffer)))
             self[line_key] = value

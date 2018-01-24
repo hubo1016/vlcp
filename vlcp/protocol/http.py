@@ -69,7 +69,7 @@ class HttpTrailersReceived(Event):
 
 try:
     _long = long
-except:
+except Exception:
     _long = int
 
 class HttpProtocolException(Exception):
@@ -333,7 +333,7 @@ class Http(Protocol):
                             elif cl:
                                 try:
                                     content_length = int(cl[0][1])
-                                except:
+                                except Exception:
                                     requesterror('invalid content-length header', method, path)
                             else:
                                 if connection.http_localversion < '1.1':
@@ -447,8 +447,10 @@ class Http(Protocol):
                         if output is not None:
                             output.close(connection.scheduler)
         except:
-            for m in connection.reset(True, connmark):
-                yield m
+            def _cleanup():
+                for m in connection.reset(True, connmark):
+                    yield m
+            connection.subroutine(_cleanup(), False)
             raise            
     def _response_sender(self, connection):
         try:
@@ -635,8 +637,10 @@ class Http(Protocol):
                         if output is not None:
                             output.close(connection.scheduler)
         except:
-            for m in connection.reset(True, connmark):
-                yield m
+            def _cleanup():
+                for m in connection.reset(True, connmark):
+                    yield m
+            connection.subroutine(_cleanup(), False)
             raise
     def reconnect_init(self, connection):
         connection.xid = 0
@@ -812,7 +816,7 @@ class Http(Protocol):
             else:
                 try:
                     size = len(stream)
-                except:
+                except Exception:
                     size = None
             if size is None:
                 pass
@@ -1060,7 +1064,7 @@ class Http(Protocol):
                     elif b'content-length' in headerdict:
                         try:
                             connection.http_contentlength = int(headerdict[b'content-length'])
-                        except:
+                        except Exception:
                             # Illegal content-length
                             if self.debugging:
                                 self._logger.debug('Illegal content length: %r', headerdict[b'content-length'])
@@ -1132,7 +1136,7 @@ class Http(Protocol):
                         elif b'content-length' in headerdict:
                             try:
                                 connection.http_contentlength = int(headerdict[b'content-length'])
-                            except:
+                            except Exception:
                                 # Illegal content-length
                                 stage = 'end'
                                 httpfail()
@@ -1474,7 +1478,7 @@ class Http(Protocol):
     def beforelisten(self, tcpserver, newsock):
         try:
             tcpserver.scheduler.queue['read'].addSubQueue(5, PollEvent.createMatcher(newsock.fileno(), PollEvent.READ_READY), tcpserver)
-        except:
+        except Exception:
             pass
         if False:
             yield

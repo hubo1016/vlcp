@@ -119,7 +119,7 @@ dhcp_option_servers = nstruct((ip4_addr[0], 'value'),
 
 try:
     unicode
-except:
+except Exception:
     unicode = str
 
 dhcp_option_servers._parse_from_value = lambda x: _no_empty([ip4_addr(x)] if isinstance(x, (str, unicode)) else [ip4_addr(v) for v in x])

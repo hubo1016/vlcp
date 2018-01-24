@@ -54,9 +54,10 @@ class TcpTestProtocol(Protocol):
                 we = ConnectionWriteEvent(connection, connection.connmark, data = data)
                 for m in connection.write(we, False):
                     yield m
-        except:
+        except Exception:
             for m in connection.shutdown(True):
                 yield m
+            raise
     def parse(self, connection, data, laststart):
         return ([], 0)
     

@@ -156,10 +156,10 @@ class Server(Configurable):
                 else:
                     try:
                         resource.setrlimit(resource.RLIMIT_NOFILE, (self.ulimitn, self.ulimitn))
-                    except:
+                    except Exception:
                         # Maybe we do not have permission to change hard limit, instead we increase soft limit to the hard limit
                         resource.setrlimit(resource.RLIMIT_NOFILE, (curr_ulimit[1], curr_ulimit[1]))
-            except:
+            except Exception:
                 pass
         # If logging is not configured, configure it to the default (console)
         logging.basicConfig()
@@ -278,7 +278,7 @@ def main(configpath = None, startup = None, daemon = False, pidfile = None, fork
                     if self.fd:
                         try:
                             fcntl.lockf(self.fd, fcntl.LOCK_UN)
-                        except:
+                        except Exception:
                             pass
                         os.close(self.fd)
                         self.fd = None

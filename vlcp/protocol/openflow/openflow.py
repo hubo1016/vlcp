@@ -220,8 +220,11 @@ class Openflow(Protocol):
             pass
         except:
             self._logger.exception('Unexpected exception on processing openflow protocols, Connection = %r', connection)
-            for m in connection.reset(True, connmark):
-                yield m
+            def _cleanup():
+                for m in connection.reset(True, connmark):
+                    yield m
+            connection.subroutine(_cleanup(), False)
+            raise
     def formatrequest(self, request, connection, assignxid = True):
         if assignxid:
             self.assignxid(request, connection)
