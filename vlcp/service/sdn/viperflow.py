@@ -1716,7 +1716,7 @@ class ViperFlow(Module):
                         if hasattr(values[1+i],'ip_address'):
                             try:
                                 ip_address = parse_ip4_address(values[1+i].ip_address)
-                            except:
+                            except Exception:
                                 raise ValueError("special ip_address" + values[1+i].ip_address + " invailed")
                             else:
                                 # check ip_address in cidr
@@ -1726,7 +1726,7 @@ class ViperFlow(Module):
                                     assert start <= ip_address <= end
                                     if hasattr(sn,'gateway'):
                                         assert ip_address != parse_ip4_address(sn.gateway)
-                                except:
+                                except Exception:
                                     raise ValueError("special ipaddress " + values[1+i].ip_address + " invaild")
 
                                 if str(ip_address) not in smn.allocated_ips:
@@ -1868,7 +1868,7 @@ class ViperFlow(Module):
                             assert start <= ip_address <= end
                             if hasattr(subnetobj,"gateway"):
                                 assert ip_address != parse_ip4_address(subnetobj.gateway)
-                        except:
+                        except Exception:
                             raise ValueError("special ipaddress " + port['ip_address'] + " invaild")
 
                         if str(ip_address) not in subnetmapobj.allocated_ips:
@@ -1882,7 +1882,7 @@ class ViperFlow(Module):
                     # check and format mac address
                     try:
                         mac = mac_addr(port['mac_address'])
-                    except:
+                    except Exception:
                         raise ValueError("mac address invalid %r",port['mac_address'])
                     else:
                         # format

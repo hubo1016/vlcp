@@ -7,7 +7,7 @@ Created on 2015/11/17
 try:
     import ez_setup
     ez_setup.use_setuptools()
-except:
+except Exception:
     pass
 from setuptools import setup, find_packages
 

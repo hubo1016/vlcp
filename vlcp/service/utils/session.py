@@ -11,7 +11,7 @@ from vlcp.service.utils import knowledge
 from uuid import uuid4
 try:
     from Cookie import SimpleCookie, Morsel
-except:
+except Exception:
     from http.cookies import SimpleCookie, Morsel
 from vlcp.event.lock import Lock
 

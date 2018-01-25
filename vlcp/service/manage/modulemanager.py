@@ -62,14 +62,14 @@ class Manager(Module):
                         mtime = os.path.getmtime(source)
                         if mtime <= t and mtime > self._lastcheck:
                             reloads.append(k)
-                    except:
+                    except Exception:
                         pass
                 if reloads:
                     self._logger.warning('Auto reload following modules: %r', reloads)
                     try:
                         for m in self.reloadmodules(reloads):
                             yield m
-                    except:
+                    except Exception:
                         self._logger.warning('Exception occurs on auto reload', exc_info=True)
                 self._lastcheck = t
         finally:

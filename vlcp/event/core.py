@@ -320,7 +320,7 @@ class Scheduler(object):
                     try:
                         try:
                             retvalue = self.syscallfunc(self, processEvent)
-                        except:
+                        except Exception:
                             (t, v, tr) = sys.exc_info()
                             self.syscallfunc = None
                             self.syscallrunnable = None
@@ -333,7 +333,7 @@ class Scheduler(object):
                         self.unregisterall(r)
                     except QuitException:
                         self.unregisterall(r)
-                    except:
+                    except Exception:
                         self.logger.exception('processing syscall failed with exception')
                         self.unregisterall(r)
 
@@ -352,7 +352,7 @@ class Scheduler(object):
                         self.unregisterall(r)
                     except QuitException:
                         self.unregisterall(r)
-                    except:
+                    except Exception:
                         self.logger.exception('processing event %s failed with exception', repr(event))
                         self.unregisterall(r)
                     processSyscall()
@@ -404,7 +404,7 @@ class Scheduler(object):
                                 self.unregisterall(r)
                             except QuitException:
                                 self.unregisterall(r)
-                            except:
+                            except Exception:
                                 self.logger.exception('Runnable quit failed with exception')
                                 self.unregisterall(r)
                             processSyscall()
@@ -441,7 +441,7 @@ class Scheduler(object):
                 for r in list(self.registerIndex.keys()):
                     try:
                         r.close()
-                    except:
+                    except Exception:
                         self.logger.exception('Runnable quit failed with exception')
                     finally:
                         self.unregisterall(r)

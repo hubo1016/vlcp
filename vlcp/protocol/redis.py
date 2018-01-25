@@ -14,7 +14,7 @@ from contextlib import closing
 try:
     import hiredis
     hiredis_available = True
-except:
+except Exception:
     hiredis_available = False
 
 @withIndices('state', 'connection', 'connmark', 'createby')
@@ -57,7 +57,7 @@ def _copy(buffer):
             return buffer.tobytes()
         else:
             return buffer[:]
-    except:
+    except Exception:
         return buffer[:]
 
 def _str(b, encoding = 'ascii'):
@@ -380,7 +380,7 @@ class Redis(Protocol):
                     r, reply_matcher = self._prepare_command(connection, c)
                     commands.append(r)
                     matchers.append(reply_matcher)
-                except:
+                except Exception:
                     self._logger.warning('Error in one of the commands in a batch: %r. The command is ignored.', c, exc_info = True)
             if not commands:
                 raise RedisProtocolException('Error for every command in a batch')

@@ -21,7 +21,7 @@ try:
     unquote_to_bytes = unquote
     quote_from_bytes = quote
     unquote_plus_to_bytes = unquote_plus
-except:
+except Exception:
     from http.cookies import SimpleCookie, Morsel
     from urllib.parse import parse_qs, urlunsplit, urljoin, urlsplit, unquote_to_bytes, quote_from_bytes
     # There is not an unquote_plus_to_bytes in urllib.parse, but it is simple
@@ -117,7 +117,7 @@ class Environment(object):
                 def convert(k,v):
                     try:
                         k = str(k.decode('ascii'))
-                    except:
+                    except Exception:
                         raise HttpInputException('Form-data key must be ASCII')
                     if not k.endswith('[]'):
                         v = v[-1]
@@ -309,7 +309,7 @@ class Environment(object):
         self.outputstream = stream
         try:
             content_length = len(stream)
-        except:
+        except Exception:
             pass
         else:
             self.header(b'Content-Length', str(content_length).encode('ascii'))
@@ -352,7 +352,7 @@ class Environment(object):
                         return s.decode(self.encoding)
                     else:
                         return s
-                except:
+                except Exception:
                     raise HttpInputException('Invalid encoding in post data: ' + repr(s))
         else:
             def _str(s):
@@ -428,7 +428,7 @@ class Environment(object):
                     def convert(k,v):
                         try:
                             k = str(k.decode('ascii'))
-                        except:
+                        except Exception:
                             raise HttpInputException('Form-data key must be ASCII')
                         if not k.endswith('[]'):
                             v = _str(v[-1])
@@ -473,7 +473,7 @@ class Environment(object):
             if auth_pair[0].lower() == b'basic':
                 try:
                     userpass = base64.b64decode(auth_pair[1])
-                except:
+                except Exception:
                     raise HttpInputException('Invalid base-64 string')
                 userpass_pair = userpass.split(b':', 1)
                 if len(userpass_pair) != 2:
@@ -647,7 +647,7 @@ class Dispatcher(EventHandler):
                 event.canignore = True
                 c = event.connection if container is None else container
                 c.subroutine(routinemethod(event), False)
-            except:
+            except Exception:
                 pass
         for m in method:
             self.registerHandler(HttpRequestEvent.createMatcher(host, None, m, _ismatch = ismatch), func)

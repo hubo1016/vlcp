@@ -25,13 +25,13 @@ import re
 from vlcp.event.core import InterruptedBySignalException
 try:
     from Queue import Queue, PriorityQueue
-except:
+except Exception:
     from queue import Queue, PriorityQueue
 import traceback
 import sys
 try:
     import thread
-except:
+except Exception:
     import _thread as thread
 
 def console_help():
@@ -263,15 +263,15 @@ console_help()
                         finally:
                             try:
                                 sock.shutdown(socket.SHUT_RDWR)
-                            except:
+                            except Exception:
                                 pass
                             try:
                                 pstdin.close()
-                            except:
+                            except Exception:
                                 pass
                             try:
                                 pstdout.close()
-                            except:
+                            except Exception:
                                 pass
                             sys.stdin = orig_stdin
                             sys.stdout = orig_stdout
@@ -295,7 +295,7 @@ console_help()
             if t != 2 or seq >= lastseq:
                 try:
                     sock.sendall(val)
-                except:
+                except Exception:
                     break
             if t == 0:
                 lastseq = seq
@@ -390,7 +390,7 @@ console_help()
         finally:
             try:
                 os.close(pstdin_w)
-            except:
+            except Exception:
                 pass
             queue.put((-1, -1, -1))
     def _interactive(self):
@@ -498,7 +498,7 @@ console_help()
                         if callback:
                             try:
                                 callback(self.apiroutine.event, self.apiroutine.matcher)
-                            except:
+                            except Exception:
                                 print('Exception while running callback:')
                                 traceback.print_exc()
                         if breakpoint:

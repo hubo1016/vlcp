@@ -19,7 +19,7 @@ try:
     from cookielib import CookieJar, request_host
     from urlparse import urlsplit, urlunsplit, urljoin
     from urllib import quote
-except:
+except Exception:
     from http.cookiejar import CookieJar, request_host
     from urllib.parse import urlsplit, urlunsplit, quote, urljoin
 from vlcp.utils import encoders

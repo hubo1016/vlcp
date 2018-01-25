@@ -24,7 +24,7 @@ def _copy(buffer):
             return buffer.tobytes()
         else:
             return buffer[:]
-    except:
+    except Exception:
         return buffer[:]
 
 @defaultconfig

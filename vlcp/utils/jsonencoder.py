@@ -10,7 +10,7 @@ try:
     from urllib import unquote, quote
     unquote_to_bytes = unquote
     quote_from_bytes = quote
-except:
+except Exception:
     from urllib.parse import unquote_to_bytes, quote_from_bytes
 from namedstruct.namedstruct import NamedStruct, EmbeddedStruct
 from namedstruct import dump as namedstruct_dump
@@ -127,7 +127,7 @@ class JsonFormat(Configurable):
                 if self.bytesdecode:
                     try:
                         return obj.decode(self.bytesdecode)
-                    except:
+                    except Exception:
                         return repr(obj)
                 else:
                     return repr(obj)

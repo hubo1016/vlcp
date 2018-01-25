@@ -86,7 +86,7 @@ class NetworkVxlanDriver(Module):
                 if end > (1 << 24) - 1:
                     raise ValueError('vni out of range (0 -- 2^24 - 1)')  
                 lastend = end
-        except:
+        except Exception:
             raise ValueError('vnirange format error,[(1,100),(200,500)]')
 
 

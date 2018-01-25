@@ -15,7 +15,7 @@ import traceback
 
 try:
     reload
-except:
+except Exception:
     from vlcp.utils.pycache import reload
 
 module1 = b'''
@@ -349,7 +349,7 @@ class Test(unittest.TestCase):
                     yield m
             except ValueError:
                 apiResults.append(True)
-            except:
+            except Exception:
                 apiResults.append(False)
             else:
                 apiResults.append(False)

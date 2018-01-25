@@ -15,7 +15,7 @@ import logging
 from vlcp.event.runnable import RoutineContainer
 try:
     from urlparse import urlsplit, urljoin
-except:
+except Exception:
     from urllib.parse import urlsplit, urljoin
 import re
 import mimetypes
@@ -319,7 +319,7 @@ class Static(Module):
                         for m in env.error(403, showerror = False):
                             yield m
                         env.exit()
-                except:
+                except Exception:
                     for m in env.error(403, showerror = False):
                         yield m
                     env.exit()
@@ -400,13 +400,13 @@ class Static(Module):
                     if not stat.S_ISREG(stat_info.st_mode):
                         raise ValueError('Not regular file')
                     realpath += '.gz'
-                except:
+                except Exception:
                     try:
                         stat_info = os.stat(realpath)
                         if not stat.S_ISREG(stat_info.st_mode):
                             raise ValueError('Not regular file')
                         use_gzip = False
-                    except:
+                    except Exception:
                         for m in env.error(404, showerror = False):
                             yield m
                         env.exit()
@@ -416,7 +416,7 @@ class Static(Module):
                     if not stat.S_ISREG(stat_info.st_mode):
                         raise ValueError('Not regular file')
                     use_gzip = False
-                except:
+                except Exception:
                     for m in env.error(404, showerror = False):
                         yield m
                     env.exit()
@@ -525,7 +525,7 @@ class Static(Module):
                 fobj = open(realpath, 'rb')
                 try:
                     fobj.seek(rng[0])
-                except:
+                except Exception:
                     fobj.close()
                     raise
                 else:
@@ -594,7 +594,7 @@ class Static(Module):
                                                  relativemodule,
                                                  os.getcwd())
                             relativeroot = os.getcwd()
-                    except:
+                    except Exception:
                         self._logger.exception('Cannot locate relative module %r', relativemodule)
                         raise
                 else:

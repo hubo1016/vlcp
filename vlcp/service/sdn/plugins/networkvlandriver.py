@@ -92,7 +92,7 @@ class NetworkVlanDriver(Module):
                 if end > 4095:
                     raise ValueError('vlan out of range (0 -- 4095)')  
                 lastend = end
-        except:
+        except Exception:
             raise ValueError('vlanrange format error,[(1,100),(200,500)]')
 
 

@@ -17,10 +17,10 @@ from inspect import cleandoc
 
 try:
     reload
-except:
+except Exception:
     try:
         from importlib import reload
-    except:
+    except Exception:
         from imp import reload
 
 
@@ -323,9 +323,11 @@ class Module(Configurable):
                         yield m
             except ValueError:
                 pass
-        except:
-            for m in self.changestate(ModuleLoadStateChanged.FAILED, container):
-                yield m
+        except Exception:
+            def _cleanup():
+                for m in self.changestate(ModuleLoadStateChanged.FAILED, container):
+                    yield m
+            container.subroutine(_cleanup(), False)
             raise
     def unload(self, container, force = False):
         '''
@@ -337,13 +339,13 @@ class Module(Configurable):
             try:
                 for m in c.shutdown():
                     yield m
-            except:
+            except Exception:
                 self._logger.warning('Except when shutting down connection %r', c, exc_info = True)
         if self.forcestop or force:
             for r in self.routines:
                 try:
                     r.close()
-                except:
+                except Exception:
                     self._logger.warning('Except when unloading module', exc_info = True)
         for m in self.changestate(ModuleLoadStateChanged.UNLOADED, container):
             yield m
@@ -550,8 +552,10 @@ class ModuleLoader(RoutineContainer):
                         self._removeDepend(module, d)
                 self._logger.warning('Loading module %r stopped', module, exc_info=True)
                 # Not loaded, send a message to notify that parents can not 
-                for m in self.waitForSend(ModuleLoadStateChanged(module, ModuleLoadStateChanged.UNLOADED, inst)):
-                    yield m
+                def _msg():
+                    for m in self.waitForSend(ModuleLoadStateChanged(module, ModuleLoadStateChanged.UNLOADED, inst)):
+                        yield m
+                self.subroutine(_msg(), False)
                 del module._instance
                 raise
             for d in preloads:
@@ -675,11 +679,11 @@ class ModuleLoader(RoutineContainer):
             except KeyError:
                 try:
                     p = __import__(package, fromlist=[m[0] for m in mlist])
-                except:
+                except Exception:
                     self._logger.warning('Failed to import a package: %r, resume others', package, exc_info = True)
                     failures.append('Failed to import: ' + package)
                     continue
-            except:
+            except Exception:
                 self._logger.warning('Failed to import a package: %r, resume others', package, exc_info = True)
                 failures.append('Failed to import: ' + package)
                 continue                
@@ -695,7 +699,7 @@ class ModuleLoader(RoutineContainer):
                     try:
                         lpos = loadedModules.index(module)
                         loaded = True
-                    except:
+                    except Exception:
                         loaded = False
                     for d in module.depends:
                         # The new reference is automatically added on import, only remove the old reference

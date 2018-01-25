@@ -9,7 +9,7 @@ import warnings
 
 try:
     from vlcp_event_cython.event import *
-except:
+except Exception:
 
     class IsMatchExceptionWarning(Warning):
         pass

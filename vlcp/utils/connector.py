@@ -141,7 +141,7 @@ class Connector(RoutineContainer):
                         continue
                     else:
                         break
-                except:
+                except Exception:
                     pass
         finally:
             pipeout[1].close()
@@ -355,7 +355,7 @@ def async_processor(func):
                     break
             try:
                 func(event, matcher, queueout)
-            except:
+            except Exception:
                 # Ignore
                 pass
     return handler
@@ -367,7 +367,7 @@ def processor_to_async(newthread = False, mp = False):
         def handler(event, matcher, queueout):
             try:
                 output = func(event, matcher)
-            except:
+            except Exception:
                 queueout.put(())
             else:
                 queueout.put(output)
@@ -407,7 +407,7 @@ class TaskPool(Connector):
             try:
                 for es in func():
                     yield es
-            except:
+            except Exception:
                 (typ, val, tr) = sys.exc_info()
                 yield (TaskDoneEvent(event, exception = val),)
             else:
@@ -418,7 +418,7 @@ class TaskPool(Connector):
         def f(event, matcher):
             try:
                 return (TaskDoneEvent(event, result=func()),)
-            except:
+            except Exception:
                 (typ, val, tr) = sys.exc_info()
                 return (TaskDoneEvent(event, exception = val),)
         return f
@@ -429,7 +429,7 @@ class TaskPool(Connector):
                 queueout.put(tuple(es) + (MoreResultEvent(),))
             try:
                 queueout.put((TaskDoneEvent(event, result=func(sender)),))
-            except:
+            except Exception:
                 (typ, val, tr) = sys.exc_info()
                 queueout.put((TaskDoneEvent(event, exception = val),))
         return f
@@ -491,7 +491,7 @@ class Resolver(Connector):
         try:
             addrinfo = socket.getaddrinfo(*params)
             return (ResolveResponseEvent(params, response=addrinfo),)
-        except:
+        except Exception:
             et, ev, tr = sys.exc_info()
             return (ResolveResponseEvent(params, error=ev),)
     def enqueue(self, queue, event, matcher):
