@@ -21,11 +21,13 @@ install:
   - "pip install nstruct hiredis"
   - pip install coverage
 
-
+cache:
+  directories:
+    - cache
+    
+    
 # command to run tests
 script: 
-  - sudo -E bash -xe ci_test.sh
+  - sudo -H -E bash -xe ci_test.sh
 
 
-after_success:
-  - bash <(curl -s https://codecov.io/bash)
