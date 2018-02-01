@@ -56,22 +56,22 @@ def generate_doc(app, env, added, changed, removed):
 
 exclude_list = []
 
-def generate_references(app, env, added, changed, removed):
+def generate_references(app):
     branch = 'master'
     if 'READTHEDOCS_VERSION' in os.environ:
         branch = os.environ['READTHEDOCS_VERSION']
         if branch == 'latest':
             branch = 'master'
     
-    with open(os.path.join(env.srcdir, 'ref_package.rst.tmpl'), 'rb') as f:
+    with open(os.path.join(app.srcdir, 'ref_package.rst.tmpl'), 'rb') as f:
         text = f.read().decode('utf-8')
     package_template = jinja2.Template(text)
 
-    with open(os.path.join(env.srcdir, 'ref_module.rst.tmpl'), 'rb') as f:
+    with open(os.path.join(app.srcdir, 'ref_module.rst.tmpl'), 'rb') as f:
         text = f.read().decode('utf-8')
     module_template = jinja2.Template(text)
     
-    shutil.rmtree(os.path.join(env.srcdir,'gensrc/ref'), True)
+    shutil.rmtree(os.path.join(app.srcdir,'gensrc/ref'), True)
     
     def _build_package(root_package, githubproj):
         pkg = __import__(root_package, fromlist=['_'])
@@ -94,11 +94,11 @@ def generate_references(app, env, added, changed, removed):
                 result = module_template.render(module_name = module,
                                                 githubproject = githubproj,
                                                 branch = branch)
-            if not os.path.isdir(os.path.join(env.srcdir, package_path)):
-                app.info('Creating directory ' + os.path.join(env.srcdir, package_path))
-                os.makedirs(os.path.join(env.srcdir, package_path))
-            with open(os.path.join(env.srcdir, module_path + '.rst'), 'w') as f:
-                app.info('Writing ' + os.path.join(env.srcdir, module_path + '.rst'))
+            if not os.path.isdir(os.path.join(app.srcdir, package_path)):
+                app.info('Creating directory ' + os.path.join(app.srcdir, package_path))
+                os.makedirs(os.path.join(app.srcdir, package_path))
+            with open(os.path.join(app.srcdir, module_path + '.rst'), 'w') as f:
+                app.info('Writing ' + os.path.join(app.srcdir, module_path + '.rst'))
                 f.write(result)
             yield module_path
     return ['reference'] + list(_build_package('vlcp', 'hubo1016/vlcp')) + list(_build_package('vlcp_docker', 'hubo1016/vlcp-docker-plugin'))
@@ -113,6 +113,6 @@ def skip_members(app, what, name, obj, skip, options):
 
 def setup(app):
     app.connect('env-get-outdated', generate_doc)
-    app.connect('env-get-outdated', generate_references)
+    app.connect('builder-inited', generate_references)
     app.connect('autodoc-skip-member', skip_members)
     return {'version': '0.1'}
