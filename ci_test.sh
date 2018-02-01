@@ -17,8 +17,10 @@ coverage --version
 if [ "${TRAVIS_PYTHON_VERSION:0:4}" == "pypy" ]; then
 	python -m unittest discover
 else
-	coverage run -m unittest discover
+	coverage run -m unittest discover   
 fi
+
+cache_dir=`pwd`/cache
 
 if [ "${TRAVIS_EVENT_TYPE}" == "cron" -o "${TRAVIS_EVENT_TYPE}" == "pull_request" -o "${TRAVIS_TAG:-}" != "" ]; then
 	python setup.py bdist_wheel
@@ -30,6 +32,11 @@ if [ "${TRAVIS_EVENT_TYPE}" == "cron" -o "${TRAVIS_EVENT_TYPE}" == "pull_request
     if [ "${TRAVIS_PYTHON_VERSION:0:4}" == "pypy" ]; then
         bash -xe starttest.sh $venv ${KV_DB}
     else
-        bash -xe starttest.sh $venv ${KV_DB} "coverage"
+        # only all integration test we will upload coverage file
+        # otherwise coverage line maybe zigzag because common commit 
+        # will only run unittest
+        bash <(curl -s https://codecov.io/bash) -F unittests -e DB=${KV_DB}
+        bash -xe starttest.sh $venv ${KV_DB} "coverage" $cache_dir
+        bash <(curl -s https://codecov.io/bash) -F integration -e DB=${KV_DB}
     fi
 fi
