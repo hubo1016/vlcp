@@ -570,7 +570,7 @@ class VRouterApi(Module):
 
             temp_rp_key = set()
             for robj in routerobjs:
-                for weakobj in robj.interface.dataset():
+                for weakobj in robj.interfaces.dataset():
                     temp_rp_key.add(weakobj.getkey())
             if temp_rp_key - set(rpkeys):
                 raise ValueError("data conflict , retry again !")
