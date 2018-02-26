@@ -415,7 +415,7 @@ class VRouterApi(Module):
                 
                 if routerobj and subnetobj and subnetmapobj:
 
-                    if newrouterport.create_weakreference in routerobj.interfaces.dataset():
+                    if newrouterport.create_weakreference() in routerobj.interfaces.dataset():
                         raise ValueError(" subnet " + subnet + " has been added in router" + subnetobj.router.getkey())
 
                     # now subnet only have one router ,,so check it (external subnet mybe add more router)
@@ -512,58 +512,44 @@ class VRouterApi(Module):
         """
         Remote multiple subnets from routers
         """
-
-        # idset use to check repeat subnet!
-        idset = set()
         delete_interfaces = []
-
         for interface in interfaces:
             interface = copy.deepcopy(interface)
-            if "router" not in interface:
+            if 'router' not in interface:
                 raise ValueError(" must specify router=id")
             if "subnet" not in interface:
                 raise ValueError(" must specify subnet=id")
-            else:
-                if interface["subnet"] in idset:
-                    raise ValueError("repeated subnet id " + interface["subnet"])
-                else:
-                    idset.add(interface["subnet"])
-
             delete_interfaces.append(interface)
 
-        subnetkeys = [SubNet.default_key(interface["subnet"]) for interface in delete_interfaces]
-        subnetmapkeys = [SubNetMap.default_key(interface["subnet"]) for interface in delete_interfaces]
+        routerkeys = list(set([VRouter.default_key(interface['router']) for interface in delete_interfaces]))
+        for m in self._getkeys(routerkeys):
+            yield m
+
+        routerobjs = self.app_routine.retvalue
+
+        routerportkeys = set()
+        for key, obj in zip(routerkeys, routerobjs):
+            if not obj:
+                raise ValueError(" vrouter %r not existed " % key)
+            if not obj.interfaces.dataset():
+                raise ValueError(" vrouter %r not have subnet interface " % key)
+
+            for weakobj in obj.interfaces.dataset():
+                router_port_key = weakobj.getkey()
+                routerportkeys.add(router_port_key)
+
+        routerportkeys = list(routerportkeys)
+        subnetkeys = list(set([SubNet.default_key(interface["subnet"]) for interface in delete_interfaces]))
+        subnetmapkeys = list(set([SubNetMap.default_key(interface["subnet"]) for interface in delete_interfaces]))
         for m in self._getkeys(subnetkeys):
             yield m
 
         subnetobjs = self.app_routine.retvalue
 
         if None in subnetobjs:
-            raise ValueError(" subnet object not existed " +\
+            raise ValueError(" subnet object not existed " +
                              SubNet._getIndices(subnetkeys[subnetobjs.index(None)])[1][0])
 
-        sndict = dict(zip(subnetkeys,subnetobjs))
-
-        for interface in delete_interfaces:
-            if SubNet.default_key(interface['subnet']) in sndict:
-                snobj = sndict[SubNet.default_key(interface["subnet"])]
-                if hasattr(snobj,"router"):
-                    routerportid = RouterPort._getIndices(snobj.router.getkey())[1][0]
-                    interface['routerport'] = routerportid
-                else:
-                    raise ValueError("subnet " + interface["subnet"] + " is not plugged to router" )
-
-
-        subnetkeys = list(set(subnetkeys))
-        
-        routerportkeys = [s.router.getkey() for s in subnetobjs]
-        
-        routerportkeys = list(set(routerportkeys))
-        
-        routerkeys = [VRouter.default_key(interface["router"]) for interface in delete_interfaces]
-
-        routerkeys = list(set(routerkeys))
-        
         def delete_interface(keys,values):
             rkeys = keys[0:len(routerkeys)]
             robjs = values[0:len(routerkeys)]
@@ -582,34 +568,50 @@ class VRouterApi(Module):
             snmdict = dict(zip(snmkeys,snmobjs))
             rpdict = dict(zip(rpkeys,rpobjs))
 
+            temp_rp_key = set()
+            for robj in routerobjs:
+                for weakobj in robj.interface.dataset():
+                    temp_rp_key.add(weakobj.getkey())
+            if temp_rp_key - set(rpkeys):
+                raise ValueError("data conflict , retry again !")
+
+            remove_rp_keys = []
             for interface in delete_interfaces:
-                r = rdict.get(VRouter.default_key(interface["router"]),None)
-                sn = sndict.get(SubNet.default_key(interface["subnet"]),None)
-                snm = snmdict.get(SubNetMap.default_key(interface["subnet"]),None)
-                rp = rpdict.get(RouterPort.default_key(interface["routerport"]),None)
+                r = rdict.get(VRouter.default_key(interface["router"]), None)
+                sn = sndict.get(SubNet.default_key(interface["subnet"]), None)
+                snm = snmdict.get(SubNetMap.default_key(interface["subnet"]), None)
+                rp = dict()
+                if r and sn and snm:
+                    for rpkey, rpobj in rpdict.items():
+                        rp_to_router_key = rpobj.router.getkey()
+                        if rp_to_router_key == r.getkey():
+                            rp.update({rpkey: rpobj})
 
-                if r and sn and snm and rp:
-                    # has not attr ip_address, means router port use subnet gateway as ip_address
-                    if hasattr(rp,'ip_address'):
-                        # it means have allocated ip address in subnetmap, delete it
-                        ipaddress = ip4_addr(rp.ip_address)
-                        del snm.allocated_ips[str(ipaddress)]
+                    for rpkey, rpobj in rp.items():
+                        rp_to_subnet_key = rpobj.subnet.getkey()
+                        if rp_to_subnet_key == sn.getkey():
+                            remove_rp_keys.append(rpkey)
+                            # has not attr ip_address, means router port use subnet gateway as ip_address
+                            if hasattr(rpobj, 'ip_address'):
+                                # it means have allocated ip address in subnetmap, delete it
+                                ipaddress = ip4_addr(rpobj.ip_address)
+                                del snm.allocated_ips[str(ipaddress)]
 
-                    # one subnet only have one router , so del this attr
-                    # when subnet is external , it do not has router attr
-                    if hasattr(sn,'router'):
-                        delattr(sn,'router')
+                            # one subnet only have one router , so del this attr
+                            # when subnet is external , it do not has router attr
+                            if hasattr(sn, 'router'):
+                                delattr(sn, 'router')
 
-                    if rp.create_weakreference() in r.interfaces.dataset():
-                        r.interfaces.dataset().discard(rp.create_weakreference())
-                    else:
-                        raise ValueError("router " + interface["router"] + " have no router port " +
-                                         interface["routerport"])
+                            if rpobj.create_weakreference() in r.interfaces.dataset():
+                                r.interfaces.dataset().discard(rpobj.create_weakreference())
+                            else:
+                                raise ValueError("router " + interface["router"] + " have no router port " +
+                                                 interface["routerport"])
                 else:
                     raise ValueError("route " + interface["router"] + " subnet " + interface["subnet"] +
                                      " routerport " + interface["routerport"] + " not existed!")
 
-            return keys,robjs + snobjs + snmobjs + [None]*len(routerportkeys)
+            return rkeys + snkeys + snmkeys + tuple(remove_rp_keys), robjs + snobjs + snmobjs + [None]*len(remove_rp_keys)
 
         transact_keys = routerkeys + subnetkeys + subnetmapkeys + routerportkeys
 
