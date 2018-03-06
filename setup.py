@@ -11,7 +11,7 @@ except Exception:
     pass
 from setuptools import setup, find_packages
 
-VERSION = '1.4.4'
+VERSION = '1.4.5'
 
 setup(name='vlcp',
       version=VERSION,
@@ -23,6 +23,6 @@ setup(name='vlcp',
       keywords=['SDN', 'VLCP', 'Openflow'],
       test_suite = 'tests',
       use_2to3=False,
-      install_requires = ["nstruct>=1.1.1"],
+      install_requires = ["nstruct>=1.2.1"],
       packages=find_packages(exclude=("tests","tests.*","misc","misc.*")),
       entry_points={'console_scripts': ['vlcp-start = vlcp.start:default_start']})

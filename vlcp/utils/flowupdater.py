@@ -160,6 +160,6 @@ class FlowUpdater(RoutineContainer):
             except OpenflowErrorResultException:
                 self._logger.warning("Some Openflow commands return error result on connection %r, will ignore and continue.\n"
                                              "Details:\n%s", conn,
-                                             "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (json.dumps(dump(k), indent=2),
-                                                                                            json.dumps(dump(v), indent=2))
+                                             "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (json.dumps(dump(k, tostr=True), indent=2),
+                                                                                            json.dumps(dump(v, tostr=True), indent=2))
                                                        for k,v in self.openflow_replydict.items()))

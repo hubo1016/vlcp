@@ -63,8 +63,8 @@ class Test(unittest.TestCase):
         self.assertTrue(r is not None, 'Cannot parse message')
         obj2, size = r
         self.assertEqual(size, len(s), 'Cannot parse message')
-        print(json.dumps(dump(fm), indent=2))
-        print(json.dumps(dump(obj2), indent=2))
+        print(json.dumps(dump(fm, tostr=True), indent=2))
+        print(json.dumps(dump(obj2, tostr=True), indent=2))
         self.assertEqual(dump(fm), dump(obj2), 'message changed after parsing')
     def testDefs13Size(self):
         # From openflow.h
