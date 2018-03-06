@@ -123,20 +123,20 @@ class RouterUpdater(FlowUpdater):
                         return outmac, gateway, phyport
 
     def _getallinterfaceinfobynetid(self,netid):
-        router = None
-        ret_info = []
-        for r,v in self._lastallrouterinfo.items():
+        router = []
+        ret_info = dict()
+        for r, v in self._lastallrouterinfo.items():
             for e in v:
                 if e[6] == netid:
-                    router = r
-                    break
+                    router.append(r)
 
-        if router:
-            v = self._lastallrouterinfo[router]
+        for r in router:
+            v = self._lastallrouterinfo[r]
             for e in v:
-                ret_info.append((e[4],e[6]))
+                # ret_info.append((e[4], e[6]))
+                ret_info.setdefault(r, []).append((e[4], e[6]))
 
-        return  ret_info
+        return ret_info
 
     def _keep_forwardinfo_alive_handler(self):
         while True:
@@ -779,12 +779,15 @@ class RouterUpdater(FlowUpdater):
                             self._arp_cache[(netid,reply_ipaddress)] = entry
 
                             # add static routes in l3router
-                            for smac,nid in self._getallinterfaceinfobynetid(netid):
-                                self.subroutine(_add_static_routes_flow(nid,cidr,netid,mac_addr(smac),reply_macaddress))
+                            network_relate_router = self._getallinterfaceinfobynetid(netid)
+                            for k, v in network_relate_router.items():
+                                for smac, nid in v:
+                                    self.subroutine(_add_static_routes_flow(nid, cidr, netid,
+                                                                            mac_addr(smac), reply_macaddress))
 
-                                if netid == nid:
-                                    self.subroutine(_add_static_host_flow(ip4_addr.formatter(reply_ipaddress),
-                                                                      reply_macaddress,nid,mac_addr(smac)))
+                                    if netid == nid:
+                                        self.subroutine(_add_static_host_flow(ip4_addr.formatter(reply_ipaddress),
+                                                                              reply_macaddress, nid, mac_addr(smac)))
                         else:
                             # this is the first arp reply
                             if status == 1 or status == 3:
@@ -1347,19 +1350,29 @@ class RouterUpdater(FlowUpdater):
 
             for k,v in allrouterinterfaceinfo.items():
                 for e in v:
-                    #isexternal,gateway,inmac,outmac,external_ip,networkid
-                    entry = (e[1],e[2],e[3],e[4],e[5],e[6])
+                    # isexternal,gateway,inmac,outmac,external_ip,networkid
+                    entry = (e[1], e[2], e[3], e[4], e[5], e[6])
                     currentnetworkrouterinfo[e[9]] = entry
-                    network_to_router[e[9]] = k
+
+                    # network maybe to more router
+                    network_to_router.setdefault(e[9], set()).add(k)
+                    # network_to_router[e[9]] = k
 
             self._lastnetworkrouterinfo = currentnetworkrouterinfo
 
             currentnetworkroutertableinfo = dict()
             for network in currentnetworkrouterinfo.keys():
-                for e in allrouterinterfaceinfo[network_to_router[network]]:
-                    if e[9] != network:
-                        entry = (currentnetworkrouterinfo[network][5],e[0],e[6])
-                        currentnetworkroutertableinfo.setdefault(network,set()).add(entry)
+                all_router = network_to_router[network]
+                for router in all_router:
+                    for e in allrouterinterfaceinfo[router]:
+                        if e[9] != network:
+                            # self_network_id, cidr, to_network_id
+                            entry = (currentnetworkrouterinfo[network][5], e[0], e[6])
+                            currentnetworkroutertableinfo.setdefault(network,set()).add(entry)
+                # for e in allrouterinterfaceinfo[network_to_router[network]]:
+                #     if e[9] != network:
+                #         entry = (currentnetworkrouterinfo[network][5],e[0],e[6])
+                #         currentnetworkroutertableinfo.setdefault(network,set()).add(entry)
 
             self._lastnetworkroutertableinfo = currentnetworkroutertableinfo
 
@@ -1384,17 +1397,23 @@ class RouterUpdater(FlowUpdater):
                         network,mask = parse_ip4_network(cidr)
                         if ip_in_network(parse_ip4_address(nexthop),network,mask):
                             currentstaticroutes.setdefault(r,set()).add((prefix,nexthop,v[6]))
+                    # external, physical_port_no
                     if v[1] and v[7]:
+                        # prefix, gateway, network_id
                         currentstaticroutes.setdefault(r, set()).add(("0.0.0.0/0", v[2], v[6]))
 
             self._laststaticroutes = currentstaticroutes
 
             currentnetworkstaticroutesinfo = dict()
             for network in currentnetworkrouterinfo.keys():
-                if network_to_router[network] in currentstaticroutes:
-                    for route in currentstaticroutes[network_to_router[network]]:
-                        currentnetworkstaticroutesinfo.setdefault(network,set()).\
-                            add((currentnetworkrouterinfo[network][5],route[0],route[1],route[2]))
+                all_router = network_to_router[network]
+
+                for router in all_router:
+                    if router in currentstaticroutes:
+                        for route in currentstaticroutes[router]:
+                            # from_network_id, prefix, gateway, to_network_id
+                            currentnetworkstaticroutesinfo.setdefault(network, set()).\
+                                add((currentnetworkrouterinfo[network][5], route[0], route[1], route[2]))
 
             self._lastnetworkstaticroutesinfo = currentnetworkstaticroutesinfo
 
@@ -1860,31 +1879,38 @@ class RouterUpdater(FlowUpdater):
             for r in laststaticroutes:
                 if r not in currentstaticroutes:
                     for prefix,nexthop,netid in laststaticroutes[r]:
-                        # delete arp cache entry
-                        if (netid,ip4_addr(nexthop)) in self._arp_cache:
-                            del self._arp_cache[(netid,ip4_addr(nexthop))]
+                        network_relate_router = self._getallinterfaceinfobynetid(netid)
+
+                        # network mybe to more router, if more, we don't remove arp cache
+                        if len(network_relate_router) <= 1:
+                            if (netid, ip4_addr(nexthop)) in self._arp_cache:
+                                del self._arp_cache[(netid, ip4_addr(nexthop))]
 
                         # delete all network routes from this prefix
-                        for mac,nid in self._getallinterfaceinfobynetid(netid):
+                        for mac, nid in network_relate_router[r]:
                             # this static routes mybe in this netwrok, delete it try!
-                            cmds.extend(_delete_router_route(nid,prefix,netid))
-                            if nid == netid:
-                                cmds.extend(_remove_host_flow(nexthop,mac,nid,mac))
+                            cmds.extend(_delete_router_route(nid, prefix, netid))
+                            if nid == netid and len(network_relate_router) <= 1:
+                                cmds.extend(_remove_host_flow(nexthop, mac, nid, mac))
 
                 elif laststaticroutes[r] != currentstaticroutes[r]:
                     last_router_routes_set = laststaticroutes[r]
                     new_router_routes_set = currentstaticroutes[r]
 
                     for prefix,nexthop,netid in last_router_routes_set.difference(new_router_routes_set):
-                        if (netid,ip4_addr(nexthop)) in self._arp_cache:
-                            del self._arp_cache[(netid,ip4_addr(nexthop))]
+                        network_relate_router = self._getallinterfaceinfobynetid(netid)
+
+                        # network mybe to more router, if more, we don't remove arp cache
+                        if len(network_relate_router) <= 1:
+                            if (netid, ip4_addr(nexthop)) in self._arp_cache:
+                                del self._arp_cache[(netid, ip4_addr(nexthop))]
 
                         # delete all network routes from this prefix
-                        for mac,nid in self._getallinterfaceinfobynetid(netid):
+                        for mac, nid in network_relate_router[r]:
                             # this static routes mybe in this netwrok, delete it try!
-                            cmds.extend(_delete_router_route(nid,prefix,netid))
-                            if nid == netid:
-                                cmds.extend(_remove_host_flow(nexthop,mac,nid,mac))
+                            cmds.extend(_delete_router_route(nid, prefix, netid))
+                            if nid == netid and len(network_relate_router) <= 1:
+                                cmds.extend(_remove_host_flow(nexthop, mac, nid, mac))
 
             for n in lastnetworkstaticroutesinfo:
                 if n not in currentnetworkstaticroutesinfo:

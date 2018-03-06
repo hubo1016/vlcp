@@ -2273,6 +2273,9 @@ class ViperFlow(Module):
                     idset.add(subnet['id'])
                 else:
                     raise ValueError("id repeat error")
+            if "isexternal" in subnet:
+                raise ValueError("update an subnet to external is not allowed")
+
         subnetkeys = [SubNet.default_key(sn['id']) for sn in subnets]
         subnetmapkeys = [SubNetMap.default_key(sn['id']) for sn in subnets]
 
