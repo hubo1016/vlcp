@@ -75,6 +75,7 @@ class ObjectDB(Module):
         self._stale = False
         self._updatekeys = set()
         self._update_version = {}
+        self._cache = None
         self.apiroutine = RoutineContainer(self.scheduler)
         self.apiroutine.main = self._update
         self.routines.append(self.apiroutine)
@@ -150,7 +151,7 @@ class ObjectDB(Module):
             orig_retrieveonce_list = set()
             # Retrieved values are stored in update_result before merging into current storage
             update_result = {}
-            # key => [(walker_func, original_keys, rid), ...]
+            # key => [(walker_func, (original_keys, rid)), ...]
             walkers = {}
             # Use the loop count as a revision identifier, then the valid revisions of the value
             # in update_result is a range, from the last loop count the value changed
@@ -164,6 +165,7 @@ class ObjectDB(Module):
             self._loopCount = 0
             # A request-id -> retrieve set dictionary to store the saved keys
             savelist = {}
+            
             def updateloop():
                 while (retrieve_list or self._updatekeys or self._requests):
                     watch_keys = set()
@@ -232,7 +234,7 @@ class ObjectDB(Module):
                     get_list = list(get_list_set)
                     if get_list:
                         try:
-                            for m in callAPI(self.apiroutine, 'kvstorage', 'mget', {'keys': get_list}):
+                            for m in callAPI(self.apiroutine, 'kvstorage', 'mgetwithcache', {'keys': get_list, 'cache': self._cache}):
                                 yield m
                         except QuitException:
                             raise
@@ -249,7 +251,7 @@ class ObjectDB(Module):
                             revision_min.clear()
                             revision_max.clear()
                         else:
-                            result = self.apiroutine.retvalue
+                            result, self._cache = self.apiroutine.retvalue
                             self._stale = False
                             for k,v in zip(get_list, result):
                                 if v is not None and hasattr(v, 'setkey'):
@@ -269,7 +271,7 @@ class ObjectDB(Module):
                                 else:
                                     old_value = update_result[k]
                                 # Check if the value is changed
-                                if getversion(old_value) != getversion(v):
+                                if old_value is not v and getversion(old_value) != getversion(v):
                                     revision_min[k] = self._loopCount
                                 else:
                                     if k not in revision_min:

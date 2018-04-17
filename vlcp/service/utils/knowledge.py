@@ -33,6 +33,7 @@ class Knowledge(Module):
                        api(self.set),
                        api(self.delete),
                        api(self.mget),
+                       api(self.mgetwithcache),
                        api(self.mset),
                        api(self.update),
                        api(self.mupdate),
@@ -92,6 +93,11 @@ class Knowledge(Module):
         "Get multiple values from multiple keys"
         t = time()
         return [None if v is None else v[0] for v in (self._get(k, t) for k in keys)]
+    
+    def mgetwithcache(self, keys, cache = None):
+        "Get multiple values, cached when possible"
+        return self.mget(keys), cache
+    
     def mset(self, kvpairs, timeout = None):
         "Set multiple values on multiple keys"
         d = kvpairs

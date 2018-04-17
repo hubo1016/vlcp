@@ -13,6 +13,7 @@ from vlcp.event.lock import Lock
 from zlib import compress, decompress, error as zlib_error
 import pickle
 from contextlib import closing
+from vlcp.utils.kvcache import KVCache
 try:
     import cPickle
 except ImportError:
@@ -141,6 +142,7 @@ class RedisDB(TcpServerBase):
                        api(self.set, self.apiroutine),
                        api(self.delete, self.apiroutine),
                        api(self.mget, self.apiroutine),
+                       api(self.mgetwithcache, self.apiroutine),
                        api(self.mset, self.apiroutine),
                        api(self.update, self.apiroutine),
                        api(self.mupdate, self.apiroutine),
@@ -208,15 +210,37 @@ class RedisDB(TcpServerBase):
         for m in c.execute_command(self.apiroutine, 'DEL', key):
             yield m
         self.apiroutine.retvalue = None
-    def mget(self, keys, vhost = ''):
-        "Get multiple values from multiple keys"
+    def _mget(self, keys, vhost = ''):
         if not keys:
             self.apiroutine.retvalue = []
             return
         c = self._redis_clients.get(vhost)
         for m in c.execute_command(self.apiroutine, 'MGET', *keys):
             yield m
+    def mget(self, keys, vhost = ''):
+        "Get multiple values from multiple keys"
+        for m in self._mget(keys, vhost):
+            yield m
         self.apiroutine.retvalue = [self._decode(r) for r in self.apiroutine.retvalue]
+    def mgetwithcache(self, keys, vhost = '', cache = None):
+        "Get multiple values, cached when possible"
+        for m in self._mget(keys, vhost):
+            yield m
+        if cache is None:
+            cache = KVCache()
+        def _decode_with_cache(key, cached, new_data):
+            if cached:
+                old_data, decode_value = cached
+                if old_data == new_data:
+                    return decode_value, None
+                else:
+                    decode_value = self._decode(new_data)
+                    return decode_value, (new_data, decode_value)
+            else:
+                decode_value = self._decode(new_data)
+                return decode_value, (new_data, decode_value)
+        self.apiroutine.retvalue = ([cache.update(k, _decode_with_cache, r)
+                                    for k,r in izip(keys, self.apiroutine.retvalue)], cache)
     def mset(self, kvpairs, timeout = None, vhost = ''):
         "Set multiple values on multiple keys"
         if not kvpairs:
