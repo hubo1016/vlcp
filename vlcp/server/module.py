@@ -736,7 +736,7 @@ class ModuleLoader(RoutineContainer):
             target = self.activeModules[targetname]
         return target
 
-def callAPI(container, targetname, name, params = {}, timeout = 60.0):
+def callAPI(container, targetname, name, params = {}, timeout = 120.0):
     """
     Call module API `targetname/name` with parameters. The return value is stored at `container.retvalue`.
     
@@ -764,7 +764,7 @@ def callAPI(container, targetname, name, params = {}, timeout = 60.0):
     else:
         container.retvalue = getAPIResult(container.event)
 
-def batchCallAPI(container, apis, timeout = 60.0):
+def batchCallAPI(container, apis, timeout = 120.0):
     apiHandles = [(object(), api) for api in apis]
     apiEvents = [ModuleAPICall(handle, targetname, name, params = params)
                  for handle, (targetname, name, params) in apiHandles]
