@@ -707,6 +707,7 @@ class ZooKeeperDB(TcpServerBase):
                 if last_name == (create_zxid, name):
                     # Return from cache
                     self.apiroutine.retvalue = last_value
+                    break
                 for m in client.requests([zk.getdata(rootdir + name)], self.apiroutine, 60):
                     yield m
                 completes, losts, retries, _ = self.apiroutine.retvalue
