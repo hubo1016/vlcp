@@ -205,6 +205,8 @@ class ObjectDB(Module):
             
             def updateloop():
                 while (retrieve_list or self._updatekeys or self._requests):
+                    # default walker, default walker cached, customized walker, customized walker cached
+                    _performance_counters = [0, 0, 0, 0]
                     # Updated keys
                     update_list = set()
                     if self._loopCount >= 10 and not retrieve_list:
@@ -390,6 +392,7 @@ class ObjectDB(Module):
                     def _do_default_walker(k):
                         if k not in _default_walker_dup_check:
                             _default_walker_dup_check.add(k)
+                            _performance_counters[0] += 1
                             if (k, None, None) not in finished_walkers:
                                 v = update_result.get(k)
                                 if v is not None:
@@ -407,7 +410,8 @@ class ObjectDB(Module):
                                 else:
                                     _update_walker_ref(k, None, None, None, [k])
                                     finished_walkers[(k, None, None)] = None
-                        
+                            else:
+                                _performance_counters[1] += 1
                     for k in orig_retrieve_list:
                         _do_default_walker(k)
                     savelist.clear()
@@ -426,8 +430,10 @@ class ObjectDB(Module):
                                 # w: walker_func
                                 # r: (request_original_keys, rid)
                                 # Custom walker
+                                _performance_counters[2] += 1
                                 _cache_key = (k, w, r[1])
                                 if _cache_key in finished_walkers:
+                                    _performance_counters[3] += 1
                                     savelist.setdefault(r[1], set()).update(finished_walkers[_cache_key])
                                 else:
                                     _local_save_list = set()
@@ -470,6 +476,9 @@ class ObjectDB(Module):
                     retrieve_list.clear()
                     retrieveonce_list.clear()
                     retrieve_list.update(new_retrieve_list)
+                    self._logger.debug("Loop %d: %d default walker (%d cached), %d customized walker (%d cached)",
+                                       self._loopCount,
+                                       *_performance_counters)
                     self._loopCount += 1
                     if self._stale:
                         watch_keys = tuple(k for k in retrieve_list if k not in self._watchedkeys)

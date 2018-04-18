@@ -666,6 +666,8 @@ class ZooKeeperDB(TcpServerBase):
         self.apiroutine.retvalue = l
     def mgetwithcache(self, keys, vhost = '', cache = None):
         "Get multiple values, cached when possible"
+        self._logger.debug("mgetwithcache retrieving %d keys...", len(keys))
+        _counter = [0, 0]
         if not keys:
             self.apiroutine.retvalue = []
             return
@@ -689,6 +691,7 @@ class ZooKeeperDB(TcpServerBase):
                 else:
                     _, old_data, old_value = cached
                     if old_data == new_data:
+                        _counter[1] += 1
                         return old_value, (new_name, new_data, old_value)
                     else:
                         new_value = self._decode(new_data)
@@ -707,6 +710,7 @@ class ZooKeeperDB(TcpServerBase):
                 if last_name == (create_zxid, name):
                     # Return from cache
                     self.apiroutine.retvalue = last_value
+                    _counter[0] += 1
                     break
                 for m in client.requests([zk.getdata(rootdir + name)], self.apiroutine, 60):
                     yield m
@@ -731,6 +735,7 @@ class ZooKeeperDB(TcpServerBase):
             for m in g:
                 yield m
         self.apiroutine.retvalue = [r[0] for r in self.apiroutine.retvalue], cache
+        self._logger.debug("mgetwithcache serves %d keys, %d with cache, %d with cache from data", len(keys), _counter[0], _counter[1])
     def mset(self, kvpairs, timeout = None, vhost = ''):
         "Set multiple values on multiple keys"
         if not kvpairs:
