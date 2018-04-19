@@ -10,6 +10,7 @@ from vlcp.event.event import Event, withIndices
 from vlcp.event.connection import Client, TcpServer
 import logging
 from time import time
+from vlcp.event.ratelimiter import RateLimiter
 
 @withIndices('producer')
 class TestConsumerEvent(Event):
@@ -115,6 +116,48 @@ class Test(unittest.TestCase):
         end_time = time()
         self.assertEqual(output, b'ABCD')
         self.assertTrue(0.4 < end_time - curr_time < 0.6)
+    def testLimiter(self):
+        def _test_limiter(limit, expected_result, *numbers):
+            scheduler = Scheduler()
+            rA = RoutineContainer(scheduler)
+            rB = RoutineContainer(scheduler)
+            limiter = RateLimiter(limit, rA)
+            counter = [0]
+            result = []
+            def _record():
+                while True:
+                    for m in rA.doEvents():
+                        yield m
+                    if counter[0] == 0:
+                        break
+                    result.append(counter[0])
+                    counter[0] = 0
+            def _limited():
+                for m in limiter.limit():
+                    yield m
+                counter[0] += 1
+            def _starter():
+                for t in numbers:
+                    for _ in range(t):
+                        rB.subroutine(_limited())
+                    for m in rB.doEvents():
+                        yield m
+            rA.subroutine(_record(), False)
+            rB.subroutine(_starter())
+            scheduler.main()
+            self.assertEqual(result, expected_result)
+        _test_limiter(5, [4], 4)
+        _test_limiter(5, [5], 5)
+        _test_limiter(5, [5,1], 6)
+        _test_limiter(5, [5,4], 9)
+        _test_limiter(5, [5,5], 10)
+        _test_limiter(5, [5,5,1], 11)
+        _test_limiter(1, [1] * 10, 10)
+        _test_limiter(5, [4,4,4], 4,4,4)
+        _test_limiter(5, [4,5,5,1], 4,6,5)
+        _test_limiter(5, [4,5,4,5,5], 4,6,3,5,5)
+        _test_limiter(5, [5,1,5], 6,0,5)
+        _test_limiter(5, [5,1,5,5,4], 6,0,6,4,4)
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testConsumer']

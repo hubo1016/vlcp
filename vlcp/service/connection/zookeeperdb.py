@@ -21,6 +21,7 @@ import functools
 from vlcp.event.core import QuitException
 from contextlib import closing
 from vlcp.utils.kvcache import KVCache
+from vlcp.event.ratelimiter import RateLimiter
 try:
     import cPickle
 except ImportError:
@@ -111,6 +112,8 @@ class _Notifier(RoutineContainer):
         self._transactno = 0
         self._client = None
         self._decoder = None
+        # Only allow 100 new pollers to prevent blocking the whole scheduler
+        self._rate_limiter = RateLimiter(100, self)
     def _check_completes(self, completes, err_allows = (), err_expects = ()):
         for result in completes:
             if result.err != zk.ZOO_ERR_OK and result.err not in err_allows:
@@ -141,6 +144,8 @@ class _Notifier(RoutineContainer):
     def _poller(self, client, key, decoder):
         if not client:
             return
+        for m in self._rate_limiter.limit():
+            yield m
         last_children = None
         last_zxid = 0
         barriers = set()
