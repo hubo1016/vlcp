@@ -92,10 +92,7 @@ class EventHandler(object):
 
 @withIndices('type', 'routine')
 class RoutineControlEvent(Event):
-    canignore = False
-    ASYNC_START = 'asyncstart'
     DELEGATE_FINISHED = 'delegatefinished'
-    WAIT = 'wait'
 
 class IllegalMatchersException(Exception):
     pass
@@ -151,21 +148,22 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
     `container.start` and `container.subroutine` calls this automatically.
     """
     def run():
-        iterself, re = yield
-        rcMatcher = RoutineControlEvent.createMatcher(RoutineControlEvent.ASYNC_START, iterself)
+        iterself = yield
         if manualStart:
             yield
         try:
             if asyncStart:
-                scheduler.register((rcMatcher,), iterself)
-                (event, m) = yield
-                event.canignore = True
-                scheduler.unregister((rcMatcher,), iterself)
+                scheduler.yield_(iterself)
+                yield
             if container is not None:
                 container.currentroutine = iterself
             if daemon:
                 scheduler.setDaemon(iterself, True)
             matchers = next(iterator)
+            while matchers is None:
+                scheduler.yield_(iterself)
+                yield
+                matchers = next(iterator)
             try:
                 scheduler.register(matchers, iterself)
             except Exception:
@@ -192,6 +190,10 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                     if container is not None:
                         container.currentroutine = iterself
                     matchers = iterator.send(etup)
+                while matchers is None:
+                    scheduler.yield_(iterself)
+                    yield
+                    matchers = next(iterator)
                 try:
                     scheduler.unregister(set(lmatchers).difference(matchers), iterself)
                     scheduler.register(set(matchers).difference(lmatchers), iterself)
@@ -199,9 +201,6 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                     iterator.throw(IllegalMatchersException(matchers))
                     raise
         finally:
-            if asyncStart:
-                re.canignore = True
-                scheduler.ignore(rcMatcher)
             # iterator.close() can be called in other routines, we should restore the currentroutine variable
             if container is not None:
                 lastcurrentroutine = getattr(container, 'currentroutine', None)
@@ -214,19 +213,7 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
             scheduler.unregisterall(iterself)
     r = generatorwrapper(run())
     next(r)
-    if asyncStart:
-        re = RoutineControlEvent(RoutineControlEvent.ASYNC_START, r)
-        r.send((r, re))
-        waiter = scheduler.send(re)
-        if waiter is not None:
-            # This should not happen regularly
-            def latencyStart(w):
-                while w:
-                    yield (w,)
-                    w = scheduler.send(re)
-            Routine(latencyStart(waiter), scheduler, False)
-    else:
-        r.send((r, None))
+    r.send(r)
     return r
 
 class RoutineException(Exception):
@@ -529,11 +516,7 @@ class RoutineContainer(object):
         '''
         matcher = self.scheduler.syscall(func)
         while not matcher:
-            e = RoutineControlEvent(RoutineControlEvent.WAIT, self.currentroutine)
-            e.canignore = True
-            for m in self.waitForSend(e):
-                yield m
-            yield (RoutineControlEvent.createMatcher(RoutineControlEvent.WAIT, self.currentroutine),)
+            yield
             matcher = self.scheduler.syscall(func)
         yield (matcher,)
     def syscall(self, func, ignoreException = False):
@@ -567,12 +550,10 @@ class RoutineContainer(object):
             except:
                 typ, val, tb = sys.exc_info()
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine)
-                e.canignore = True
                 self.scheduler.emergesend(e)
                 raise
             else:
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine)
-                e.canignore = True
                 for m in self.waitForSend(e):
                     yield m
         r = self.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
@@ -604,13 +585,11 @@ class RoutineContainer(object):
             except:
                 typ, val, tb = sys.exc_info()
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine, exception = val)
-                e.canignore = True
                 container.scheduler.emergesend(e)
                 raise
             else:
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine,
                                         result = tuple(getattr(container, n, None) for n in retnames))
-                e.canignore = True
                 for m in container.waitForSend(e):
                     yield m
         r = container.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)

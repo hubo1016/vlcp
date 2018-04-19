@@ -276,7 +276,7 @@ class _Notifier(RoutineContainer):
             for zxid in barriers:
                 self._remove_barrier(key, zxid)
     def _create_poller(self, key):
-        self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + _escape_path(key), self._decoder))
+        self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + _escape_path(key), self._decoder), False)
     def main(self):
         try:
             self._timestamp = '%012x' % (int(time() * 1000),) + '-'
@@ -303,7 +303,7 @@ class _Notifier(RoutineContainer):
                         self._create_poller(k)
                 if b'' in self._poll_routines:
                     self._poll_routines[b''].close()
-                self._poll_routines[b''] = self.subroutine(self._poller(client, b'/vlcp/notifier/all', decoder))
+                self._poll_routines[b''] = self.subroutine(self._poller(client, b'/vlcp/notifier/all', decoder), False)
             _recreate_pollers()
             connection_down = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.EXPIRED,
                                                                          client)
@@ -340,7 +340,7 @@ class _Notifier(RoutineContainer):
                                                                                    client)
                         _recreate_pollers()
                 if self._publish_wait:
-                    self.subroutine(self.publish())
+                    self.subroutine(self.publish(), False)
                 local_transid = '%s%016x' % (self._timestamp, self._transactno)
                 self._transactno += 1
                 self.scheduler.emergesend(
@@ -1187,7 +1187,7 @@ class ZooKeeperDB(TcpServerBase):
                                 yield m
                         except ZooKeeperSessionUnavailable:
                             pass
-                    self.apiroutine.subroutine(clearup())
+                    self.apiroutine.subroutine(clearup(), False)
                 raise
         finally:
             for l in locks:
