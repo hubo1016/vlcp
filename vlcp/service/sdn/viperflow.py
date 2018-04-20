@@ -2117,6 +2117,13 @@ class ViperFlow(Module):
                               A list of ``[dest_cidr, via]`` like
                               ``[["192.168.1.0/24", "192.168.2.3"],["192.168.3.0/24","192.168.2.4"]]``.
                               This creates static routes on the subnet.
+
+                           isexternal
+                              This subnet can forward packet to external physical network
+
+                           external_info
+                              A list of ``[systemid, bridge, cidr, local_ip, remote_ip]``
+                              Inter connect info with external physical network
         
         :return: A dictionary of information of the subnet.
         """
@@ -2146,6 +2153,14 @@ class ViperFlow(Module):
 
             if 'logicalnetwork' not in subnet:
                 raise ValueError('create subnet must special logicalnetwork')
+
+            if 'external_info' in subnet:
+                for _, _, cidr, local_ip, remote_ip in subnet['external_info']:
+                    cidr, perfix = parse_ip4_network(cidr)
+                    parse_ip4_address(local_ip)
+                    parse_ip4_address(remote_ip)
+                    ip_in_network(local_ip, cidr, prefix)
+                    ip_in_network(remote_ip, cidr, prefix)
 
             if 'cidr' not in subnet:
                 raise ValueError('create subnet must special cidr')
@@ -2311,8 +2326,16 @@ class ViperFlow(Module):
                     except Exception:
                         raise ValueError('invalid allocated end ' + sn['allocated_end'])
 
-                for k,v in sn.items():
-                    setattr(snet,k,v)
+                if 'external_info' in sn:
+                    for _, _, cidr, local_ip, remote_ip in sn['external_info']:
+                        cidr, perfix = parse_ip4_network(cidr)
+                        parse_ip4_address(local_ip)
+                        parse_ip4_address(remote_ip)
+                        ip_in_network(local_ip, cidr, prefix)
+                        ip_in_network(remote_ip, cidr, prefix)
+
+                for k, v in sn.items():
+                    setattr(snet, k, v)
 
                 try:
                     check_ip_pool(gateway=getattr(snet,'gateway',None),start=snet.allocated_start,end=snet.allocated_end,
