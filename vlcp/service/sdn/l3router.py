@@ -115,7 +115,7 @@ class RouterUpdater(FlowUpdater):
 
         for r,v in self._lastallrouterinfo.items():
             for e in v:
-                _,isexternal,gateway,_,outmac,external_ip,nid,phyport,_,_ = e
+                _,isexternal,gateway,_,outmac,external_ip,nid,phyport,_,_, _ = e
                 if nid == netid:
                     if isexternal:
                         return outmac, external_ip, phyport
@@ -1087,7 +1087,7 @@ class RouterUpdater(FlowUpdater):
                                                ("%s", bridge, vhost), ("%s", "%s", vhost)]:
                                 if match_item in s:
                                     local_config_flag = True
-                                    cidr, local_ip, gateway = external_info_dict[(system_id, bridge)]
+                                    cidr, local_ip, gateway = match_item[s]
                                     nv = list(v)
                                     if cidr:
                                         nv[0] = cidr

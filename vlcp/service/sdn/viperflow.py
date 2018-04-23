@@ -2164,7 +2164,7 @@ class ViperFlow(Module):
                         d['vhost'] = ''
 
                     if 'local_address' in d:
-                        parse_ip4_address(d[['local_address']])
+                        parse_ip4_address(d['local_address'])
                     if 'gateway' in d:
                         parse_ip4_address(d['gateway'])
 
@@ -2361,7 +2361,7 @@ class ViperFlow(Module):
                             d['vhost'] = ''
 
                         if 'local_address' in d:
-                            parse_ip4_address(d[['local_address']])
+                            parse_ip4_address(d['local_address'])
                         if 'gateway' in d:
                             parse_ip4_address(d['gateway'])
 
