@@ -119,6 +119,13 @@ class Scheduler(object):
         self.processevents = processevents
         #self.logger.setLevel(WARNING)
         self.debugging = False
+        self._pending_runnables = []
+        self.syscallfunc = None
+    def yield_(self, runnable):
+        """
+        Pend this runnable to be wake up later
+        """
+        self._pending_runnables.append(runnable)
     def register(self, matchers, runnable):
         '''
         Register an iterator(runnable) to scheduler and wait for events
@@ -362,8 +369,27 @@ class Scheduler(object):
                 else:
                     for e in emptys:
                         processEvent(e)
+            
+            def processYields():
+                if self._pending_runnables:
+                    i = 0
+                    while i < len(self._pending_runnables):
+                        r = self._pending_runnables[i]
+                        try:
+                            next(r)
+                        except StopIteration:
+                            self.unregisterall(r)
+                        except QuitException:
+                            self.unregisterall(r)
+                        except Exception:
+                            self.logger.exception('Resuming %r failed with exception', r)
+                            self.unregisterall(r)
+                        processSyscall()
+                        i += 1
+                    del self._pending_runnables[:]
             canquit = False
             self.logger.info('Main loop started')
+            processYields()
             quitMatcher = SystemControlEvent.createMatcher(type=SystemControlEvent.QUIT)
             while len(self.registerIndex) > len(self.daemons):
                 if self.debugging:
@@ -392,6 +418,7 @@ class Scheduler(object):
                         for qe in qes:
                             processEvent(qe)
                         processEvent(e, emptys)
+                    processYields()
                     if quitMatcher.isMatch(e):
                         if e.daemononly:
                             runnables = list(self.daemons)
@@ -408,6 +435,7 @@ class Scheduler(object):
                                 self.logger.exception('Runnable quit failed with exception')
                                 self.unregisterall(r)
                             processSyscall()
+                        processYields()
                     processedEvents += 1
                 if len(self.registerIndex) <= len(self.daemons):
                     break

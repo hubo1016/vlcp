@@ -20,6 +20,8 @@ from vlcp.event.event import withIndices, Event
 import functools
 from vlcp.event.core import QuitException
 from contextlib import closing
+from vlcp.utils.kvcache import KVCache
+from vlcp.event.ratelimiter import RateLimiter
 try:
     import cPickle
 except ImportError:
@@ -110,6 +112,8 @@ class _Notifier(RoutineContainer):
         self._transactno = 0
         self._client = None
         self._decoder = None
+        # Only allow 100 new pollers to prevent blocking the whole scheduler
+        self._rate_limiter = RateLimiter(100, self)
     def _check_completes(self, completes, err_allows = (), err_expects = ()):
         for result in completes:
             if result.err != zk.ZOO_ERR_OK and result.err not in err_allows:
@@ -140,6 +144,8 @@ class _Notifier(RoutineContainer):
     def _poller(self, client, key, decoder):
         if not client:
             return
+        for m in self._rate_limiter.limit():
+            yield m
         last_children = None
         last_zxid = 0
         barriers = set()
@@ -275,7 +281,7 @@ class _Notifier(RoutineContainer):
             for zxid in barriers:
                 self._remove_barrier(key, zxid)
     def _create_poller(self, key):
-        self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + _escape_path(key), self._decoder))
+        self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + _escape_path(key), self._decoder), False)
     def main(self):
         try:
             self._timestamp = '%012x' % (int(time() * 1000),) + '-'
@@ -302,7 +308,7 @@ class _Notifier(RoutineContainer):
                         self._create_poller(k)
                 if b'' in self._poll_routines:
                     self._poll_routines[b''].close()
-                self._poll_routines[b''] = self.subroutine(self._poller(client, b'/vlcp/notifier/all', decoder))
+                self._poll_routines[b''] = self.subroutine(self._poller(client, b'/vlcp/notifier/all', decoder), False)
             _recreate_pollers()
             connection_down = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.EXPIRED,
                                                                          client)
@@ -339,7 +345,7 @@ class _Notifier(RoutineContainer):
                                                                                    client)
                         _recreate_pollers()
                 if self._publish_wait:
-                    self.subroutine(self.publish())
+                    self.subroutine(self.publish(), False)
                 local_transid = '%s%016x' % (self._timestamp, self._transactno)
                 self._transactno += 1
                 self.scheduler.emergesend(
@@ -556,6 +562,7 @@ class ZooKeeperDB(TcpServerBase):
                        api(self.set, self.apiroutine),
                        api(self.delete, self.apiroutine),
                        api(self.mget, self.apiroutine),
+                       api(self.mgetwithcache, self.apiroutine),
                        api(self.mset, self.apiroutine),
                        api(self.update, self.apiroutine),
                        api(self.mupdate, self.apiroutine),
@@ -658,6 +665,14 @@ class ZooKeeperDB(TcpServerBase):
         self.apiroutine.retvalue = None
     def mget(self, keys, vhost = ''):
         "Get multiple values from multiple keys"
+        for m in self.mgetwithcache(keys, vhost):
+            yield m
+        l, _, _ = self.apiroutine.retvalue
+        self.apiroutine.retvalue = l
+    def mgetwithcache(self, keys, vhost = '', cache = None):
+        "Get multiple values, cached when possible"
+        self._logger.debug("mgetwithcache retrieving %d keys...", len(keys))
+        _counter = [0, 0]
         if not keys:
             self.apiroutine.retvalue = []
             return
@@ -671,16 +686,37 @@ class ZooKeeperDB(TcpServerBase):
         if losts or retries:
             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
         zxid_limit = completes[0].zxid
-        def retrieve_version(ls2_result, rootdir, zxid_limit):
+        if cache is None:
+            cache = KVCache()
+        def retrieve_version(ls2_result, rootdir, zxid_limit, key):
+            def _update(key, cached, new_name, new_data):
+                if cached is None:
+                    new_value = self._decode(new_data)
+                    return new_value, (new_name, new_data, new_value)
+                else:
+                    _, old_data, old_value = cached
+                    if old_data == new_data:
+                        _counter[1] += 1
+                        return old_value, (new_name, new_data, old_value)
+                    else:
+                        new_value = self._decode(new_data)
+                        return new_value, (new_name, new_data, new_value)
             if ls2_result.err != zk.ZOO_ERR_OK:
                 if ls2_result.err != zk.ZOO_ERR_NONODE:
                     self._logger.warning('Unexpected error code is received for %r: %r', rootdir, dump(ls2_result))
                     raise ZooKeeperResultException('Unexpected error code is received: ' + str(ls2_result.err))
-                self.apiroutine.retvalue = None
+                self.apiroutine.retvalue = cache.update(key, _update, None, None)
                 return
+            create_zxid = ls2_result.stat.czxid
             children = [(name.rpartition(b'-'), name) for name in ls2_result.children if name.startswith(b'data-')]
             children.sort(reverse = True)
+            last_name, last_value = cache.update(key, lambda k,c: ((None, None), None) if c is None else ((c[0], c[2]), None))
             for _, name in children:
+                if last_name == (create_zxid, name):
+                    # Return from cache
+                    self.apiroutine.retvalue = last_value
+                    _counter[0] += 1
+                    break
                 for m in client.requests([zk.getdata(rootdir + name)], self.apiroutine, 60):
                     yield m
                 completes, losts, retries, _ = self.apiroutine.retvalue
@@ -690,21 +726,21 @@ class ZooKeeperDB(TcpServerBase):
                 if completes[0].err == zk.ZOO_ERR_NONODE:
                     # Though not quite possible, in extreme situations the key might be lost
                     # Return None should be the correct result for the most time
-                    self.apiroutine.retvalue = None
+                    self.apiroutine.retvalue = cache.update(key, _update, None, None)
                     return
                 self._check_completes(completes)
                 if completes[0].stat.mzxid <= zxid_limit:
-                    if completes[0].data:
-                        self.apiroutine.retvalue = completes[0].data
-                    else:
-                        self.apiroutine.retvalue = None
-                    return
-            self.apiroutine.retvalue = None
-        with closing(self.apiroutine.executeAll([retrieve_version(r, b'/vlcp/kvdb/' + k + b'/', zxid_limit)
-                                             for r,k in izip(completes, escaped_keys)])) as g:
+                    new_data = completes[0].data if completes[0].data else None
+                    self.apiroutine.retvalue = cache.update(key, _update, (create_zxid, name), new_data)
+                    break
+            else:
+                self.apiroutine.retvalue = cache.update(key, _update, None, None)
+        with closing(self.apiroutine.executeAll([retrieve_version(r, b'/vlcp/kvdb/' + k + b'/', zxid_limit, k2)
+                                             for r,k,k2 in izip(completes, escaped_keys, keys)])) as g:
             for m in g:
                 yield m
-        self.apiroutine.retvalue = [self._decode(r[0]) for r in self.apiroutine.retvalue]
+        self.apiroutine.retvalue = [r[0] for r in self.apiroutine.retvalue], cache
+        self._logger.debug("mgetwithcache serves %d keys, %d with cache, %d with cache from data", len(keys), _counter[0], _counter[1])
     def mset(self, kvpairs, timeout = None, vhost = ''):
         "Set multiple values on multiple keys"
         if not kvpairs:
@@ -1156,7 +1192,7 @@ class ZooKeeperDB(TcpServerBase):
                                 yield m
                         except ZooKeeperSessionUnavailable:
                             pass
-                    self.apiroutine.subroutine(clearup())
+                    self.apiroutine.subroutine(clearup(), False)
                 raise
         finally:
             for l in locks:

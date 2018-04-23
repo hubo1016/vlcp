@@ -18,6 +18,11 @@ from vlcp.utils.dataobject import AlreadyExistsException, UniqueKeyReference,\
     MultiKeyReference, DataObjectSet, UniqueKeySet, WeakReferenceObject,\
     MultiKeySet, ReferenceObject
 
+try:
+    from itertools import izip
+except ImportError:
+    izip = zip
+
 @withIndices()
 class RetrieveRequestSend(Event):
     pass
@@ -75,6 +80,8 @@ class ObjectDB(Module):
         self._stale = False
         self._updatekeys = set()
         self._update_version = {}
+        self._cache = None
+        self._pending_gc = 0
         self.apiroutine = RoutineContainer(self.scheduler)
         self.apiroutine.main = self._update
         self.routines.append(self.apiroutine)
@@ -150,7 +157,7 @@ class ObjectDB(Module):
             orig_retrieveonce_list = set()
             # Retrieved values are stored in update_result before merging into current storage
             update_result = {}
-            # key => [(walker_func, original_keys, rid), ...]
+            # key => [(walker_func, (original_keys, rid)), ...]
             walkers = {}
             # Use the loop count as a revision identifier, then the valid revisions of the value
             # in update_result is a range, from the last loop count the value changed
@@ -164,9 +171,42 @@ class ObjectDB(Module):
             self._loopCount = 0
             # A request-id -> retrieve set dictionary to store the saved keys
             savelist = {}
+            
+            # (start_key, walker_func, rid) => set(used_keys)
+            walker_used_keys = {}
+            
+            # used_key => [(start_key, walker_func, (original_keys, rid)), ...]
+            used_key_ref = {}
+            
+            def _update_walker_ref(start_key, walker, original_keys, rid, used_keys):
+                old_used_keys = walker_used_keys.get((start_key, walker, rid), ())
+                for k in old_used_keys:
+                    if k not in used_keys:
+                        old_list = used_key_ref[k]
+                        for i, v in enumerate(old_list):
+                            if v[0] == start_key and v[1] == walker and v[2][1] == rid:
+                                break
+                        else:
+                            continue
+                        old_list[i:] = old_list[i+1:]
+                for k in used_keys:
+                    if k not in old_used_keys:
+                        used_key_ref.setdefault(k, []).append((start_key, walker, (original_keys, rid)))
+                walker_used_keys[(start_key, walker, rid)] = set(used_keys)
+            
+            # (start_key, walker, rid) => cached_result
+            finished_walkers = {}
+            
+            def _dirty_walkers(new_values):
+                for k in new_values:
+                    if k in used_key_ref:
+                        for start_key, walker, (_, rid) in used_key_ref[k]:
+                            finished_walkers.pop((start_key, walker, rid), None)
+            
             def updateloop():
                 while (retrieve_list or self._updatekeys or self._requests):
-                    watch_keys = set()
+                    # default walker, default walker cached, customized walker, customized walker cached
+                    _performance_counters = [0, 0, 0, 0]
                     # Updated keys
                     update_list = set()
                     if self._loopCount >= 10 and not retrieve_list:
@@ -218,21 +258,24 @@ class ObjectDB(Module):
                                 processing_requests.append(r)
                         del self._requests[:]
                     if retrieve_list:
-                        watch_keys.update(retrieve_list)
-                    # Add watch_keys to notification
-                    watch_keys.difference_update(self._watchedkeys)
-                    if watch_keys:
-                        for k in watch_keys:
-                            if k in update_result:
-                                self._update_version[k] = getversion(update_result[k])
-                        for m in self._notifier.add_listen(*tuple(watch_keys.difference(self._watchedkeys))):
-                            yield m
-                        self._watchedkeys.update(watch_keys)
-                    get_list_set = update_list.union(retrieve_list.union(retrieveonce_list).difference(self._managed_objs.keys()).difference(update_result.keys()))
+                        watch_keys = tuple(k for k in retrieve_list if k not in self._watchedkeys)
+                        # Add watch_keys to notification
+                        if watch_keys:
+                            for k in watch_keys:
+                                if k in update_result:
+                                    self._update_version[k] = getversion(update_result[k])
+                            for m in self._notifier.add_listen(*watch_keys):
+                                yield m
+                            self._watchedkeys.update(watch_keys)
+                    get_list_set = update_list.union(itertools.chain((k for k in retrieve_list
+                                                     if k not in update_result and k not in self._managed_objs),
+                                                     (k for k in retrieveonce_list
+                                                     if k not in update_result and k not in self._managed_objs)))
                     get_list = list(get_list_set)
+                    new_values = set()
                     if get_list:
                         try:
-                            for m in callAPI(self.apiroutine, 'kvstorage', 'mget', {'keys': get_list}):
+                            for m in callAPI(self.apiroutine, 'kvstorage', 'mgetwithcache', {'keys': get_list, 'cache': self._cache}):
                                 yield m
                         except QuitException:
                             raise
@@ -249,32 +292,37 @@ class ObjectDB(Module):
                             revision_min.clear()
                             revision_max.clear()
                         else:
-                            result = self.apiroutine.retvalue
+                            result, self._cache = self.apiroutine.retvalue
                             self._stale = False
-                            for k,v in zip(get_list, result):
-                                if v is not None and hasattr(v, 'setkey'):
-                                    v.setkey(k)
-                                if k in self._watchedkeys and k not in self._update_version:
-                                    self._update_version[k] = getversion(v)
-                            for k,v in zip(get_list, result):
+                            for k,v in izip(get_list, result):
                                 # Update revision information
                                 revision_max[k] = self._loopCount
                                 if k not in update_result:
                                     if k not in self._managed_objs:
                                         # A newly retrieved key
                                         revision_min[k] = self._loopCount
-                                        continue
+                                        old_value = None
                                     else:
                                         old_value = self._managed_objs[k]
                                 else:
                                     old_value = update_result[k]
                                 # Check if the value is changed
-                                if getversion(old_value) != getversion(v):
+                                if old_value is not v and getversion(old_value) != getversion(v):
                                     revision_min[k] = self._loopCount
+                                    new_values.add(k)
                                 else:
                                     if k not in revision_min:
                                         revision_min[k] = -1
+                                if old_value is not v:
+                                    if v is not None and hasattr(v, 'setkey'):
+                                        v.setkey(k)
+                                if k in self._watchedkeys and k not in self._update_version:
+                                    self._update_version[k] = getversion(v)
+
                             update_result.update(zip(get_list, result))
+                    # Disable cache for walkers with updated keys
+                    _dirty_walkers(new_values)
+                    
                     # All keys which should be retrieved in next loop
                     new_retrieve_list = set()
                     # Keys which should be retrieved in next loop for a single walk
@@ -282,7 +330,7 @@ class ObjectDB(Module):
                     # Keys that are used in current walk will be retrieved again in next loop
                     used_keys = set()
                     # We separate the data with revisions to prevent inconsistent result
-                    def create_walker(orig_key):
+                    def create_walker(orig_key, strict=True):
                         revision_range = [revision_min.get(orig_key, -1), revision_max.get(orig_key, -1)]
                         def _walk_with_revision(key):
                             if hasattr(key, 'getkey'):
@@ -309,9 +357,10 @@ class ObjectDB(Module):
                             )
                             if current_revision[1] < current_revision[0]:
                                 # revisions cannot match
-                                used_keys.add(key)
                                 new_retrieve_keys.add(key)
-                                raise KeyError('Not retrieved')
+                                if strict:
+                                    used_keys.add(key)
+                                    raise KeyError('Not retrieved')
                             else:
                                 # update revision range
                                 revision_range[:] = current_revision
@@ -322,12 +371,14 @@ class ObjectDB(Module):
                                 used_keys.add(key)
                                 return self._managed_objs[key]
                         return _walk_with_revision
-                    walker_set = set()
-                    def default_walker(key, obj, walk):
-                        if key in walker_set:
+                    _default_walker_dup_check = set()
+                    def default_walker(key, obj, walk, _circle_detect = None):
+                        if _circle_detect is None:
+                            _circle_detect = set()
+                        if key in _circle_detect:
                             return
                         else:
-                            walker_set.add(key)
+                            _circle_detect.add(key)
                         if hasattr(obj, 'kvdb_retrievelist'):
                             rl = obj.kvdb_retrievelist()
                             for k in rl:
@@ -337,17 +388,32 @@ class ObjectDB(Module):
                                     pass
                                 else:
                                     if newobj is not None:
-                                        default_walker(k, newobj, walk)
+                                        default_walker(k, newobj, walk, _circle_detect)
+                    def _do_default_walker(k):
+                        if k not in _default_walker_dup_check:
+                            _default_walker_dup_check.add(k)
+                            _performance_counters[0] += 1
+                            if (k, None, None) not in finished_walkers:
+                                v = update_result.get(k)
+                                if v is not None:
+                                    new_retrieve_keys.clear()
+                                    used_keys.clear()
+                                    default_walker(k, v, create_walker(k, False))
+                                    if new_retrieve_keys:
+                                        new_retrieve_list.update(new_retrieve_keys)
+                                        self._updatekeys.update(used_keys)
+                                        self._updatekeys.add(k)
+                                    else:
+                                        _all_used_keys = used_keys.union([k])
+                                        _update_walker_ref(k, None, None, None, _all_used_keys)
+                                        finished_walkers[(k, None, None)] = None
+                                else:
+                                    _update_walker_ref(k, None, None, None, [k])
+                                    finished_walkers[(k, None, None)] = None
+                            else:
+                                _performance_counters[1] += 1
                     for k in orig_retrieve_list:
-                        v = update_result.get(k)
-                        if v is not None:
-                            new_retrieve_keys.clear()
-                            used_keys.clear()
-                            default_walker(k, v, create_walker(k))
-                            if new_retrieve_keys:
-                                new_retrieve_list.update(new_retrieve_keys)
-                                self._updatekeys.update(used_keys)
-                                self._updatekeys.add(k)
+                        _do_default_walker(k)
                     savelist.clear()
                     for k,ws in walkers.items():
                         # k: the walker key
@@ -364,56 +430,60 @@ class ObjectDB(Module):
                                 # w: walker_func
                                 # r: (request_original_keys, rid)
                                 # Custom walker
-                                def save(key):
-                                    if hasattr(key, 'getkey'):
-                                        key = key.getkey()
-                                    key = _str(key)
-                                    if key != k and key not in used_keys:
-                                        raise ValueError('Cannot save a key without walk')
-                                    savelist.setdefault(r[1], set()).add(key)
-                                try:
-                                    new_retrieve_keys.clear()
-                                    used_keys.clear()
-                                    w(k, v, create_walker(k), save)
-                                except Exception as exc:
-                                    # if one walker failed, the whole request is failed, remove all walkers
-                                    self._logger.warning("A walker raises an exception which rolls back the whole walk process. "
-                                                         "walker = %r, start key = %r, new_retrieve_keys = %r, used_keys = %r",
-                                                         w, k, new_retrieve_keys, used_keys, exc_info=True)
-                                    for orig_k in r[0]:
-                                        if orig_k in walkers:
-                                            walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
-                                    processing_requests[:] = [r0 for r0 in processing_requests if r0[1] != r[1]]
-                                    savelist.pop(r[1])
-                                    for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
-                                        yield m
+                                _performance_counters[2] += 1
+                                _cache_key = (k, w, r[1])
+                                if _cache_key in finished_walkers:
+                                    _performance_counters[3] += 1
+                                    savelist.setdefault(r[1], set()).update(finished_walkers[_cache_key])
                                 else:
-                                    if new_retrieve_keys:
-                                        new_retrieve_list.update(new_retrieve_keys)
-                                        self._updatekeys.update(used_keys)
-                                        self._updatekeys.add(k)
+                                    _local_save_list = set()
+                                    def save(key):
+                                        if hasattr(key, 'getkey'):
+                                            key = key.getkey()
+                                        key = _str(key)
+                                        if key != k and key not in used_keys:
+                                            raise ValueError('Cannot save a key without walk')
+                                        _local_save_list.add(key)
+                                    try:
+                                        new_retrieve_keys.clear()
+                                        used_keys.clear()
+                                        w(k, v, create_walker(k), save)
+                                    except Exception as exc:
+                                        # if one walker failed, the whole request is failed, remove all walkers
+                                        self._logger.warning("A walker raises an exception which rolls back the whole walk process. "
+                                                             "walker = %r, start key = %r, new_retrieve_keys = %r, used_keys = %r",
+                                                             w, k, new_retrieve_keys, used_keys, exc_info=True)
+                                        for orig_k in r[0]:
+                                            if orig_k in walkers:
+                                                walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
+                                        processing_requests[:] = [r0 for r0 in processing_requests if r0[1] != r[1]]
+                                        savelist.pop(r[1])
+                                        for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
+                                            yield m
+                                    else:
+                                        savelist.setdefault(r[1], set()).update(_local_save_list)
+                                        if new_retrieve_keys:
+                                            new_retrieve_list.update(new_retrieve_keys)
+                                            self._updatekeys.update(used_keys)
+                                            self._updatekeys.add(k)
+                                        else:
+                                            _all_used_keys = used_keys.union([k])
+                                            _update_walker_ref(k, w, r[0], r[1], _all_used_keys)
+                                            finished_walkers[_cache_key] = _local_save_list
                     for save in savelist.values():
                         for k in save:
-                            v = update_result.get(k)
-                            if v is not None:
-                                # If we retrieved a new value, we should also retrieved the references
-                                # from this value
-                                new_retrieve_keys.clear()
-                                used_keys.clear()
-                                default_walker(k, v, create_walker(k))
-                                if new_retrieve_keys:
-                                    new_retrieve_list.update(new_retrieve_keys)
-                                    self._updatekeys.update(used_keys)
-                                    self._updatekeys.add(k)                            
+                            _do_default_walker(k)
                     retrieve_list.clear()
                     retrieveonce_list.clear()
                     retrieve_list.update(new_retrieve_list)
+                    self._logger.debug("Loop %d: %d default walker (%d cached), %d customized walker (%d cached)",
+                                       self._loopCount,
+                                       *_performance_counters)
                     self._loopCount += 1
                     if self._stale:
-                        watch_keys = set(retrieve_list)
-                        watch_keys.difference_update(self._watchedkeys)
+                        watch_keys = tuple(k for k in retrieve_list if k not in self._watchedkeys)
                         if watch_keys:
-                            for m in self._notifier.add_listen(*tuple(watch_keys)):
+                            for m in self._notifier.add_listen(*watch_keys):
                                 yield m
                             self._watchedkeys.update(watch_keys)
                         break
@@ -501,6 +571,14 @@ class ObjectDB(Module):
                 else:
                     result = [copywithkey(update_result.get(k, self._managed_objs.get(k)), k) for k in r[0]]
                 send_events.append(RetrieveReply(r[1], result = result, stale = self._stale))
+            def output_result():
+                for e in send_events:
+                    for m in self.apiroutine.waitForSend(e):
+                        yield m
+            for m in self.apiroutine.withCallback(output_result(), onupdate, notification_matcher):
+                yield m
+            self._pending_gc += 1
+        def _gc():
             # Use DFS to remove unwatched objects
             mark_set = set()
             def dfs(k):
@@ -513,25 +591,34 @@ class ObjectDB(Module):
                         dfs(k2)
             for k in self._watches.keys():
                 dfs(k)
-            def output_result():
-                remove_keys = self._watchedkeys.difference(mark_set)
-                if remove_keys:
-                    self._watchedkeys.difference_update(remove_keys)
-                    for m in self._notifier.remove_listen(*tuple(remove_keys)):
-                        yield m
-                    for k in remove_keys:
-                        if k in self._managed_objs:
-                            del self._managed_objs[k]
-                        if k in self._update_version:
-                            del self._update_version[k]
-                for e in send_events:
-                    for m in self.apiroutine.waitForSend(e):
-                        yield m
-            for m in self.apiroutine.withCallback(output_result(), onupdate):
-                yield m
+            remove_keys = self._watchedkeys.difference(mark_set)
+            if remove_keys:
+                self._watchedkeys.difference_update(remove_keys)
+                for m in self._notifier.remove_listen(*tuple(remove_keys)):
+                    yield m
+                for k in remove_keys:
+                    if k in self._managed_objs:
+                        del self._managed_objs[k]
+                    if k in self._update_version:
+                        del self._update_version[k]
+            if self._cache is not None:
+                self._cache.gc(self._managed_objs)
+            self._pending_gc = 0
         while True:
             if not self._updatekeys and not self._requests:
-                yield (notification_matcher, request_matcher)
+                if self._pending_gc >= 10:
+                    for m in self.apiroutine.withCallback(_gc(), onupdate, notification_matcher):
+                        yield m
+                    continue                    
+                elif self._pending_gc:
+                    for m in self.apiroutine.waitWithTimeout(1, notification_matcher, request_matcher):
+                        yield m
+                    if self.apiroutine.timeout:
+                        for m in self.apiroutine.withCallback(_gc(), onupdate, notification_matcher):
+                            yield m
+                        continue
+                else:
+                    yield (notification_matcher, request_matcher)
                 if self.apiroutine.matcher is notification_matcher:
                     onupdate(self.apiroutine.event, self.apiroutine.matcher)
             for m in updateinner():
