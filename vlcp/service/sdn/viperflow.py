@@ -2156,11 +2156,11 @@ class ViperFlow(Module):
 
             if 'external_info' in subnet:
                 for _, _, cidr, local_ip, remote_ip in subnet['external_info']:
-                    cidr, perfix = parse_ip4_network(cidr)
-                    parse_ip4_address(local_ip)
-                    parse_ip4_address(remote_ip)
-                    ip_in_network(local_ip, cidr, prefix)
-                    ip_in_network(remote_ip, cidr, prefix)
+                    cidr, prefix = parse_ip4_network(cidr)
+                    local = parse_ip4_address(local_ip)
+                    remote = parse_ip4_address(remote_ip)
+                    if not ip_in_network(local, cidr, prefix) or not ip_in_network(remote, cidr, prefix):
+                        raise ValueError(" %s or %s not in cidr %s", local_ip, remote_ip, cidr)
 
             if 'cidr' not in subnet:
                 raise ValueError('create subnet must special cidr')
@@ -2328,11 +2328,11 @@ class ViperFlow(Module):
 
                 if 'external_info' in sn:
                     for _, _, cidr, local_ip, remote_ip in sn['external_info']:
-                        cidr, perfix = parse_ip4_network(cidr)
-                        parse_ip4_address(local_ip)
-                        parse_ip4_address(remote_ip)
-                        ip_in_network(local_ip, cidr, prefix)
-                        ip_in_network(remote_ip, cidr, prefix)
+                        cidr, prefix = parse_ip4_network(cidr)
+                        local = parse_ip4_address(local_ip)
+                        remote = parse_ip4_address(remote_ip)
+                        if not ip_in_network(local, cidr, prefix) or not ip_in_network(remote, cidr, prefix):
+                            raise ValueError(" %s or %s not in cidr %s", local_ip, remote_ip, cidr)
 
                 for k, v in sn.items():
                     setattr(snet, k, v)
