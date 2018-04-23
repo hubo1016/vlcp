@@ -217,7 +217,7 @@ class RouterUpdater(FlowUpdater):
                 bridge, system_id, _ = self.retvalue
 
             for k,v in self._lastsubnetinfo.items():
-                if v[1] and v[7]:
+                if v[1] and v[7] and v[10]:
                     allocated_ip_address = v[5]
                     subnetmapkey = SubNetMap.default_key(k.id)
                     DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
@@ -1058,7 +1058,8 @@ class RouterUpdater(FlowUpdater):
                                         currentlognetinfo[s.network][0],    # network id
                                         currentlognetinfo[s.network][2],    # physical port no
                                         s.id,                               # subnet id
-                                        s.network                           # logical network
+                                        s.network,                          # logical network
+                                        False                              # external ip address from local
                                         )) for s in allobjects if s.isinstance(SubNet)
                                                 and s.network in currentlognetinfo
                                                 and s in subnet_to_routerport)
@@ -1067,8 +1068,6 @@ class RouterUpdater(FlowUpdater):
                 for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
                                                                           'vhost': vhost}):
                     yield m
-
-
             except Exception:
                 self._logger.warning("OVSDB bridge is not ready", exc_info=True)
                 return
@@ -1077,27 +1076,32 @@ class RouterUpdater(FlowUpdater):
 
             if self._parent.enable_router_forward:
                 update_external_subnet = dict()
-                if self._parent.ipaddress_inter_connect:
-                    for k, v in currentsubnetinfo.items():
-                        if v[1] and v[7]:
-                            # this subnet is external , we repack the external info
-                            if hasattr(k, "external_info"):
-                                external_info_dict = dict(((sid, br), (c, local, remote))
-                                                          for sid, br, c, local, remote in k.external_info)
-                                if (system_id, bridge) in external_info_dict:
-                                    cidr, local_ip, remote_ip = external_info_dict[(system_id, bridge)]
+                for k, v in currentsubnetinfo.items():
+                    if v[1] and v[7]:
+                        local_config_flag = False
+                        if hasattr(k, "pre_host_config"):
+                            s = dict(((d['systemid'], d['bridge'], d['vhost']),
+                                      (d.get('cidr'), d.get('local_address'), d.get('gateway')))
+                                     for d in k.pre_host_config)
+                            for match_item in [(system_id, bridge, vhost), (system_id, "%s", vhost),
+                                               ("%s", bridge, vhost), ("%s", "%s", vhost)]:
+                                if match_item in s:
+                                    local_config_flag = True
+                                    cidr, local_ip, gateway = external_info_dict[(system_id, bridge)]
                                     nv = list(v)
-                                    nv[0] = cidr
-                                    nv[2] = remote_ip
-                                    nv[5] = local_ip
+                                    if cidr:
+                                        nv[0] = cidr
+                                    if gateway:
+                                        nv[2] = gateway
+                                    if local_ip:
+                                        nv[5] = local_ip
+                                    nv[10] = True
                                     update_external_subnet.update({k: tuple(nv)})
-                    currentsubnetinfo.update(update_external_subnet)
-                else:
-                    for k, v in currentsubnetinfo.items():
-                        if v[1] and v[7]:
+
+                        if not local_config_flag:
                             # this subnet is external , we should allocate ip from cidr
                             if k in lastsubnetinfo and lastsubnetinfo[k][1] and lastsubnetinfo[k][5]:
-                                #this subnet have allocated ip in last
+                                # this subnet have allocated ip in last
                                 allocated_ip_address = lastsubnetinfo[k][5]
 
                             else:
@@ -1156,50 +1160,42 @@ class RouterUpdater(FlowUpdater):
                             nv[5] = allocated_ip_address
                             update_external_subnet[k] = tuple(nv)
 
-                    currentsubnetinfo.update(update_external_subnet)
+                currentsubnetinfo.update(update_external_subnet)
 
-                    for k,v in lastsubnetinfo.items():
-                        if v[1] and v[7]:
-                            if k not in currentsubnetinfo or (k in currentsubnetinfo
-                                                              and not currentsubnetinfo[k][1]
-                                                              ):
-                                # this external subnet off line , release ip address to subnet
-                                allocated_ip_address = v[5]
-                                subnetmapkey = SubNetMap.default_key(k.id)
-                                DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
+                for k, v in lastsubnetinfo.items():
+                    if v[1] and v[7] and v[10]:
+                        if k not in currentsubnetinfo or (k in currentsubnetinfo
+                                                          and not currentsubnetinfo[k][1]
+                                                          ):
+                            # this external subnet off line , release ip address to subnet
+                            allocated_ip_address = v[5]
+                            subnetmapkey = SubNetMap.default_key(k.id)
+                            DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
 
-                                def release_ip(keys,values,timestamp):
+                            def release_ip(keys,values,timestamp):
+                                new_list = []
+                                for e in values[0].info:
+                                    if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
+                                        ipaddress = parse_ip4_address(allocated_ip_address)
 
-                                    # ipaddress = parse_ip4_address(allocated_ip_address)
-                                    #
-                                    # if str(ipaddress) in values[0].allocated_ips:
-                                    #     del values[0].allocated_ips[str(ipaddress)]
-                                    #
-                                    # values[0].info = [e for e in values[0].info if e[5] > timestamp and
-                                    #                   (e[0],e[1],e[2],e[3]) !=(system_id,bridge,vhost,values[1].id)]
-                                    new_list = []
-                                    for e in values[0].info:
-                                        if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
-                                            ipaddress = parse_ip4_address(allocated_ip_address)
+                                        if str(ipaddress) in values[1].allocated_ips:
+                                            del values[1].allocated_ips[str(ipaddress)]
+                                    elif e[5] < timestamp and e[3] == values[1].id:
+                                        ipaddress = parse_ip4_address(e[4])
 
-                                            if str(ipaddress) in values[1].allocated_ips:
-                                                del values[1].allocated_ips[str(ipaddress)]
-                                        elif e[5] < timestamp and e[3] == values[1].id:
-                                            ipaddress = parse_ip4_address(e[4])
+                                        if str(ipaddress) in values[1].allocated_ips:
+                                            del values[1].allocated_ips[str(ipaddress)]
+                                    else:
+                                        new_list.append(e)
 
-                                            if str(ipaddress) in values[1].allocated_ips:
-                                                del values[1].allocated_ips[str(ipaddress)]
-                                        else:
-                                            new_list.append(e)
+                                values[0].info = new_list
 
-                                    values[0].info = new_list
+                                return keys,values
 
-                                    return keys,values
-
-                                for m in callAPI(self,"objectdb","transact",
-                                                 {"keys":[DVRouterExternalAddressInfokey,subnetmapkey],
-                                                  "updater":release_ip,"withtime":True}):
-                                    yield m
+                            for m in callAPI(self,"objectdb","transact",
+                                             {"keys":[DVRouterExternalAddressInfokey,subnetmapkey],
+                                              "updater":release_ip,"withtime":True}):
+                                yield m
 
             self._lastsubnetinfo = currentsubnetinfo
 
@@ -2153,9 +2149,6 @@ class L3Router(FlowBase):
     # A forwarding node will acknowledge other nodes that it is ready to forward network traffic from
     # other nodes, this is the fresh interval
     _default_forwardinfo_discover_update_time = 15
-
-    # A forwarding node acquire a IP address from external subnet info
-    _default_ipaddress_inter_connect = True
 
     def __init__(self, server):
         super(L3Router, self).__init__(server)

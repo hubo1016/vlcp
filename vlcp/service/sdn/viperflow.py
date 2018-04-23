@@ -2154,13 +2154,38 @@ class ViperFlow(Module):
             if 'logicalnetwork' not in subnet:
                 raise ValueError('create subnet must special logicalnetwork')
 
-            if 'external_info' in subnet:
-                for _, _, cidr, local_ip, remote_ip in subnet['external_info']:
-                    cidr, prefix = parse_ip4_network(cidr)
-                    local = parse_ip4_address(local_ip)
-                    remote = parse_ip4_address(remote_ip)
-                    if not ip_in_network(local, cidr, prefix) or not ip_in_network(remote, cidr, prefix):
-                        raise ValueError(" %s or %s not in cidr %s", local_ip, remote_ip, cidr)
+            if 'pre_host_config' in subnet:
+                for d in subnet['pre_host_config']:
+                    if 'systemid' not in d:
+                        d['systemid'] = "%"
+                    if 'bridge' not in d:
+                        d['bridge'] = '%'
+                    if 'vhost' not in d:
+                        d['vhost'] = ''
+
+                    if 'local_address' in d:
+                        parse_ip4_address(d[['local_address']])
+                    if 'gateway' in d:
+                        parse_ip4_address(d['gateway'])
+
+                    if 'cidr' in d:
+                        cidr, prefix = parse_ip4_network(d['cidr'])
+                        if 'local_address' in d:
+                            local = parse_ip4_address(d['local_address'])
+                            if not ip_in_network(local, cidr, prefix):
+                                raise ValueError(" %s not in cidr %s", d['local_address'], d["cidr"])
+                        if 'gateway' in d:
+                            gateway = parse_ip4_address(d['gateway'])
+                            if not ip_in_network(gateway, cidr, prefix):
+                                raise ValueError(" %s not in cidr %s", d['gateway'], d["cidr"])
+
+            # if 'external_info' in subnet:
+            #     for _, _, cidr, local_ip, remote_ip in subnet['external_info']:
+            #         cidr, prefix = parse_ip4_network(cidr)
+            #         local = parse_ip4_address(local_ip)
+            #         remote = parse_ip4_address(remote_ip)
+            #         if not ip_in_network(local, cidr, prefix) or not ip_in_network(remote, cidr, prefix):
+            #             raise ValueError(" %s or %s not in cidr %s", local_ip, remote_ip, cidr)
 
             if 'cidr' not in subnet:
                 raise ValueError('create subnet must special cidr')
@@ -2326,13 +2351,38 @@ class ViperFlow(Module):
                     except Exception:
                         raise ValueError('invalid allocated end ' + sn['allocated_end'])
 
-                if 'external_info' in sn:
-                    for _, _, cidr, local_ip, remote_ip in sn['external_info']:
-                        cidr, prefix = parse_ip4_network(cidr)
-                        local = parse_ip4_address(local_ip)
-                        remote = parse_ip4_address(remote_ip)
-                        if not ip_in_network(local, cidr, prefix) or not ip_in_network(remote, cidr, prefix):
-                            raise ValueError(" %s or %s not in cidr %s", local_ip, remote_ip, cidr)
+                if 'pre_host_config' in subnet:
+                    for d in subnet['pre_host_config']:
+                        if 'systemid' not in d:
+                            d['systemid'] = "%"
+                        if 'bridge' not in d:
+                            d['bridge'] = '%'
+                        if 'vhost' not in d:
+                            d['vhost'] = ''
+
+                        if 'local_address' in d:
+                            parse_ip4_address(d[['local_address']])
+                        if 'gateway' in d:
+                            parse_ip4_address(d['gateway'])
+
+                        if 'cidr' in d:
+                            cidr, prefix = parse_ip4_network(d['cidr'])
+                            if 'local_address' in d:
+                                local = parse_ip4_address(d['local_address'])
+                                if not ip_in_network(local, cidr, prefix):
+                                    raise ValueError(" %s not in cidr %s", d['local_address'], d["cidr"])
+                            if 'gateway' in d:
+                                gateway = parse_ip4_address(d['gateway'])
+                                if not ip_in_network(gateway, cidr, prefix):
+                                    raise ValueError(" %s not in cidr %s", d['gateway'], d["cidr"])
+
+                # if 'external_info' in sn:
+                #     for _, _, cidr, local_ip, remote_ip in sn['external_info']:
+                #         cidr, prefix = parse_ip4_network(cidr)
+                #         local = parse_ip4_address(local_ip)
+                #         remote = parse_ip4_address(remote_ip)
+                #         if not ip_in_network(local, cidr, prefix) or not ip_in_network(remote, cidr, prefix):
+                #             raise ValueError(" %s or %s not in cidr %s", local_ip, remote_ip, cidr)
 
                 for k, v in sn.items():
                     setattr(snet, k, v)
