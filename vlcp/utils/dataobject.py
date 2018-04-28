@@ -239,6 +239,8 @@ class DataObject(object):
         else:
             return not r
     def kvdb_update(self, obj):
+        if self._deleted:
+            self._deleted = False
         for k,v in list(self.__dict__.items()):
             if k[:1] != '_':
                 if k in obj.__dict__ and v != obj.__dict__[k]:
