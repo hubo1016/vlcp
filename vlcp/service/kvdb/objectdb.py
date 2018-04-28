@@ -379,8 +379,8 @@ class ObjectDB(Module):
                             return
                         else:
                             _circle_detect.add(key)
-                        if hasattr(obj, 'kvdb_retrievelist'):
-                            rl = obj.kvdb_retrievelist()
+                        if hasattr(obj, 'kvdb_internalref'):
+                            rl = obj.kvdb_internalref()
                             for k in rl:
                                 try:
                                     newobj = walk(k)
