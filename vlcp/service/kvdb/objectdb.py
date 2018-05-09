@@ -343,8 +343,7 @@ class ObjectDB(Module):
                             elif self._stale:
                                 if key not in self._managed_objs:
                                     new_retrieve_keys.add(key)
-                                else:
-                                    used_keys.add(key)
+                                used_keys.add(key)
                                 return self._managed_objs.get(key)
                             elif key not in update_result and key not in self._managed_objs:
                                 # This key is not retrieved, raise a KeyError, and record this key

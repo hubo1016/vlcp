@@ -17,6 +17,7 @@ from vlcp.event.connection import ConnectionResetException
 from contextlib import closing
 from namedstruct import dump
 from json import dumps
+from vlcp.event.lock import Lock
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class ZooKeeperConnectionStateEvent(Event):
@@ -245,12 +246,21 @@ class ZooKeeper(Protocol):
             resp_matcher = ZooKeeperResponseEvent.createMatcher(connection, connection.connmark, None, xid)
             matchers.append(resp_matcher)
         alldata = []
-        for r in requests:
-            data = r._tobytes()
-            if len(data) >= 0xfffff:
-                # This is the default limit of ZooKeeper, reject this request
-                raise ZooKeeperRequestTooLargeException('The request is %d bytes which is too large for ZooKeeper' % len(data))
-            alldata.append(data)
+        for i in range(0, len(requests), 100):
+            for j in range(i, i + 100):
+                if j >= len(requests):
+                    break
+                r = requests[j]
+                data = r._tobytes()
+                if len(data) >= 0xfffff:
+                    # This is the default limit of ZooKeeper, reject this request
+                    raise ZooKeeperRequestTooLargeException('The request is %d bytes which is too large for ZooKeeper' % len(data))
+                alldata.append(data)
+            else:
+                # This is time-consuming when a lot of requests are sent in a batch, so leave some time for the
+                # scheduler
+                for m in container.doEvents():
+                    yield m
         for r in requests:
             self._register_xid(connection, r)
         def _sendall():
@@ -263,7 +273,7 @@ class ZooKeeper(Protocol):
                 except ZooKeeperRetryException:
                     raise ZooKeeperRetryException(sent_requests)
             container.retvalue = sent_requests
-        return (matchers, _sendall())
+        container.retvalue = (matchers, _sendall())
     def requests(self, connection, requests, container, callback = None, priority = 0):
         '''
         Send requests by sequence, return all the results (including the lost ones)
@@ -282,7 +292,9 @@ class ZooKeeper(Protocol):
                     but the responses are lost due to connection lost, it is the caller's responsibility to determine whether
                     the call is succeeded or failed; retry_requests are the requests which are not sent and are safe to retry. 
         '''
-        matchers, routine = self.async_requests(connection, requests, container, priority)
+        for m in self.async_requests(connection, requests, container, priority):
+            yield m
+        matchers, routine = container.retvalue
         requests_dict = dict((m,r) for m,r in zip(matchers, requests))
         connmark = connection.connmark
         conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
