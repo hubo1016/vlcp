@@ -121,6 +121,7 @@ class Scheduler(object):
         self.debugging = False
         self._pending_runnables = []
         self.syscallfunc = None
+        self.current_time = time()
     def yield_(self, runnable):
         """
         Pend this runnable to be wake up later
