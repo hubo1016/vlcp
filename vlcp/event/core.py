@@ -121,6 +121,7 @@ class Scheduler(object):
         self.debugging = False
         self._pending_runnables = []
         self.syscallfunc = None
+        self.current_time = time()
     def yield_(self, runnable):
         """
         Pend this runnable to be wake up later
@@ -212,7 +213,7 @@ class Scheduler(object):
         if isinstance(start, datetime):
             timestamp = (start - datetime.fromtimestamp(0)).total_seconds()
         else:
-            timestamp = time() + start
+            timestamp = self.current_time + start
         if interval is not None:
             if not (interval > 0):
                 raise ValueError('interval must be positive.')
@@ -389,6 +390,7 @@ class Scheduler(object):
                     del self._pending_runnables[:]
             canquit = False
             self.logger.info('Main loop started')
+            last_time = current_time = self.current_time = time()
             processYields()
             quitMatcher = SystemControlEvent.createMatcher(type=SystemControlEvent.QUIT)
             while len(self.registerIndex) > len(self.daemons):
@@ -439,18 +441,22 @@ class Scheduler(object):
                     processedEvents += 1
                 if len(self.registerIndex) <= len(self.daemons):
                     break
+                end_time = time()
+                if end_time - current_time > 1:
+                    self.logger.warning("An iteration takes %r seconds to process", end_time - current_time)
                 if self.generatecontinue or self.queue.canPop():
                     wait = 0
                 elif not self.timers:
                     wait = None
                 else:
-                    wait = self.timers.top().timestamp - time()
+                    wait = self.timers.top().timestamp - end_time
                     if wait < 0:
                         wait = 0
                 events, canquit = self.polling.pollEvents(wait)
                 for e in events:
                     self.queue.append(e, True)
-                now = time() + 0.1
+                current_time = self.current_time = time()
+                now = current_time + 0.1
                 while self.timers and self.timers.topPriority() < now:
                     t = self.timers.top()
                     if t.interval is not None:
