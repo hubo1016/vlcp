@@ -58,8 +58,9 @@ class MigrateDB(ScriptModule):
         print('Migrating from %s (vhost = %r) to %s (vhost = %r)' % (src_service, src_vhost, dst_service, dst_vhost))
         print('Moving %d keys, deleting %d keys' % (len(src_keys), len(delete_keys)))
         print('Please check. Migrating starts in 5 seconds, press Ctrl+C to cancel...')
-        for m in self.apiroutine.waitWithTimeout(5):
-            yield m
+        with closing(self.apiroutine.waitWithTimeout(5)) as g:
+            for m in g:
+                yield m
         for i in range(0, len(src_keys), 100):
             move_keys = tuple(src_keys[i:i+100])
             try:

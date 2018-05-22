@@ -10,6 +10,7 @@ from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.service.utils.remoteapi import remoteAPI
 from vlcp.utils.ethernet import ETHERTYPE_8021Q
+from contextlib import closing
 
 
 def _is_vxlan(obj):
@@ -431,9 +432,9 @@ class VXLANHandler(RoutineContainer):
             event_queue.append(event)
 
         while True:
-
-            for m in self.waitWithTimeout(10,bind_event):
-                yield m
+            with closing(self.waitWithTimeout(10,bind_event)) as g:
+                for m in g:
+                    yield m
 
             if not self.timeout:
                 event_queue.append(self.event)
@@ -450,9 +451,9 @@ class VXLANHandler(RoutineContainer):
             container.retvalue = self.vxlan_vlan_map_info[logicalnetworkid]
         else:
             event = VXLANMapChanged.createMatcher(self._conn,logicalnetworkid,VXLANMapChanged.UPDATED)
-
-            for m in container.waitWithTimeout(timeout,event):
-                yield m
+            with closing(container.waitWithTimeout(timeout,event)) as g:
+                for m in g:
+                    yield m
 
             if container.timeout:
                 raise ValueError(" cannot find vxlan vlan map info ")

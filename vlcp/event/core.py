@@ -12,7 +12,10 @@ from datetime import datetime
 from signal import signal, SIGTERM, SIGINT
 from logging import getLogger, WARNING
 from collections import deque
-from threading import Lock
+try:
+    from threading import get_ident
+except ImportError:
+    from thread import get_ident
 from vlcp.utils.indexedheap import IndexedHeap
 
 import sys
@@ -121,6 +124,7 @@ class Scheduler(object):
         self.debugging = False
         self._pending_runnables = []
         self.syscallfunc = None
+        self._current_thread = get_ident()
         self.current_time = time()
     def yield_(self, runnable):
         """
@@ -226,10 +230,17 @@ class Scheduler(object):
         
         :param timer: the timer handle
         '''
-        try:
+        if get_ident() != self._current_thread:
+            # Executing in another thread may corrupt the heap
+            # In PyPy, when a iterator is collected by GC,
+            # the "finally" clause may be executed in another thread
+            def _canceller(self=self, timer=timer):
+                self.timers.remove(timer)
+                if False:
+                    yield
+            self.yield_(_canceller())
+        else:
             self.timers.remove(timer)
-        except IndexError:
-            return
     def registerPolling(self, fd, options = POLLING_IN|POLLING_OUT, daemon = False):
         '''
         register a polling file descriptor
@@ -307,6 +318,7 @@ class Scheduler(object):
         '''
         Start main loop
         '''
+        self._current_thread = get_ident()
         if installsignal:
             sigterm = signal(SIGTERM, self._quitsignal)
             sigint = signal(SIGINT, self._quitsignal)
@@ -372,7 +384,7 @@ class Scheduler(object):
                         processEvent(e)
             
             def processYields():
-                if self._pending_runnables:
+                while self._pending_runnables:
                     i = 0
                     while i < len(self._pending_runnables):
                         r = self._pending_runnables[i]
@@ -387,7 +399,7 @@ class Scheduler(object):
                             self.unregisterall(r)
                         processSyscall()
                         i += 1
-                    del self._pending_runnables[:]
+                    del self._pending_runnables[:i]
             canquit = False
             self.logger.info('Main loop started')
             last_time = current_time = self.current_time = time()

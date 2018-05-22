@@ -30,6 +30,7 @@ from time import time
 import vlcp.utils.vxlandiscover as vxlandiscover
 from vlcp.utils.vxlandiscover import get_broadcast_ips
 import json
+from contextlib import closing
 try:
     reduce
 except Exception:
@@ -83,8 +84,9 @@ class VXLANUpdater(FlowUpdater):
                 raise ConnectionResetException
             groupchanged = VXLANGroupChanged.createMatcher(self._connection, networkid, VXLANGroupChanged.UPDATED)
             conn_down = self._connection.protocol.statematcher(self._connection)
-            for m in container.waitWithTimeout(timeout, groupchanged, conn_down):
-                yield m
+            with closing(container.waitWithTimeout(timeout, groupchanged, conn_down)) as g:
+                for m in g:
+                    yield m
             if container.timeout:
                 raise ValueError('VXLAN group is still not created after a long time')
             elif container.matcher is conn_down:
@@ -186,8 +188,9 @@ class VXLANUpdater(FlowUpdater):
                                                               vo, 3, self._connection, self._connection.connmark,
                                                               _ismatch = lambda x: x.message.reason == ofdef.OFPRR_IDLE_TIMEOUT)
         while True:
-            for m in self.waitWithTimeout(self._parent.pushtimeout, packet_in, flow_remove):
-                yield m
+            with closing(self.waitWithTimeout(self._parent.pushtimeout, packet_in, flow_remove)) as g:
+                for m in g:
+                    yield m
             if self.timeout:
                 _, changed = self._get_watched_mac_keys()
                 if changed:
@@ -253,8 +256,9 @@ class VXLANUpdater(FlowUpdater):
                         self._update_walk()
     def _refresh_handler(self):
         while True:
-            for m in self.waitWithTimeout(self._parent.refreshinterval):
-                yield m
+            with closing(self.waitWithTimeout(self._parent.refreshinterval)) as g:
+                for m in g:
+                    yield m
             self.updateobjects(n for n,_ in self._lastlognets)
     def updateflow(self, conn, addvalues, removevalues, updatedvalues):
         # Following works are done in parallel:

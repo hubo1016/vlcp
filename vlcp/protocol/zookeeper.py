@@ -223,8 +223,9 @@ class ZooKeeper(Protocol):
                 conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
                                                                            connection,
                                                                            connmark)
-                for m in container.waitWithTimeout(10, handshake_matcher, conn_matcher):
-                    yield m
+                with closing(container.waitWithTimeout(10, handshake_matcher, conn_matcher)) as g:
+                    for m in g:
+                        yield m
                 if container.timeout:
                     self._logger.warning('Handshake timeout, connection = %r', connection)
                     raise ZooKeeperRetryException
@@ -379,11 +380,12 @@ class ZooKeeper(Protocol):
             yield m
     def keepalive(self, connection):
         try:
-            for m in connection.executeWithTimeout(self.keepalivetimeout,
+            with closing(connection.executeWithTimeout(self.keepalivetimeout,
                         self.requests(connection,
                             [zk.RequestHeader(xid = zk.PING_XID, type = zk.ZOO_PING_OP)],
-                            connection)):
-                yield m
+                            connection))) as g:
+                for m in g:
+                    yield m
             if connection.timeout:
                 for m in connection.reset(True):
                     yield m

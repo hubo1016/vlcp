@@ -572,8 +572,9 @@ class OVSDBPortManager(Module):
                     raise
                 else:
                     self.apiroutine.retvalue = self.apiroutine.event.port
-        for m in self.apiroutine.executeWithTimeout(timeout, waitinner()):
-            yield m
+        with closing(self.apiroutine.executeWithTimeout(timeout, waitinner())) as g:
+            for m in g:
+                yield m
         if self.apiroutine.timeout:
             raise OVSDBPortNotAppearException('Port ' + repr(portno) + ' does not appear before timeout')
     def getportbyname(self, datapathid, name, vhost = ''):
@@ -615,8 +616,9 @@ class OVSDBPortManager(Module):
                     raise
                 else:
                     self.apiroutine.retvalue = self.apiroutine.event.port
-        for m in self.apiroutine.executeWithTimeout(timeout, waitinner()):
-            yield m
+        with closing(self.apiroutine.executeWithTimeout(timeout, waitinner())) as g:
+            for m in g:
+                yield m
         if self.apiroutine.timeout:
             raise OVSDBPortNotAppearException('Port ' + repr(name) + ' does not appear before timeout')
     def getportbyid(self, id, vhost = ''):
@@ -653,8 +655,9 @@ class OVSDBPortManager(Module):
                                                 self.apiroutine.event.port)
             else:
                 self.apiroutine.retvalue = p
-        for m in self.apiroutine.executeWithTimeout(timeout, waitinner()):
-            yield m
+        with closing(self.apiroutine.executeWithTimeout(timeout, waitinner())) as g:
+            for m in g:
+                yield m
         if self.apiroutine.timeout:
             raise OVSDBPortNotAppearException('Port ' + repr(id) + ' does not appear before timeout')
     def resync(self, datapathid, vhost = ''):
@@ -675,8 +678,9 @@ class OVSDBPortManager(Module):
                 # For now, we restart the connection...
                 for m in c.reconnect(False):
                     yield m
-                for m in self.apiroutine.waitWithTimeout(0.1):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(0.1)) as g:
+                    for m in g:
+                        yield m
                 for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitconnection', {'datapathid': datapathid,
                                                                                      'vhost': vhost}):
                     yield m
