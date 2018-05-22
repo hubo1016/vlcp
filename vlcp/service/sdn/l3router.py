@@ -115,7 +115,7 @@ class RouterUpdater(FlowUpdater):
 
         for r,v in self._lastallrouterinfo.items():
             for e in v:
-                _,isexternal,gateway,_,outmac,external_ip,nid,phyport,_,_ = e
+                _,isexternal,gateway,_,outmac,external_ip,nid,phyport,_,_, _ = e
                 if nid == netid:
                     if isexternal:
                         return outmac, external_ip, phyport
@@ -217,7 +217,7 @@ class RouterUpdater(FlowUpdater):
                 bridge, system_id, _ = self.retvalue
 
             for k,v in self._lastsubnetinfo.items():
-                if v[1] and v[7]:
+                if v[1] and v[7] and not v[10]:
                     allocated_ip_address = v[5]
                     subnetmapkey = SubNetMap.default_key(k.id)
                     DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
@@ -1048,40 +1048,65 @@ class RouterUpdater(FlowUpdater):
             staticroutes = dict((r,r.routes) for r in allobjects if r.isinstance(VRouter)
                                        and r in router_to_routerport)
 
-            currentsubnetinfo = dict((s,(
-                                        s.cidr,
-                                        getattr(s,"isexternal",False),
-                                        getattr(s,"gateway",None),
-                                        self._parent.inroutermac,
-                                        currentlognetinfo[s.network][1],    # outroutermac
-                                        None,                               # external_ip_address
-                                        currentlognetinfo[s.network][0],    # network id
-                                        currentlognetinfo[s.network][2],    # physical port no
-                                        s.id,                               # subnet id
-                                        s.network                           # logical network
-                                        )) for s in allobjects if s.isinstance(SubNet)
-                                                and s.network in currentlognetinfo
-                                                and s in subnet_to_routerport)
-
             try:
                 for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
                                                                           'vhost': vhost}):
                     yield m
-
-
             except Exception:
                 self._logger.warning("OVSDB bridge is not ready", exc_info=True)
                 return
             else:
                 bridge, system_id, _ = self.retvalue
 
+            currentsubnetinfo = dict()
+            for s in allobjects:
+                if s.isinstance(SubNet) and s.network in currentlognetinfo and s in subnet_to_routerport:
+                    cidr = s.cidr
+                    gateway = getattr(s, 'gateway')
+                    external_ip_address = None
+                    local_external_ip = False
+
+                    if hasattr(s, "local_address"):
+                        external_ip_address = s.local_address
+                        local_external_ip = True
+
+                    if hasattr(s, "pre_host_config"):
+                        for config in s.pre_host_config:
+                            config_systemid = config["systemid"]
+                            config_bridge = config['bridge']
+                            config_vhost = config['vhost']
+                            if config_systemid in [system_id, '%'] and config_bridge in [bridge, '%'] and \
+                                            config_vhost in [vhost, "%"]:
+                                if 'cidr' in config:
+                                    cidr = config['cidr']
+                                if 'local_address' in config:
+                                    external_ip_address = config['local_address']
+                                    local_external_ip = True
+                                if 'gateway' in config:
+                                    gateway = config['gateway']
+
+                    currentsubnetinfo[s] = (cidr,
+                                            getattr(s, "isexternal", False),
+                                            gateway,
+                                            self._parent.inroutermac,
+                                            currentlognetinfo[s.network][1],  # out router mac
+                                            external_ip_address,
+                                            currentlognetinfo[s.network][0],  # network id
+                                            currentlognetinfo[s.network][2],  # physical port no
+                                            s.id,  # subnet id
+                                            s.network,  # logical network
+                                            local_external_ip  # external ip address from local
+                                            )
+
             if self._parent.enable_router_forward:
                 update_external_subnet = dict()
                 for k, v in currentsubnetinfo.items():
-                    if v[1] and v[7]:
-                        # this subnet is external , we should allocate ip from cidr
-                        if k in lastsubnetinfo and lastsubnetinfo[k][1] and lastsubnetinfo[k][5]:
-                            #this subnet have allocated ip in last
+                    if v[1] and v[7] and not v[10]:
+                        # this subnet is external , external_ip is must , there no local config,
+                        # allocated it from cidr
+                        if k in lastsubnetinfo and lastsubnetinfo[k][1] and lastsubnetinfo[k][5] \
+                                and not lastsubnetinfo[k][10]:
+                            # this subnet have allocated ip in last
                             allocated_ip_address = lastsubnetinfo[k][5]
 
                         else:
@@ -1142,25 +1167,17 @@ class RouterUpdater(FlowUpdater):
 
                 currentsubnetinfo.update(update_external_subnet)
 
-                for k,v in lastsubnetinfo.items():
-                    if v[1] and v[7]:
+                for k, v in lastsubnetinfo.items():
+                    if v[1] and v[7] and not v[10]:
                         if k not in currentsubnetinfo or (k in currentsubnetinfo
                                                           and not currentsubnetinfo[k][1]
-                                                          ):
+                                                          ) or currentsubnetinfo[k][10]:
                             # this external subnet off line , release ip address to subnet
                             allocated_ip_address = v[5]
                             subnetmapkey = SubNetMap.default_key(k.id)
                             DVRouterExternalAddressInfokey = DVRouterExternalAddressInfo.default_key()
 
                             def release_ip(keys,values,timestamp):
-
-                                # ipaddress = parse_ip4_address(allocated_ip_address)
-                                #
-                                # if str(ipaddress) in values[0].allocated_ips:
-                                #     del values[0].allocated_ips[str(ipaddress)]
-                                #
-                                # values[0].info = [e for e in values[0].info if e[5] > timestamp and
-                                #                   (e[0],e[1],e[2],e[3]) !=(system_id,bridge,vhost,values[1].id)]
                                 new_list = []
                                 for e in values[0].info:
                                     if (e[0],e[1],e[2],e[3]) == (system_id,bridge,vhost,values[1].id):
