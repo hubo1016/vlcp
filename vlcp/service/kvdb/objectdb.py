@@ -17,6 +17,7 @@ import itertools
 from vlcp.utils.dataobject import AlreadyExistsException, UniqueKeyReference,\
     MultiKeyReference, DataObjectSet, UniqueKeySet, WeakReferenceObject,\
     MultiKeySet, ReferenceObject
+from contextlib import closing
 
 try:
     from itertools import izip
@@ -500,8 +501,9 @@ class ObjectDB(Module):
                             should_wait = True
                             break
                 if should_wait:
-                    for m in self.apiroutine.waitWithTimeout(0.2, notification_matcher):
-                        yield m
+                    with closing(self.apiroutine.waitWithTimeout(0.2, notification_matcher)) as g:
+                        for m in g:
+                            yield m
                     if self.apiroutine.timeout:
                         break
                     else:
@@ -610,8 +612,9 @@ class ObjectDB(Module):
                         yield m
                     continue                    
                 elif self._pending_gc:
-                    for m in self.apiroutine.waitWithTimeout(1, notification_matcher, request_matcher):
-                        yield m
+                    with closing(self.apiroutine.waitWithTimeout(1, notification_matcher, request_matcher)) as g:
+                        for m in g:
+                            yield m
                     if self.apiroutine.timeout:
                         for m in self.apiroutine.withCallback(_gc(), onupdate, notification_matcher):
                             yield m

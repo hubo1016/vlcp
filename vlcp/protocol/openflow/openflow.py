@@ -13,6 +13,7 @@ from vlcp.event.connection import ConnectionWriteEvent, ConnectionControlEvent
 import logging
 import os
 from namedstruct import dump
+from contextlib import closing
 
 
 @withIndices('datapathid', 'auxiliaryid', 'state', 'connection', 'connmark', 'createby')
@@ -126,8 +127,9 @@ class Openflow(Protocol):
                 yield m
             # Wait for a hello
             hellomatcher = OpenflowPresetupMessageEvent.createMatcher(connection = connection)
-            for m in connection.waitWithTimeout(self.hellotimeout, hellomatcher):
-                yield m
+            with closing(connection.waitWithTimeout(self.hellotimeout, hellomatcher)) as g:
+                for m in g:
+                    yield m
             if connection.timeout:
                 # Drop the connection
                 raise OpenflowProtocolException('Did not receive hello message before timeout')
@@ -186,8 +188,9 @@ class Openflow(Protocol):
                             for m in connection.withException(connection.write(write, False), err_matcher):
                                 yield m
                             featurereply_matcher = OpenflowPresetupMessageEvent.createMatcher(connection = connection, type = currdef.OFPT_FEATURES_REPLY)
-                            for m in connection.waitWithTimeout(self.featurerequesttimeout, featurereply_matcher, err_matcher):
-                                yield m
+                            with closing(connection.waitWithTimeout(self.featurerequesttimeout, featurereply_matcher, err_matcher)) as g:
+                                for m in g:
+                                    yield m
                             if connection.timeout:
                                 raise OpenflowProtocolException('Remote switch did not response to feature request.')
                             elif connection.matcher is err_matcher:
@@ -464,8 +467,9 @@ class Openflow(Protocol):
         echo = common.ofp_echo()
         echo.header.version = connection.openflowversion
         try:
-            for m in connection.executeWithTimeout(self.keepalivetimeout, self.querywithreply(echo, connection, connection)):
-                yield m
+            with closing(connection.executeWithTimeout(self.keepalivetimeout, self.querywithreply(echo, connection, connection))) as g:
+                for m in g:
+                    yield m
             if connection.timeout:
                 for m in connection.reset(True):
                     yield m

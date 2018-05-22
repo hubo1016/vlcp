@@ -304,11 +304,12 @@ class OVSDBManager(Module):
             yield m
         c = self.apiroutine.retvalue
         if c is None:
-            for m in self.apiroutine.waitWithTimeout(timeout, 
+            with closing(self.apiroutine.waitWithTimeout(timeout, 
                             OVSDBBridgeSetup.createMatcher(
                                     state = OVSDBBridgeSetup.UP,
-                                    datapathid = datapathid, vhost = vhost)):
-                yield m
+                                    datapathid = datapathid, vhost = vhost))) as g:
+                for m in g:
+                    yield m
             if self.apiroutine.timeout:
                 raise ConnectionResetException('Datapath is not connected')
             self.apiroutine.retvalue = self.apiroutine.event.connection
@@ -384,8 +385,9 @@ class OVSDBManager(Module):
             conn_down = JsonRPCConnectionStateEvent.createMatcher(JsonRPCConnectionStateEvent.CONNECTION_DOWN,
                                                                   connection,
                                                                   connection.connmark)
-            for m in self.apiroutine.waitWithTimeout(timeout, bridge_setup, conn_down):
-                yield m
+            with closing(self.apiroutine.waitWithTimeout(timeout, bridge_setup, conn_down)) as g:
+                for m in g:
+                    yield m
             if self.apiroutine.timeout:
                 raise OVSDBBridgeNotAppearException('Bridge ' + repr(name) + ' does not appear')
             elif self.apiroutine.matcher is conn_down:
@@ -417,8 +419,9 @@ class OVSDBManager(Module):
             conn_down = JsonRPCConnectionStateEvent.createMatcher(JsonRPCConnectionStateEvent.CONNECTION_DOWN,
                                                                   connection,
                                                                   connection.connmark)
-            for m in self.apiroutine.waitWithTimeout(timeout, bridge_setup, conn_down):
-                yield m
+            with closing(self.apiroutine.waitWithTimeout(timeout, bridge_setup, conn_down)) as g:
+                for m in g:
+                    yield m
             if self.apiroutine.timeout:
                 raise OVSDBBridgeNotAppearException('Bridge ' + repr(uuid) + ' does not appear')
             elif self.apiroutine.matcher is conn_down:
@@ -445,10 +448,11 @@ class OVSDBManager(Module):
             yield m
         c = self.apiroutine.retvalue
         if c is None:
-            for m in self.apiroutine.waitWithTimeout(timeout, 
+            with closing(self.apiroutine.waitWithTimeout(timeout, 
                             OVSDBConnectionSetup.createMatcher(
-                                    systemid, None, None, vhost)):
-                yield m
+                                    systemid, None, None, vhost))) as g:
+                for m in g:
+                    yield m
             if self.apiroutine.timeout:
                 raise ConnectionResetException('Datapath is not connected')
             self.apiroutine.retvalue = self.apiroutine.event.connection
@@ -471,8 +475,9 @@ class OVSDBManager(Module):
             # Resolve hostname
             for m in self.apiroutine.waitForSend(ResolveRequestEvent(request)):
                 yield m
-            for m in self.apiroutine.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request)):
-                yield m
+            with closing(self.apiroutine.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request))) as g:
+                for m in g:
+                    yield m
             if self.apiroutine.timeout:
                 # Resolve is only allowed through asynchronous resolver
                 #try:
@@ -525,12 +530,13 @@ class OVSDBManager(Module):
         for m in self.getbridgeinfo(datapathid, vhost):
             yield m
         if self.apiroutine.retvalue is None:
-            for m in self.apiroutine.waitWithTimeout(timeout,
+            with closing(self.apiroutine.waitWithTimeout(timeout,
                         OVSDBBridgeSetup.createMatcher(
                                     OVSDBBridgeSetup.UP, datapathid,
                                     None, None, None, None,
-                                    vhost)):
-                yield m
+                                    vhost))) as g:
+                for m in g:
+                    yield m
             if self.apiroutine.timeout:
                 raise OVSDBBridgeNotAppearException('Bridge 0x%016x does not appear before timeout' % (datapathid,))
             e = self.apiroutine.event

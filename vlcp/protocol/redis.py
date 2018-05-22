@@ -480,8 +480,9 @@ class Redis(Protocol):
     def keepalive(self, connection):
         try:
             if connection.redis_replyxid == connection.xid:
-                for m in connection.executeWithTimeout(self.keepalivetimeout, self.execute_command(connection, connection, 'PING')):
-                    yield m
+                with closing(connection.executeWithTimeout(self.keepalivetimeout, self.execute_command(connection, connection, 'PING'))) as g:
+                    for m in g:
+                        yield m
                 if connection.timeout:
                     for m in connection.reset(True):
                         yield m

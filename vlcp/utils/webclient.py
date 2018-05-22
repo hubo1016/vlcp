@@ -426,9 +426,10 @@ class WebClient(Configurable):
                     datagen_routine = container.subroutine(datagen)
                 else:
                     datagen_routine = None
-                for m in container.executeWithTimeout(timeout, self._protocol.requestwithresponse(container, conn, _bytes(request.host), _bytes(request.path), _bytes(request.method),
-                                                   [(_bytes(k), _bytes(v)) for k,v in request.header_items()], stream)):
-                    yield m
+                with closing(container.executeWithTimeout(timeout, self._protocol.requestwithresponse(container, conn, _bytes(request.host), _bytes(request.path), _bytes(request.method),
+                                                   [(_bytes(k), _bytes(v)) for k,v in request.header_items()], stream))) as g:
+                    for m in g:
+                        yield m
                 if container.timeout:
                     if datagen_routine:
                         container.terminate(datagen_routine)

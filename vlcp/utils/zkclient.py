@@ -144,8 +144,9 @@ class ZooKeeperClient(Configurable):
                         if failed > 5:
                             # Wait for a small amount of time to prevent a busy loop
                             # Socket may be rejected, it may fail very quick
-                            for m in self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0)):
-                                yield m
+                            with closing(self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0))) as g:
+                                for m in g:
+                                    yield m
                         failed += 1
                         continue
                     try:
@@ -244,8 +245,9 @@ class ZooKeeperClient(Configurable):
                                     break                        
                             else:
                                 # Wait for a small amount of time to prevent a busy loop
-                                for m in self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0)):
-                                    yield m
+                                with closing(self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0))) as g:
+                                    for m in g:
+                                        yield m
                         failed += 1
                     else:
                         failed = 0
@@ -317,16 +319,18 @@ class ZooKeeperClient(Configurable):
                                 rebalancetime = self.rebalancetime
                                 if rebalancetime is not None:
                                     rebalancetime += random() * 60
-                                for m in self._container.waitWithTimeout(rebalancetime, conn_down, auth_failed):
-                                    yield m
+                                with closing(self._container.waitWithTimeout(rebalancetime, conn_down, auth_failed)) as g:
+                                    for m in g:
+                                        yield m
                                 if self._container.timeout:
                                     # Rebalance
                                     if conn.zookeeper_requests:
                                         # There are still requests not processed, wait longer
                                         for _ in range(0, 3):
                                             longer_time = random() * 10
-                                            for m in self._container.waitWithTimeout(longer_time, conn_down, auth_failed):
-                                                yield m
+                                            with closing(self._container.waitWithTimeout(longer_time, conn_down, auth_failed)) as g:
+                                                for m in g:
+                                                    yield m
                                             if not self._container.timeout:
                                                 # Connection is down, or auth failed
                                                 break
@@ -513,8 +517,9 @@ class ZooKeeperClient(Configurable):
                                                            container.event.state == ZooKeeperSessionStateChanged.EXPIRED):
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.EXPIRED)
                 try:
-                    for m in container.executeWithTimeout(left_time(), wait_for_connect()):
-                        yield m
+                    with closing(container.executeWithTimeout(left_time(), wait_for_connect())) as g:
+                        for m in g:
+                            yield m
                 except ZooKeeperSessionUnavailable:
                     if len(retry_requests) == len(requests):
                         raise

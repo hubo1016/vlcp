@@ -18,6 +18,7 @@ from zlib import compress, decompress, error as zlib_error
 import functools
 import uuid
 import logging
+from contextlib import closing
 
 @withIndices('notifier', 'transactid', 'keys', 'reason', 'fromself')
 class UpdateNotification(Event):
@@ -163,8 +164,9 @@ class _Notifier(RoutineContainer):
                     def send_restore_notify(transactid):
                         if self._matchadd_wait or self._matchremove_wait:
                             # Wait for next subscribe success
-                            for m in self.waitWithTimeout(1, ModifyListen.createMatcher(self, ModifyListen.LISTEN)):
-                                yield m
+                            with closing(self.waitWithTimeout(1, ModifyListen.createMatcher(self, ModifyListen.LISTEN))) as g:
+                                for m in g:
+                                    yield m
                         for m in self.waitForSend(
                                 UpdateNotification(self, transactid, tuple(self._matchers.keys()), UpdateNotification.RESTORED, False, extrainfo = None)):
                             yield m

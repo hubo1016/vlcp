@@ -222,8 +222,9 @@ class OpenflowPortManager(Module):
                 self.apiroutine.retvalue = self.apiroutine.event.message.desc
             else:
                 self.apiroutine.retvalue = ports[portno]
-        for m in self.apiroutine.executeWithTimeout(timeout, waitinner()):
-            yield m
+        with closing(self.apiroutine.executeWithTimeout(timeout, waitinner())) as g:
+            for m in g:
+                yield m
         if self.apiroutine.timeout:
             raise OpenflowPortNotAppearException('Port %d does not appear on datapath %016x' % (portno, datapathid))
     def getportbyname(self, datapathid, name, vhost = ''):
@@ -268,8 +269,9 @@ class OpenflowPortManager(Module):
                     return
             yield (OpenflowAsyncMessageEvent.createMatcher(of13.OFPT_PORT_STATUS, datapathid, 0, _ismatch = lambda x: x.message.desc.name == name),)
             self.apiroutine.retvalue = self.apiroutine.event.message.desc
-        for m in self.apiroutine.executeWithTimeout(timeout, waitinner()):
-            yield m
+        with closing(self.apiroutine.executeWithTimeout(timeout, waitinner())) as g:
+            for m in g:
+                yield m
         if self.apiroutine.timeout:
             raise OpenflowPortNotAppearException('Port %r does not appear on datapath %016x' % (name, datapathid))
     def resync(self, datapathid, vhost = ''):

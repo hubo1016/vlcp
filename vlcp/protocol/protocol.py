@@ -10,6 +10,7 @@ from logging import getLogger
 from socket import SOL_SOCKET, SO_ERROR
 from ssl import PROTOCOL_SSLv23
 import errno
+from contextlib import closing
 
 @defaultconfig
 class Protocol(Configurable):
@@ -133,8 +134,9 @@ class Protocol(Configurable):
         routine for a connection finally ends: all connections are closed and not retrying
         '''
         if hasattr(connection, 'createdqueues') and connection.createdqueues:
-            for m in connection.executeWithTimeout(self.cleanuptimeout, connection.waitForAllEmpty(*connection.createdqueues)):
-                yield m
+            with closing(connection.executeWithTimeout(self.cleanuptimeout, connection.waitForAllEmpty(*connection.createdqueues))) as g:
+                for m in g:
+                    yield m
             if connection.timeout:
                 self._logger.warning('Events are still not processed after timeout, Protocol = %r, Connection = %r', self, connection)
             for q in connection.createdqueues:

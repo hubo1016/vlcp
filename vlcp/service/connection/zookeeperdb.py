@@ -275,8 +275,9 @@ class _Notifier(RoutineContainer):
                         break
                     else:
                         self._logger.warning('Unexpected exception occurs', exc_info = True)
-                        for m in self.waitWithTimeout(1):
-                            yield m
+                        with closing(self.waitWithTimeout(1)) as g:
+                            for m in g:
+                                yield m
         finally:
             for zxid in barriers:
                 self._remove_barrier(key, zxid)
@@ -1021,8 +1022,9 @@ class ZooKeeperDB(TcpServerBase):
                                         self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                                         if completes[0].err == zk.ZOO_ERR_OK:
                                             # wait for the barrier to be removed
-                                            for m in self.apiroutine.executeWithTimeout(90, waiters[0].wait(self.apiroutine)):
-                                                yield m
+                                            with closing(self.apiroutine.executeWithTimeout(90, waiters[0].wait(self.apiroutine))) as g:
+                                                for m in g:
+                                                    yield m
                                             if self.apiroutine.timeout:
                                                 self._logger.warning('Wait too long on a barrier, possible deadlock, key = %r, name = %r', key, name)
                                                 self._logger.warning('Try to remove it to solve the problem. THIS IS NOT NORMAL.')
@@ -1200,8 +1202,9 @@ class ZooKeeperDB(TcpServerBase):
     
     def _recycle_routine(self, client, vhost):
         # Sleep for a random interval
-        for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
-            yield m
+        with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
+            for m in g:
+                yield m
         _recycle_list = set(self._recycle_list[vhost])
         self._recycle_list[vhost].clear()
         def _recycle_key(recycle_key):
@@ -1295,8 +1298,9 @@ class ZooKeeperDB(TcpServerBase):
                     self._logger.info('Recycling pended to wait for keys expiration, recycle_all_counter = %d, vhost = %r', recycle_all_counter, vhost)
                     _recycle_list.update(self._recycle_list[vhost])
                     self._recycle_list[vhost].clear()
-                    for m in self.apiroutine.waitWithTimeout(180 - len(self._recycle_list[vhost]) / 5.0):
-                        yield m
+                    with closing(self.apiroutine.waitWithTimeout(180 - len(self._recycle_list[vhost]) / 5.0)) as g:
+                        for m in g:
+                            yield m
                     recycle_all_counter += 1
                 else:
                     _recycle_list.update(self._recycle_list[vhost])
@@ -1361,13 +1365,15 @@ class ZooKeeperDB(TcpServerBase):
                             self._logger.info('Redistribute recycling counter to %d', recycle_all_counter)
                     except ZooKeeperSessionUnavailable:
                         self._logger.info('Full recycling cancelled because we are disconnected from ZooKeeper server')
-                        for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
-                            yield m
+                        with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
+                            for m in g:
+                                yield m
                     except Exception:
                         self._logger.warning('Full recycle exception occurs, vhost = %r', vhost,
                                              exc_info = True)
-                        for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
-                            yield m
+                        with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
+                            for m in g:
+                                yield m
                 continue
             recycle_key = _recycle_list.pop()
             try:
@@ -1375,13 +1381,15 @@ class ZooKeeperDB(TcpServerBase):
                     yield m
             except ZooKeeperSessionUnavailable:
                 self._recycle_list[vhost].add(recycle_key)
-                for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
+                    for m in g:
+                        yield m
             except Exception:
                 self._logger.warning('recycle routine exception occurs, vhost = %r, current_key = %r', vhost, recycle_key,
                                      exc_info = True)
-                for m in self.apiroutine.waitWithTimeout(randrange(0, 60)):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
+                    for m in g:
+                        yield m
     def recycle(self, keys, vhost = ''):
         '''
         Recycle extra versions from the specified keys.

@@ -285,8 +285,9 @@ class VtepController(Module):
                                     self.refreshinterval)) as g:
                         for m in g:
                             yield m
-            for m in self.apiroutine.waitWithTimeout(self.refreshinterval):
-                yield m
+            with closing(self.apiroutine.waitWithTimeout(self.refreshinterval)) as g:
+                for m in g:
+                    yield m
     
     def _poll_logicalswitch_endpoints(self, conn, logicalswitchid, lsuuid):
         protocol = conn.protocol
@@ -608,8 +609,9 @@ class VtepController(Module):
             except Exception:
                 self._logger.warning('Recycling failed on connecton %r', conn, exc_info = True)
         while True:
-            for m in self.apiroutine.waitWithTimeout(interval):
-                yield m
+            with closing(self.apiroutine.waitWithTimeout(interval)) as g:
+                for m in g:
+                    yield m
             with closing(self.apiroutine.executeAll([_recycle_logical_switches(c)
                                                      for c in self._connection_ps], None, ())) as g:
                 for m in g:
@@ -765,11 +767,12 @@ class VtepController(Module):
         # We may retry some times
         while True:
             if physicalswitch not in self._physical_switchs:
-                for m in self.apiroutine.waitWithTimeout(5,
+                with closing(self.apiroutine.waitWithTimeout(5,
                                                          VtepPhysicalSwitchStateChanged.createMatcher(
                                                             VtepPhysicalSwitchStateChanged.UP,
-                                                            physicalswitch)):
-                    yield m
+                                                            physicalswitch))) as g:
+                    for m in g:
+                        yield m
                 if self.apiroutine.timeout or physicalswitch not in self._physical_switchs:
                     raise ValueError('Physical switch %r is not found' % (physicalswitch,))
             conn, tunnelip = self._physical_switchs[physicalswitch]
@@ -878,12 +881,14 @@ class VtepController(Module):
                 _check_transact_result(result[3:], operations[3:])
                 break
             except ConnectionResetException:
-                for m in self.apiroutine.waitWithTimeout(1):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(1)) as g:
+                    for m in g:
+                        yield m
                 continue
             except IOError:
-                for m in self.apiroutine.waitWithTimeout(1):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(1)) as g:
+                    for m in g:
+                        yield m
                 continue
         if logicalports:
             # Refresh network with monitor, only update the logical port information
@@ -919,11 +924,12 @@ class VtepController(Module):
         # We may retry some times
         while True:
             if physicalswitch not in self._physical_switchs:
-                for m in self.apiroutine.waitWithTimeout(5,
+                with closing(self.apiroutine.waitWithTimeout(5,
                                                          VtepPhysicalSwitchStateChanged.createMatcher(
                                                             VtepPhysicalSwitchStateChanged.UP,
-                                                            physicalswitch)):
-                    yield m
+                                                            physicalswitch))) as g:
+                    for m in g:
+                        yield m
                 if self.apiroutine.timeout or physicalswitch not in self._physical_switchs:
                     raise ValueError('Physical switch %r is not found' % (physicalswitch,))
             conn, tunnelip = self._physical_switchs[physicalswitch]
@@ -1000,12 +1006,14 @@ class VtepController(Module):
                 _check_transact_result(result[3:], operations[3:])
                 break
             except ConnectionResetException:
-                for m in self.apiroutine.waitWithTimeout(1):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(1)) as g:
+                    for m in g:
+                        yield m
                 continue
             except IOError:
-                for m in self.apiroutine.waitWithTimeout(1):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(1)) as g:
+                    for m in g:
+                        yield m
                 continue
         self.apiroutine.retvalue = None
     
@@ -1024,11 +1032,12 @@ class VtepController(Module):
         # We may retry some times
         while True:
             if physicalswitch not in self._physical_switchs:
-                for m in self.apiroutine.waitWithTimeout(5,
+                with closing(self.apiroutine.waitWithTimeout(5,
                                                          VtepPhysicalSwitchStateChanged.createMatcher(
                                                             VtepPhysicalSwitchStateChanged.UP,
-                                                            physicalswitch)):
-                    yield m
+                                                            physicalswitch))) as g:
+                    for m in g:
+                        yield m
                 if self.apiroutine.timeout or physicalswitch not in self._physical_switchs:
                     raise ValueError('Physical switch %r is not found' % (physicalswitch,))
             conn, tunnelip = self._physical_switchs[physicalswitch]
@@ -1082,12 +1091,14 @@ class VtepController(Module):
                 _check_transact_result(result[2:], operations[2:])
                 break
             except ConnectionResetException:
-                for m in self.apiroutine.waitWithTimeout(1):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(1)) as g:
+                    for m in g:
+                        yield m
                 continue
             except IOError:
-                for m in self.apiroutine.waitWithTimeout(1):
-                    yield m
+                with closing(self.apiroutine.waitWithTimeout(1)) as g:
+                    for m in g:
+                        yield m
                 continue
         self.apiroutine.retvalue = None
 

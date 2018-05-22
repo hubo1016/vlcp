@@ -345,12 +345,14 @@ class RedisDB(TcpServerBase):
                                         if self.apiroutine.retvalue is not None:
                                             break
                                         else:
-                                            for m in self.apiroutine.waitWithTimeout(0.02):
-                                                yield m
+                                            with closing(self.apiroutine.waitWithTimeout(0.02)) as g:
+                                                for m in g:
+                                                    yield m
                                 except Exception:
                                     self._logger.warning('Exception raised on waiting for a lock, will ignore and continue', exc_info = True)
-                                    for m in self.apiroutine.waitWithTimeout(0.1):
-                                        yield m
+                                    with closing(self.apiroutine.waitWithTimeout(0.1)) as g:
+                                        for m in g:
+                                            yield m
                         else:
                             return
                 else:

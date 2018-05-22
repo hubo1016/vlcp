@@ -15,6 +15,7 @@ import itertools
 import socket
 from vlcp.event.event import Event, withIndices
 from vlcp.event.core import QuitException, syscall_removequeue
+from contextlib import closing
 
 def _get_endpoint(conn):
     raddr = getattr(conn, 'remoteaddr', None)
@@ -325,11 +326,12 @@ class OpenflowManager(Module):
             yield m
         c = self._getconnection(datapathid, auxiliaryid, vhost)
         if c is None:
-            for m in self.apiroutine.waitWithTimeout(timeout, 
+            with closing(self.apiroutine.waitWithTimeout(timeout, 
                             OpenflowConnectionStateEvent.createMatcher(datapathid, auxiliaryid,
                                     OpenflowConnectionStateEvent.CONNECTION_SETUP,
-                                    _ismatch = lambda x: x.createby.vhost == vhost)):
-                yield m
+                                    _ismatch = lambda x: x.createby.vhost == vhost))) as g:
+                for m in g:
+                    yield m
             if self.apiroutine.timeout:
                 raise ConnectionResetException('Datapath %016x is not connected' % datapathid)
             self.apiroutine.retvalue = self.apiroutine.event.connection
@@ -370,8 +372,9 @@ class OpenflowManager(Module):
             # Resolve hostname
             for m in self.apiroutine.waitForSend(ResolveRequestEvent(request)):
                 yield m
-            for m in self.apiroutine.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request)):
-                yield m
+            with closing(self.apiroutine.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request))) as g:
+                for m in g:
+                    yield m
             if self.apiroutine.timeout:
                 # Resolve is only allowed through asynchronous resolver
                 #try:

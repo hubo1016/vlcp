@@ -14,6 +14,7 @@ import re
 import time
 from vlcp.event.stream import MemoryStream, StreamDataEvent
 import zlib
+from contextlib import closing
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class HttpConnectionStateEvent(Event):
@@ -371,8 +372,9 @@ class Http(Protocol):
                                         break
                                     elif connection.event.statuscode == 100:
                                         break
-                            for m in connection.executeWithTimeout(self.expecttimeout, waitForContinue()):
-                                yield m
+                            with closing(connection.executeWithTimeout(self.expecttimeout, waitForContinue())) as g:
+                                for m in g:
+                                    yield m
                             if not connection.timeout:
                                 # There is a response
                                 if connection.event.isfinal:
@@ -465,20 +467,23 @@ class Http(Protocol):
             while True:
                 if writeclose:
                     if connection.http_remoteversion >= '1.1':
-                        for m in connection.waitWithTimeout(self.closetimeout):
-                            yield m
+                        with closing(connection.waitWithTimeout(self.closetimeout)) as g:
+                            for m in g:
+                                yield m
                     for m in connection.shutdown(False, connmark):
                         yield m
                     break
                 elif connection.xid == connection.http_responsexid and connection.http_idle:
                     if connection.http_keepalive:
                         # Wait for new requests
-                        for m in connection.waitWithTimeout(self.idletimeout, nextInput):
-                            yield m
+                        with closing(connection.waitWithTimeout(self.idletimeout, nextInput)) as g:
+                            for m in g:
+                                yield m
                     else:
                         if connection.http_remoteversion >= '1.1':
-                            for m in connection.waitWithTimeout(self.closetimeout):
-                                yield m
+                            with closing(connection.waitWithTimeout(self.closetimeout)) as g:
+                                for m in g:
+                                    yield m
                         else:
                             connection.timeout = True
                     if connection.timeout:

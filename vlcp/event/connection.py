@@ -156,8 +156,9 @@ class Connection(RoutineContainer):
                     if wantWrite:
                         yield (canwrite_matcher, connection_control)
                     else:
-                        for m in self.waitWithTimeout(keepalivetime, canread_matcher, connection_control):
-                            yield m
+                        with closing(self.waitWithTimeout(keepalivetime, canread_matcher, connection_control)) as g:
+                            for m in g:
+                                yield m
                         if self.timeout:
                             self.subroutine(self.protocol.keepalive(self))
                             continue
@@ -607,8 +608,9 @@ class Client(Connection):
             # Resolve hostname
             for m in self.waitForSend(ResolveRequestEvent(request)):
                 yield m
-            for m in self.waitWithTimeout(self.connect_timeout, ResolveResponseEvent.createMatcher(request)):
-                yield m
+            with closing(self.waitWithTimeout(self.connect_timeout, ResolveResponseEvent.createMatcher(request))) as g:
+                for m in g:
+                    yield m
             if self.timeout:
                 # Resolve is only allowed through asynchronous resolver
                 #try:
@@ -719,8 +721,9 @@ class Client(Connection):
                         err = self.socket.connect_ex(remote_addr)
                         if err == errno.EINPROGRESS:
                             connect_match = PollEvent.createMatcher(self.socket.fileno())
-                            for m in self.waitWithTimeout(self.connect_timeout, connect_match):
-                                yield m
+                            with closing(self.waitWithTimeout(self.connect_timeout, connect_match)) as g:
+                                for m in g:
+                                    yield m
                             if self.timeout:
                                 raise IOError('timeout')
                             else:
@@ -837,8 +840,9 @@ class Client(Connection):
                     err = self.socket.connect_ex(addr)
                     if err == errno.EINPROGRESS or err == errno.EWOULDBLOCK or err == errno.EAGAIN:
                         connect_match = PollEvent.createMatcher(self.socket.fileno())
-                        for m in self.waitWithTimeout(self.connect_timeout, connect_match):
-                            yield m
+                        with closing(self.waitWithTimeout(self.connect_timeout, connect_match)) as g:
+                            for m in g:
+                                yield m
                         if self.timeout:
                             raise Exception('timeout')
                         else:
@@ -897,8 +901,9 @@ class Client(Connection):
     def _reconnect_internal(self):
         timeretry = 0
         for timewait in self.reconnect_timeseq():
-            for m in self.waitWithTimeout(timewait):
-                yield m
+            with closing(self.waitWithTimeout(timewait)) as g:
+                for m in g:
+                    yield m
             try:
                 with closing(self.create_socket()) as cs:
                     for m in cs:
@@ -1039,8 +1044,9 @@ class TcpServer(RoutineContainer):
             # Resolve hostname
             for m in self.waitForSend(ResolveRequestEvent(request)):
                 yield m
-            for m in self.waitWithTimeout(20, ResolveResponseEvent.createMatcher(request)):
-                yield m
+            with closing(self.waitWithTimeout(20, ResolveResponseEvent.createMatcher(request))) as g:
+                for m in g:
+                    yield m
             if self.timeout:
                 # Resolve is only allowed through asynchronous resolver 
                 self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
@@ -1154,8 +1160,9 @@ class TcpServer(RoutineContainer):
                     retry = self.retry_listen
                     if retry:
                         self.logger.warning('Begin listen failed on URL: %s', self.rawurl, exc_info = True)
-                        for m in self.waitWithTimeout(self.retry_interval):
-                            yield m
+                        with closing(self.waitWithTimeout(self.retry_interval)) as g:
+                            for m in g:
+                                yield m
                     else:
                         raise
         finally:

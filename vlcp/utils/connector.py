@@ -16,6 +16,7 @@ from vlcp.event.event import Event, withIndices
 from vlcp.event.core import POLLING_IN, PollEvent
 import functools
 import traceback
+from contextlib import closing
 if sys.version_info[0] >= 3:
     from queue import Full, Queue, Empty
 else:
@@ -233,8 +234,9 @@ class Connector(RoutineContainer):
                     self.jobs = 0
                     pipein.close()
                     pipein = None
-                    for m in self.waitWithTimeout(1):
-                        yield m
+                    with closing(self.waitWithTimeout(1)) as g:
+                        for m in g:
+                            yield m
                     if mp:
                         process.terminate()
                     (process, queue, pipein, outqueue) = self._createobjs(fork, mp)

@@ -24,6 +24,7 @@ from vlcp.utils.netutils import parse_ip4_network,get_netmask, parse_ip4_address
 from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet, SubNetMap,DVRouterForwardInfo, \
     DVRouterForwardSet, DVRouterForwardInfoRef, DVRouterExternalAddressInfo, LogicalNetworkMap, LogicalNetwork, \
     LogicalPort
+from contextlib import closing
 
 
 @withIndices("connection")
@@ -140,8 +141,9 @@ class RouterUpdater(FlowUpdater):
 
     def _keep_forwardinfo_alive_handler(self):
         while True:
-            for m in self.waitWithTimeout(self._parent.forwardinfo_discover_update_time):
-                yield m
+            with closing(self.waitWithTimeout(self._parent.forwardinfo_discover_update_time)) as g:
+                for m in g:
+                    yield m
 
             datapath_id = self._connection.openflow_datapathid
             vhost = self._connection.protocol.vhost
@@ -201,8 +203,9 @@ class RouterUpdater(FlowUpdater):
 
     def _keep_addressinfo_alive_handler(self):
         while True:
-            for m in self.waitWithTimeout(self._parent.addressinfo_discover_update_time):
-                yield m
+            with closing(self.waitWithTimeout(self._parent.addressinfo_discover_update_time)) as g:
+                for m in g:
+                    yield m
 
             datapath_id = self._connection.openflow_datapathid
             vhost = self._connection.protocol.vhost
@@ -283,8 +286,9 @@ class RouterUpdater(FlowUpdater):
     def _time_cycle_handler(self):
 
         while True:
-            for m in self.waitWithTimeout(self._parent.arp_cycle_time):
-                yield m
+            with closing(self.waitWithTimeout(self._parent.arp_cycle_time)) as g:
+                for m in g:
+                    yield m
             ct = int(time.time())
 
             # check incomplte arp entry ,, send arp request cycle unitl timeout

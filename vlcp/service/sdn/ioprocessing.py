@@ -19,6 +19,7 @@ from vlcp.utils.flowupdater import FlowUpdater
 
 import itertools
 from functools import partial
+from contextlib import closing
 
 @withIndices('datapathid', 'vhost', 'connection', 'logicalportchanged', 'physicalportchanged',
                                                     'logicalnetworkchanged', 'physicalnetworkchanged')
@@ -1048,8 +1049,9 @@ class IOProcessing(FlowBase):
                                                                               'vhost': ovsdb_vhost})]):
                                     yield m
                                 # Do not resync too often
-                                for m in self.apiroutine.waitWithTimeout(0.1):
-                                    yield m
+                                with closing(self.apiroutine.waitWithTimeout(0.1)) as g:
+                                    for m in g:
+                                        yield m
                                 resync += 1
                         else:
                             break

@@ -56,8 +56,10 @@ class RedisClientBase(Configurable):
                 self._protocol = Redis()
     def _get_connection(self, container, connection):
         if not connection.connected:
-            for m in container.waitWithTimeout(self.timeout, self._protocol.statematcher(connection, RedisConnectionStateEvent.CONNECTION_UP, False)):
-                yield m
+            with closing(container.waitWithTimeout(self.timeout, self._protocol.statematcher(connection, RedisConnectionStateEvent.CONNECTION_UP, False)))\
+                         as g:
+                for m in g:
+                    yield m
             if container.timeout:
                 raise RedisConnectionDown('Disconnected from redis server')        
     def _get_default_connection(self, container):
@@ -80,8 +82,9 @@ class RedisClientBase(Configurable):
                 try:
                     for m in self._protocol.send_command(connection, container, 'QUIT'):
                         yield m
-                    for m in container.waitWithTimeout(1, self._protocol.statematcher(connection)):
-                        yield m
+                    with closing(container.waitWithTimeout(1, self._protocol.statematcher(connection))) as g:
+                        for m in g:
+                            yield m
                 except Exception:
                     for m in connection.shutdown():
                         yield m

@@ -8,6 +8,7 @@ from vlcp.config import defaultconfig
 from vlcp.protocol.jsonrpc import JsonRPC, JsonRPCRequestEvent,\
     JsonRPCNotificationEvent
 from vlcp.event.connection import ConnectionResetException, ConnectionWriteEvent
+from contextlib import closing
 
 @defaultconfig
 class OVSDB(JsonRPC):
@@ -51,8 +52,9 @@ class OVSDB(JsonRPC):
         connection.subroutine(self._respond_echo(connection))
     def keepalive(self, connection):
         try:
-            for m in connection.executeWithTimeout(self.keepalivetimeout, self.querywithreply('echo', [], connection, connection)):
-                yield m
+            with closing(connection.executeWithTimeout(self.keepalivetimeout, self.querywithreply('echo', [], connection, connection))) as g:
+                for m in g:
+                    yield m
             if connection.timeout:
                 for m in connection.reset(True):
                     yield m

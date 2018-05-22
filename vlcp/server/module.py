@@ -14,6 +14,7 @@ import copy
 from vlcp.config.config import manager
 from vlcp.event.core import QuitException
 from inspect import cleandoc
+from contextlib import closing
 
 try:
     reload
@@ -754,8 +755,9 @@ def callAPI(container, targetname, name, params = {}, timeout = 120.0):
     for m in container.waitForSend(apiEvent):
         yield m
     replyMatcher = ModuleAPIReply.createMatcher(handle)
-    for m in container.waitWithTimeout(timeout, replyMatcher):
-        yield m
+    with closing(container.waitWithTimeout(timeout, replyMatcher)) as g:
+        for m in g:
+            yield m
     if container.timeout:
         # Ignore the Event
         apiEvent.canignore = True
@@ -780,8 +782,9 @@ def batchCallAPI(container, apis, timeout = 120.0):
             yield tuple(apiMatchers)
             apiMatchers.remove(container.matcher)
             eventdict[container.event.handle] = container.event
-    for m in container.executeWithTimeout(timeout, process2()):
-        yield m
+    with closing(container.executeWithTimeout(timeout, process2())) as g:
+        for m in g:
+            yield m
     for e in apiEvents:
         if e.handle not in eventdict:
             e.canignore = True
