@@ -3,7 +3,7 @@ Created on 2015/6/16
 
 :author: hubo
 '''
-from __future__ import print_function, absolute_import, division 
+from __future__ import print_function, absolute_import, division
 import sys
 from .core import QuitException, TimerEvent, SystemControlEvent
 from .event import Event, withIndices
@@ -159,15 +159,24 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                 container.currentroutine = iterself
             if daemon:
                 scheduler.setDaemon(iterself, True)
-            matchers = next(iterator)
+            try:
+                matchers = next(iterator)
+            except StopIteration:
+                return
             while matchers is None:
                 scheduler.yield_(iterself)
                 yield
-                matchers = next(iterator)
+                try:
+                    matchers = next(iterator)
+                except StopIteration:
+                    return
             try:
                 scheduler.register(matchers, iterself)
             except Exception:
-                iterator.throw(IllegalMatchersException(matchers))
+                try:
+                    iterator.throw(IllegalMatchersException(matchers))
+                except StopIteration:
+                    return
                 raise
             while True:
                 try:
@@ -180,7 +189,10 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                     t,v,tr = sys.exc_info()  # @UnusedVariable
                     if container is not None:
                         container.currentroutine = iterself
-                    matchers = iterator.throw(t,v)
+                    try:
+                        matchers = iterator.throw(t,v)
+                    except StopIteration:
+                        pass
                 else:
                     #scheduler.unregister(matchers, iterself)
                     lmatchers = matchers
@@ -189,16 +201,25 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                         container.matcher = etup[1]
                     if container is not None:
                         container.currentroutine = iterself
-                    matchers = iterator.send(etup)
+                    try:
+                        matchers = iterator.send(etup)
+                    except StopIteration:
+                        return
                 while matchers is None:
                     scheduler.yield_(iterself)
                     yield
-                    matchers = next(iterator)
+                    try:
+                        matchers = next(iterator)
+                    except StopIteration:
+                        return
                 try:
                     scheduler.unregister(set(lmatchers).difference(matchers), iterself)
                     scheduler.register(set(matchers).difference(lmatchers), iterself)
                 except Exception:
-                    iterator.throw(IllegalMatchersException(matchers))
+                    try:
+                        iterator.throw(IllegalMatchersException(matchers))
+                    except StopIteration:
+                        pass
                     raise
         finally:
             # iterator.close() can be called in other routines, we should restore the currentroutine variable
