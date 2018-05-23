@@ -11,6 +11,7 @@ from vlcp.event.connection import Client, TcpServer
 import logging
 from time import time
 from vlcp.event.ratelimiter import RateLimiter
+import threading
 
 @withIndices('producer')
 class TestConsumerEvent(Event):
@@ -116,6 +117,39 @@ class Test(unittest.TestCase):
         end_time = time()
         self.assertEqual(output, b'ABCD')
         self.assertTrue(0.4 < end_time - curr_time < 0.6)
+    
+    def testTimerThreading(self):
+        scheduler = Scheduler()
+        rA = RoutineContainer(scheduler)
+        exceptions = []
+        def test_routine():
+            try:
+                th = scheduler.setTimer(10)
+                threading_result = [None]
+                def _cancel(th):
+                    try:
+                        scheduler.cancelTimer(th)
+                        # It should be canceled asynchronously
+                        self.assertTrue(th in scheduler.timers)
+                    except Exception as e:
+                        threading_result[0] = e
+                    else:
+                        threading_result[0] = True
+                t = threading.Thread(target=_cancel, args=(th,))
+                t.start()
+                for m in rA.waitWithTimeout(0.5):
+                    yield m
+                t.join(1)
+                self.assertFalse(t.isAlive())
+                self.assertIs(threading_result[0], True)
+                self.assertFalse(th in scheduler.timers)
+            except Exception as exc:
+                exceptions.append(exc)
+                raise
+        rA.subroutine(test_routine())
+        scheduler.main()
+        self.assertFalse(exceptions)
+    
     def testLimiter(self):
         def _test_limiter(limit, expected_result, *numbers):
             scheduler = Scheduler()
