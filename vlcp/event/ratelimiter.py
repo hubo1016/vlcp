@@ -42,9 +42,9 @@ class RateLimiter(object):
         self._task = None
         self._bottom_line = self._limit
     
-    def limit(self):
+    def limit(self, use = 1):
         c = self._counter
-        self._counter = c + 1
+        self._counter = c + use
         if self._task is None:
             self._task = self._container.subroutine(self._limiter_task(), False)
         if c >= self._bottom_line:

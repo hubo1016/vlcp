@@ -156,42 +156,60 @@ class Test(unittest.TestCase):
             rA = RoutineContainer(scheduler)
             rB = RoutineContainer(scheduler)
             limiter = RateLimiter(limit, rA)
-            counter = [0]
+            counter = [0, 0]
             result = []
             def _record():
+                first = True
                 while True:
                     for m in rA.doEvents():
                         yield m
                     if counter[0] == 0:
                         break
-                    result.append(counter[0])
+                    result.append((counter[0], counter[1]))
                     counter[0] = 0
-            def _limited():
-                for m in limiter.limit():
+                    counter[1] = 0
+            def _limited(use = 1):
+                for m in limiter.limit(use):
                     yield m
                 counter[0] += 1
+                counter[1] += use
             def _starter():
                 for t in numbers:
-                    for _ in range(t):
-                        rB.subroutine(_limited())
+                    if isinstance(t, tuple):
+                        for use in t:
+                            rB.subroutine(_limited(use))
+                    else:
+                        for _ in range(t):
+                            rB.subroutine(_limited())
                     for m in rB.doEvents():
                         yield m
             rA.subroutine(_record(), False)
             rB.subroutine(_starter())
             scheduler.main()
             self.assertEqual(result, expected_result)
-        _test_limiter(5, [4], 4)
-        _test_limiter(5, [5], 5)
-        _test_limiter(5, [5,1], 6)
-        _test_limiter(5, [5,4], 9)
-        _test_limiter(5, [5,5], 10)
-        _test_limiter(5, [5,5,1], 11)
-        _test_limiter(1, [1] * 10, 10)
-        _test_limiter(5, [4,4,4], 4,4,4)
-        _test_limiter(5, [4,5,5,1], 4,6,5)
-        _test_limiter(5, [4,5,4,5,5], 4,6,3,5,5)
-        _test_limiter(5, [5,1,5], 6,0,5)
-        _test_limiter(5, [5,1,5,5,4], 6,0,6,4,4)
+        _test_limiter(5, [(4,4)], 4)
+        _test_limiter(5, [(5,5)], 5)
+        _test_limiter(5, [(5,5),(1,1)], 6)
+        _test_limiter(5, [(5,5),(4,4)], 9)
+        _test_limiter(5, [(5,5),(5,5)], 10)
+        _test_limiter(5, [(5,5),(5,5),(1,1)], 11)
+        _test_limiter(1, [(1,1)] * 10, 10)
+        _test_limiter(5, [(4,4),(4,4),(4,4)], 4,4,4)
+        _test_limiter(5, [(4,4),(5,5),(5,5),(1,1)], 4,6,5)
+        _test_limiter(5, [(4,4),(5,5),(4,4),(5,5),(5,5)], 4,6,3,5,5)
+        _test_limiter(5, [(5,5),(1,1),(5,5)], 6,0,5)
+        _test_limiter(5, [(5,5),(1,1),(5,5),(5,5),(4,4)], 6,0,6,4,4)
+        _test_limiter(5, [(1,4)], (4,))
+        _test_limiter(5, [(1,5)], (5,))
+        _test_limiter(5, [(1,6)], (6,))
+        _test_limiter(5, [(2,6)], (3,3))
+        _test_limiter(5, [(2,6),(1,3)], (3,3,3))
+        _test_limiter(5, [(3,5),(1,3)], (1,3,1,3))
+        _test_limiter(5, [(3,7),(1,1)], (3,1,3,1))
+        _test_limiter(5, [(3,7),(2,4),(2,4),(3,5)], (3,1,3,1,3,1,3,1,3,1))
+        _test_limiter(5, [(2,4),(3,5),(2,6),(1,4),(1,1)], (3,1),(3,1,1,3),(3,4,1))
+        _test_limiter(5, [(2,8),(1,4),(1,4),(1,4),(2,8),(1,4),(1,4),(1,4)], (4,)*10)
+        
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testConsumer']
