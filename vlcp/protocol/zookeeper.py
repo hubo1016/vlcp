@@ -18,6 +18,7 @@ from contextlib import closing
 from namedstruct import dump
 from json import dumps
 from vlcp.event.lock import Lock
+from vlcp.event.ratelimiter import RateLimiter
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class ZooKeeperConnectionStateEvent(Event):
@@ -91,8 +92,11 @@ class ZooKeeper(Protocol):
     _default_connect_timeout = 5
     _default_tcp_nodelay = True
     # Limit the data write queue size
-    _default_writequeuesize = 8192
+    _default_writequeuesize = 1024
     _logger = logging.getLogger(__name__ + '.ZooKeeper')
+    def __init__(self):
+        Protocol.__init__(self)
+
     def init(self, connection):
         for m in Protocol.init(self, connection):
             yield m
@@ -109,6 +113,8 @@ class ZooKeeper(Protocol):
             connection.queue.addSubQueue(2, ZooKeeperWriteEvent.createMatcher(connection = connection,
                                                                                         priority = ZooKeeperWriteEvent.HIGH),
                                          None, self.writequeuesize)
+        # Use limiter to limit the request serialization in one iteration
+        connection._rate_limiter = RateLimiter(256, connection)
         for m in self.reconnect_init(connection):
             yield m
     def reconnect_init(self, connection):
@@ -248,20 +254,17 @@ class ZooKeeper(Protocol):
             matchers.append(resp_matcher)
         alldata = []
         for i in range(0, len(requests), 100):
-            for j in range(i, i + 100):
-                if j >= len(requests):
-                    break
+            size = min(100, len(requests) - i)
+            if not priority:
+                for m in connection._rate_limiter.limit(size):
+                    yield m
+            for j in range(i, i + size):
                 r = requests[j]
                 data = r._tobytes()
                 if len(data) >= 0xfffff:
                     # This is the default limit of ZooKeeper, reject this request
                     raise ZooKeeperRequestTooLargeException('The request is %d bytes which is too large for ZooKeeper' % len(data))
                 alldata.append(data)
-            else:
-                # This is time-consuming when a lot of requests are sent in a batch, so leave some time for the
-                # scheduler
-                for m in container.doEvents():
-                    yield m
         for r in requests:
             self._register_xid(connection, r)
         def _sendall():
@@ -383,7 +386,8 @@ class ZooKeeper(Protocol):
             with closing(connection.executeWithTimeout(self.keepalivetimeout,
                         self.requests(connection,
                             [zk.RequestHeader(xid = zk.PING_XID, type = zk.ZOO_PING_OP)],
-                            connection))) as g:
+                            connection,
+                            priority=ZooKeeperWriteEvent.HIGH))) as g:
                 for m in g:
                     yield m
             if connection.timeout:
