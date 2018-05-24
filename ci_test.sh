@@ -3,7 +3,7 @@
 # This is a hack. We are running in sudo, must start the virtualenv manually
 
 if [ "${TRAVIS_PYTHON_VERSION:0:4}" == "pypy" ]; then
-	venv=pypy-5.4
+	venv=${TRAVIS_PYTHON_VERSION}
 else
 	venv=python${TRAVIS_PYTHON_VERSION}
 fi
