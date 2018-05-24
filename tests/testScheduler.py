@@ -142,6 +142,8 @@ class Test(unittest.TestCase):
                 t.join(1)
                 self.assertFalse(t.isAlive())
                 self.assertIs(threading_result[0], True)
+                for m in rA.doEvents():
+                    yield m
                 self.assertFalse(th in scheduler.timers)
             except Exception as exc:
                 exceptions.append(exc)
