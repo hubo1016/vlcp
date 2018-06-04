@@ -14,6 +14,7 @@ import logging
 import os
 from namedstruct import dump
 from contextlib import closing
+from vlcp.event.ratelimiter import RateLimiter
 
 
 @withIndices('datapathid', 'auxiliaryid', 'state', 'connection', 'connmark', 'createby')
@@ -85,6 +86,7 @@ class Openflow(Protocol):
     # When OFPT_ECHO packet does not get response in the specified time, disconnect
     _default_keepalivetimeout = 3
     _default_createqueue = True
+    _default_writequeuesize = 200
     _default_buffersize = 65536
     # Show debugging messages in log
     _default_debugging = False
@@ -324,6 +326,8 @@ class Openflow(Protocol):
             replymessages.append(msg)
         def batchprocess():
             for r in requests:
+                for m in connection._rate_limiter.limit():
+                    yield m
                 for m in connection.write(self.formatrequest(r, connection, False), False):
                     yield m
             barrier = connection.openflowdef.ofp_msg.new()
@@ -355,6 +359,7 @@ class Openflow(Protocol):
         # Add priority to echo reply, or the whole connection is down
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.writepriority + 10, ConnectionWriteEvent.createMatcher(connection = connection, _ismatch = lambda x: hasattr(x, 'echoreply') and x.echoreply), ('echoreply', connection)))
+        connection._rate_limiter = RateLimiter(200, connection)
         for m in self.reconnect_init(connection):
             yield m
     def reconnect_init(self, connection):

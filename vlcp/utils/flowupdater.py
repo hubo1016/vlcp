@@ -75,18 +75,25 @@ class FlowUpdater(RoutineContainer):
         lastresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
         flowupdate = FlowUpdaterNotification.createMatcher(self, FlowUpdaterNotification.FLOWUPDATE)
         while True:
-            currentresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
-            additems = currentresult.difference(lastresult)
-            removeitems = lastresult.difference(currentresult)
-            updateditems = set(self._updatedset2).intersection(currentresult)
-            updateditems.difference_update(removeitems)
-            updateditems.difference_update(additems)
+            currentresult = [v for v in self._savedresult if v is not None and not v.isdeleted()]
+            additems = []
+            updateditems = []
+            updatedset2 = self._updatedset2
+            for v in currentresult:
+                if v not in lastresult:
+                    additems.append(v)
+                else:
+                    lastresult.remove(v)
+                    if v in updatedset2:
+                        # Updated
+                        updateditems.append(v)
+            removeitems = lastresult
             self._updatedset2.clear()
-            lastresult = currentresult
+            lastresult = set(currentresult)
             if not additems and not removeitems and not updateditems:
                 yield (flowupdate,)
                 continue
-            for m in self.updateflow(self._connection, additems, removeitems, updateditems):
+            for m in self.updateflow(self._connection, set(additems), removeitems, set(updateditems)):
                 yield m
                 
     def main(self):
