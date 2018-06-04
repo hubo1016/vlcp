@@ -12,6 +12,7 @@ from vlcp.protocol.openflow.openflow import OpenflowErrorResultException
 from namedstruct.namedstruct import dump
 import json
 import logging
+from contextlib import closing
 
 @withIndices('updater', 'type')
 class FlowUpdaterNotification(Event):
@@ -37,6 +38,7 @@ class FlowUpdater(RoutineContainer):
             self._requstid = str(uuid1())
         else:
             self._requstid = requestid
+        self._requestindex = 0
         self._dataupdateroutine = None
         self._flowupdateroutine = None
     def reset_initialkeys(self, keys, values):
@@ -105,13 +107,25 @@ class FlowUpdater(RoutineContainer):
             presave_update = set()
             while True:
                 self._restartwalk = False
-                presave_update.clear()
                 presave_update.update(self._updatedset)
                 self._updatedset.clear()
                 _initialkeys = set(self._initialkeys)
-                for m in callAPI(self, 'objectdb', 'walk', {'keys': self._initialkeys, 'walkerdict': self._walkerdict,
-                                                            'requestid': self._requstid}):
-                    yield m
+                try:
+                    for m in callAPI(self, 'objectdb', 'walk', {'keys': self._initialkeys, 'walkerdict': self._walkerdict,
+                                                                'requestid': (self._requstid, self._requestindex)}):
+                        yield m
+                except Exception:
+                    self._logger.warning("Flow updater %r walk step failed, conn = %r", self, self._connection,
+                                         exc_info=True)
+                    # Cleanup
+                    with closing(callAPI(self, 'objectdb', 'unwatchall',
+                                         {'requestid': (self._requstid, self._requestindex)})) as g:
+                        for m in g:
+                            yield m
+                    with closing(self.waitWithTimeout(2)) as g:
+                        for m in g:
+                            yield m
+                    self._requestindex += 1
                 if self._restartwalk:
                     continue
                 if self._updatedset:
@@ -126,6 +140,7 @@ class FlowUpdater(RoutineContainer):
                     self.terminate(self._dataupdateroutine)
                 self.subroutine(self._dataobject_update_detect(), False, "_dataupdateroutine")
                 self._updatedset.update(v for v in presave_update)
+                presave_update.clear()
                 for m in self.walkcomplete(self._savedkeys, self._savedresult):
                     yield m
                 if removekeys:
@@ -151,8 +166,7 @@ class FlowUpdater(RoutineContainer):
             self._logger.exception("Flow updater %r stops update by an exception, conn = %r", self, self._connection)
             raise
         finally:
-            self.subroutine(callAPI(self, 'objectdb', 'munwatch', {'keys': self._savedkeys,
-                                                                   'requestid': self._requstid}))
+            self.subroutine(callAPI(self, 'objectdb', 'unwatchall', {'requestid': (self._requstid, self._requestindex)}))
             if self._flowupdateroutine:
                 self.terminate(self._flowupdateroutine)
                 self._flowupdateroutine = None
