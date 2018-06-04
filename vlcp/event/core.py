@@ -12,10 +12,6 @@ from datetime import datetime
 from signal import signal, SIGTERM, SIGINT
 from logging import getLogger, WARNING
 from collections import deque
-try:
-    from threading import get_ident
-except ImportError:
-    from thread import get_ident
 from vlcp.utils.indexedheap import IndexedHeap
 
 import sys
@@ -114,6 +110,7 @@ class Scheduler(object):
             # test only
             self.polling = self.MockPolling()
         self.timers = IndexedHeap()
+        self._canceled_timers = []
         self.quitsignal = False
         self.quitting = False
         self.generatecontinue = False
@@ -124,7 +121,6 @@ class Scheduler(object):
         self.debugging = False
         self._pending_runnables = []
         self.syscallfunc = None
-        self._current_thread = get_ident()
         self.current_time = time()
     def yield_(self, runnable):
         """
@@ -230,17 +226,8 @@ class Scheduler(object):
         
         :param timer: the timer handle
         '''
-        if get_ident() != self._current_thread:
-            # Executing in another thread may corrupt the heap
-            # In PyPy, when a iterator is collected by GC,
-            # the "finally" clause may be executed in another thread
-            def _canceller(self=self, timer=timer):
-                self.timers.remove(timer)
-                if False:
-                    yield
-            self.yield_(_canceller())
-        else:
-            self.timers.remove(timer)
+        # Pending this cancel to main loop to make it thread-safe
+        self._canceled_timers.append(timer)
     def registerPolling(self, fd, options = POLLING_IN|POLLING_OUT, daemon = False):
         '''
         register a polling file descriptor
@@ -318,7 +305,6 @@ class Scheduler(object):
         '''
         Start main loop
         '''
-        self._current_thread = get_ident()
         if installsignal:
             sigterm = signal(SIGTERM, self._quitsignal)
             sigint = signal(SIGINT, self._quitsignal)
@@ -330,7 +316,12 @@ class Scheduler(object):
         try:
             if sendinit:
                 self.queue.append(SystemControlEvent(SystemControlEvent.INIT), True)
-
+            def processCancelTimers():
+                while self._canceled_timers:
+                    _timer_len = len(self._canceled_timers)
+                    for i in range(_timer_len):
+                        self.timers.remove(self._canceled_timers[i])
+                    del self._canceled_timers[:_timer_len]
             def processSyscall():
                 while self.syscallfunc is not None:
                     r = getattr(self, 'syscallrunnable', None)
@@ -413,6 +404,7 @@ class Scheduler(object):
                         self.logger.debug('Routines still not quit: %r', list(self.registerIndex.keys()))
                 if self.quitsignal:
                     self.quit()
+                processCancelTimers()
                 if canquit and not self.queue.canPop() and not self.timers:
                     if self.quitting:
                         break
@@ -456,6 +448,7 @@ class Scheduler(object):
                 end_time = time()
                 if end_time - current_time > 1:
                     self.logger.warning("An iteration takes %r seconds to process", end_time - current_time)
+                processCancelTimers()
                 if self.generatecontinue or self.queue.canPop():
                     wait = 0
                 elif not self.timers:
@@ -469,6 +462,7 @@ class Scheduler(object):
                     self.queue.append(e, True)
                 current_time = self.current_time = time()
                 now = current_time + 0.1
+                processCancelTimers()
                 while self.timers and self.timers.topPriority() < now:
                     t = self.timers.top()
                     if t.interval is not None:
