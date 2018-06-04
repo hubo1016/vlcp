@@ -12,6 +12,7 @@ from vlcp.protocol.openflow.openflow import OpenflowErrorResultException
 from namedstruct.namedstruct import dump
 import json
 import logging
+from contextlib import closing
 
 @withIndices('updater', 'type')
 class FlowUpdaterNotification(Event):
@@ -37,6 +38,7 @@ class FlowUpdater(RoutineContainer):
             self._requstid = str(uuid1())
         else:
             self._requstid = requestid
+        self._requestindex = 0
         self._dataupdateroutine = None
         self._flowupdateroutine = None
     def reset_initialkeys(self, keys, values):
@@ -75,18 +77,25 @@ class FlowUpdater(RoutineContainer):
         lastresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
         flowupdate = FlowUpdaterNotification.createMatcher(self, FlowUpdaterNotification.FLOWUPDATE)
         while True:
-            currentresult = set(v for v in self._savedresult if v is not None and not v.isdeleted())
-            additems = currentresult.difference(lastresult)
-            removeitems = lastresult.difference(currentresult)
-            updateditems = set(self._updatedset2).intersection(currentresult)
-            updateditems.difference_update(removeitems)
-            updateditems.difference_update(additems)
+            currentresult = [v for v in self._savedresult if v is not None and not v.isdeleted()]
+            additems = []
+            updateditems = []
+            updatedset2 = self._updatedset2
+            for v in currentresult:
+                if v not in lastresult:
+                    additems.append(v)
+                else:
+                    lastresult.remove(v)
+                    if v in updatedset2:
+                        # Updated
+                        updateditems.append(v)
+            removeitems = lastresult
             self._updatedset2.clear()
-            lastresult = currentresult
+            lastresult = set(currentresult)
             if not additems and not removeitems and not updateditems:
                 yield (flowupdate,)
                 continue
-            for m in self.updateflow(self._connection, additems, removeitems, updateditems):
+            for m in self.updateflow(self._connection, set(additems), removeitems, set(updateditems)):
                 yield m
                 
     def main(self):
@@ -98,13 +107,25 @@ class FlowUpdater(RoutineContainer):
             presave_update = set()
             while True:
                 self._restartwalk = False
-                presave_update.clear()
                 presave_update.update(self._updatedset)
                 self._updatedset.clear()
                 _initialkeys = set(self._initialkeys)
-                for m in callAPI(self, 'objectdb', 'walk', {'keys': self._initialkeys, 'walkerdict': self._walkerdict,
-                                                            'requestid': self._requstid}):
-                    yield m
+                try:
+                    for m in callAPI(self, 'objectdb', 'walk', {'keys': self._initialkeys, 'walkerdict': self._walkerdict,
+                                                                'requestid': (self._requstid, self._requestindex)}):
+                        yield m
+                except Exception:
+                    self._logger.warning("Flow updater %r walk step failed, conn = %r", self, self._connection,
+                                         exc_info=True)
+                    # Cleanup
+                    with closing(callAPI(self, 'objectdb', 'unwatchall',
+                                         {'requestid': (self._requstid, self._requestindex)})) as g:
+                        for m in g:
+                            yield m
+                    with closing(self.waitWithTimeout(2)) as g:
+                        for m in g:
+                            yield m
+                    self._requestindex += 1
                 if self._restartwalk:
                     continue
                 if self._updatedset:
@@ -119,6 +140,7 @@ class FlowUpdater(RoutineContainer):
                     self.terminate(self._dataupdateroutine)
                 self.subroutine(self._dataobject_update_detect(), False, "_dataupdateroutine")
                 self._updatedset.update(v for v in presave_update)
+                presave_update.clear()
                 for m in self.walkcomplete(self._savedkeys, self._savedresult):
                     yield m
                 if removekeys:
@@ -144,8 +166,7 @@ class FlowUpdater(RoutineContainer):
             self._logger.exception("Flow updater %r stops update by an exception, conn = %r", self, self._connection)
             raise
         finally:
-            self.subroutine(callAPI(self, 'objectdb', 'munwatch', {'keys': self._savedkeys,
-                                                                   'requestid': self._requstid}))
+            self.subroutine(callAPI(self, 'objectdb', 'unwatchall', {'requestid': (self._requstid, self._requestindex)}))
             if self._flowupdateroutine:
                 self.terminate(self._flowupdateroutine)
                 self._flowupdateroutine = None
