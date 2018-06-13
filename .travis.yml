@@ -1,12 +1,9 @@
 language: python
 sudo: required
 python:
-  - "2.7"
-  - "3.3"
   - "3.5"
   - "3.6"
   - "3.7-dev"
-  - "pypy"
   - "pypy3"
  
 services:
