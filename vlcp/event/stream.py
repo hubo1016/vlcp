@@ -55,9 +55,9 @@ class BaseStream(object):
                     self.closed = True
                     raise
         self.data = data
-    def read(self, container, size = None):
+    async def read(self, container = None, size = None):
         """
-        Coroutine method to read from the stream and return the data from `container.data`. Raises EOFError
+        Coroutine method to read from the stream and return the data. Raises EOFError
         when the stream end has been reached; raises IOError if there are other errors.
         
         :param container: A routine container
@@ -72,8 +72,7 @@ class BaseStream(object):
             raise IOError('Stream is broken before EOF')
         while size is None or retsize < size:
             if self.pos >= len(self.data):
-                for m in self.prepareRead(container):
-                    yield m
+                await self.prepareRead(container)
             if size is None or size - retsize >= len(self.data) - self.pos:
                 t = self.data[self.pos:]
                 ret.append(t)
@@ -91,9 +90,9 @@ class BaseStream(object):
                 retsize = size
                 break
         if self.isunicode:
-            container.data = u''.join(ret)
+            return u''.join(ret)
         else:
-            container.data = b''.join(ret)
+            return b''.join(ret)
         if self.errored:
             raise IOError('Stream is broken before EOF')
     def readonce(self, size = None):
@@ -117,14 +116,13 @@ class BaseStream(object):
             if self.dataeof:
                 self.eof = True
             return ret
-    def prepareRead(self, container):
+    async def prepareRead(self, container = None):
         """
         A coroutine method to read the next chunk of data.
         """
-        if False:
-            yield
         raise NotImplementedError
-    def readline(self, container, size = None):
+    
+    async def readline(self, container = None, size = None):
         """
         Coroutine method which reads the next line or until EOF or size exceeds
         """
@@ -136,8 +134,7 @@ class BaseStream(object):
             raise IOError('Stream is broken before EOF')
         while size is None or retsize < size:
             if self.pos >= len(self.data):
-                for m in self.prepareRead(container):
-                    yield m
+                await self.prepareRead(container)
             if size is None or size - retsize >= len(self.data) - self.pos:
                 t = self.data[self.pos:]
                 if self.isunicode:
@@ -173,44 +170,42 @@ class BaseStream(object):
                 retsize += len(t)
                 break
         if self.isunicode:
-            container.data = u''.join(ret)
+            return u''.join(ret)
         else:
-            container.data = b''.join(ret)
+            return b''.join(ret)
         if self.errored:
             raise IOError('Stream is broken before EOF')
-    def copyTo(self, dest, container, buffering = True):
+    async def copy_to(self, dest, container, buffering = True):
         """
         Coroutine method to copy content from this stream to another stream.
         """
         if self.eof:
-            for m in dest.write(u'' if self.isunicode else b'', True):
-                yield m
+            await dest.write(u'' if self.isunicode else b'', True)
         elif self.errored:
-            for m in dest.error(container):
-                yield m
+            await dest.error(container)
         else:
             try:
                 while not self.eof:
-                    for m in self.prepareRead(container):
-                        yield m
+                    await self.prepareRead(container)
                     data = self.readonce()
                     try:
-                        for m in dest.write(data, container, self.eof, buffering = buffering):
-                            yield m
+                        await dest.write(data, container, self.eof, buffering = buffering)
                     except IOError:
                         break
             except:
-                def _cleanup():
+                async def _cleanup():
                     try:
-                        for m in dest.error(container):
-                            yield m
+                        await dest.error(container)
                     except IOError:
                         pass
                 container.subroutine(_cleanup(), False)
                 raise
             finally:
                 self.close(container.scheduler)
-    def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
+
+    copyTo = copy_to
+
+    async def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
         """
         Coroutine method to write data to this stream.
         
@@ -231,17 +226,15 @@ class BaseStream(object):
         """
         if not ignoreexception:
             raise IOError('Stream is closed')
-        if False:
-            yield
-    def error(self, container, ignoreexception = False):
+
+    async def error(self, container, ignoreexception = False):
         """
         Raises error on this stream, so that the receiving end gets an IOError exception.
         """
         if not ignoreexception:
             raise IOError('Stream is closed')
-        if False:
-            yield
-    def close(self, scheduler = None, allowwrite = False):
+
+    def close(self, scheduler, allowwrite = False):
         """
         Read side close. To close at the write side, use `eof=True` with `write`.
         
@@ -273,13 +266,13 @@ class Stream(BaseStream):
         self.writebuffersize = 0
         self.writebufferlimit = writebufferlimit
         self.splitsize = splitsize
-    def prepareRead(self, container):
+    async def prepareRead(self, container = None):
         if not self.eof and not self.errored and self.pos >= len(self.data):
-            yield (self.dm,)
-            container.event.canignore = True
-            self._parsedata(container.event.data, container.event.type == StreamDataEvent.STREAM_EOF,
-                            container.event.type == StreamDataEvent.STREAM_ERROR)
-    def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
+            ev = await self.dm
+            ev.canignore = True
+            self._parsedata(ev.data, ev.type == StreamDataEvent.STREAM_EOF,
+                            ev.type == StreamDataEvent.STREAM_ERROR)
+    async def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
         if self.closed or self.writeclosed:
             if not ignoreexception and not self.allowwrite:
                 raise IOError('Stream is closed')
@@ -299,24 +292,21 @@ class Stream(BaseStream):
                 self.writebuffersize = 0
                 if split:
                     for i in range(0, len(data), self.splitsize):
-                        for m in container.waitForSend(StreamDataEvent(self,
+                        await container.wait_for_send(StreamDataEvent(self,
                                                                        StreamDataEvent.STREAM_EOF if eof and i + self.splitsize >= len(data) else StreamDataEvent.STREAM_DATA,
-                                                                       data = data[i : i + self.splitsize])):
-                            yield m                    
+                                                                       data = data[i : i + self.splitsize]))
                 else:
-                    for m in container.waitForSend(StreamDataEvent(self,
+                    await container.waitForSend(StreamDataEvent(self,
                                                                    StreamDataEvent.STREAM_EOF if eof else StreamDataEvent.STREAM_DATA,
-                                                                   data = data)):
-                        yield m
+                                                                   data = data))
                 if eof:
                     self.writeclosed = True
-    def error(self, container, ignoreexception = False):
+    async def error(self, container, ignoreexception = False):
         if self.closed or self.writeclosed:
             if not ignoreexception and not self.allowwrite:
                 raise IOError('Stream is closed')
         else:
-            for m in container.waitForSend(StreamDataEvent(self, StreamDataEvent.STREAM_ERROR, data = b'')):
-                yield m
+            await container.waitForSend(StreamDataEvent(self, StreamDataEvent.STREAM_ERROR, data = b''))
             self.writeclosed = True
     def close(self, scheduler, allowwrite = False):
         self.closed = True
@@ -342,11 +332,9 @@ class MemoryStream(BaseStream):
         self.preloaddata = data
     def __len__(self):
         return len(self.preloaddata)
-    def prepareRead(self, container):
+    async def prepareRead(self, container = None):
         if not self.eof and not self.errored and self.pos >= len(self.data):
             self._parsedata(self.preloaddata, True, False)
-        if False:
-            yield
 
 class FileStream(BaseStream):
     "A stream from a file-like object. The file-like object must be in blocking mode"
@@ -378,7 +366,7 @@ class FileStream(BaseStream):
             raise TypeError('Cannot determine file size')
         else:
             return self.size
-    def prepareRead(self, container):
+    async def prepareRead(self, container = None):
         if not self.eof and not self.errored and self.pos >= len(self.data):
             try:
                 readlimit = self.readlimit
@@ -393,8 +381,7 @@ class FileStream(BaseStream):
                 self._parsedata(b'', False, True)
             else:
                 self._parsedata(data, eof, False)
-        if False:
-            yield
+
     def close(self, scheduler=None, allowwrite=False):
         self.fobj.close()
         BaseStream.close(self, scheduler=scheduler, allowwrite=allowwrite)
@@ -403,7 +390,8 @@ class FileWriter(object):
     "Write to file"
     def __init__(self, fobj):
         self.fobj = fobj
-    def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
+
+    async def write(self, data, container, eof = False, ignoreexception = False, buffering = True, split = True):
         try:
             if data:
                 self.fobj.write(data)
@@ -412,13 +400,10 @@ class FileWriter(object):
         except Exception:
             if not ignoreexception:
                 raise
-        if False:
-            yield
-    def error(self, container, ignoreexception = False):
+
+    async def error(self, container, ignoreexception = False):
         try:
             self.fobj.close()
         except Exception:
             if not ignoreexception:
                 raise
-        if False:
-            yield

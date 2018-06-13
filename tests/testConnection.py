@@ -37,62 +37,55 @@ class TestProtocol(Protocol):
             RoutineContainer.__init__(self, scheduler)
             self.passive = passive
             self.connection = connection
-        def main(self):
+        async def main(self):
             datamatcher = TestDataEvent.createMatcher(connection=self.connection)
             if self.passive:
-                yield (datamatcher,)
-                self.event.canignore = True
-            for i in range(0,9):
+                ev = await datamatcher
+                ev.canignore = True
+            for _ in range(0,9):
                 event = TestWriteEvent(self.connection, self.connection.connmark)
-                for m in self.waitForSend(event):
-                    yield m
-                yield (datamatcher,)
-                self.event.canignore = True
+                await self.wait_for_send(event)
+                ev = await datamatcher
+                ev.canignore = True
             event = TestWriteEvent(self.connection, self.connection.connmark)
-            for m in self.waitForSend(event):
-                yield m
+            await self.wait_for_send(event)
             if not self.passive:
-                yield (datamatcher,)
-                self.event.canignore = True
-            for m in self.connection.shutdown():
-                yield m
+                ev = await datamatcher
+                ev.canignore = True
+            await self.connection.shutdown()
     def __init__(self, passive):
         Protocol.__init__(self)
         self.passive = passive
+
     def parse(self, connection, data, laststart):
         l = len(data)
         events = []
-        for i in range(0, l//1000):
+        for _ in range(0, l//1000):
             events.append(TestDataEvent(connection))
         return (events, l % 1000)
+
     def serialize(self, connection, event):
         return (b'a' * 1000, False)
-    def init(self, connection):
-        for m in Protocol.init(self, connection):
-            yield m
+
+    async def init(self, connection):
+        await Protocol.init(self, connection)
         rr = self.ResponderRoutine(connection, self.passive)
         connection.responder = rr
         rr.start(False)
-        if False:
-            yield
-    def error(self, connection):
-        for m in Protocol.error(self, connection):
-            yield m
+
+    async def error(self, connection):
+        await Protocol.error(self, connection)
         err = connection.socket.getsockopt(SOL_SOCKET, SO_ERROR)
         self._logger.warning('Connection error status: %d(%s)', err, errno.errorcode.get(err, 'Not found'))
         connection.responder.mainroutine.close()
-        if False:
-            yield
-    def notconnected(self, connection):
+
+    async def notconnected(self, connection):
         self._logger.warning('Connect failed and not retrying for url: %s', connection.rawurl)
-        if False:
-            yield
-    def closed(self, connection):
-        for m in Protocol.closed(self, connection):
-            yield m
+
+    async def closed(self, connection):
+        await Protocol.closed(self, connection)
         connection.responder.mainroutine.close()
-        if False:
-            yield
+
     def accept(self, server, newaddr, newsocket):
         self._logger.debug('Connection accepted from ' + repr(newaddr))
         return Protocol.accept(self, server, newaddr, newsocket)
@@ -127,7 +120,7 @@ class TestConnection(unittest.TestCase):
         #TcpServer.logger.setLevel('DEBUG')
         self.protocolServer = TestProtocol(True)
         self.protocolClient = TestProtocol(False)
-        self.resolver = Resolver(scheduler=self.scheduler)
+        self.resolver = Resolver(scheduler=self.scheduler, poolsize=8)
         self.resolver.start()
     def tearDown(self):
         pass
@@ -137,19 +130,18 @@ class TestConnection(unittest.TestCase):
         c2 = Client('ptcp://localhost:199', self.protocolServer, self.scheduler)
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         r.main = mainA
         r.start()
-        def waitAndStart():
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart():
+            await r.wait_with_timeout(0.5)
             c1.start()
         r.subroutine(waitAndStart())
         c2.start()
@@ -161,25 +153,23 @@ class TestConnection(unittest.TestCase):
         s1 = TcpServer('ltcp://localhost:199', self.protocolServer, self.scheduler)
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             stopped = False
             while True:
-                yield (m,)
-                if r.event.connection is c1:
+                ev = await m
+                if ev.connection is c1:
                     ret.extend(b'B')
                 else:
                     ret.extend(b'A')
                 if not stopped:
-                    for m in s1.shutdown():
-                        yield m
+                    await s1.shutdown()
                     stopped = True
         r.main = mainA
         r.start()
         s1.start()
-        def waitAndStart():
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart():
+            await r.wait_with_timeout(0.5)
             c1.start()
         r.subroutine(waitAndStart())
         self.scheduler.main()
@@ -192,30 +182,28 @@ class TestConnection(unittest.TestCase):
         r = RoutineContainer(self.scheduler, True)
         counter = {c1:0, c2:0}
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             c1c = False
             c2c = False
             shutdown = False
             while True:
-                yield (m,)
-                counter[r.event.connection] = counter.get(r.event.connection, 0) + 1
-                if r.event.connection is c1:
+                ev = await m
+                counter[ev.connection] = counter.get(ev.connection, 0) + 1
+                if ev.connection is c1:
                     ret.extend(b'A')
                     c1c = True
-                elif r.event.connection is c2:
+                elif ev.connection is c2:
                     ret.extend(b'B')
                     c2c = True
                 if c1c and c2c and not shutdown:
-                    for m in s1.shutdown():
-                        yield m
+                    await s1.shutdown()
                     shutdown = True
         r.main = mainA
         r.start()
         s1.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         r.subroutine(waitAndStart(c2))
@@ -228,19 +216,18 @@ class TestConnection(unittest.TestCase):
         c2 = Client('pssl://localhost:199', self.protocolServer, self.scheduler, 'testcerts/server.key','testcerts/server.crt','testcerts/root.crt')
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         r.main = mainA
         r.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -251,25 +238,23 @@ class TestConnection(unittest.TestCase):
         s1 = TcpServer('lssl://localhost:199', self.protocolServer, self.scheduler, 'testcerts/server.key', 'testcerts/server.crt', 'testcerts/root.crt')
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             stopped = False
             while True:
-                yield (m,)
-                if r.event.connection is c1:
+                ev = await m
+                if ev.connection is c1:
                     ret.extend(b'B')
                 else:
                     ret.extend(b'A')
                 if not stopped:
-                    for m in s1.shutdown():
-                        yield m
+                    await s1.shutdown()
                     stopped = True
         r.main = mainA
         r.start()
         s1.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         self.scheduler.main()
@@ -279,26 +264,23 @@ class TestConnection(unittest.TestCase):
         c2 = Client('pssl://localhost:199', self.protocolServer, self.scheduler, 'testcerts/server.key','testcerts/server.crt','testcerts/root.crt')
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         self.notconnected = False
-        def notConnected(connection):
+        async def notConnected(connection):
             if connection is c1:
                 self.notconnected = True
-            if False:
-                yield
         self.protocolClient.notconnected = notConnected
         r.main = mainA
         r.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -310,26 +292,23 @@ class TestConnection(unittest.TestCase):
         c2 = Client('pssl://localhost:199', self.protocolServer, self.scheduler, 'testcerts/server.key','testcerts/server.crt','testcerts/root.crt')
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         self.notconnected = False
-        def notConnected(connection):
+        async def notConnected(connection):
             if connection is c1:
                 self.notconnected = True
-            if False:
-                yield
         self.protocolClient.notconnected = notConnected
         r.main = mainA
         r.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -341,26 +320,23 @@ class TestConnection(unittest.TestCase):
         c2 = Client('pssl://localhost:199', self.protocolServer, self.scheduler, 'testcerts/server.key','testcerts/server.crt','testcerts/root.crt')
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         self.notconnected = False
-        def notConnected(connection):
+        async def notConnected(connection):
             if connection is c1:
                 self.notconnected = True
-            if False:
-                yield
         self.protocolClient.notconnected = notConnected
         r.main = mainA
         r.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -372,19 +348,18 @@ class TestConnection(unittest.TestCase):
         c2 = Client('pssl://localhost:199', self.protocolServer, self.scheduler, 'testcerts/server.key','testcerts/server.crt',None)
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         r.main = mainA
         r.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -395,19 +370,18 @@ class TestConnection(unittest.TestCase):
         c2 = Client('pudp://localhost:199', self.protocolServer, self.scheduler)
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         r.main = mainA
         r.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -425,19 +399,18 @@ class TestConnection(unittest.TestCase):
         c2 = Client('punix:/var/run/unixsocktest.sock', self.protocolServer, self.scheduler)
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         r.main = mainA
         r.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -459,19 +432,18 @@ class TestConnection(unittest.TestCase):
         c2 = Client('pdunix:/var/run/unixsocktestudp2.sock', self.protocolServer, self.scheduler)
         r = RoutineContainer(self.scheduler, True)
         ret = bytearray()
-        def mainA():
+        async def mainA():
             m = TestDataEvent.createMatcher()
             while True:
-                yield (m,)
-                if r.event.connection is c2:
+                ev = await m
+                if ev.connection is c2:
                     ret.extend(b'A')
                 else:
                     ret.extend(b'B')
         r.main = mainA
         r.start()
-        def waitAndStart(c):
-            for m in r.waitWithTimeout(0.5):
-                yield m
+        async def waitAndStart(c):
+            await r.wait_with_timeout(0.5)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()

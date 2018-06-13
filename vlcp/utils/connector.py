@@ -12,7 +12,7 @@ import socket
 import signal
 import errno
 import sys
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 from vlcp.event.core import POLLING_IN, PollEvent
 import functools
 import traceback
@@ -200,7 +200,7 @@ class Connector(RoutineContainer):
         process.daemon = True
         self.pipein = pipein
         return (process, queue, pipein, outqueue)
-    def main(self):
+    async def main(self):
         import os
         self.resolving = set()
         if hasattr(os, 'fork'):
@@ -224,19 +224,17 @@ class Connector(RoutineContainer):
             while True:
                 if not isEOF:
                     if isFull or self.stopreceive:
-                        yield system_matchers
+                        ev, m = await M_(*system_matchers)
                     else:
-                        yield tuple(self.matchers) + system_matchers
-                    if self.matcher is error_matcher:
+                        ev, m = await M_(*(tuple(self.matchers) + system_matchers))
+                    if m is error_matcher:
                         isEOF = True
                 if isEOF:
                     self.scheduler.unregisterPolling(pipein, self.jobs == 0)
                     self.jobs = 0
                     pipein.close()
                     pipein = None
-                    with closing(self.waitWithTimeout(1)) as g:
-                        for m in g:
-                            yield m
+                    await self.wait_with_timeout(1)
                     if mp:
                         process.terminate()
                     (process, queue, pipein, outqueue) = self._createobjs(fork, mp)
@@ -249,20 +247,20 @@ class Connector(RoutineContainer):
                     else:
                         system_matchers = (response_matcher, error_matcher)
                     isFull = False
-                elif self.matcher is control_matcher:
-                    if self.event.type == ConnectorControlEvent.ADDMATCHERS:
-                        for m in self.event.matchers:
+                elif m is control_matcher:
+                    if ev.type == ConnectorControlEvent.ADDMATCHERS:
+                        for m in ev.matchers:
                             self.matchers.add(m)
-                    elif self.event.type == ConnectorControlEvent.REMOVEMATCHERS:
-                        for m in self.event.matchers:
+                    elif ev.type == ConnectorControlEvent.REMOVEMATCHERS:
+                        for m in ev.matchers:
                             self.matchers.discard(m)
-                    elif self.event.type == ConnectorControlEvent.SETMATCHERS:
-                        self.matchers = set(self.event.matchers)
-                    elif self.event.type == ConnectorControlEvent.STOPRECEIVE:
+                    elif ev.type == ConnectorControlEvent.SETMATCHERS:
+                        self.matchers = set(ev.matchers)
+                    elif ev.type == ConnectorControlEvent.STOPRECEIVE:
                         self.stopreceive = True
                     else:
                         self.stopreceive = False
-                elif self.matcher is response_matcher:
+                elif m is response_matcher:
                     if mp:
                         while pipein.poll():
                             try:
@@ -294,7 +292,7 @@ class Connector(RoutineContainer):
                     isFull = False
                 else:
                     try:
-                        self.enqueue(queue, self.event, self.matcher)
+                        self.enqueue(queue, ev, m)
                     except Full:
                         isFull = True
         finally:
@@ -407,13 +405,12 @@ class TaskPool(Connector):
     def _generator_wrapper(func):
         def g(event, matcher):
             try:
-                for es in func():
-                    yield es
+                r = yield from func()
             except Exception:
                 (typ, val, tr) = sys.exc_info()
                 yield (TaskDoneEvent(event, exception = val),)
             else:
-                yield (TaskDoneEvent(event, result = None),)
+                yield (TaskDoneEvent(event, result = r),)
         return g
     @staticmethod
     def _processor_wrapper(func):
@@ -450,35 +447,41 @@ class TaskPool(Connector):
         self.threadpool = ThreadPool(poolsize, self._processor, False)
         Connector.__init__(self, self.threadpool.create, matchers=(TaskEvent.createMatcher(self),), scheduler=scheduler,
                            mp=False, inputlimit=poolsize, allowcontrol=False)
-    def runTask(self, container, task, newthread = False):
-        "Run task() in task pool. Raise an exception or get return value in container.retvalue"
+    async def run_task(self, container, task, newthread = False):
+        "Run task() in task pool. Raise an exception or return the return value"
         e = TaskEvent(self, task=task, newthread = newthread)
-        for m in container.waitForSend(e):
-            yield m
-        yield (TaskDoneEvent.createMatcher(e),)
-        if hasattr(container.event, 'exception'):
-            raise container.event.exception
+        await container.wait_for_send(e)
+        ev = await TaskDoneEvent.createMatcher(e)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
         else:
-            container.retvalue = container.event.result
-    def runGenTask(self, container, gentask, newthread = True):
+            return ev.result
+    
+    runTask = run_task
+    
+    async def run_gen_task(self, container, gentask, newthread = True):
         "Run generator gentask() in task pool, yield customized events"
         e = TaskEvent(self, gen_task = gentask, newthread = newthread)
-        for m in container.waitForSend(e):
-            yield m
-        yield (TaskDoneEvent.createMatcher(e),)
-        if hasattr(container.event, 'exception'):
-            raise container.event.exception
-        container.retvalue = None
-    def runAsyncTask(self, container, asynctask, newthread = True):
+        await container.wait_for_send(e)
+        ev = await TaskDoneEvent.createMatcher(e)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
+        else:
+            return ev.result
+    
+    runGenTask = run_gen_task
+    
+    async def run_async_task(self, container, asynctask, newthread = True):
         "Run asynctask(sender) in task pool, call sender(events) to send customized events, and also return value in container.retvalue"
         e = TaskEvent(self, async_task = asynctask, newthread = newthread)
-        for m in container.waitForSend(e):
-            yield m
-        yield (TaskDoneEvent.createMatcher(e),)
-        if hasattr(container.event, 'exception'):
-            raise container.event.exception
+        await container.wait_for_send(e)
+        ev = await TaskDoneEvent.createMatcher(e)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
         else:
-            container.retvalue = container.event.result
+            return ev.result
+    
+    runAsyncTask = run_async_task
 
 class Resolver(Connector):
     logger = logging.getLogger(__name__ + '.Resolver')

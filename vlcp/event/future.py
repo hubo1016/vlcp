@@ -58,9 +58,9 @@ class Future(object):
                 raise self._exception
             else:
                 return r
-    def wait(self, container):
+    async def wait(self, container = None):
         '''
-        :param container: container of current routine
+        :param container: DEPRECATED container of current routine
         
         :return: The result, or raise the exception from set_exception. The result is returned to container.retvalue.
         '''
@@ -68,13 +68,13 @@ class Future(object):
             if hasattr(self, '_exception'):
                 raise self._exception
             else:
-                container.retvalue = self._result
+                return self._result
         else:
-            yield (FutureEvent.createMatcher(self),)
-            if hasattr(container.event, 'exception'):
-                raise container.event.exception
+            ev = await FutureEvent.createMatcher(self)
+            if hasattr(ev, 'exception'):
+                raise ev.exception
             else:
-                container.retvalue = container.event.result
+                return ev.result
     def set_result(self, result):
         '''
         Set the result to Future object, wake up all the waiters
@@ -129,15 +129,14 @@ class RoutineFuture(Future):
         :param container: the routine container to run the subprocess with
         '''
         Future.__init__(self, container.scheduler)
-        def _subroutine():
+        async def _subroutine():
             with self.ensure_result(True):
                 try:
-                    for m in subprocess:
-                        yield m
+                    r = await subprocess
                 except GeneratorExit:
                     raise FutureCancelledException('close is called before result returns')
                 else:
-                    self.set_result(container.retvalue)
+                    self.set_result(r)
         self._routine = container.subroutine(_subroutine())
     def close(self):
         '''

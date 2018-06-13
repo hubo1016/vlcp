@@ -5,12 +5,12 @@ Created on 2015/10/14
 '''
 import unittest
 from vlcp.server import Server
-from vlcp.server.module import callAPI, ModuleLoadStateChanged
+from vlcp.server.module import call_api, ModuleLoadStateChanged
 import logging
 import os.path
 from vlcp.event.runnable import RoutineContainer
 from vlcp.config import manager
-from vlcp.utils.pycache import removeCache
+from vlcp.utils.pycache import remove_cache
 import traceback
 
 try:
@@ -31,16 +31,12 @@ class ModuleTestEvent(Event):
 @defaultconfig
 class TestModule1(Module):
     class MyHandler(RoutineContainer):
-        def method2(self, a, b):
+        async def method2(self, a, b):
             "Run method2"
-            self.retvalue = a + b
-            if False:
-                yield
-        def method3(self, a, b):
+            return a + b
+        async def method3(self, a, b):
             "Run method3"
-            for m in self.waitForSend(ModuleTestEvent(a = a, b = b)):
-                yield m
-            self.retvalue = None
+            await self.wait_for_send(ModuleTestEvent(a = a, b = b))
     def __init__(self, server):
         Module.__init__(self, server)
         self.handlerRoutine = self.MyHandler(self.scheduler)
@@ -72,11 +68,11 @@ class ModuleTestEvent2(Event):
 @depend(testmodule1.TestModule1)
 class TestModule2(Module):
     class MyHandler(RoutineContainer):
-        def main(self):
+        async def main(self):
             matcher = testmodule1.ModuleTestEvent.createMatcher()
             while True:
-                yield (matcher,)
-                self.subroutine(self.waitForSend(ModuleTestEvent2(result=self.event.a + self.event.b, version = 'version1')), False)
+                ev = await matcher
+                self.subroutine(self.wait_for_send(ModuleTestEvent2(result=ev.a + ev.b, version = 'version1')), False)
     def __init__(self, server):
         Module.__init__(self, server)
         self.routines.append(self.MyHandler(self.scheduler))
@@ -95,14 +91,10 @@ class ModuleTestEvent(Event):
 @defaultconfig
 class TestModule1(Module):
     class MyHandler(RoutineContainer):
-        def method2(self, a, b):
-            self.retvalue = a + b
-            if False:
-                yield
-        def method3(self, a, b):
-            for m in self.waitForSend(ModuleTestEvent(a = a, b = b)):
-                yield m
-            self.retvalue = None
+        async def method2(self, a, b):
+            return a + b
+        async def method3(self, a, b):
+            await self.wait_for_send(ModuleTestEvent(a = a, b = b))
     def __init__(self, server):
         Module.__init__(self, server)
         self.handlerRoutine = self.MyHandler(self.scheduler)
@@ -132,11 +124,11 @@ class ModuleTestEvent2(Event):
 @depend(testmodule1.TestModule1)
 class TestModule2(Module):
     class MyHandler(RoutineContainer):
-        def main(self):
+        async def main(self):
             matcher = testmodule1.ModuleTestEvent.createMatcher()
             while True:
-                yield (matcher,)
-                self.subroutine(self.waitForSend(ModuleTestEvent2(result=self.event.a + self.event.b, version = 'version2')), False)
+                ev = await matcher
+                self.subroutine(self.wait_for_send(ModuleTestEvent2(result=ev.a + ev.b, version = 'version2')), False)
     def __init__(self, server):
         Module.__init__(self, server)
         self.routines.append(self.MyHandler(self.scheduler))
@@ -156,14 +148,10 @@ class ModuleTestEvent(Event):
 @defaultconfig
 class TestModule1(Module):
     class MyHandler(RoutineContainer):
-        def method2(self, a, b):
-            self.retvalue = a + b
-            if False:
-                yield
-        def method3(self, a, b):
-            for m in self.waitForSend(ModuleTestEvent(a = a, b = b)):
-                yield m
-            self.retvalue = None
+        async def method2(self, a, b):
+            return a + b
+        async def method3(self, a, b):
+            await self.wait_for_send(ModuleTestEvent(a = a, b = b))
     def __init__(self, server):
         Module.__init__(self, server)
         self.handlerRoutine = self.MyHandler(self.scheduler)
@@ -193,11 +181,11 @@ class ModuleTestEvent2(Event):
 @depend(testmodule1.TestModule1)
 class TestModule2(Module):
     class MyHandler(RoutineContainer):
-        def main(self):
+        async def main(self):
             matcher = testmodule1.ModuleTestEvent.createMatcher()
             while True:
-                yield (matcher,)
-                self.subroutine(self.waitForSend(ModuleTestEvent2(result=self.event.a + self.event.b, version = 'version3')), False)
+                ev = await matcher
+                self.subroutine(self.wait_for_send(ModuleTestEvent2(result=ev.a + ev.b, version = 'version3')), False)
     def __init__(self, server):
         Module.__init__(self, server)
         self.routines.append(self.MyHandler(self.scheduler))
@@ -219,98 +207,72 @@ class Test(unittest.TestCase):
         # Run unittest discover may already load the module, reload it
         import tests.gensrc.testmodule1
         import tests.gensrc.testmodule2
-        removeCache(tests.gensrc.testmodule1)
-        removeCache(tests.gensrc.testmodule2)
+        remove_cache(tests.gensrc.testmodule1)
+        remove_cache(tests.gensrc.testmodule2)
         reload(tests.gensrc.testmodule1)
         reload(tests.gensrc.testmodule2)
         # Sometimes the timestamp is not working, make sure python re-compile the source file
         r = RoutineContainer(s.scheduler)
         apiResults = []
-        def testproc():
-            yield (ModuleLoadStateChanged.createMatcher(),)
-            for m in callAPI(r, "testmodule1", "method1", {}):
-                yield m
-            apiResults.append(r.retvalue)
-            for m in callAPI(r, "testmodule1", "method2", {'a' : 1, 'b' : 2}):
-                yield m
-            apiResults.append(r.retvalue)
+        async def testproc():
+            await ModuleLoadStateChanged.createMatcher()
+            apiResults.append(await call_api(r, "testmodule1", "method1", {}))
+            apiResults.append(await call_api(r, "testmodule1", "method2", {'a' : 1, 'b' : 2}))
             try:
-                for m in callAPI(r, "testmodule1", "method4", {}):
-                    yield m
+                await call_api(r, "testmodule1", "method4", {})
                 apiResults.append(None)
             except ValueError as exc:
                 apiResults.append(exc.args[0])
             from .gensrc.testmodule2 import ModuleTestEvent2
             matcher = ModuleTestEvent2.createMatcher()
             self.event = False
-            def proc2():            
-                for m in callAPI(r, "testmodule1", "method3", {'a' : 1, 'b' : 2}):
-                    yield m
+            async def proc2():
+                return await call_api(r, "testmodule1", "method3", {'a' : 1, 'b' : 2})
             def callback(event, matcher):
                 self.event = event
-                if False:
-                    yield
-            for m in r.withCallback(proc2(), callback, matcher):
-                yield m
+            await r.with_callback(proc2(), callback, matcher)
             if not self.event:
-                for m in r.waitWithTimeout(0.1, matcher):
-                    yield m
-                if not r.timeout:
-                    self.event = r.event
+                timeout, ev, m = await r.wait_with_timeout(0.1, matcher)
+                if not timeout:
+                    self.event = ev
             if self.event:
                 apiResults.append((self.event.result, self.event.version))
             else:
                 apiResults.append(False)
-            for m in callAPI(r, "testmodule1", "discover", {}):
-                yield m
-            apiResults.append(r.retvalue)
+            apiResults.append(await call_api(r, "testmodule1", "discover", {}))
             with open(os.path.join(basedir, 'testmodule1.py'), 'wb') as f:
                 f.write(module1v2)
-            for m in s.moduleloader.delegate(s.moduleloader.reloadModules(['tests.gensrc.testmodule1.TestModule1'])):
-                yield m
-            for m in callAPI(r, "testmodule1", "method1", {}):
-                yield m
-            apiResults.append(r.retvalue)
+            await s.moduleloader.reload_modules(['tests.gensrc.testmodule1.TestModule1'])
+            apiResults.append(await call_api(r, "testmodule1", "method1", {}))
             matcher = ModuleTestEvent2.createMatcher()
             self.event = False
-            def proc2_2():
-                for m in callAPI(r, "testmodule1", "method3", {'a' : 1, 'b' : 2}):
-                    yield m
+            async def proc2_2():
+                return await call_api(r, "testmodule1", "method3", {'a' : 1, 'b' : 2})
             def callback_2(event, matcher):
                 self.event = event
-                if False:
-                    yield
-            for m in r.withCallback(proc2_2(), callback_2, matcher):
-                yield m
+            await r.with_callback(proc2_2(), callback_2, matcher)
             if not self.event:
-                for m in r.waitWithTimeout(0.1, matcher):
-                    yield m
-                if not r.timeout:
-                    self.event = r.event
+                timeout, ev, m = await r.wait_with_timeout(0.1, matcher)
+                if not timeout:
+                    self.event = ev
             if self.event:
                 apiResults.append((self.event.result, self.event.version))
             else:
                 apiResults.append(False)
             with open(os.path.join(basedir, 'testmodule2.py'), 'wb') as f:
                 f.write(module2v2)
-            for m in s.moduleloader.delegate(s.moduleloader.reloadModules(['tests.gensrc.testmodule2.TestModule2'])):
-                yield m
+            await s.moduleloader.reload_modules(['tests.gensrc.testmodule2.TestModule2'])
             matcher = ModuleTestEvent2.createMatcher()
             self.event = False
-            def proc2_3():
-                for m in callAPI(r, "testmodule1", "method3", {'a' : 1, 'b' : 2}):
-                    yield m
+            async def proc2_3():
+                return await call_api(r, "testmodule1", "method3", {'a' : 1, 'b' : 2})
             def callback_3(event, matcher):
                 self.event = event
-                if False:
-                    yield
-            for m in r.withCallback(proc2_3(), callback_3, matcher):
-                yield m
+            await r.with_callback(proc2_3(), callback_3, matcher)
             if not self.event:
-                for m in r.waitWithTimeout(0.1, matcher):
-                    yield m
-                if not r.timeout:
-                    self.event = r.event
+                timeout, ev, m = await r.wait_with_timeout(0.1, matcher)
+                if not timeout:
+                    self.event = ev
             if self.event:
                 apiResults.append((self.event.result, self.event.version))
             else:
@@ -319,42 +281,32 @@ class Test(unittest.TestCase):
                 f.write(module1v3)
             with open(os.path.join(basedir, 'testmodule2.py'), 'wb') as f:
                 f.write(module2v3)
-            for m in s.moduleloader.delegate(s.moduleloader.reloadModules(['tests.gensrc.testmodule1.TestModule1','tests.gensrc.testmodule2.TestModule2'])):
-                yield m
-            for m in callAPI(r, "testmodule1", "method1", {}):
-                yield m
-            apiResults.append(r.retvalue)
+            await s.moduleloader.reload_modules(['tests.gensrc.testmodule1.TestModule1','tests.gensrc.testmodule2.TestModule2'])
+            apiResults.append(await call_api(r, "testmodule1", "method1", {}))
             matcher = ModuleTestEvent2.createMatcher()
             self.event = False
-            def proc2_4():
-                for m in callAPI(r, "testmodule1", "method3", {'a' : 1, 'b' : 2}):
-                    yield m
+            async def proc2_4():
+                return await call_api(r, "testmodule1", "method3", {'a' : 1, 'b' : 2})
             def callback_4(event, matcher):
                 self.event = event
-                if False:
-                    yield
-            for m in r.withCallback(proc2_4(), callback_4, matcher):
-                yield m
+            await r.with_callback(proc2_4(), callback_4, matcher)
             if not self.event:
-                for m in r.waitWithTimeout(0.1, matcher):
-                    yield m
-                if not r.timeout:
-                    self.event = r.event
+                timeout, ev, m = await r.wait_with_timeout(0.1, matcher)
+                if not timeout:
+                    self.event = ev
             if self.event:
                 apiResults.append((self.event.result, self.event.version))
             else:
                 apiResults.append(False)
             try:
-                for m in r.executeWithTimeout(1.0, callAPI(r, "testmodule1", "notexists", {})):
-                    yield m
+                await r.execute_with_timeout(1.0, call_api(r, "testmodule1", "notexists", {}))
             except ValueError:
                 apiResults.append(True)
             except Exception:
                 apiResults.append(False)
             else:
                 apiResults.append(False)
-            for m in s.moduleloader.delegate(s.moduleloader.unloadByPath("tests.gensrc.testmodule1.TestModule1")):
-                yield m
+            await s.moduleloader.unload_by_path("tests.gensrc.testmodule1.TestModule1")
         r.main = testproc
         r.start()
         s.serve()

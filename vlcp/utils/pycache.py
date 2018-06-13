@@ -15,7 +15,7 @@ except Exception:
     except Exception:
         from imp import reload
 
-def removeCache(module):
+def remove_cache(module):
     if hasattr(module, '__cached__'):
         try:
             os.remove(module.__cached__)
@@ -31,3 +31,4 @@ def removeCache(module):
         except Exception:
             pass
 
+removeCache = remove_cache

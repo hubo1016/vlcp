@@ -18,6 +18,10 @@ class TestConsumerEvent(Event):
     canignore = False
 
 
+@withIndices('num')
+class TestEvent(Event):
+    pass
+
 
 class Test(unittest.TestCase):
 
@@ -29,17 +33,16 @@ class Test(unittest.TestCase):
         scheduler.queue.addSubQueue(1, TestConsumerEvent.createMatcher(), 'consumer', 5, 5)
         rA = RoutineContainer(scheduler)
         output = bytearray()
-        def mainA():
+        async def mainA():
             rA.subroutine(mainB(), daemon = True)
-            for i in range(0,10):
-                for ms in rA.waitForSend(TestConsumerEvent(rA.mainroutine)):
-                    yield ms
+            for _ in range(0,10):
+                await rA.waitForSend(TestConsumerEvent(rA.mainroutine))
                 output.extend(b'A')
-        def mainB():
+        async def mainB():
             matcher = TestConsumerEvent.createMatcher(producer=rA.mainroutine)
             while True:
-                yield (matcher,)
-                rA.event.canignore = True
+                ev = await matcher
+                ev.canignore = True
                 output.extend(b'B')
         rA.main = mainA
         rA.start()
@@ -51,22 +54,20 @@ class Test(unittest.TestCase):
         scheduler.queue.addSubQueue(1, TestConsumerEvent.createMatcher(), 'consumer', 5, 5)
         rA = RoutineContainer(scheduler)
         output = bytearray()
-        def mainA():
+        async def mainA():
             rA.subroutine(mainB(), True, 'mainB', True)
             matcher = TestConsumerEvent.createMatcher(rA.mainB)
-            for i in range(0,10):
-                for ms in rA.waitForSend(TestConsumerEvent(rA.mainroutine)):
-                    yield ms
+            for _ in range(0,10):
+                await rA.wait_for_send(TestConsumerEvent(rA.mainroutine))
                 output.extend(b'A')
-                yield (matcher,)
-        def mainB():
+                await matcher
+        async def mainB():
             matcher = TestConsumerEvent.createMatcher(producer=rA.mainroutine)
             while True:
-                yield (matcher,)
-                rA.event.canignore = True
+                ev = await matcher
+                ev.canignore = True
                 output.extend(b'B')
-                for ms in rA.waitForSend(TestConsumerEvent(rA.mainB, canignore = True)):
-                    yield ms                
+                await rA.wait_for_send(TestConsumerEvent(rA.mainB, canignore = True))
         rA.main = mainA
         rA.start()
         scheduler.main()
@@ -77,23 +78,20 @@ class Test(unittest.TestCase):
         scheduler.queue.addSubQueue(1, TestConsumerEvent.createMatcher(), 'consumer', 5, 5)
         rA = RoutineContainer(scheduler)
         output = bytearray()
-        def mainA():
+        async def mainA():
             rA.subroutine(mainB(), daemon = True)
-            for i in range(0,10):
-                for ms in rA.waitForSend(TestConsumerEvent(rA.mainroutine)):
-                    yield ms
+            for _ in range(0,10):
+                await rA.wait_for_send(TestConsumerEvent(rA.mainroutine))
                 output.extend(b'A')
-        def mainB():
-            for m in rA.doEvents():
-                yield m
+        async def mainB():
+            await rA.do_events()
             matcher = TestConsumerEvent.createMatcher(producer=rA.mainroutine)
             while True:
-                yield (matcher,)
-                rA.event.canignore = True
+                ev = await matcher
+                ev.canignore = True
                 output.extend(b'B')
-        def mainC():
-            for m in rA.doEvents():
-                yield m
+        async def mainC():
+            await rA.do_events()
             output.extend(b'C')
         rA.main = mainA
         rA.start()
@@ -104,9 +102,8 @@ class Test(unittest.TestCase):
         scheduler = Scheduler()
         rA = RoutineContainer(scheduler)
         output = bytearray()
-        def wait(timeout, append):
-            for m in rA.waitWithTimeout(timeout):
-                yield m
+        async def wait(timeout, append):
+            await rA.waitWithTimeout(timeout)
             output.extend(append)
         rA.subroutine(wait(0.1, b'B'))
         rA.subroutine(wait(0.5, b'D'))
@@ -117,41 +114,7 @@ class Test(unittest.TestCase):
         end_time = time()
         self.assertEqual(output, b'ABCD')
         self.assertTrue(0.4 < end_time - curr_time < 0.6)
-    
-    def testTimerThreading(self):
-        scheduler = Scheduler()
-        rA = RoutineContainer(scheduler)
-        exceptions = []
-        def test_routine():
-            try:
-                th = scheduler.setTimer(10)
-                threading_result = [None]
-                def _cancel(th):
-                    try:
-                        scheduler.cancelTimer(th)
-                        # It should be canceled asynchronously
-                        self.assertTrue(th in scheduler.timers)
-                    except Exception as e:
-                        threading_result[0] = e
-                    else:
-                        threading_result[0] = True
-                t = threading.Thread(target=_cancel, args=(th,))
-                t.start()
-                for m in rA.waitWithTimeout(0.5):
-                    yield m
-                t.join(1)
-                self.assertFalse(t.isAlive())
-                self.assertIs(threading_result[0], True)
-                for m in rA.doEvents():
-                    yield m
-                self.assertFalse(th in scheduler.timers)
-            except Exception as exc:
-                exceptions.append(exc)
-                raise
-        rA.subroutine(test_routine())
-        scheduler.main()
-        self.assertFalse(exceptions)
-    
+        
     def testLimiter(self):
         def _test_limiter(limit, expected_result, *numbers):
             scheduler = Scheduler()
@@ -160,22 +123,20 @@ class Test(unittest.TestCase):
             limiter = RateLimiter(limit, rA)
             counter = [0, 0]
             result = []
-            def _record():
+            async def _record():
                 first = True
                 while True:
-                    for m in rA.doEvents():
-                        yield m
+                    await rA.do_events()
                     if counter[0] == 0:
                         break
                     result.append((counter[0], counter[1]))
                     counter[0] = 0
                     counter[1] = 0
-            def _limited(use = 1):
-                for m in limiter.limit(use):
-                    yield m
+            async def _limited(use = 1):
+                await limiter.limit(use)
                 counter[0] += 1
                 counter[1] += use
-            def _starter():
+            async def _starter():
                 for t in numbers:
                     if isinstance(t, tuple):
                         for use in t:
@@ -183,8 +144,7 @@ class Test(unittest.TestCase):
                     else:
                         for _ in range(t):
                             rB.subroutine(_limited())
-                    for m in rB.doEvents():
-                        yield m
+                    await rB.do_events()
             rA.subroutine(_record(), False)
             rB.subroutine(_starter())
             scheduler.main()
@@ -211,7 +171,32 @@ class Test(unittest.TestCase):
         _test_limiter(5, [(3,7),(2,4),(2,4),(3,5)], (3,1,3,1,3,1,3,1,3,1))
         _test_limiter(5, [(2,4),(3,5),(2,6),(1,4),(1,1)], (3,1),(3,1,1,3),(3,4,1))
         _test_limiter(5, [(2,8),(1,4),(1,4),(1,4),(2,8),(1,4),(1,4),(1,4)], (4,)*10)
-        
+    
+    def testWaitForAll(self):
+        scheduler = Scheduler()
+        rA = RoutineContainer(scheduler)
+        async def sender(num):
+            await rA.wait_for_send(TestEvent(num))
+        result = []
+        async def test():
+            try:
+                for i in range(10):
+                    rA.subroutine(sender(i), False)
+                matchers = [TestEvent.createMatcher(i) for i in range(10)]
+                _, eventdict = await rA.wait_for_all(*matchers)
+                for m in matchers:
+                    self.assertIn(m, eventdict)
+                    self.assertTrue(m.isMatch(eventdict[m]))
+            except Exception as e:
+                result.append(e)
+                raise
+            else:
+                result.append(False)
+        rA.main = test
+        rA.start()
+        scheduler.main()
+        self.assertIs(result[0], False)
+ 
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testConsumer']
