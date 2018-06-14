@@ -24,7 +24,7 @@ class l2switch(RoutineContainer):
         self.datapaths = set()
         self.mac_to_port = {}
     
-    def add_flow(self,parser,connection,cookie = 0,cookie_mask=0,table_id = 0,
+    async def add_flow(self,parser,connection,cookie = 0,cookie_mask=0,table_id = 0,
             priority = 0,idle_time = 0,hard_time = 0,match = None,action = None,buffer_id=None):
 
         flowRequest = parser.ofp_flow_mod()
@@ -50,13 +50,9 @@ class l2switch(RoutineContainer):
         #log.debug('%r',flowRequest._tobytes()) 
         #log.debug('%r',common.dump(flowRequest))
         
-        for m in of_proto.batch([flowRequest],connection,self):
-            yield m
+        await of_proto.batch([flowRequest],connection,self)
        
-        for reply in self.openflow_reply:
-            if reply['type'] == common.OFPET_BAD_REQUEST:
-                log.debug(common.dump(self.openflow_reply))
-    def switch_add_handler(self,event):
+    async def switch_add_handler(self,event):
         ofpParser = event.connection.openflowdef
         
         # save datapath 
@@ -68,10 +64,9 @@ class l2switch(RoutineContainer):
         # we must send the request
         portDescRequest = ofpParser.ofp_multipart_request(type=ofpParser.OFPMP_PORT_DESC)
 
-        for m in of_proto.querymultipart(portDescRequest,event.connection,self):
-            yield m
+        openflow_reply = await of_proto.querymultipart(portDescRequest,event.connection,self)
         
-        for portpart in self.openflow_reply:
+        for portpart in openflow_reply:
             for port in portpart.ports:
                 log.debug('port no = %r',port.port_no)
                 log.debug('port name = %r',port.name)
@@ -82,28 +77,24 @@ class l2switch(RoutineContainer):
         action = ofpParser.ofp_action_output(port = ofpParser.OFPP_CONTROLLER,
                 max_len = ofpParser.OFPCML_NO_BUFFER)
 
-        for m in self.add_flow(connection=event.connection,parser=ofpParser,
-                table_id = 0,priority = 0,match = match,action = action):
-            yield m
+        await self.add_flow(connection=event.connection,parser=ofpParser,
+                table_id = 0,priority = 0,match = match,action = action)
         # after perpare everying , while true handle event
         while True:  
             asyncEventMatcher = OpenflowAsyncMessageEvent.createMatcher()
-            yield(asyncEventMatcher,)
+            event = await asyncEventMatcher
 
-            if self.event.type == ofpParser.OFPT_PORT_STATUS:
+            if event.type == ofpParser.OFPT_PORT_STATUS:
                 self.subroutine(self.portStatsHandler(self.event))
         
-            if self.event.type == ofpParser.OFPT_PACKET_IN:
+            if event.type == ofpParser.OFPT_PACKET_IN:
                 self.subroutine(self.packet_in_handler(self.event))
         
 
-    def switch_del_handler(self,event):
+    async def switch_del_handler(self,event):
         self.datapaths.remove(event.datapathid)
         del self.mac_to_port[event.datapathid]
         
-        if None:
-            yield
-
     def connectStateHandler(self,event):
        
     # connection event will carry features event here
@@ -113,19 +104,17 @@ class l2switch(RoutineContainer):
         #ofpVersion = event.connection.openflowdef
 
         if event.state == 'setup':
-             self.subroutine(self.switch_add_handler(self.event)) 
+            self.subroutine(self.switch_add_handler(self.event)) 
         
         #for m in self.switch_add_handler(self.event):
         #    yield m
         elif event.state == 'down':
-             self.subroutine(self.switch_del_handler(self.event))
+            self.subroutine(self.switch_del_handler(self.event))
 
-    def portStatsHandler(self,event):
-
-        if None:
-            yield
-    
-    def packet_in_handler(self,event):
+    async def portStatsHandler(self,event):
+        pass
+            
+    async def packet_in_handler(self,event):
 
         datapathid = event.datapathid
         buffer_id = event.message.buffer_id 
@@ -154,24 +143,21 @@ class l2switch(RoutineContainer):
                 # add an flow avoid next packet in
                 
                 output = self.mac_to_port[datapathid][dstMac]   
-                for m in self.packetout(ofpParser,event.connection,in_port,output,buffer_id,data):
-                    yield m 
+                await self.packetout(ofpParser,event.connection,in_port,output,buffer_id,data)
         
                 match = ofpParser.ofp_match_oxm()
                 match.oxm_fields.append(ofpParser.create_oxm(ofpParser.OXM_OF_ETH_DST,EUI(dstMac).packed))
                 action = ofpParser.ofp_action_output(port = output)
         
-                for m in self.add_flow(connection=event.connection,parser=ofpParser,
-                        table_id = 0,priority = 100,match = match,action = action):
-                    yield m
+                await self.add_flow(connection=event.connection,parser=ofpParser,
+                        table_id = 0,priority = 100,match = match,action = action)
 
             else:
                 # flood this packet
                 output = ofpParser.OFPP_FLOOD
-                for m in self.packetout(ofpParser,event.connection,in_port,output,buffer_id,data):
-                    yield m
+                await self.packetout(ofpParser,event.connection,in_port,output,buffer_id,data)
 
-    def packetout(self,parser,connection,in_port,output,buffer_id,data):
+    async def packetout(self,parser,connection,in_port,output,buffer_id,data):
         packetoutMessage = parser.ofp_packet_out()
         packetoutMessage.buffer_id = buffer_id
         packetoutMessage.in_port = in_port
@@ -187,21 +173,16 @@ class l2switch(RoutineContainer):
         packetoutMessage.actions.append(action)
     
         log.debug("packet to %r",output)
-        for m in of_proto.batch([packetoutMessage],connection,self):
-            yield m
+        await of_proto.batch([packetoutMessage],connection,self)
 
-        for reply in self.openflow_reply:
-            #if reply['type'] == common.OFPET_BAD_REQUEST:
-            log.debug(common.dump(self.openflow_reply))
-
-    def main(self):
+    async def main(self):
         while True:
 
             connectEventMatcher = OpenflowConnectionStateEvent.createMatcher()
-            yield (connectEventMatcher,)
+            event = await connectEventMatcher
            
             # here event must be connect event
-            self.connectStateHandler(self.event)
+            self.connectStateHandler(event)
 
 if __name__ == '__main__':
 

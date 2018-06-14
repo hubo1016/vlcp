@@ -134,10 +134,10 @@ class Protocol(Configurable):
         routine for a connection finally ends: all connections are closed and not retrying
         '''
         if hasattr(connection, 'createdqueues') and connection.createdqueues:
-            await connection.execute_with_timeout(
-                    self.cleanuptimeout,
-                    connection.wait_for_all_empty(*connection.createdqueues))
-            if connection.timeout:
+            timeout, _ = await connection.execute_with_timeout(
+                                            self.cleanuptimeout,
+                                            connection.wait_for_all_empty(*connection.createdqueues))
+            if timeout:
                 self._logger.warning('Events are still not processed after timeout, Protocol = %r, Connection = %r', self, connection)
             for q in connection.createdqueues:
                 await connection.syscall(syscall_clearremovequeue(connection.scheduler.queue, q))
