@@ -103,7 +103,7 @@ class Test(unittest.TestCase):
         rA = RoutineContainer(scheduler)
         output = bytearray()
         async def wait(timeout, append):
-            await rA.waitWithTimeout(timeout)
+            await rA.wait_with_timeout(timeout)
             output.extend(append)
         rA.subroutine(wait(0.1, b'B'))
         rA.subroutine(wait(0.5, b'D'))

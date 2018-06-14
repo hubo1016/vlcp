@@ -24,7 +24,7 @@ class Test(unittest.TestCase):
             l = Lock(key, rc.scheduler)
             await l.lock(rc)
             t = obj[0]
-            await rc.wait_with_timeout(0.5)
+            await rc.do_events()
             obj[0] = t + 1
             l.unlock()
         rc.subroutine(routineLock('testobj'))
@@ -39,7 +39,20 @@ class Test(unittest.TestCase):
             await l.lock(rc)
             with l:
                 t = obj[0]
-                await rc.wait_with_timeout(0.5)
+                await rc.do_events()
+                obj[0] = t + 1
+        rc.subroutine(routineLock('testobj'))
+        rc.subroutine(routineLock('testobj'))
+        self.server.serve()
+        self.assertEqual(obj[0], 2)
+    def testAsyncWith(self):
+        rc = RoutineContainer(self.server.scheduler)
+        obj = [0]
+        async def routineLock(key):
+            l = Lock(key, rc.scheduler)
+            async with l:
+                t = obj[0]
+                await rc.do_events()
                 obj[0] = t + 1
         rc.subroutine(routineLock('testobj'))
         rc.subroutine(routineLock('testobj'))
@@ -52,7 +65,7 @@ class Test(unittest.TestCase):
             l = Lock(key, rc.scheduler)
             await l.lock(rc)
             t = obj[0]
-            await rc.wait_with_timeout(0.5)
+            await rc.do_events()
             obj[0] = t + 1
             l.unlock()
         rc.subroutine(routineLock('testobj'))
@@ -66,7 +79,7 @@ class Test(unittest.TestCase):
             l = Lock(key, rc.scheduler)
             locked = l.trylock()
             result.append(locked)
-            await rc.wait_with_timeout(0.5)
+            await rc.do_events()
             l.unlock()
         rc.subroutine(routineTrylock('testobj'))
         rc.subroutine(routineTrylock('testobj'))
@@ -79,18 +92,18 @@ class Test(unittest.TestCase):
             l = Lock(key, rc.scheduler)
             locked = l.beginlock(rc)
             if not locked:
-                await rc.wait_with_timeout(1.0)
+                await rc.wait_with_timeout(0.2)
                 locked = l.trylock()
                 if not locked:
                     raise ValueError('Not locked')
             t = obj[0]
-            await rc.wait_with_timeout(0.5)
+            await rc.do_events()
             obj[0] = t + 1
             l.unlock()
             await rc.do_events()
             await l.lock(rc)
             t = obj[0]
-            await rc.wait_with_timeout(1.0)
+            await rc.do_events()
             obj[0] = t + 1
             l.unlock()
         rc.subroutine(routineLock('testobj'))
@@ -104,10 +117,10 @@ class Test(unittest.TestCase):
             l = Lock(key, rc.scheduler)
             locked = l.beginlock(rc)
             if not locked:
-                await rc.wait_with_timeout(0.5)
+                await rc.wait_with_timeout(0.2)
                 await l.lock(rc)
             t = obj[0]
-            await rc.wait_with_timeout(1.0)
+            await rc.do_events()
             obj[0] = t + 1
             l.unlock()
             await rc.do_events()
@@ -127,7 +140,7 @@ class Test(unittest.TestCase):
             l = Lock(key, rc.scheduler)
             await l.lock(rc)
             t = obj[0]
-            await rc.wait_with_timeout(0.5)
+            await rc.do_events()
             obj[0] = t + 1
             l.unlock()
         async def main_routine():

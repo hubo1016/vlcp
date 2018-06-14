@@ -309,20 +309,25 @@ class Response(object):
         if self.stream:
             self.stream.close(self.scheduler)
             self.stream = None
-    def shutdown(self):
+    async def shutdown(self):
         "Force stop the output stream, if there are more data to download, shutdown the connection"
         if self.stream:
             if not self.stream.dataeof and not self.stream.dataerror:
                 self.stream.close(self.scheduler)
-                for m in self.connection.shutdown():
-                    yield m
+                await self.connection.shutdown()
             else:
                 self.stream.close(self.scheduler)
             self.stream = None
-                
+
     def __del__(self):
         self.close()
-        
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exctype, excvalue, traceback):
+        self.close()
+        return False
 
 @withIndices('host', 'path', 'https')
 class WebClientRequestDoneEvent(Event):
@@ -426,7 +431,7 @@ class WebClient(Configurable):
                     datagen_routine = container.subroutine(datagen)
                 else:
                     datagen_routine = None
-                with closing(container.executeWithTimeout(timeout, self._protocol.requestwithresponse(container, conn, _bytes(request.host), _bytes(request.path), _bytes(request.method),
+                with closing(container.executeWithTimeout(timeout, self._protocol.request_with_response(container, conn, _bytes(request.host), _bytes(request.path), _bytes(request.method),
                                                    [(_bytes(k), _bytes(v)) for k,v in request.header_items()], stream))) as g:
                     for m in g:
                         yield m

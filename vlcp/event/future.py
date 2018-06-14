@@ -23,6 +23,8 @@ The interface is similar to asyncio, but:
   to ensure that a result is always set after exit the with scope. If the result is not set,
   it is set to None; if an exception is raised, it is set with set_exception.
 
+Since v2.0, you can directly use `await future` to wait for the result
+
 '''
 from vlcp.event.event import withIndices, Event
 from contextlib import contextmanager
@@ -110,6 +112,9 @@ class Future(object):
         else:
             if not self.done():
                 self.set_result(defaultresult)
+    
+    def __await__(self):
+        return self.wait().__await__()
 
 
 class FutureCancelledException(Exception):
@@ -144,8 +149,18 @@ class RoutineFuture(Future):
         '''
         if not self.done():
             self._routine.close()
+
     def cancel(self):
         '''
         Same as close()
         '''
         self.close()
+    
+    async def wait_and_close(self):
+        """
+        wait for result; always close no matter success or failed
+        """
+        try:
+            return await self.wait()
+        finally:
+            self.close()

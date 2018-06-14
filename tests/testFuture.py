@@ -48,6 +48,36 @@ class Test(unittest.TestCase):
         self.server.serve()
         self.assertEqual(obj[0], 'abc')
 
+    def test_future_await1(self):
+        rc = self.rc
+        future = Future(self.server.scheduler)
+        # Test send before wait
+        obj = [0]
+        async def routine_sender():
+            future.set_result('abc')
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
+            obj[0] = await future
+        rc.subroutine(routine_sender())
+        rc.subroutine(routine_receiver())
+        self.server.serve()
+        self.assertEqual(obj[0], 'abc')
+
+    def test_future_await2(self):
+        rc = self.rc
+        future = Future(self.server.scheduler)
+        # Test send after wait
+        obj = [0]
+        async def routine_sender():
+            await rc.wait_with_timeout(0.1)
+            future.set_result('abc')
+        async def routine_receiver():
+            obj[0] = await future
+        rc.subroutine(routine_sender())
+        rc.subroutine(routine_receiver())
+        self.server.serve()
+        self.assertEqual(obj[0], 'abc')
+
     def test_future_nowait1(self):
         rc = self.rc
         future = Future(self.server.scheduler)

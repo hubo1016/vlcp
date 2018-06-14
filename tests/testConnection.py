@@ -141,7 +141,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart():
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c1.start()
         r.subroutine(waitAndStart())
         c2.start()
@@ -169,7 +169,7 @@ class TestConnection(unittest.TestCase):
         r.start()
         s1.start()
         async def waitAndStart():
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c1.start()
         r.subroutine(waitAndStart())
         self.scheduler.main()
@@ -203,7 +203,7 @@ class TestConnection(unittest.TestCase):
         r.start()
         s1.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         r.subroutine(waitAndStart(c2))
@@ -227,7 +227,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -254,7 +254,7 @@ class TestConnection(unittest.TestCase):
         r.start()
         s1.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         self.scheduler.main()
@@ -280,7 +280,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -308,7 +308,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -336,7 +336,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -359,7 +359,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -381,7 +381,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -410,7 +410,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
@@ -443,7 +443,7 @@ class TestConnection(unittest.TestCase):
         r.main = mainA
         r.start()
         async def waitAndStart(c):
-            await r.wait_with_timeout(0.5)
+            await r.wait_with_timeout(0.1)
             c.start()
         r.subroutine(waitAndStart(c1))
         c2.start()
