@@ -120,7 +120,7 @@ subroutine(routine)
  - create a new routine in container.
 
 execute(routine)
- - execute the routine in container, and return container.retvalue
+ - execute the routine in container, and return the return value
  
 breakpoint()
  - stop running and wait for resume().
@@ -236,8 +236,8 @@ console_help()
                         orig_stdout = sys.stdout
                         orig_stderr = sys.stderr
                         try:
-                            pstdin = os.fdopen(pstdin_r, 'rU', 0)
-                            pstdout = os.fdopen(pstdout_w, 'w', 0)
+                            pstdin = os.fdopen(pstdin_r, 'rU')
+                            pstdout = os.fdopen(pstdout_w, 'w')
                             sys.stdin = pstdin
                             sys.stdout = pstdout
                             sys.stderr = pstdout
