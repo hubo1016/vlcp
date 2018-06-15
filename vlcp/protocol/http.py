@@ -299,8 +299,8 @@ class Http(Protocol):
     async def _request_sender(self, connection):
         try:
             connmark = connection.connmark
-            nextOutput = HttpStateChange.createMatcher(connection, 
-                                                      connmark, 
+            nextOutput = HttpStateChange.createMatcher(connection,
+                                                      connmark,
                                                       HttpStateChange.NEXTOUTPUT)
             def requesterror(msg, method, path):
                 self._logger.error('Illegal HTTP request: %s, connection = %r, request = %r', msg, connection, method + b' ' + path + b' HTTP/' + connection.http_localversion.encode('ascii'))
