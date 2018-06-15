@@ -208,6 +208,8 @@ console_help()
         def syscall_threaded_main(scheduler, processor):
             # Detach self
             scheduler.unregisterall(cr)
+            scheduler.syscallfunc = None
+            scheduler.syscallrunnable = None
             self._threaded_main_quit = False
             def threaded_main():
                 try:
