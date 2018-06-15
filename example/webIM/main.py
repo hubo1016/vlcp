@@ -55,13 +55,12 @@ class Handler(HttpHandler):
     logger = logging.getLogger("IM")
     # route /newmessage2 POST to this handler
     @HttpHandler.route(b'/newmessage2',method=[b'POST'])
-    def newmessageHandler(self,env):
+    async def newmessageHandler(self,env):
         #self.logger.info('newmessage')
         #self.logger.info(env)
 
         # while until env parseform complete
-        for m in env.parseform():
-            yield m
+        await env.parseform()
 
         # after it we can get the field message
         #self.logger.info(env.form)
@@ -70,7 +69,7 @@ class Handler(HttpHandler):
     # another method route POST /newmessage to this handler
     # handler argument will get the form message
     @HttpHandler.routeargs(b'/newmessage')
-    def newmessageHandler2(self,env,message):
+    async def newmessageHandler2(self,env,message):
 
         cacheData = {"id":str(uuid.uuid4()),"message":message}
         #self.logger.info(" new message cache data add" + message)
@@ -85,13 +84,11 @@ class Handler(HttpHandler):
         newmessageevent = ChatNewMessage(id=str(uuid.uuid4()),message=message)
 
         # while until send event complete
-        for m in self.waitForSend(newmessageevent):
-            yield m
+        await self.wait_for_send(newmessageevent)
 
     @HttpHandler.route(b'/updatemessage',method=[b'POST'])
-    def updateMessageHandler(self,env):
-        for m in env.parseform():
-            yield m
+    async def updateMessageHandler(self,env):
+        await env.parseform()
 
         #self.logger.info(env.form)
 
@@ -113,15 +110,14 @@ class Handler(HttpHandler):
             newmessageeventmatcher = ChatNewMessage.createMatcher()
             #self.logger.info("wait With timeout")
 
-            for m in self.waitWithTimeout(30,newmessageeventmatcher):
-                yield m
+            timeout, ev, m = await self.wait_with_timeout(30,newmessageeventmatcher)
 
             #self.logger.info("newmessageevent received!")
             #self.logger.info(newmessageeventmatcher)
             #self.logger.info(self.timeout)
 
             # here will call test the event cause
-            if(self.timeout):
+            if timeout:
                     env.outputjson(dict(messages=[]))
             else:
                     # the event will store self.event
@@ -132,7 +128,7 @@ class Handler(HttpHandler):
                     #self.logger.info(self.event.message)
 
                     array = []
-                    data = {"id":self.event.id,"message":self.event.message}
+                    data = {"id":ev.id,"message":ev.message}
                     array.append(data)
                     env.outputjson(dict(messages=array))
 
