@@ -286,6 +286,9 @@ console_help()
                 if self.startinconsole:
                     print('Wait for scheduler end, this may take some time...')
                 t.join()
+        # Cannot inject the event loop from yield_()
+        for m in self.apiroutine.doEvents():
+            yield m
         for m in self.apiroutine.syscall(syscall_threaded_main, True):
             yield m
     def _telnet_server_writer(self, queue, sock):
