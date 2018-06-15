@@ -15,6 +15,7 @@ from vlcp.config.config import manager
 from vlcp.event.core import QuitException
 from inspect import cleandoc
 from contextlib import closing
+from vlcp.event.event import Diff_
 
 try:
     reload
@@ -755,16 +756,18 @@ async def batch_call_api(container, apis, timeout = 120.0):
     apiHandles = [(object(), api) for api in apis]
     apiEvents = [ModuleAPICall(handle, targetname, name, params = params)
                  for handle, (targetname, name, params) in apiHandles]
-    apiMatchers = [ModuleAPIReply.createMatcher(handle) for handle, _ in apiHandles]
+    apiMatchers = tuple(ModuleAPIReply.createMatcher(handle) for handle, _ in apiHandles)
     async def process():
         for e in apiEvents:
             await container.wait_for_send(e)
     container.subroutine(process(), False)
     eventdict = {}
     async def process2():
-        while apiMatchers:
-            ev, m = await M_(*apiMatchers)
-            apiMatchers.remove(m)
+        ms = len(apiMatchers)
+        matchers = Diff_(apiMatchers)
+        while ms:
+            ev, m = await matchers
+            matchers = Diff_(matchers, remove=(m,))
             eventdict[ev.handle] = ev
     await container.execute_with_timeout(timeout, process2())
     for e in apiEvents:

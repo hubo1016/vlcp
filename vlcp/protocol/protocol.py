@@ -10,7 +10,7 @@ from logging import getLogger
 from socket import SOL_SOCKET, SO_ERROR
 from ssl import PROTOCOL_SSLv23
 import errno
-from contextlib import closing
+
 
 @defaultconfig
 class Protocol(Configurable):

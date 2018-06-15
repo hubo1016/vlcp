@@ -10,7 +10,7 @@ import vlcp.service.connection.httpserver
 import vlcp.service.web.static
 from vlcp.utils.http import HttpHandler
 from vlcp.config.config import manager
-import logging
+
 
 @depend(vlcp.service.connection.httpserver.HttpServer, vlcp.service.utils.session.Session,
         vlcp.service.web.static.Static)
@@ -54,11 +54,9 @@ Form = %s<br/>
         else:
             return (tmpl % params)
     @HttpHandler.route(b'/', method = [b'GET', b'HEAD', b'POST'])
-    def default(self, env):
-        for m in env.parseform():
-            yield m
-        #for m in self.waitWithTimeout(10):
-        #    yield m
+    async def default(self, env):
+        await env.parseform()
+        #await self.wait_with_timeout(10)
         if 'auth' in env.args:
             username, password = env.basicauth()
             if username != b'test' or password != b'testpassword':
@@ -66,30 +64,26 @@ Form = %s<br/>
         elif 'exception' in env.args:
             raise Exception('Test Exception')
         elif 'rewrite' in env.args:
-            for m in env.rewrite(b'/?test=a&test2=b'):
-                yield m
-            env.exit()
+            await env.rewrite(b'/?test=a&test2=b')
+            return
         elif 'redirect' in env.args:
-            for m in env.redirect(b'/?test3=b&test4=c'):
-                yield m
-            env.exit()
+            await env.redirect(b'/?test3=b&test4=c')
+            return
         elif 'redirect2' in env.args:
-            for m in env.redirect(b'http://www.baidu.com/'):
-                yield m
-            env.exit()
+            await env.redirect(b'http://www.baidu.com/')
+            return
         if 'download' in env.args:
             env.header('Content-Disposition', 'attachment; filename="a:b.txt"')
-        for m in env.write(self.formatstr(self.document,
-                                          (env.escape(env.host),
-                                           env.escape(env.fullpath),
-                                           env.escape(repr(env.headers)),
-                                           env.escape(env.path),
-                                           env.escape(env.originalpath),
-                                           env.escape(repr(env.cookies)),
-                                           env.escape(repr(env.args)),
-                                           env.escape(repr(env.form))
-                                           ))):
-            yield m
+        await env.write(self.formatstr(self.document,
+                                      (env.escape(env.host),
+                                       env.escape(env.fullpath),
+                                       env.escape(repr(env.headers)),
+                                       env.escape(env.path),
+                                       env.escape(env.originalpath),
+                                       env.escape(repr(env.cookies)),
+                                       env.escape(repr(env.args)),
+                                       env.escape(repr(env.form))
+                                       )))
 
 if __name__ == '__main__':
     #s.scheduler.debugging = True
