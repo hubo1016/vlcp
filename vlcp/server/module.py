@@ -14,16 +14,9 @@ import copy
 from vlcp.config.config import manager
 from vlcp.event.core import QuitException
 from inspect import cleandoc
-from contextlib import closing
 from vlcp.event.event import Diff_
 
-try:
-    reload
-except Exception:
-    try:
-        from importlib import reload
-    except Exception:
-        from imp import reload
+from importlib import reload
 
 
 def depend(*args):

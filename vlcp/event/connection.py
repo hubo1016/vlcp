@@ -5,7 +5,7 @@ Created on 2015/6/19
 '''
 from __future__ import print_function, absolute_import, division 
 from .runnable import RoutineContainer, RoutineException
-from .core import PollEvent, POLLING_ERR, POLLING_IN, POLLING_HUP
+from .core import PollEvent, POLLING_ERR, POLLING_IN
 from .event import Event, withIndices, M_
 from vlcp.utils import ContextAdapter
 from ctypes import create_string_buffer, c_char, Array as _Array, memmove as _memmove
@@ -15,60 +15,18 @@ import sys
 import ssl
 import logging
 from vlcp.event.core import POLLING_OUT
-from contextlib import closing
 import os
 
-if sys.version_info[0] >= 3:
-    from urllib.parse import urlsplit
-    from queue import Full, Queue, Empty
-else:
-    from urlparse import urlsplit
-    from Queue import Full, Queue, Empty
+from urllib.parse import urlsplit
 
-try:
-    _memoryview = memoryview
-except Exception:
-    class memoryview(object):              # Fake a memoryview interface
-        def __init__(self, buf):
-            self._buffer = buf
-        def __getitem__(self, s):
-            if isinstance(s, slice) and isinstance(self._buffer, _Array):
-                start, stop, step = s.indices(len(self._buffer))
-                if step != 1:
-                    raise ValueError('memoryview does not support slicing with step')
-                return (c_char * (stop - start)).from_buffer(self._buffer, start)
-            else:
-                return self._buffer[s]
-        def __setitem__(self, s, value):
-            if isinstance(s, slice) and isinstance(self._buffer, _Array):
-                start, stop, step = s.indices(len(self._buffer))
-                if step != 1:
-                    raise ValueError('memoryview does not support slicing with step')
-                if len(value) != stop - start:
-                    raise ValueError('assignment length not match')
-                _memmove((c_char * (stop - start)).from_buffer(self._buffer, start), value, stop - start)
-            else:
-                self._buffer[s] = value
-        def __len__(self):
-            return len(self._buffer)
-        def tobytes(self):
-            return self._buffer[:]
+_create_buffer = bytearray
+def _extend_buffer(source, size):
+    _new_buffer = _create_buffer(size)
+    _new_buffer[0:len(source)] = source
+    return _new_buffer
+def _buffer(data, view, start, length):
+    return view[start:start+length]
 
-if sys.version_info[0] >= 3:
-    _create_buffer = bytearray
-    def _extend_buffer(source, size):
-        _new_buffer = _create_buffer(size)
-        _new_buffer[0:len(source)] = source
-        return _new_buffer
-    def _buffer(data, view, start, length):
-        return view[start:start+length]
-else:
-    _create_buffer = create_string_buffer
-    def _extend_buffer(source, size):
-        return create_string_buffer(source.raw, size)
-    # re does not accept memoryview
-    def _buffer(data, view, start, length):
-        return buffer(data, start, length)
 
 @withIndices('connection', 'type', 'force', 'connmark')
 class ConnectionControlEvent(Event):

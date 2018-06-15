@@ -10,8 +10,7 @@ from .event import Event,withIndices
 from time import time, sleep
 from datetime import datetime
 from signal import signal, SIGTERM, SIGINT
-from logging import getLogger, WARNING
-from collections import deque
+from logging import getLogger
 from vlcp.utils.indexedheap import IndexedHeap
 
 import sys
@@ -387,7 +386,7 @@ class Scheduler(object):
                     del self._pending_runnables[:i]
             canquit = False
             self.logger.info('Main loop started')
-            last_time = current_time = self.current_time = time()
+            current_time = self.current_time = time()
             processYields()
             quitMatcher = SystemControlEvent.createMatcher(type=SystemControlEvent.QUIT)
             while len(self.registerIndex) > len(self.daemons):

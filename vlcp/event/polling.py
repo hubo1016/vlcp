@@ -8,7 +8,6 @@ import select
 from vlcp.event import PollEvent, SystemControlLowPriorityEvent
 import errno
 import time
-import sys
 from vlcp.event.core import InterruptedBySignalException
 
 if hasattr(select, 'epoll'):

@@ -6,7 +6,7 @@ Created on 2015/8/18
 
 from vlcp.config import defaultconfig
 from vlcp.protocol import Protocol
-from vlcp.event import Event, withIndices, Stream, ConnectionControlEvent, ConnectionWriteEvent, CBQueue, PollEvent
+from vlcp.event import Event, withIndices, Stream, ConnectionControlEvent, ConnectionWriteEvent
 from vlcp.event.core import syscall_clearremovequeue, PollEvent
 from collections import deque
 import logging
@@ -14,7 +14,6 @@ import re
 import time
 from vlcp.event.stream import MemoryStream, StreamDataEvent
 import zlib
-from contextlib import closing
 from vlcp.event.event import M_
 
 @withIndices('state', 'connection', 'connmark', 'createby')
@@ -69,10 +68,6 @@ class HttpTrailersReceived(Event):
     """
     pass
 
-try:
-    _long = long
-except Exception:
-    _long = int
 
 class HttpProtocolException(Exception):
     """
@@ -204,7 +199,7 @@ def displayHeader(headername):
     return b'-'.join(p.capitalize() for p in headername.split(b'-'))
 
 def _createstatus(status):
-    if isinstance(status, int) or isinstance(status, _long):
+    if isinstance(status, int) or isinstance(status, int):
         status = str(status) + ' ' + standard_status.get(status, 'User-defined')
     if not isinstance(status, bytes):
         status = status.encode('ascii')

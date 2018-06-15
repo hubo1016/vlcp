@@ -7,7 +7,6 @@ from __future__ import print_function, absolute_import, division
 import sys
 from .core import QuitException, TimerEvent, SystemControlEvent
 from .event import Event, withIndices, M_, Diff_
-from contextlib import closing
 import asyncio
 
 class EventHandler(object):
@@ -669,7 +668,7 @@ class RoutineContainer(object):
             try:
                 r = await subprocess
             except:
-                typ, val, tb = sys.exc_info()
+                _, val, _ = sys.exc_info()
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine,
                                         exception=val)
                 self.scheduler.emergesend(e)
@@ -700,7 +699,7 @@ class RoutineContainer(object):
             try:
                 r = await subprocess
             except:
-                typ, val, tb = sys.exc_info()
+                _, val, _ = sys.exc_info()
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine, exception = val)
                 container.scheduler.emergesend(e)
                 raise

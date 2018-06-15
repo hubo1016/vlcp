@@ -4,7 +4,6 @@ Created on 2015/06/01
 :author: hubo
 '''
 from __future__ import print_function, absolute_import, division 
-import copy
 import warnings
 
 
