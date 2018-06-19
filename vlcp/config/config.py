@@ -320,15 +320,18 @@ class Configurable(object):
         if key.startswith('_'):
             raise AttributeError("type object '%s' has no attribute '%s'" % (type(self).__name__, key))
         cls = type(self)
+        def _cache(v):
+            setattr(self, key, v)
+            return v
         while True:
             try:
-                return manager[getattr(cls, 'configkey') + '.' + key]
+                return _cache(manager[getattr(cls, 'configkey') + '.' + key])
             except AttributeError:
                 pass
             except KeyError:
                 pass
             try:
-                return cls.__dict__['_default_' + key]
+                return _cache(cls.__dict__['_default_' + key])
             except KeyError:
                 pass
             parent = None

@@ -151,21 +151,34 @@ standard_status = {
     510: 'Not Extended',
     511: 'Network Authentication Required'
 }
-weekdayname = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+standard_status_cache = {k: (str(k) + " " + v).encode('ascii') for k, v in standard_status.items()}
+
+weekdayname = [b'Mon', b'Tue', b'Wed', b'Thu', b'Fri', b'Sat', b'Sun']
 monthname = [None,
-             'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+             b'Jan', b'Feb', b'Mar', b'Apr', b'May', b'Jun',
+             b'Jul', b'Aug', b'Sep', b'Oct', b'Nov', b'Dec']
 # From BaseHTTPServer library
+
+_last_date_time_string = (None, None)
+
 def date_time_string(timestamp=None):
     """Return the current date and time formatted for a message header."""
+    global _last_date_time_string
+    _last_timestamp, _last_str = _last_date_time_string
     if timestamp is None:
         timestamp = time.time()
-    year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
-    s = "%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
-            weekdayname[wd],
-            day, monthname[month], year,
-            hh, mm, ss)
-    return s
+    _curr_timestamp = int(timestamp)
+    if _curr_timestamp == _last_timestamp:
+        return _last_str
+    else:
+        year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
+        s = b"%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
+                weekdayname[wd],
+                day, monthname[month], year,
+                hh, mm, ss)
+        _last_date_time_string = (_curr_timestamp, s)
+        return s
 
 # From cgi library
 def escape_b(s, quote=True):
@@ -199,12 +212,14 @@ def displayHeader(headername):
     return b'-'.join(p.capitalize() for p in headername.split(b'-'))
 
 def _createstatus(status):
-    if isinstance(status, int) or isinstance(status, int):
-        status = str(status) + ' ' + standard_status.get(status, 'User-defined')
-    if not isinstance(status, bytes):
+    if isinstance(status, int):
+        if status in standard_status_cache:
+            return standard_status_cache[status]
+        else:
+            status = (str(status) + ' ' + standard_status.get(status, 'User-defined')).encode('ascii')
+    elif not isinstance(status, bytes):
         status = status.encode('ascii')
     return status
-
 
 @defaultconfig
 class Http(Protocol):
@@ -683,7 +698,7 @@ class Http(Protocol):
             newheaders = [(b'Connection', b'Close')]
         else:
             newheaders = [(b'Connection', b'Keep-Alive')]
-        newheaders.append((b'Date', date_time_string().encode('ascii')))
+        newheaders.append((b'Date', date_time_string(connection.scheduler.current_time)))
         existingHeaders = set(normalizeHeader(k) for k,_ in headers)
         existingHeaders.add(b'date')
         existingHeaders.add(b'connection')

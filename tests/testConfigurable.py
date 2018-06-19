@@ -33,30 +33,43 @@ class Test(unittest.TestCase):
         manager['testconfigurable.default.test'] = 789
         self.assertEqual(getattr(c1, 'test', 'notconfigured'), 789)
         self.assertEqual(getattr(c2, 'test', 'notconfigured'), 789)
+        del c1.test
+        del c2.test
         manager['testconfigurable.testsubclass.test'] = 456
         self.assertEqual(getattr(c1, 'test', 'notconfigured'), 789)
         self.assertEqual(getattr(c2, 'test', 'notconfigured'), 456)
         self.assertEqual(getattr(c1, 'testproperty', 'notconfigured'), '123')
         self.assertEqual(getattr(c2, 'testproperty', 'notconfigured'), '456')
+        del c1.test
+        del c2.test
+        del c1.testproperty
+        del c2.testproperty
         manager['testconfigurable.default.testproperty'] = 111
         self.assertEqual(getattr(c1, 'testproperty', 'notconfigured'), 111)
         self.assertEqual(getattr(c2, 'testproperty', 'notconfigured'), '456')
+        del c1.testproperty
+        del c2.testproperty
         manager['testconfigurable.testsubclass.testproperty'] = 222
         self.assertEqual(getattr(c1, 'testproperty', 'notconfigured'), 111)
         self.assertEqual(getattr(c2, 'testproperty', 'notconfigured'), 222)
         self.assertEqual(getattr(c1, 'testproperty2', 'notconfigured'), 'notconfigured')
         self.assertEqual(getattr(c2, 'testproperty2', 'notconfigured'), 123)
+        del c1.testproperty
+        del c2.testproperty
         manager['testconfigurable.default.testproperty2'] = 321
         self.assertEqual(getattr(c1, 'testproperty2', 'notconfigured'), 321)
         self.assertEqual(getattr(c2, 'testproperty2', 'notconfigured'), 123)
+        del c1.testproperty2
         manager['testconfigurable.testsubclass.testproperty2'] = 333
         self.assertEqual(getattr(c1, 'testproperty2', 'notconfigured'), 321)
         self.assertEqual(getattr(c2, 'testproperty2', 'notconfigured'), 123)
+        del c1.testproperty2
         c1.testproperty = 777
         c2.testproperty = 999
         self.assertEqual(getattr(c1, 'testproperty', 'notconfigured'), 777)
         self.assertEqual(getattr(c2, 'testproperty', 'notconfigured'), 999)
         self.assertEqual(getattr(c3, 'test', 'notconfigured'), 789)
+        del c3.test
         manager['testconfigurable.testshorttestconfigurable.test'] = 888
         self.assertEqual(getattr(c3, 'test', 'notconfigured'), 888)
         self.assertEqual(manager.testconfigurable.testshorttestconfigurable.test, 888)
