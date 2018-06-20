@@ -43,6 +43,7 @@ class ConnectionWriteEvent(Event):
     Event used to send data to a connection
     """
     canignore = False
+    EOF = False
     def canignorenow(self):
         return not self.connection.connected or self.connection.connmark != self.connmark
 

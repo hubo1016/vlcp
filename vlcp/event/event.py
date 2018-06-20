@@ -195,17 +195,27 @@ class Event(object):
             *others*
                 the properties will be set on the created event
         '''
-        indicesNames = self.indicesNames()
         if kwargs and not args:
+            indicesNames = self.indicesNames()
             indices = tuple(kwargs[k] if k[:10] != '_classname' else getattr(self, k) for k in indicesNames)
         else:
             indices = tuple(self._generateIndices(args))
         self.indices = indices
-        for k, v in zip(indicesNames, indices):
-            setattr(self, k, v)
-        for k, v in kwargs.items():
-            if k not in indicesNames:
-                setattr(self, k, v)
+        if kwargs:
+            self.__dict__.update(kwargs)
+
+    def __getattr__(self, key):
+        indicesNames = self.indicesNames()
+        def _cache(v):
+            setattr(self, key, v)
+            return v
+        try:
+            i = indicesNames.index(key)
+        except ValueError:
+            raise AttributeError(key)
+        else:
+            return _cache(self.indices[i])
+
     @classmethod
     def indicesNames(cls):
         '''
