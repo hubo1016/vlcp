@@ -40,12 +40,12 @@ class Manager(Module):
     def activeModules(self):
         "Return current loaded modules"
         return dict((k, v.getFullPath()) for k,v in self.server.moduleloader.activeModules.items())
-    def _autoreload(self):
+    async def _autoreload(self):
         th = self.scheduler.setTimer(self.checkinterval, self.checkinterval)
         try:
             tm = TimerEvent.createMatcher(th)
             while True:
-                yield (tm,)
+                await tm
                 t = time()
                 reloads = []
                 loaded = self.activeModules().values()
@@ -67,42 +67,36 @@ class Manager(Module):
                 if reloads:
                     self._logger.warning('Auto reload following modules: %r', reloads)
                     try:
-                        for m in self.reloadmodules(reloads):
-                            yield m
+                        await self.reloadmodules(reloads)
                     except Exception:
                         self._logger.warning('Exception occurs on auto reload', exc_info=True)
                 self._lastcheck = t
         finally:
             self.scheduler.cancelTimer(th)
-    def loadmodule(self, path):
+    async def loadmodule(self, path):
         '''
         Load specified module
         
         :param path: module path (e.g. ``vlcp.service.connection.httpserver.HttpServer``)
         '''
-        for m in self.apiroutine.delegateOther(self.server.moduleloader.loadByPath(path), self.server.moduleloader, ()):
-            yield m
-        self.apiroutine.retvalue = None
-    def reloadmodules(self, pathlist):
+        return await self.server.moduleloader.load_by_path(path)
+        
+    async def reloadmodules(self, pathlist):
         '''
         Reload specified modules.
         
         :param pathlist: list of module path
         '''
-        for m in self.apiroutine.delegateOther(self.server.moduleloader.reloadModules(pathlist),
-                                               self.server.moduleloader, ()):
-            yield m
-        self.apiroutine.retvalue = None
-    def unloadmodule(self, path):
+        return await self.server.moduleloader.reload_modules(pathlist)
+
+    async def unloadmodule(self, path):
         '''
         Unload specified module
         
         :param path: module path (e.g. ``vlcp.service.connection.httpserver.HttpServer``)
         '''
-        for m in self.apiroutine.delegateOther(self.server.moduleloader.unloadByPath(path),
-                                               self.server.moduleloader, ()):
-            yield m
-        self.apiroutine.retvalue = None
+        return await self.server.moduleloader.unload_by_path(path)
+
     def enableAutoReload(self, enabled = True):
         '''
         Enable or disable auto reload.
