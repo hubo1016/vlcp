@@ -90,27 +90,44 @@ class Diff_(object):
     
     Used by `wait_for_all`
     """
-    __slots__ = ('base', 'add', 'remove', 'result')
+    __slots__ = ('base', 'add', 'remove', 'result', 'length')
     def __init__(self, base = (), add = (), remove = ()):
         self.base = base
         self.add = add
         self.remove = remove
         self.result = None
-        
+        self.length = None
+
     def __add__(self, matchers):
         return Diff_(self.base, self.add + matchers, self.remove)
     
     def __iter__(self):
         if self.result is None:
-            r = set(self.base)
-            r.update(self.add)
-            r.difference_update(self.remove)
-            self.result = tuple(r)
+            add = set()
+            remove = set()
+            base = self
+            while isinstance(base, Diff_):
+                add.update(self.add)
+                remove.update(self.remove)
+                base = base.base
+            add.update(base)
+            add.difference_update(remove)
+            self.result = tuple(add)
         return iter(self.result)
-    
+
     def __len__(self):
-        return len(self.base) + len(self.add) - len(self.remove)
-    
+        if self.length is None:
+            l = 0
+            base = self
+            while isinstance(base, Diff_):
+                l += len(base.add) - len(base.remove)
+                base = base.base
+            l += len(base)
+            self.length = l
+            return l
+        else:
+            return self.length
+
     def two_way_difference(self, b):
         """
         Return (self - b, b - self)
@@ -141,7 +158,7 @@ class Diff_(object):
             first = set(first)
             second = set(second)
             return tuple(first.difference(second)), tuple(second.difference(first))
-    
+
     def __await__(self):
         return (yield self)
 

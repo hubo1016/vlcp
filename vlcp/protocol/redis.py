@@ -11,11 +11,13 @@ import logging
 import itertools
 from vlcp.event.lock import Lock
 from contextlib import closing
+from vlcp.event.event import M_
 try:
     import hiredis
     hiredis_available = True
 except Exception:
     hiredis_available = False
+
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class RedisConnectionStateEvent(Event):
@@ -23,9 +25,11 @@ class RedisConnectionStateEvent(Event):
     CONNECTION_DOWN = 'down'
     CONNECTION_NOTCONNECTED = 'notconnected'
 
+
 @withIndices('connection', 'connmark', 'id', 'iserror', 'createby')
 class RedisResponseEvent(Event):
     pass
+
 
 @withIndices('type', 'subscribe', 'connection', 'connmark', 'createby')
 class RedisSubscribeEvent(Event):
@@ -34,13 +38,16 @@ class RedisSubscribeEvent(Event):
     PSUBSCRIBE = 'psubscribe'
     PUNSUBSCRIBE = 'punsubscribe'
 
+
 @withIndices('type', 'subscribe', 'channel', 'connection', 'connmark', 'createby')
 class RedisSubscribeMessageEvent(Event):
     MESSAGE = 'message'
     PMESSAGE = 'pmessage'
 
+
 class RedisProtocolException(Exception):
     pass
+
 
 class RedisReplyException(Exception):
     def __init__(self, *args, **kwargs):
@@ -51,6 +58,7 @@ class RedisReplyException(Exception):
             self.subtype = ''
             self.describe = ''
 
+
 def _copy(buffer):
     try:
         if isinstance(buffer, memoryview):
@@ -60,6 +68,7 @@ def _copy(buffer):
     except Exception:
         return buffer[:]
 
+
 def _str(b, encoding = 'ascii'):
     if isinstance(b, str):
         return b
@@ -68,13 +77,16 @@ def _str(b, encoding = 'ascii'):
     else:
         return str(b)
 
+
 class RedisParser(object):
     "Python implemented hiredis.Reader()"
     def __init__(self):
         self._buffer = b''
         self._parser = self._parser_gen()
+
     def feed(self, data):
         self._buffer += data
+
     def gets(self):
         try:
             return next(self._parser)
@@ -83,6 +95,7 @@ class RedisParser(object):
         except RedisProtocolException as exc:
             self._exceptionargs = exc.args
             raise
+
     def _parser_gen(self, startpos = 0):
         try:
             _blk_buffer = []
@@ -169,6 +182,7 @@ class RedisParser(object):
         finally:
             self._lastpos = startpos
 
+
 @defaultconfig
 class Redis(Protocol):
     '''
@@ -196,6 +210,7 @@ class Redis(Protocol):
     _default_connect_timeout = 5
     _default_tcp_nodelay = True
     _logger = logging.getLogger(__name__ + '.Redis')
+
     def __init__(self):
         '''
         Constructor
@@ -203,9 +218,9 @@ class Redis(Protocol):
         Protocol.__init__(self)
         self.usehiredis = hiredis_available and self.hiredis
         self._format_request_init(self.encoding)
-    def init(self, connection):
-        for m in Protocol.init(self, connection):
-            yield m
+
+    async def init(self, connection):
+        await Protocol.init(self, connection)
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority - 1, RedisConnectionStateEvent.createMatcher(connection = connection), ('connstate', connection)))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
@@ -218,8 +233,8 @@ class Redis(Protocol):
         connection.redis_select = None
         connection.redis_subscribe_keys = set()
         connection.redis_subscribe_pkeys = set()
-        for m in self.reconnect_init(connection):
-            yield m
+        await self.reconnect_init(connection)
+
     def _format_request_init(self, encoding):
         def _bytes(a):
             if isinstance(a, bytes):
@@ -230,7 +245,8 @@ class Redis(Protocol):
             return b'*' + str(len(args)).encode('ascii') + b'\r\n' + b''.join(itertools.chain.from_iterable((b'$',str(len(sa)).encode('ascii'),b'\r\n',sa,b'\r\n') for sa in (_bytes(a) for a in args)))
         self._bytes = _bytes
         self.format_request = format_request
-    def reconnect_init(self, connection):
+
+    async def reconnect_init(self, connection):
         connection.xid = 1
         connection.redis_replyxid = 1
         connection.redis_ping = -1
@@ -238,7 +254,6 @@ class Redis(Protocol):
         connection.redis_bufferedxid = 0
         connection.redis_sendbuffer = []
         connection.redis_sender = False
-        connection.redis_locker = object()
         write_buffer = []
         if self.usehiredis:
             connection.redis_reader = hiredis.Reader(protocolError = RedisProtocolException, replyError = RedisReplyException)
@@ -253,20 +268,18 @@ class Redis(Protocol):
             if connection.redis_subscribe_pkeys:
                 write_buffer.append(self.format_request(b'PSUBSCRIBE', *tuple(connection.redis_subscribe_pkeys)))
         connection.scheduler.emergesend(ConnectionWriteEvent(connection, connection.connmark, data=b''.join(write_buffer)))
-        for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_UP, connection, connection.connmark, self)):
-            yield m
-    def closed(self, connection):
-        for m in Protocol.closed(self, connection):
-            yield m
+        await connection.wait_for_send(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_UP, connection, connection.connmark, self))
+
+    async def closed(self, connection):
+        await Protocol.closed(self, connection)
         self._logger.info('Redis connection is closed on %r', connection)
-        for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
-            yield m
-    def error(self, connection):
-        for m in Protocol.error(self, connection):
-            yield m
+        await connection.wait_for_send(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self))
+
+    async def error(self, connection):
+        await Protocol.error(self, connection)
         self._logger.warning('Redis connection is reset on %r', connection)
-        for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
-            yield m
+        await connection.wait_for_send(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self))
+
     def replymatcher(self, requestid, connection, iserror = None):
         """
         Create an event matcher to match 
@@ -275,8 +288,12 @@ class Redis(Protocol):
         if iserror is not None:
             matcherparam.append(iserror)
         return RedisResponseEvent.createMatcher(*matcherparam)
+
     def subscribematcher(self, connection, subscribe = None, channel = None, type = None):
-        return RedisSubscribeMessageEvent.createMatcher(type, subscribe, channel, connection)
+        return RedisSubscribeMessageEvent.createMatcher(type,
+                                                        self._bytes(subscribe) if subscribe is not None else None,
+                                                        self._bytes(channel) if channel is not None else None, connection)
+
     def statematcher(self, connection, state = RedisConnectionStateEvent.CONNECTION_DOWN, currentconn = True):
         if currentconn:
             return RedisConnectionStateEvent.createMatcher(state, connection, connection.connmark)
@@ -297,15 +314,15 @@ class Redis(Protocol):
                 connection.redis_subscribe_pkeys.update(self._bytes(a) for a in args[1:])
             elif cmdname == 'PUNSUBSCRIBE':
                 connection.redis_subscribe_pkeys.difference_update(self._bytes(a) for a in args[1:])
-            reply_matcher = RedisSubscribeEvent.createMatcher(cmdname.lower(), args[-1], connection, connection.connmark)
+            reply_matcher = lambda: RedisSubscribeEvent.createMatcher(cmdname.lower(), self._bytes(args[-1]), connection, connection.connmark)
         elif connection.redis_subscribe_keys or connection.redis_subscribe_pkeys:
             if cmdname == 'PING':
-                rid = connection.redis_ping
-                connection.redis_ping -= 1
-                reply_matcher = RedisResponseEvent.createMatcher(connection, connection.connmark, rid)
+                def reply_matcher():
+                    rid = connection.redis_ping
+                    connection.redis_ping -= 1
+                    return RedisResponseEvent.createMatcher(connection, connection.connmark, rid)
             elif cmdname == 'QUIT':
-                rid = 0
-                reply_matcher = RedisResponseEvent.createMatcher(connection, connection.connmark, rid)
+                reply_matcher = lambda: RedisResponseEvent.createMatcher(connection, connection.connmark, 0)
                 connection.need_reconnect = False
             else:
                 raise RedisProtocolException('Can only use PING/QUIT/(P)SUBSCRIBE/(P)UNSUBSCRIBE on a subscribed connection')
@@ -316,12 +333,14 @@ class Redis(Protocol):
                 connection.redis_select = _str(args[1])
             elif cmdname == 'QUIT':
                 connection.need_reconnect = False
-            rid = connection.xid
-            connection.xid += 1
-            reply_matcher = RedisResponseEvent.createMatcher(connection, connection.connmark, rid)
+            def reply_matcher():
+                rid = connection.xid
+                connection.xid += 1
+                return RedisResponseEvent.createMatcher(connection, connection.connmark, rid)
         r = self.format_request(*args)
         return r, reply_matcher
-    def send_command(self, connection, container, *args):
+
+    async def send_command(self, connection, container, *args):
         '''
         Send command to Redis server.
         
@@ -333,23 +352,13 @@ class Redis(Protocol):
         
         :returns: Event matcher to wait for reply. The value is returned from container.retvalue
         '''
-        with closing(container.delegateOther(self._send_command(connection, container, *args),
-                                             container, forceclose = True)) as g:
-            for m in g:
-                yield m
-    def _send_command(self, connection, container, *args):
         if not args:
             raise RedisProtocolException('No command name')
-        l = Lock(connection.redis_locker, connection.scheduler)
-        # The socket write sequence must be the same as the send sequence, add a lock to ensure that
-        for m in l.lock(container):
-            yield m
-        with l:
-            r, reply_matcher = self._prepare_command(connection, args)
-            for m in connection.write(ConnectionWriteEvent(connection, connection.connmark, data = r), False):
-                yield m
-        container.retvalue = reply_matcher
-    def send_batch(self, connection, container, *cmds):
+        r, reply_matcher = self._prepare_command(connection, args)
+        await connection.write(ConnectionWriteEvent(connection, connection.connmark, data = r), False)
+        return reply_matcher()
+
+    async def send_batch(self, connection, container, *cmds):
         '''
         Send multiple commands to redis server at once
         
@@ -359,35 +368,20 @@ class Redis(Protocol):
         
         :param \*cmds: commands to send. Each command is a tuple/list of bytes/str.
         
-        :returns: list of reply event matchers (from container.retvalue)
+        :returns: list of reply event matchers
         '''
-        with closing(container.delegateOther(self._send_batch(connection, container, *cmds),
-                                         container, forceclose = True)) as g:
-            for m in g:
-                yield m
-    def _send_batch(self, connection, container, *cmds):
-        "Use delegate to ensure it always ends"
         if not cmds:
             raise RedisProtocolException('No commands')
-        l = Lock(connection.redis_locker, connection.scheduler)
-        for m in l.lock(container):
-            yield m
-        with l:
-            commands = []
-            matchers = []
-            for c in cmds:
-                try:
-                    r, reply_matcher = self._prepare_command(connection, c)
-                    commands.append(r)
-                    matchers.append(reply_matcher)
-                except Exception:
-                    self._logger.warning('Error in one of the commands in a batch: %r. The command is ignored.', c, exc_info = True)
-            if not commands:
-                raise RedisProtocolException('Error for every command in a batch')
-            for m in connection.write(ConnectionWriteEvent(connection, connection.connmark, data = b''.join(commands)), False):
-                yield m
-        container.retvalue = matchers
-    def execute_command(self, connection, container, *args):
+        commands = []
+        matchers = []
+        for c in cmds:
+            r, reply_matcher = self._prepare_command(connection, c)
+            commands.append(r)
+            matchers.append(reply_matcher)
+        await connection.write(ConnectionWriteEvent(connection, connection.connmark, data = b''.join(commands)), False)
+        return [m() for m in matchers]
+
+    async def execute_command(self, connection, container, *args):
         '''
         Send command to Redis server and wait for response
         
@@ -401,20 +395,19 @@ class Redis(Protocol):
         
         :raises RedisReplyException: Redis server returns an error (e.g. "-ERR ...")
         '''
-        for m in self.send_command(connection, container, *args):
-            yield m
-        rm = container.retvalue
+        rm = await self.send_command(connection, container, *args)
         sm = self.statematcher(connection)
-        yield (sm, rm)
-        if container.matcher is sm:
+        ev, m = await M_(sm, rm)
+        if m is sm:
             raise RedisProtocolException('Redis connection down before response received')
         else:
-            r = container.event.result
+            r = ev.result
             if isinstance(r, Exception):
                 raise r
             else:
-                container.retvalue = r
-    def batch_execute(self, connection, container, *cmds):
+                return r
+
+    async def batch_execute(self, connection, container, *cmds, raise_first_exception = False):
         '''
         Send multiple commands to redis server at once, and get responses
         
@@ -424,22 +417,26 @@ class Redis(Protocol):
         
         :param \*cmds: commands to send. Each command is a tuple/list of bytes/str.
         
-        :returns: list of replies (from container.retvalue). Exceptions are NOT raised.
+        :param raise_first_exception: if True, the first exception is raised.
+                                      if False, exceptions are returned in the list.
+        
+        :returns: list of replies.
         '''
         if not cmds:
-            container.retvalue = []
-            return
-        for m in self.send_batch(connection, container, *cmds):
-            yield m
-        matchers = container.retvalue
+            return []
+        matchers = await self.send_batch(connection, container, *cmds)
         sm = self.statematcher(connection)
         retvalue = []
         for m in matchers:
-            yield (m, sm)
-            if container.matcher is sm:
+            ev, m = await M_(m, sm)
+            if m is sm:
                 raise RedisProtocolException('Redis connection down before response received')
-            retvalue.append(container.event.result)
-        container.retvalue = retvalue
+            r = ev.result
+            if raise_first_exception and isinstance(r, Exception):
+                raise r
+            retvalue.append(r)
+        return retvalue
+
     def parse(self, connection, data, laststart):
         events = []
         connection.redis_reader.feed(_copy(data))
@@ -471,24 +468,25 @@ class Redis(Protocol):
             # Remote write close
             events.append(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
         return (events, 0)
-    def notconnected(self, connection):
-        for m in Protocol.notconnected(self, connection):
-            yield m
-        for m in connection.waitForSend(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_NOTCONNECTED,
-                                                                  connection, connection.connmark, self)):
-            yield m
-    def keepalive(self, connection):
+
+    async def notconnected(self, connection):
+        await Protocol.notconnected(self, connection)
+        await connection.wait_for_send(RedisConnectionStateEvent(RedisConnectionStateEvent.CONNECTION_NOTCONNECTED,
+                                                                  connection, connection.connmark, self))
+    def has_pending_requests(self, connection):
+        return connection.redis_replyxid != connection.xid
+
+    async def keepalive(self, connection):
         try:
             if connection.redis_replyxid == connection.xid:
-                with closing(connection.executeWithTimeout(self.keepalivetimeout, self.execute_command(connection, connection, 'PING'))) as g:
-                    for m in g:
-                        yield m
-                if connection.timeout:
-                    for m in connection.reset(True):
-                        yield m
+                timeout, _ = await connection.execute_with_timeout(
+                                            self.keepalivetimeout,
+                                            self.execute_command(connection, connection, 'PING'))
+                if timeout:
+                    await connection.reset(True)
         except Exception:
-            for m in connection.reset(True):
-                yield m
+            await connection.reset(True)
+
     @staticmethod
     def reconnect_timeseq():
         yield 0
@@ -499,4 +497,3 @@ class Redis(Protocol):
                 nextSeq = nextSeq * 2
             else:
                 nextSeq = 20
-        

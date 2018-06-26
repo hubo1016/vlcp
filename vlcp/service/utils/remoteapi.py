@@ -6,7 +6,9 @@ from vlcp.event import RoutineContainer
 
 from vlcp.utils.webclient import WebClient, WebException
 
-from vlcp.server.module import Module,callAPI, api
+from vlcp.server.module import Module,call_api, api
+from vlcp.event.event import M_
+
 
 @defaultconfig
 class RemoteCall(Module):
@@ -25,15 +27,15 @@ class RemoteCall(Module):
         self.app_routine.main = self._main
         self.routines.append(self.app_routine)
         self.createAPI(api(self.call,self.app_routine))
-    
-    def _main(self):
+
+    async def _main(self):
         try:
             self.wc.cleanup_task(self.app_routine, 120)
-            yield ()
+            await M_()
         finally:
             self.wc.endtask()
 
-    def call(self,remote_module,method,timeout,params):
+    async def call(self,remote_module,method,timeout,params):
         """
         Call remote API
         
@@ -51,7 +53,7 @@ class RemoteCall(Module):
         self._logger.info("remote call method %r", method)
         self._logger.info("remote call kwargs %r", params)
         success = False
-
+        r = None
         if remote_module and remote_module in self.target_url_map:
             endpoints = self.target_url_map[remote_module]
             params = json.dumps(params).encode("utf-8")
@@ -59,9 +61,12 @@ class RemoteCall(Module):
                 url = endpoint + "/" + remote_module + "/" + method
 
                 try:
-                    for m in self.wc.urlgetcontent(self.app_routine,url,params,b'POST',
-                                                   {"Content-Type":"application/json"},timeout=timeout):
-                        yield m
+                    r = await self.wc.urlgetcontent(self.app_routine,
+                                                    url,
+                                                    params,
+                                                    b'POST',
+                                                    {"Content-Type":"application/json"},
+                                                    timeout=timeout)
                 except WebException as e:
                     # this endpoint connection error , try next url
                     self._logger.warning(" url (%r) post error %r , break ..",url,e)
@@ -73,16 +78,18 @@ class RemoteCall(Module):
                 else:
                     success = True
                     break
-
         else:
             self._logger.warning(" target (%r) url not existed, ignore it ",remote_module)
 
         if not success:
             raise IOError("remote call connection error !")
 
-        self.app_routine.retvalue = []
+        return json.loads(r)['result']
 
-def remoteAPI(container,targetname,name,params={},timeout=60.0):
-    args = {"remote_module":targetname,"method":name,"timeout":timeout,"params":params}
-    for m in callAPI(container,"remotecall","call",params=args,timeout=timeout + 20):
-        yield m
+
+async def remote_api(container, targetname, name, params={}, timeout=60.0):
+    args = {"remote_module": targetname, "method": name, "timeout": timeout, "params": params}
+    return await call_api(container,"remotecall","call",params=args,timeout=timeout + 20)
+
+
+remoteAPI = remote_api

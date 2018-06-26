@@ -11,17 +11,43 @@ from .event import Event, withIndices
 from bisect import bisect_left
 from heapq import heappush, heappop
 
+
 @withIndices('queue')
 class QueueCanWriteEvent(Event):
-    pass
+    def __init__(self, queue, **kwargs):
+        Event.__init__(self, queue, **kwargs)
+        self.queue = queue
+
+    def is_valid(self):
+        if self.queue.canAppend():
+            return True
+        else:
+            self.queue.isWaited = True
+            return False
+
 
 @withIndices('queue')
 class QueueIsEmptyEvent(Event):
     pass
 
-@withIndices('newonly', 'firstonly')
+
+@withIndices('key', 'newonly', 'firstonly')
 class AutoClassQueueCanWriteEvent(QueueCanWriteEvent):
-    pass
+    def __init__(self, queue, key, newonly, firstonly):
+        Event.__init__(self, queue, key, newonly, firstonly)
+        self.queue = queue
+        self.key = key
+
+    def is_valid(self):
+        if self.queue.maxlength is not None:
+            return None
+        else:
+            if self.queue.canAppendSubqueue(self.key):
+                return True
+            else:
+                self.queue.waited.add((False, False, self.key))
+                return False
+
 
 class CBQueue(object):
     '''
@@ -41,10 +67,11 @@ class CBQueue(object):
             if self.maxlength is not None and self.maxlength <= 0:
                 self.maxlength = 1
             self.isWaited = False
+            self._matcher = QueueCanWriteEvent.createMatcher(self)
         def append(self, value, force = False):
             if not force and not self.canAppend():
                 self.isWaited = True
-                return QueueCanWriteEvent.createMatcher(self)
+                return self._matcher
             if self.parent is not None:
                 m = self.parent.notifyAppend(self, force)
                 if m is not None:
@@ -128,6 +155,7 @@ class CBQueue(object):
             self.blocked = False
             self.isWaited = False
             self.key = key
+            self._matcher = QueueCanWriteEvent.createMatcher(self)
         @classmethod
         def initHelper(cls, key = 'priority'):
             def initer(parent = None, maxlength = None):
@@ -136,7 +164,7 @@ class CBQueue(object):
         def append(self, value, force = False):
             if not force and not self.canAppend():
                 self.isWaited = True
-                return QueueCanWriteEvent.createMatcher(self)
+                return self._matcher
             if self.parent is not None:
                 m = self.parent.notifyAppend(self, force)
                 if m is not None:
@@ -531,7 +559,7 @@ class CBQueue(object):
                     # Auto-subqueue limit exceeded, only appendable when this subqueue has more space
                     self.waited.add((False, False, key))
                     # Matches: any notification from this virtual queue
-                    return AutoClassQueueCanWriteEvent.createMatcher(self, _ismatch = lambda x: x.key == key or x.key is self.nokey)
+                    return AutoClassQueueCanWriteEvent.createMatcher(self, key)
                 else:
                     # An old queue, but still has space
                     return None
@@ -542,7 +570,7 @@ class CBQueue(object):
                     # Wait for: any space from this virtual queue
                     self.waited.add((False, False, key))
                     # Matches: any notification from this virtual queue
-                    return AutoClassQueueCanWriteEvent.createMatcher(self, _ismatch = lambda x: x.key == key or x.key is self.nokey)
+                    return AutoClassQueueCanWriteEvent.createMatcher(self, key)
                 elif self.totalSize < self.maxlength - self.preserve - len(self.queueStat) + len(self.queueDict):
                     # Total limit not exceeded
                     # An extra space is preserved for each empty virtual queue, so when there are more subqueues than
@@ -555,12 +583,12 @@ class CBQueue(object):
                         # Wait for first-only notification
                         self.waited.add((False, True, key))
                         # Matches: newonly = False notification. If from other queue, firstonly = False.
-                        return AutoClassQueueCanWriteEvent.createMatcher(self, False, _ismatch = lambda x: not (x.firstonly and x.key != key))
+                        return AutoClassQueueCanWriteEvent.createMatcher(self, None, False, _ismatch = lambda x: not (x.firstonly and x.key != key))
                     else:
                         # Wait for total limit change: any
                         self.waited.add((False, False))
                         # Matches: newonly = False, firstonly=False notifications from any virtual subqueue
-                        return AutoClassQueueCanWriteEvent.createMatcher(self, False, False)
+                        return AutoClassQueueCanWriteEvent.createMatcher(self, None, False, False)
             elif hash(key) in self.queueStat:
                 # An empty virtual queue
                 if self.totalSize < self.maxlength - self.preserve:
@@ -570,7 +598,7 @@ class CBQueue(object):
                     # Wait for total limit change: new-only = False
                     self.waited.add((False, True))
                     # Matches: notification from any virtual subqueue with new-only = False
-                    return AutoClassQueueCanWriteEvent.createMatcher(self, False)
+                    return AutoClassQueueCanWriteEvent.createMatcher(self, None, False)
             else:
                 # A new queue
                 if self.totalSize < self.maxlength:
@@ -583,6 +611,13 @@ class CBQueue(object):
                     return AutoClassQueueCanWriteEvent.createMatcher(self)
         def canAppend(self):
             return self.maxlength is None or self.totalSize < self.maxlength
+        def canAppendSubqueue(self, key):
+            if self.subqueuelimit is None or not key in self.queueDict:
+                return True
+            elif len(self.queueDict[key].value[1]) >= self.subqueuelimit:
+                return False
+            else:
+                return True
         def canPop(self):
             return self.queues.current is not None
         def pop(self):
@@ -624,11 +659,11 @@ class CBQueue(object):
                     if self.subqueuelimit is not None and subsize < self.subqueuelimit and (False, False, key) in self.waited:
                         # Subqueue has more space, wake up the specified queue
                         self.waited.discard((False, False, key))
-                        return (ret, [AutoClassQueueCanWriteEvent(self, False, False, key=key)], [])
+                        return (ret, [AutoClassQueueCanWriteEvent(self, key, False, False)], [])
                 elif self.totalSize < self.maxlength - self.preserve - len(self.queueStat) + len(self.queueDict):
                     # Whole queue has more space, wake up any waiter wait for the whole queue or this subqueue
                     self.waited = set(w for w in self.waited if len(w) == 3 and w[1] == False and w[2] != key)
-                    return (ret, [AutoClassQueueCanWriteEvent(self, False, False, key=key)], [])
+                    return (ret, [AutoClassQueueCanWriteEvent(self, key, False, False)], [])
                 elif self.totalSize < self.maxlength - self.preserve:
                     # Accept first item for each empty queue
                     if (False, True) in self.waited or (False, True, key) in self.waited or (True, True) in self.waited or \
@@ -639,7 +674,7 @@ class CBQueue(object):
                         self.waited.discard((False, False, key))
                         # Do not wake up machers with firstonly=False
                         # Waiters waiting for the subqueue will be waken up, but they may get a new matcher for the total limit
-                        return (ret, [AutoClassQueueCanWriteEvent(self, False, True, key=key)], [])
+                        return (ret, [AutoClassQueueCanWriteEvent(self, key, False, True)], [])
                 elif self.totalSize < self.maxlength:
                     # Accept new queues only
                     if (True, True) in self.waited or (False, False, key) in self.waited or (False, True, key) in self.waited:
@@ -648,9 +683,9 @@ class CBQueue(object):
                         if (False, True, key) in self.waited:
                             # This virtual queue becomes empty, wake up the waiters and let them change the matcher
                             self.waited.discard((False, True, key))
-                            return (ret, [AutoClassQueueCanWriteEvent(self, False, True, key=key)], [])
+                            return (ret, [AutoClassQueueCanWriteEvent(self, key, False, True)], [])
                         else:
-                            return (ret, [AutoClassQueueCanWriteEvent(self, True, True, key=key)], [])
+                            return (ret, [AutoClassQueueCanWriteEvent(self, key, True, True)], [])
                 elif self.subqueuelimit is not None and subsize < self.subqueuelimit and (False, False, key) in self.waited:
                     # Wake up waiters waiting for this sub queue, let them change the matcher
                     
@@ -659,7 +694,7 @@ class CBQueue(object):
                     # Some waiters might wake up mistakenly, they will wait again when they try to append the event. 
                     self.waited.discard((True, True))
                     self.waited.discard((False, False, key))
-                    return (ret, [AutoClassQueueCanWriteEvent(self, True, True, key=key)], [])
+                    return (ret, [AutoClassQueueCanWriteEvent(self, key, True, True)], [])
             return (ret, [], [])
         def clear(self):
             l = len(self)
@@ -680,8 +715,13 @@ class CBQueue(object):
                 if self.parent is not None:
                     self.parent.notifyBlock(self, blocked)
             if self.waited:
+                key_events = [AutoClassQueueCanWriteEvent(self, w[2], False, False)
+                              for w in self.waited
+                              if len(w) == 3]
+                if not key_events:
+                    key_events.append(AutoClassQueueCanWriteEvent(self, self.nokey, False, False))
                 self.waited.clear()
-                return ([AutoClassQueueCanWriteEvent(self, False, False, key=self.nokey)], [])
+                return (key_events, [])
             else:
                 return ([], [])
         def __len__(self):
@@ -754,6 +794,7 @@ class CBQueue(object):
         self.isWaited = False
         self.isWaitEmpty = False
         self.outputStat = 0
+        self._matcher = QueueCanWriteEvent.createMatcher(self)
     def _removeFromTree(self):
         for v in self.queueindex.values():
             if len(v) == 3:
@@ -852,7 +893,7 @@ class CBQueue(object):
         '''
         if not force and not self.canAppend():
             self.isWaited = True
-            return QueueCanWriteEvent.createMatcher(self)
+            return self._matcher
         if self.parent is not None:
             m = self.parent.notifyAppend(self, force)
             if m is not None:

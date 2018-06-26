@@ -366,6 +366,36 @@ class Scheduler(object):
                 else:
                     for e in emptys:
                         processEvent(e)
+
+            def processQueueEvent(event):
+                """
+                Optimized with queue events
+                """
+                if self.debugging:
+                    self.logger.debug('Processing event %s', repr(event))
+                is_valid = event.is_valid()
+                if is_valid is None:
+                    processEvent(event)
+                else:
+                    while event.is_valid():
+                        result = self.matchtree.matchfirstwithmatcher(event)
+                        if result is None:
+                            break
+                        r, m = result
+                        try:
+                            self.syscallfunc = None
+                            self.syscallrunnable = None
+                            if self.debugging:
+                                self.logger.debug('Send event to %r, matched with %r', r, m)
+                            r.send((event, m))
+                        except StopIteration:
+                            self.unregisterall(r)
+                        except QuitException:
+                            self.unregisterall(r)
+                        except Exception:
+                            self.logger.exception('processing event %s failed with exception', repr(event))
+                            self.unregisterall(r)
+                        processSyscall()
             
             def processYields():
                 while self._pending_runnables:
@@ -411,10 +441,10 @@ class Scheduler(object):
                         # The event might block, must process it first
                         processEvent(e, emptys)
                         for qe in qes:
-                            processEvent(qe)
+                            processQueueEvent(qe)
                     else:
                         for qe in qes:
-                            processEvent(qe)
+                            processQueueEvent(qe)
                         processEvent(e, emptys)
                     processYields()
                     if quitMatcher.isMatch(e):

@@ -270,9 +270,12 @@ class Module(Configurable):
         self.target = type(self)
         self._logger = logging.getLogger(type(self).__module__ + '.' + type(self).__name__)
     @classmethod
-    def getFullPath(cls):
+    def get_full_path(cls):
         return cls.__module__ + '.' + cls.__name__
-    def createAPI(self, *apidefs):
+    
+    getFullPath = get_full_path
+    
+    def create_api(self, *apidefs):
         """
         Create API definitions on this module. This creates a ModuleAPIHandler and register
         these `apidefs` to it.
@@ -283,11 +286,17 @@ class Module(Configurable):
             self.appendAPI(*apidefs)
         self.apiHandler = ModuleAPIHandler(self, apidefs)
         self.routines.append(self.apiHandler)
-    def appendAPI(self, *apidefs):
+    
+    createAPI = create_api
+    
+    def append_api(self, *apidefs):
         t = list(self.apiHandler.apidefs)
         t.extend(apidefs)
         self.apiHandler.apidefs = t
-    def getServiceName(self):
+    
+    appendAPI = append_api
+    
+    def get_service_name(self):
         """
         Return the targetname (or servicename) for this module
         """
@@ -295,6 +304,9 @@ class Module(Configurable):
             return self.servicename
         else:
             return self.target.__name__.lower()
+    
+    getServiceName = get_service_name
+    
     async def load(self, container):
         '''
         Load module

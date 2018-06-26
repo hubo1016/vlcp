@@ -177,7 +177,8 @@ class SelectPolling(object):
             if wait is None:
                 events = select.select(self.readfiles, self.writefiles, self.errorfiles)
             elif not self.readfiles and not self.writefiles and not self.errorfiles:
-                time.sleep(wait)
+                if wait > 0:
+                    time.sleep(wait)
             else:
                 events = select.select(self.readfiles, self.writefiles, self.errorfiles, wait)
             self.shouldraise = False

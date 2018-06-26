@@ -547,8 +547,8 @@ class Test(unittest.TestCase):
         self.assertTrue(ans4.isMatch(ws[0]))
         (ws, es) = self.queue.clear()
         self.assertEqual(len(ws), 1)
-        self.assertTrue(ans.isMatch(ws[0]))
-        self.assertTrue(ans2.isMatch(ws[0]))
+        self.assertFalse(ans.isMatch(ws[0]))
+        self.assertFalse(ans2.isMatch(ws[0]))
         self.assertTrue(ans3.isMatch(ws[0]))
         self.assertTrue(ans4.isMatch(ws[0]))
     def testAutoClassQueueWithoutMainLimit(self):
@@ -602,11 +602,11 @@ class Test(unittest.TestCase):
         self.assertFalse(ans3.isMatch(ws[0]))
         self.assertFalse(ans4.isMatch(ws[0]))
         (ws, es) = self.queue.clear()
-        self.assertEqual(len(ws), 1)
-        self.assertTrue(ans.isMatch(ws[0]))
-        self.assertTrue(ans2.isMatch(ws[0]))
-        self.assertTrue(ans3.isMatch(ws[0]))
-        self.assertTrue(ans4.isMatch(ws[0]))
+        self.assertEqual(len(ws), 2)
+        self.assertFalse(any(ans.isMatch(w) for w in ws))
+        self.assertFalse(any(ans2.isMatch(w) for w in ws))
+        self.assertTrue(any(ans3.isMatch(w) for w in ws))
+        self.assertTrue(any(ans4.isMatch(w) for w in ws))
     
     def testDiff(self):
         def _test_diff(d1, d2, expected_add, expected_remove):

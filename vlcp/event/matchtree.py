@@ -4,7 +4,7 @@ Created on 2015/06/01
 :author: hubo
 '''
 from __future__ import print_function, absolute_import, division 
-
+from collections import OrderedDict
 
 class MatchTree(object):
     '''
@@ -15,12 +15,17 @@ class MatchTree(object):
         Constructor
         '''
         self.index = {}
-        self.matchers = []
+        #self.matchers = OrderedDict()
+        # JIT friendly
+        self.matchers_list = []
+        self.matchers_dict = None
+        self._use_dict = False
         self.parent = parent
         if parent is not None:
             self.depth = parent.depth + 1
         else:
             self.depth = 0
+    
     def subtree(self, matcher, create = False):
         '''
         Find a subtree from a matcher
@@ -68,7 +73,11 @@ class MatchTree(object):
         :param obj: object to return
         '''
         current = self.subtree(matcher, True)
-        current.matchers.append((matcher,obj))
+        #current.matchers[(obj, matcher)] = None
+        if current._use_dict:
+            current.matchers_dict[(obj, matcher)] = None
+        else:
+            current.matchers_list.append((obj, matcher))
         return current
     def remove(self, matcher, obj):
         '''
@@ -81,8 +90,28 @@ class MatchTree(object):
         current = self.subtree(matcher, False)
         if current is None:
             return
-        current.matchers = list(t for t in current.matchers if t[0] is not matcher or t[1] is not obj)
-        while not current.matchers and not hasattr(current,'any') \
+        # Assume that this pair only appears once
+        if current._use_dict:
+            try:
+                del current.matchers_dict[(obj, matcher)]
+            except KeyError:
+                pass
+        else:
+            if len(current.matchers_list) > 10:
+                # Convert to dict
+                current.matchers_dict = OrderedDict((v, None) for v in current.matchers_list
+                                                    if v != (obj, matcher))
+                current.matchers_list = None
+                current._use_dict = True
+            else:
+                try:
+                    current.matchers_list.remove((obj, matcher))
+                except ValueError:
+                    pass
+        while ((not current.matchers_dict) if current._use_dict
+               else (not current.matchers_list))\
+                and not current.matchers_dict\
+                and not hasattr(current,'any')\
                 and not current.index and current.parent is not None:
             # remove self from parents
             ind = current.parentIndex
@@ -121,10 +150,19 @@ class MatchTree(object):
                 self.index[ind]._matches(event, duptest, retlist)
             if hasattr(self, 'any'):
                 self.any._matches(event, duptest, retlist)
-        for m, o in self.matchers:
-            if o not in duptest and m.judge(event):
-                duptest.add(o)
-                retlist.append((o, m))
+        if self._use_dict:
+            for v in self.matchers_dict:
+                o, m = v
+                if o not in duptest and m.judge(event):
+                    duptest.add(o)
+                    retlist.append(v)
+        else:
+            for v in self.matchers_list:
+                o, m = v
+                if o not in duptest and m.judge(event):
+                    duptest.add(o)
+                    retlist.append(v)
+            
     def matchfirst(self, event):
         '''
         Return first match for this event
@@ -144,9 +182,46 @@ class MatchTree(object):
                 m = self.any.matchfirst(event)
                 if m is not None:
                     return m
-        for m, o in self.matchers:
-            if m is None or m.judge(event):
-                return o
+        if self._use_dict:
+            for o, m in self.matchers_dict:
+                if m is None or m.judge(event):
+                    return o
+        else:
+            for o, m in self.matchers_list:
+                if m is None or m.judge(event):
+                    return o
+                
+    def matchfirstwithmatcher(self, event):
+        '''
+        Return first match with matcher for this event
+        
+        :param event: an input event
+        '''
+        # 1. matches(self.index[ind], event)
+        # 2. matches(self.any, event)
+        # 3. self.matches
+        if self.depth < len(event.indices):
+            ind = event.indices[self.depth]
+            if ind in self.index:
+                m = self.index[ind].matchfirstwithmatcher(event)
+                if m is not None:
+                    return m
+            if hasattr(self, 'any'):
+                m = self.any.matchfirstwithmatcher(event)
+                if m is not None:
+                    return m
+        if self._use_dict:
+            for v in self.matchers_dict:
+                o, m = v
+                if m is None or m.judge(event):
+                    return v
+        else:
+            for v in self.matchers_list:
+                o, m = v
+                if m is None or m.judge(event):
+                    return v                
+        return None
+    
 
 class EventTree(object):
     '''

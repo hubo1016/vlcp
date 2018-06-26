@@ -9,6 +9,7 @@ from vlcp.server.server import Server
 from vlcp.event.runnable import RoutineContainer
 from vlcp.event.lock import Lock, Semaphore
 from vlcp.config.config import manager
+from time import time
 
 
 class Test(unittest.TestCase):
@@ -154,6 +155,24 @@ class Test(unittest.TestCase):
         rc.subroutine(main_routine())
         self.server.serve()
         self.assertEqual(obj[0], 2)
+    
+    def testManyLocks(self):
+        rc = RoutineContainer(self.server.scheduler)
+        obj = [0] * 1
+        async def routineLock(key, i):
+            l = Lock(key, rc.scheduler)
+            async with l:
+                t = obj[i]
+                await rc.do_events()
+                obj[i] = t + 1
+        for i in range(1):
+            for _ in range(10000):
+                rc.subroutine(routineLock('testobj' + str(i), i))
+        begin = time()
+        self.server.serve()
+        self.assertListEqual(obj, [10000] * 1)
+        print("10000 locks in %r seconds" % (time() - begin,))
+
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
