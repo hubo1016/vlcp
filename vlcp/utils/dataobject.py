@@ -5,9 +5,9 @@ Created on 2016/3/25
 '''
 
 from vlcp.service.utils.knowledge import escape_key, unescape_key
-from vlcp.event.event import withIndices, Event
+from vlcp.event.event import withIndices, Event, M_
 from contextlib import contextmanager
-from vlcp.server.module import callAPI
+from vlcp.server.module import send_api
 import functools
 from copy import deepcopy
 from vlcp.event.core import QuitException
@@ -75,22 +75,26 @@ class ReferenceObject(object):
         return '<ReferenceObject: %r at %r>' % (self._ref, self._key)
     def __str__(self, *args, **kwargs):
         return self._key
-    def wait(self, container):
+    async def wait(self, container = None):
         if self.isdeleted():
-            yield (DataObjectUpdateEvent.createMatcher(self.getkey(), None, DataObjectUpdateEvent.UPDATED),)
-            self._ref = container.event.object
-    def waitif(self, container, expr, nextchange = False):
+            ev = await DataObjectUpdateEvent.createMatcher(self.getkey(), None, DataObjectUpdateEvent.UPDATED)
+            self._ref = ev.object
+
+    async def waitif(self, container, expr, nextchange = False):
         flag = nextchange
+        matcher = None
         while True:
             r = not flag and expr(self)
             flag = False
             if r:
-                container.retvalue = r
-                break
-            yield (DataObjectUpdateEvent.createMatcher(self.getkey()),)
-            if self._ref is not container.event.object:
-                self._ref = container.event.object
-    
+                return r
+            if matcher is None:
+                matcher = DataObjectUpdateEvent.createMatcher(self.getkey())
+            ev = await matcher
+            if self._ref is not ev.object:
+                self._ref = ev.object
+
+
 class WeakReferenceObject(object):
     "A weak reference. The referenced object must be retrieved manually."
     def __init__(self, key):
@@ -122,6 +126,7 @@ class WeakReferenceObject(object):
         return '<WeakReferenceObject: %r>' % (self._key,)
     def __str__(self, *args, **kwargs):
         return self._key
+
 
 class DataObject(object):
     "A base class to serialize data into KVDB"
@@ -395,25 +400,40 @@ class MultiKeyReference(DataObject):
 
 @contextmanager
 def watch_context(keys, result, reqid, container, module = 'objectdb'):
+    """
+    DEPRECATED - use request_context for most use cases
+    """
     try:
         keys = [k for k,r in zip(keys, result) if r is not None]
         yield result
     finally:
         if keys:
-            def clearup():
+            async def clearup():
                 try:
-                    for m in callAPI(container, module, 'munwatch', {'keys': keys, 'requestid': reqid}):
-                        yield m
+                    await send_api(container, module, 'munwatch', {'keys': keys, 'requestid': reqid})
                 except QuitException:
                     pass
-            container.subroutine(clearup())
-        
-def multiwaitif(references, container, expr, nextchange = False):
+            container.subroutine(clearup(), False)
+
+
+@contextmanager
+def request_context(reqid, container, module = 'objectdb'):
+    try:
+        yield
+    finally:
+        async def clearup():
+            try:
+                await send_api(container, module, 'unwatchall', {'requestid': reqid})
+            except QuitException:
+                pass
+        container.subroutine(clearup(), False)
+
+
+async def multiwaitif(references, container, expr, nextchange = False):
     keys = set(r.getkey() for r in references)
     matchers = tuple(DataObjectUpdateEvent.createMatcher(k) for k in keys)
     flag = nextchange
-    def updateref():
-        e = container.event
+    def updateref(e):
         k = e.key
         o = e.object
         for r in references:
@@ -426,18 +446,17 @@ def multiwaitif(references, container, expr, nextchange = False):
         r = not flag and expr(references, updated_values)
         flag = False
         if r:
-            container.retvalue = ([ref for ref in references if ref.getkey() in updated_keys], r)
-            break
-        yield matchers
-        transid = container.event.transactid
-        updated_keys = keys.intersection(container.event.allkeys)
-        last_key = [k for k in container.event.allkeys if k in keys][-1]
+            return ([ref for ref in references if ref.getkey() in updated_keys], r)
+        ev, _ = await M_(*matchers)
+        transid = ev.transactid
+        updated_keys = keys.intersection(ev.allkeys)
+        last_key = [k for k in ev.allkeys if k in keys][-1]
         transact_matcher = DataObjectUpdateEvent.createMatcher(None, transid, _ismatch = lambda x: x.key in updated_keys)
         while True:
-            updateref()
-            if container.event.key == last_key:
+            updateref(ev)
+            if ev.key == last_key:
                 break
-            yield (transact_matcher,)
+            ev = await transact_matcher
 
 def updater(f):
     "Decorate a function with named arguments into updater for transact"

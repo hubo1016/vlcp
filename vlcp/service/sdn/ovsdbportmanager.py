@@ -410,7 +410,7 @@ class OVSDBPortManager(Module):
                     await protocol.querywithreply(method2, params2, connection, self.apiroutine, False)
                     r = await protocol.querywithreply(method, params, connection, self.apiroutine)
             except:
-                def _msg():
+                async def _msg():
                     await self.apiroutine.wait_for_send(OVSDBConnectionPortsSynchronized(connection))
                 self.apiroutine.subroutine(_msg(), False)
                 raise

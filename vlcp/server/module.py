@@ -724,6 +724,16 @@ class ModuleLoader(RoutineContainer):
     
     getModuleByName = get_module_by_name
 
+
+async def send_api(container, targetname, name, params = {}):
+    """
+    Send API and discard the result
+    """
+    handle = object()
+    apiEvent = ModuleAPICall(handle, targetname, name, params = params)
+    await container.wait_for_send(apiEvent)    
+
+
 async def call_api(container, targetname, name, params = {}, timeout = 120.0):
     """
     Call module API `targetname/name` with parameters.
