@@ -28,6 +28,7 @@ Since v2.0, you can directly use `await future` to wait for the result
 '''
 from vlcp.event.event import withIndices, Event
 from contextlib import contextmanager
+from vlcp.event.runnable import GeneratorExit_
 
 @withIndices('futureobj')
 class FutureEvent(Event):
@@ -138,7 +139,7 @@ class RoutineFuture(Future):
             with self.ensure_result(True):
                 try:
                     r = await subprocess
-                except GeneratorExit:
+                except GeneratorExit_:
                     raise FutureCancelledException('close is called before result returns')
                 else:
                     self.set_result(r)

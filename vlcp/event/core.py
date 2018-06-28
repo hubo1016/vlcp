@@ -146,7 +146,7 @@ class Scheduler(object):
                     self.queue.unblock(e)
                 if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
                     self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], True)
-            self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).union(matchers)
+            self.registerIndex.setdefault(runnable, set()).update(matchers)
     def unregister(self, matchers, runnable):
         '''
         Unregister an iterator(runnable) and stop waiting for events
@@ -159,7 +159,7 @@ class Scheduler(object):
             self.matchtree.remove(m, runnable)
             if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
                 self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], False)
-        self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).difference(matchers)
+        self.registerIndex.setdefault(runnable, set()).difference_update(matchers)
     def unregisterall(self, runnable):
         '''
         Unregister all matches and detach the runnable. Automatically called when runnable returns StopIteration.

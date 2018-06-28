@@ -9,6 +9,7 @@ from .core import QuitException, TimerEvent, SystemControlEvent
 from .event import Event, withIndices, M_, Diff_
 import asyncio
 
+
 class EventHandler(object):
     '''
     Runnable with an event handler model. 
@@ -90,6 +91,40 @@ class EventHandler(object):
     def quitHandler(self, scheduler):
         raise StopIteration
 
+
+class GeneratorExit_(BaseException):
+    """
+    Bypass PyPy3 bug
+    """
+    pass
+
+
+def _close_generator(g):
+    """
+    PyPy 3 generator has a bug that calling `close` caused
+    memory leak. Before it is fixed, use `throw` instead
+    """
+    if isinstance(g, generatorwrapper):
+        g.close()
+    elif _get_frame(g) is not None:
+        try:
+            g.throw(GeneratorExit_)
+        except (StopIteration, GeneratorExit_):
+            return
+        else:
+            raise RuntimeError("coroutine ignored GeneratorExit")
+
+
+def _await(coroutine):
+    """
+    Return a generator
+    """
+    if hasattr(coroutine, '__await__'):
+        return coroutine.__await__()
+    else:
+        return coroutine
+
+
 @withIndices('type', 'routine')
 class RoutineControlEvent(Event):
     DELEGATE_FINISHED = 'delegatefinished'
@@ -153,7 +188,8 @@ class generatorwrapper(object):
         except Exception:
             return repr(self.run)
     def close(self):
-        return self.run.close()
+        return _close_generator(self.run)
+
 
 def Routine(coroutine, scheduler, asyncStart = True, container = None, manualStart = False, daemon = False):
     """
@@ -161,7 +197,7 @@ def Routine(coroutine, scheduler, asyncStart = True, container = None, manualSta
     `container.start` and `container.subroutine` calls this automatically.
     """
     def run():
-        iterator = coroutine.__await__()
+        iterator = _await(coroutine)
         iterself = yield
         if manualStart:
             yield
@@ -195,7 +231,7 @@ def Routine(coroutine, scheduler, asyncStart = True, container = None, manualSta
             while True:
                 try:
                     etup = yield
-                except GeneratorExit:
+                except GeneratorExit_:
                     raise
                 except:
                     #scheduler.unregister(matchers, iterself)
@@ -244,7 +280,7 @@ def Routine(coroutine, scheduler, asyncStart = True, container = None, manualSta
                 container.currentroutine = iterself
             else:
                 lastcurrentroutine = None
-            iterator.close()
+            _close_generator(coroutine)
             if container is not None:
                 container.currentroutine = lastcurrentroutine
             scheduler.unregisterall(iterself)
@@ -479,43 +515,43 @@ class RoutineContainer(object):
         
         :param intercept_callback: a callback called before a event is delegated to the inner subprocess
         """
-        subprocess = subprocess.__await__()
+        it_ = _await(subprocess)
         if not matchers and not intercept_callback:
-            return (yield from subprocess)
+            return (yield from it_)
         try:
             try:
-                m = next(subprocess)
+                m = next(it_)
             except StopIteration as e:
                 return e.value
             while True:
                 if m is None:
                     try:
                         yield
-                    except GeneratorExit:
+                    except GeneratorExit_:
                         raise
                     except:
                         t,v,tr = sys.exc_info()  # @UnusedVariable
                         try:
-                            m = subprocess.throw(t,v)
+                            m = it_.throw(t,v)
                         except StopIteration as e:
                             return e.value
                     else:                        
                         try:
-                            m = next(subprocess)
+                            m = next(it_)
                         except StopIteration as e:
                             return e.value
                 else:
                     while True:
                         try:
                             ev, matcher = yield m + tuple(matchers)
-                        except GeneratorExit:
+                        except GeneratorExit_:
                             # subprocess is closed in `finally` clause
                             raise
                         except:
                             # delegate this exception inside
                             t,v,tr = sys.exc_info()  # @UnusedVariable
                             try:
-                                m = subprocess.throw(t,v)
+                                m = it_.throw(t,v)
                             except StopIteration as e:
                                 return e.value
                         else:
@@ -526,11 +562,11 @@ class RoutineContainer(object):
                                     intercept_callback(ev, matcher)
                                 break
                     try:
-                        m = subprocess.send((ev, matcher))
+                        m = it_.send((ev, matcher))
                     except StopIteration as e:
                         return e.value
         finally:
-            subprocess.close()
+            _close_generator(subprocess)
     
     withCallback = with_callback
     
