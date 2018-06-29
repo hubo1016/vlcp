@@ -5,7 +5,7 @@ Created on 2016/10/9
 '''
 from vlcp.config import defaultconfig
 from vlcp.service.connection.tcpserver import TcpServerBase
-from vlcp.server.module import api, ModuleLoadStateChanged, callAPI
+from vlcp.server.module import api, ModuleLoadStateChanged, call_api, send_api
 from vlcp.event.lock import Lock
 from zlib import compress, decompress, error as zlib_error
 import pickle
@@ -16,7 +16,7 @@ from namedstruct.namedstruct import dump
 from random import randrange, shuffle, sample
 import logging
 from vlcp.event.runnable import RoutineContainer, MultipleException
-from vlcp.event.event import withIndices, Event
+from vlcp.event.event import withIndices, Event, M_
 import functools
 from vlcp.event.core import QuitException
 from contextlib import closing
@@ -45,11 +45,13 @@ from uuid import uuid1
 from vlcp.utils.indexedheap import IndexedHeap
 from vlcp.event.lock import Lock
 
+
 def _tobytes(k):
     if not isinstance(k, bytes):
         return k.encode('utf-8')
     else:
         return k
+
 
 def _escape_path(key):
     '''
@@ -57,8 +59,10 @@ def _escape_path(key):
     '''
     return _tobytes(key).replace(b'$', b'$_').replace(b'/', b'$+').replace(b'\\', b'$$')
 
+
 def _unescape_path(key):
     return _tobytes(key).replace(b'$$', b'\\').replace(b'$+', b'/').replace(b'$_', b'$')
+
 
 class ZooKeeperResultException(Exception):
     pass
@@ -69,12 +73,6 @@ class UpdateNotification(Event):
     UPDATED = 'updated'
     RESTORED = 'restored'
 
-def _delegate(func):
-    @functools.wraps(func)
-    def f(self, *args, **kwargs):
-        for m in self.delegate(func(self, *args, **kwargs)):
-            yield m
-    return f
 
 def _bytes(s):
     if isinstance(s, bytes):
@@ -88,10 +86,12 @@ def _str(s):
     else:
         return s.decode('utf-8')
 
+
 def _discard_watchers(watchers):
     for w in watchers:
         if w is not None:
             w.close()
+
 
 class _Notifier(RoutineContainer):
     _logger = logging.getLogger(__name__ + '.Notifier')
@@ -114,14 +114,17 @@ class _Notifier(RoutineContainer):
         self._decoder = None
         # Only allow 100 new pollers to prevent blocking the whole scheduler
         self._rate_limiter = RateLimiter(100, self)
+
     def _check_completes(self, completes, err_allows = (), err_expects = ()):
         for result in completes:
             if result.err != zk.ZOO_ERR_OK and result.err not in err_allows:
                 if result.err not in err_expects:
                     self._logger.warning('Unexpected err result received: %r', dump(result))
                 raise ZooKeeperResultException('Error result received: ' + str(result.err))
+
     def _insert_barrier(self, key, zxid):
         self._heap.push((False, key, zxid), (zxid, 0))
+
     def _remove_barrier(self, key, zxid, *new_transacts):
         self._heap.remove((False, key, zxid))
         # Insert new transactions
@@ -141,11 +144,11 @@ class _Notifier(RoutineContainer):
                                    UpdateNotification.UPDATED,
                                    (sep and pubkey == self._publishkey),
                                    extrainfo = transact.get('extrainfo')))
-    def _poller(self, client, key, decoder):
+
+    async def _poller(self, client, key, decoder):
         if not client:
             return
-        for m in self._rate_limiter.limit():
-            yield m
+        await self._rate_limiter.limit()
         last_children = None
         last_zxid = 0
         barriers = set()
@@ -153,21 +156,19 @@ class _Notifier(RoutineContainer):
             sub_id = '%s-%016x' % (self._subscribekey, self._subscribeno)
             self._subscribeno += 1
             while True:
-                for m in client.requests([zk.setdata(key, b''),
+                completes, lost, retries, _ = \
+                    await client.requests([zk.setdata(key, b''),
                                           zk.create(key, b'')],
-                                         self):
-                    yield m
-                completes, lost, retries, _ = self.retvalue
+                                         self)
                 if lost or retries:
                     continue
                 self._check_completes(completes, (zk.ZOO_ERR_NODEEXISTS, zk.ZOO_ERR_NONODE))
                 break
             while True:
                 try:
-                    for m in client.requests([zk.getchildren(key, True)],
-                                             self):
-                        yield m
-                    completes, lost, retries, watchers = self.retvalue
+                    completes, lost, retries, watchers =\
+                        await client.requests([zk.getchildren(key, True)],
+                                              self)
                     try:
                         if lost or retries:
                             continue
@@ -175,11 +176,10 @@ class _Notifier(RoutineContainer):
                             last_zxid = completes[0].zxid
                             # Insert a barrier in case there are updates
                             # self._insert_barrier(key, last_zxid)
-                            for m in client.requests([zk.setdata(key, b''),
+                            completes, lost, retries, _ =\
+                                await client.requests([zk.setdata(key, b''),
                                                       zk.create(key, b'')],
-                                                     self):
-                                yield m
-                            completes, lost, retries, _ = self.retvalue
+                                                     self)
                             if lost or retries:
                                 continue
                             self._check_completes(completes, (zk.ZOO_ERR_NODEEXISTS, zk.ZOO_ERR_NONODE))
@@ -192,21 +192,21 @@ class _Notifier(RoutineContainer):
                         else:
                             new_children = set()
                         last_children = current_children
-                        def _watcher_update(watcher):
+                        async def _watcher_update(watcher):
                             try:
                                 wait_timeout = 900 + randrange(0, 900)
                                 while True:
-                                    with closing(self.executeWithTimeout(wait_timeout, watcher.wait(self))) as g:
-                                        for m in g:
-                                            yield m
-                                    if self.timeout:
+                                    timeout, result = await self.execute_with_timeout(
+                                                                wait_timeout,
+                                                                watcher.wait(self)
+                                                            )
+                                    if timeout:
                                         wait_timeout = 1800
-                                        for i in range(0, 3):
+                                        for _ in range(0, 3):
                                             # Update the watcher key to prevent it from being recycled
-                                            for m in client.requests([zk.setdata(key, b'')],
-                                                                     self):
-                                                yield m
-                                            completes, lost, retries, _ = self.retvalue
+                                            completes, lost, retries, _ =\
+                                                await client.requests([zk.setdata(key, b'')],
+                                                                      self)
                                             if lost or retries:
                                                 continue
                                             else:
@@ -220,16 +220,16 @@ class _Notifier(RoutineContainer):
                                     else:
                                         break
                             except ZooKeeperSessionUnavailable:
-                                self.retvalue = -1
+                                return -1
                             else:
-                                watcher_event = self.retvalue
+                                watcher_event = result
                                 # Insert a barrier
                                 self._insert_barrier(key, watcher_event.last_zxid)
                                 barriers.add(watcher_event.last_zxid)
-                                self.retvalue = watcher_event.last_zxid
+                                return watcher_event.last_zxid
                             finally:
                                 watcher.close()
-                        def _get_transacts(last_zxid, new_children):
+                        async def _get_transacts(last_zxid, new_children):
                             try:
                                 new_children = sorted(c for c in new_children if c.startswith(b'notify'))
                                 reqs = [zk.getdata(key + b'/' + c)
@@ -237,11 +237,9 @@ class _Notifier(RoutineContainer):
                                 completes = []
                                 while reqs:
                                     try:
-                                        for m in client.requests(reqs, self):
-                                            yield m
+                                        completes2, lost, retries, _ = await client.requests(reqs, self)
                                     except ZooKeeperSessionUnavailable:
                                         break
-                                    completes2, lost, retries, _ = self.retvalue
                                     completes.extend(completes2[:len(reqs) - len(lost) - len(retries)])
                                     reqs = lost + retries
                                 completes = [c for c in completes if c.err != zk.ZOO_ERR_NONODE]
@@ -260,12 +258,8 @@ class _Notifier(RoutineContainer):
                             else:
                                 self._remove_barrier(key, last_zxid, *result)
                                 barriers.discard(last_zxid)
-                                self.retvalue = None
-                        with closing(self.executeAll([_watcher_update(watchers[0]),
-                                                  _get_transacts(last_zxid, new_children)])) as g:
-                            for m in g:
-                                yield m
-                        ((last_zxid,), _) = self.retvalue
+                        last_zxid, _ = await self.execute_all([_watcher_update(watchers[0]),
+                                                               _get_transacts(last_zxid, new_children)])
                     finally:
                         _discard_watchers(watchers)
                 except QuitException:
@@ -275,21 +269,19 @@ class _Notifier(RoutineContainer):
                         break
                     else:
                         self._logger.warning('Unexpected exception occurs', exc_info = True)
-                        with closing(self.waitWithTimeout(1)) as g:
-                            for m in g:
-                                yield m
+                        await self.wait_with_timeout(1)
         finally:
             for zxid in barriers:
                 self._remove_barrier(key, zxid)
+
     def _create_poller(self, key):
         self._poll_routines[key] = self.subroutine(self._poller(self._client, b'/vlcp/notifier/bykey/' + _escape_path(key), self._decoder), False)
-    def main(self):
+
+    async def main(self):
         try:
             self._timestamp = '%012x' % (int(time() * 1000),) + '-'
             self._transactno = 1
-            for m in callAPI(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind}):
-                yield m
-            client, encoder, decoder = self.retvalue
+            client, encoder, decoder = await call_api(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind})
             if self._deflate:
                 oldencoder = encoder
                 olddecoder = decoder
@@ -318,16 +310,14 @@ class _Notifier(RoutineContainer):
             module_loaded = ModuleLoadStateChanged.createMatcher(state = ModuleLoadStateChanged.LOADED,
                                                  _ismatch = lambda x: x._instance.getServiceName() == 'zookeeperdb')
             while True:
-                yield (connection_down,)
+                await connection_down
                 # Connection is down, wait for restore
                 # The module may be reloaded
                 while client.session_state == ZooKeeperSessionStateChanged.EXPIRED:
-                    yield (connection_up, module_loaded)
-                    if self.matcher is module_loaded:
+                    _, m = await M_(connection_up, module_loaded)
+                    if m is module_loaded:
                         # recreate pollers
-                        for m in callAPI(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind}):
-                            yield m
-                        client, encoder, decoder = self.retvalue
+                        client, encoder, decoder = await call_api(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind})
                         if self._deflate:
                             oldencoder = encoder
                             olddecoder = decoder
@@ -357,22 +347,20 @@ class _Notifier(RoutineContainer):
         finally:
             for k in self._poll_routines:
                 self._poll_routines[k].close()
-    def add_listen(self, *keys):
+
+    async def add_listen(self, *keys):
         keys = [_bytes(k) for k in keys]
         for k in keys:
             if k not in self._poll_routines:
                 self._create_poller(k)
-        if False:
-            yield
-    def remove_listen(self, *keys):        
+
+    async def remove_listen(self, *keys):        
         keys = [_bytes(k) for k in keys]
         for k in keys:
             if k in self._poll_routines:
                 self._poll_routines.pop(k).close()
-        if False:
-            yield
-    @_delegate
-    def publish(self, keys = (), extrainfo = None):
+
+    async def publish(self, keys = (), extrainfo = None):
         keys = [_bytes(k) for k in keys]
         if self._publish_wait:
             merged_keys = list(self._publish_wait.union(keys))
@@ -382,9 +370,7 @@ class _Notifier(RoutineContainer):
         if not merged_keys:
             return
         merged_keys = [_escape_path(k) for k in merged_keys]
-        for m in callAPI(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind}):
-            yield m
-        client, encoder, _ = self.retvalue
+        client, encoder, _ = await call_api(self, 'zookeeperdb', 'getclient', {'vhost':self.vhostbind})
         transactid = '%s-%016x' % (self._publishkey, self._publishno)
         self._publishno += 1
         msg = encoder({'id':transactid, 'keys':[_str(k) for k in merged_keys], 'extrainfo': extrainfo})
@@ -406,28 +392,24 @@ class _Notifier(RoutineContainer):
             recycle_path = [b'/vlcp/notifier/bykey/' + k for k in merged_keys]
         while True:
             try:
-                for m in client.requests(reqs, self, 30, priority = 1):
-                    yield m
+                completes, lost, retries, _ = await client.requests(reqs, self, 30, priority = 1)
             except ZooKeeperSessionUnavailable:
                 self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
                 self._publish_wait.update(merged_keys)
                 break
             else:
-                completes, lost, retries, _ = self.retvalue
                 if retries:
                     continue
                 elif lost:
                     # At least the last request is lost, we must detect whether it is completed
                     try:
-                        for m in client.requests([zk.getchildren(detect_path)],
-                                                 self, 30, priority = 2):
-                            yield m
+                        completes, lost, retries, _ = await client.requests([zk.getchildren(detect_path)],
+                                                                            self, 30, priority = 2)
                     except ZooKeeperSessionUnavailable:
                         self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
                         self._publish_wait.update(merged_keys)
                         break
                     else:
-                        completes, lost, retries, _ = self.retvalue
                         self._check_completes(completes)
                         if lost or retries:
                             self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
@@ -443,10 +425,9 @@ class _Notifier(RoutineContainer):
                 else:
                     self._check_completes(completes[-1:])
                     break
-        for m in callAPI(self, 'zookeeperdb', 'recycle', {'vhost':self.vhostbind,
-                                                          'keys': recycle_path}):
-            yield m
-                            
+        await send_api(self, 'zookeeperdb', 'recycle', {'vhost':self.vhostbind,
+                                                          'keys': recycle_path})
+
     def notification_matcher(self, fromself = None):
         if fromself is None:
             return UpdateNotification.createMatcher(self)
@@ -558,7 +539,7 @@ class ZooKeeperDB(TcpServerBase):
                         data = data.decode('utf-8')
                     return json.loads(data, object_hook=decode_object)
                 self._decode = _decode
-        self.appendAPI(api(self.getclient),
+        self.append_api(api(self.getclient),
                        api(self.get, self.apiroutine),
                        api(self.set, self.apiroutine),
                        api(self.delete, self.apiroutine),
@@ -586,23 +567,21 @@ class ZooKeeperDB(TcpServerBase):
                     self._logger.warning('Unexpected err result received: %r', dump(result))
                 raise ZooKeeperResultException('Error result received: ' + str(result.err))
     
-    def _main(self):
+    async def _main(self):
         # Initialize structures
-        def initialize_zookeeper(client, vhost):
+        async def initialize_zookeeper(client, vhost):
             # Create following nodes:
             # /kvdb, /notifier, /notifier/all, /notifier/bykey
             self._recycle_list[vhost] = set()
             while True:
-                for m in client.requests([zk.create(b'/vlcp', b''),
-                                          zk.create(b'/vlcp/kvdb', b''),
-                                          zk.create(b'/vlcp/notifier', b''),
-                                          zk.create(b'/vlcp/notifier/all', b''),
-                                          zk.create(b'/vlcp/notifier/bykey', b''),
-                                          zk.create(b'/vlcp/tmp', b''),
-                                          zk.create(b'/vlcp/tmp/timer', b'')],
-                                         self.apiroutine):
-                    yield m
-                result = self.apiroutine.retvalue
+                result = await client.requests([zk.create(b'/vlcp', b''),
+                                                  zk.create(b'/vlcp/kvdb', b''),
+                                                  zk.create(b'/vlcp/notifier', b''),
+                                                  zk.create(b'/vlcp/notifier/all', b''),
+                                                  zk.create(b'/vlcp/notifier/bykey', b''),
+                                                  zk.create(b'/vlcp/tmp', b''),
+                                                  zk.create(b'/vlcp/tmp/timer', b'')],
+                                                 self.apiroutine)
                 if not result[1] and not result[2]:
                     break
         allow_vhosts = self.kvdbvhosts
@@ -611,23 +590,18 @@ class ZooKeeperDB(TcpServerBase):
         else:
             routines = [initialize_zookeeper(client, vh) for vh, client in self._zookeeper_clients.items() if vh in allow_vhosts]
         try:
-            with closing(self.apiroutine.executeAll(routines, retnames = ())) as g:
-                for m in g:
-                    yield m
+            await self.apiroutine.execute_all(routines)
         except Exception as exc:
-            for m in self.changestate(ModuleLoadStateChanged.FAILED, self.apiroutine):
-                yield m
+            await self.changestate(ModuleLoadStateChanged.FAILED, self.apiroutine)
             raise exc
         else:
-            for m in self.changestate(ModuleLoadStateChanged.SUCCEEDED, self.apiroutine):
-                yield m
+            await self.changestate(ModuleLoadStateChanged.SUCCEEDED, self.apiroutine)
             if allow_vhosts is None:
                 recycle_routines = [self._recycle_routine(client, vh) for vh, client in self._zookeeper_clients.items()]
             else:
                 recycle_routines = [self._recycle_routine(client, vh) for vh, client in self._zookeeper_clients.items() if vh in allow_vhosts]
-            with closing(self.apiroutine.executeAll(recycle_routines, retnames = ())) as g:
-                for m in g:
-                    yield m
+            await self.apiroutine.execute_all(recycle_routines)
+
     def _client_class(self, config, protocol, vhost):
         def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):
             # URL should like: zk://<server1>[:port1],<server2>[:port2],.../chrootpath
@@ -643,53 +617,49 @@ class ZooKeeperDB(TcpServerBase):
             self._zookeeper_clients[vhost] = client
             return client
         return _create_client
+
     def getclient(self, vhost = ''):
         "Return a tuple of ``(zookeeperclient, encoder, decoder)`` for specified vhost"
         return (self._zookeeper_clients.get(vhost), self._encode, self._decode)
-    def get(self, key, timeout = None, vhost = ''):
+
+    async def get(self, key, timeout = None, vhost = ''):
         "Get value from key"
-        for m in self.mget((key,), vhost = vhost):
-            yield m
-        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def set(self, key, value, timeout = None, vhost = ''):
+        return (await self.mget((key,), vhost = vhost))[0]
+
+    async def set(self, key, value, timeout = None, vhost = ''):
         "Set value to key, with an optional timeout"
         # These interfaces are just for compatibility. Inefficiency is OK.
-        for m in self.mset(((key, value),), timeout, vhost):
-            yield m
-        self.apiroutine.retvalue = None
-    def delete(self, key, vhost = ''):
+        await self.mset(((key, value),), timeout, vhost)
+
+    async def delete(self, key, vhost = ''):
         "Delete a key from the storage"
         def updater(keys, values, server_time):
             return ((key,), (None,))
-        for m in self.updateallwithtime((), updater, None, vhost):
-            yield m
-        self.apiroutine.retvalue = None
-    def mget(self, keys, vhost = ''):
+        await self.updateallwithtime((), updater, None, vhost)
+
+    async def mget(self, keys, vhost = ''):
         "Get multiple values from multiple keys"
-        for m in self.mgetwithcache(keys, vhost):
-            yield m
-        l, _, _ = self.apiroutine.retvalue
-        self.apiroutine.retvalue = l
-    def mgetwithcache(self, keys, vhost = '', cache = None):
+        l, _, _ = await self.mgetwithcache(keys, vhost)
+        return l
+
+    async def mgetwithcache(self, keys, vhost = '', cache = None):
         "Get multiple values, cached when possible"
         self._logger.debug("mgetwithcache retrieving %d keys...", len(keys))
         _counter = [0, 0]
         if not keys:
-            self.apiroutine.retvalue = []
-            return
+            return []
         client = self._zookeeper_clients.get(vhost)
         if client is None:
             raise ValueError('vhost ' + repr(vhost) + ' is not defined')
         escaped_keys = [_escape_path(k) for k in keys]
-        for m in client.requests([zk.getchildren2(b'/vlcp/kvdb/' + k) for k in escaped_keys], self.apiroutine, 60):
-            yield m
-        completes, losts, retries, _ = self.apiroutine.retvalue
+        completes, losts, retries, _ = \
+                await client.requests([zk.getchildren2(b'/vlcp/kvdb/' + k) for k in escaped_keys], self.apiroutine, 60)
         if losts or retries:
             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
         zxid_limit = completes[0].zxid
         if cache is None:
             cache = KVCache()
-        def retrieve_version(ls2_result, rootdir, zxid_limit, key):
+        async def retrieve_version(ls2_result, rootdir, zxid_limit, key):
             def _update(key, cached, new_name, new_data):
                 if cached is None:
                     new_value = self._decode(new_data)
@@ -706,8 +676,7 @@ class ZooKeeperDB(TcpServerBase):
                 if ls2_result.err != zk.ZOO_ERR_NONODE:
                     self._logger.warning('Unexpected error code is received for %r: %r', rootdir, dump(ls2_result))
                     raise ZooKeeperResultException('Unexpected error code is received: ' + str(ls2_result.err))
-                self.apiroutine.retvalue = cache.update(key, _update, None, None)
-                return
+                return cache.update(key, _update, None, None)
             create_zxid = ls2_result.stat.czxid
             children = [(name.rpartition(b'-'), name) for name in ls2_result.children if name.startswith(b'data-')]
             children.sort(reverse = True)
@@ -715,34 +684,29 @@ class ZooKeeperDB(TcpServerBase):
             for _, name in children:
                 if last_name == (create_zxid, name):
                     # Return from cache
-                    self.apiroutine.retvalue = last_value
                     _counter[0] += 1
-                    break
-                for m in client.requests([zk.getdata(rootdir + name)], self.apiroutine, 60):
-                    yield m
-                completes, losts, retries, _ = self.apiroutine.retvalue
+                    return last_value
+                completes, losts, retries, _ = \
+                        await client.requests([zk.getdata(rootdir + name)], self.apiroutine, 60)
                 if losts or retries:
                     # Should not happen but in case...
                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                 if completes[0].err == zk.ZOO_ERR_NONODE:
                     # Though not quite possible, in extreme situations the key might be lost
                     # Return None should be the correct result for the most time
-                    self.apiroutine.retvalue = cache.update(key, _update, None, None)
-                    return
+                    return cache.update(key, _update, None, None)
                 self._check_completes(completes)
                 if completes[0].stat.mzxid <= zxid_limit:
                     new_data = completes[0].data if completes[0].data else None
-                    self.apiroutine.retvalue = cache.update(key, _update, (create_zxid, name), new_data)
-                    break
+                    return cache.update(key, _update, (create_zxid, name), new_data)
             else:
-                self.apiroutine.retvalue = cache.update(key, _update, None, None)
-        with closing(self.apiroutine.executeAll([retrieve_version(r, b'/vlcp/kvdb/' + k + b'/', zxid_limit, k2)
-                                             for r,k,k2 in izip(completes, escaped_keys, keys)])) as g:
-            for m in g:
-                yield m
-        self.apiroutine.retvalue = [r[0] for r in self.apiroutine.retvalue], cache
+                return cache.update(key, _update, None, None)
+        result = await self.apiroutine.execute_all([retrieve_version(r, b'/vlcp/kvdb/' + k + b'/', zxid_limit, k2)
+                                                    for r,k,k2 in izip(completes, escaped_keys, keys)])
         self._logger.debug("mgetwithcache serves %d keys, %d with cache, %d with cache from data", len(keys), _counter[0], _counter[1])
-    def mset(self, kvpairs, timeout = None, vhost = ''):
+        return result, cache
+
+    async def mset(self, kvpairs, timeout = None, vhost = ''):
         "Set multiple values on multiple keys"
         if not kvpairs:
             return
@@ -753,10 +717,9 @@ class ZooKeeperDB(TcpServerBase):
         values = [kv[1] for kv in d]
         def updater(k, v, server_time):
             return (keys, values)
-        for m in self.updateallwithtime((), updater, timeout, vhost):
-            yield m
-        self.apiroutine.retvalue = None
-    def update(self, key, updater, timeout = None, vhost = ''):
+        await self.updateallwithtime((), updater, timeout, vhost)
+
+    async def update(self, key, updater, timeout = None, vhost = ''):
         '''
         Update in-place with a custom function
         
@@ -769,10 +732,9 @@ class ZooKeeperDB(TcpServerBase):
         
         :returns: the updated value, or None if deleted
         '''
-        for m in self.mupdate((key,), updater, timeout, vhost):
-            yield m
-        (self.apiroutine.retvalue,) = self.apiroutine.retvalue
-    def mupdate(self, keys, updater, timeout = None, vhost = ''):
+        return (await self.mupdate((key,), updater, timeout, vhost))[0]
+
+    async def mupdate(self, keys, updater, timeout = None, vhost = ''):
         """
         Update multiple keys in-place with a custom function, see update.
         
@@ -780,10 +742,9 @@ class ZooKeeperDB(TcpServerBase):
         """
         def new_updater(keys, values, server_time):
             return (keys, [updater(k,v) for k,v in izip(keys, values)])
-        for m in self.updateallwithtime(keys, new_updater, timeout, vhost):
-            yield m
-        _, self.apiroutine.retvalue = self.apiroutine.retvalue
-    def updateall(self, keys, updater, timeout = None, vhost = ''):
+        return (await self.updateallwithtime(keys, new_updater, timeout, vhost))[1]
+
+    async def updateall(self, keys, updater, timeout = None, vhost = ''):
         """
         Update multiple keys in-place, with a function ``updater(keys, values)``
         which returns ``(updated_keys, updated_values)``.
@@ -792,9 +753,9 @@ class ZooKeeperDB(TcpServerBase):
         """
         def new_updater(keys, values, server_time):
             return updater(keys, values)
-        for m in self.updateallwithtime(keys, new_updater, timeout, vhost):
-            yield m
-    def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
+        return await self.updateallwithtime(keys, new_updater, timeout, vhost)
+
+    async def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
         """
         Update multiple keys in-place, with a function ``updater(keys, values, timestamp)``
         which returns ``(updated_keys, updated_values)``.
@@ -817,16 +778,13 @@ class ZooKeeperDB(TcpServerBase):
                 def _unique_keys_updater(uniq_keys, values, timestamp):
                     value_dict = dict(zip(uniq_keys, values))
                     return updater(keys, [value_dict[k] for k in keys], timestamp)
-                for m in self.updateallwithtime(unique_keys, _unique_keys_updater, timeout, vhost):
-                    yield m
-                return
+                return await self.updateallwithtime(unique_keys, _unique_keys_updater, timeout, vhost)
         locks = [Lock((k, 'zookeeperdb_writelock'), self.apiroutine.scheduler) for k in sorted_keys]
         try:
             for l in locks:
-                for m in l.lock(self.apiroutine):
-                    yield m
+                await l.lock(self.apiroutine)
             barrier_list = []
-            def _pre_create_keys(escaped_keys, session_lock = None):
+            async def _pre_create_keys(escaped_keys, session_lock = None):
                 if escaped_keys:
                     # Even if the node already exists, we modify it to increase the version,
                     # So recycling would not remove it
@@ -838,10 +796,9 @@ class ZooKeeperDB(TcpServerBase):
                                             )
                                         ]
                     while True:
-                        for m in client.requests(create_requests, self.apiroutine, 60, session_lock,
-                                                 priority = 1):
-                            yield m
-                        completes, losts, retries, _ = self.apiroutine.retvalue
+                        completes, losts, retries, _ = \
+                                await client.requests(create_requests, self.apiroutine, 60, session_lock,
+                                                      priority = 1)
                         self._check_completes(completes[:len(create_requests) - len(losts) - len(retries)], (zk.ZOO_ERR_NONODE, zk.ZOO_ERR_NODEEXISTS))
                         if losts or retries:
                             create_requests = losts + retries
@@ -858,19 +815,17 @@ class ZooKeeperDB(TcpServerBase):
                     escaped_keys = [_escape_path(k) for k in keys]
                     # The keys may not exists, create the parent nodes; if they already exists, the creation fails
                     # It is not necessary to use a transact, it is OK as long as the nodes are finally created
-                    for m in _pre_create_keys(escaped_keys):
-                        yield m
+                    await _pre_create_keys(escaped_keys)
                     # Register these keys for a future recycling
                     self._recycle_list[vhost].update((b'/vlcp/kvdb/' + k for k in escaped_keys))
                     sync_limit = 4
                     while True:
-                        for m in client.requests([zk.multi(
-                                                *[zk.multi_create(b'/vlcp/kvdb/' + k + b'/' + identifier,
-                                                                  b'', True, True)
-                                                  for k in escaped_keys]
-                                            )], self.apiroutine, 60, priority = 1):
-                            yield m
-                        completes, losts, retries, _ = self.apiroutine.retvalue
+                        completes, losts, retries, _ =\
+                                await client.requests([zk.multi(
+                                                            *[zk.multi_create(b'/vlcp/kvdb/' + k + b'/' + identifier,
+                                                                              b'', True, True)
+                                                              for k in escaped_keys]
+                                                        )], self.apiroutine, 60, priority = 1)
                         if not losts and not retries:
                             self._check_completes(completes)
                             multi_resp = completes[0].responses[:len(escaped_keys)]
@@ -890,13 +845,11 @@ class ZooKeeperDB(TcpServerBase):
                                         raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                                     else:
                                         self._logger.warning('Retry create the keys')
-                                    for m in _pre_create_keys(escaped_keys[first_err:]):
-                                        yield m
+                                    await _pre_create_keys(escaped_keys[first_err:])
                                     sync_limit = 4
                                 sync_limit -= 1
-                                for m in client.requests([zk.sync(b'/vlcp/kvdb')],
-                                                         self.apiroutine, 60):
-                                    yield m
+                                await client.requests([zk.sync(b'/vlcp/kvdb')],
+                                                         self.apiroutine, 60)
                                 continue
                             self._check_completes(multi_resp)
                             barrier_list = [r.path for r in multi_resp]
@@ -905,11 +858,10 @@ class ZooKeeperDB(TcpServerBase):
                         if losts:
                             self._logger.warning('Barrier create result lost, check the result, identifier = %r', identifier)
                             # Response is lost, we must check the result
-                            for m in client.requests([zk.sync(b'/vlcp/kvdb/' + escaped_keys[0]),
-                                                 zk.getchildren(b'/vlcp/kvdb/' + escaped_keys[0])],
-                                                self.apiroutine, 60, priority = 2):
-                                yield m
-                            completes, losts, retries, _ = self.apiroutine.retvalue
+                            completes, losts, retries, _ =\
+                                await client.requests([zk.sync(b'/vlcp/kvdb/' + escaped_keys[0]),
+                                                     zk.getchildren(b'/vlcp/kvdb/' + escaped_keys[0])],
+                                                    self.apiroutine, 60, priority = 2)
                             if losts or retries:
                                 raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                             self._check_completes(completes)
@@ -924,11 +876,10 @@ class ZooKeeperDB(TcpServerBase):
                                 barrier_list = [b'/vlcp/kvdb/' + escaped_keys[0] + b'/' + created_identifier[0]]
                                 session_lock = client.session_id
                                 if len(escaped_keys) > 1:
-                                    for m in client.requests([zk.getchildren(b'/vlcp/kvdb/' + k)
-                                                         for k in escaped_keys[1:]],
-                                                        self.apiroutine, 60, session_lock, priority = 2):
-                                        yield m
-                                    completes, losts, retries, _ = self.apiroutine.retvalue
+                                    completes, losts, retries, _ =\
+                                        await client.requests([zk.getchildren(b'/vlcp/kvdb/' + k)
+                                                             for k in escaped_keys[1:]],
+                                                            self.apiroutine, 60, session_lock, priority = 2)
                                     if losts or retries:
                                         raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                                     self._check_completes(completes)
@@ -946,20 +897,18 @@ class ZooKeeperDB(TcpServerBase):
                                         raise ZooKeeperResultException('Barriers are lost')
                                 break
                     # Use mtime for created barrier for timestamp
-                    for m in client.requests([zk.exists(barrier_list[0])],
-                                        self.apiroutine, 60, session_lock, priority = 1):
-                        yield m
-                    completes, losts, retries, _ = self.apiroutine.retvalue
+                    completes, losts, retries, _ =\
+                            await client.requests([zk.exists(barrier_list[0])],
+                                                  self.apiroutine, 60, session_lock, priority = 1)
                     if losts or retries:
                         raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)                
                     self._check_completes(completes)
                     server_time = completes[0].stat.mtime * 1000
                     # Retrieve values
-                    for m in client.requests([zk.getchildren(b'/vlcp/kvdb/' + k)
-                                         for k in escaped_keys],
-                                        self.apiroutine, 60, session_lock, priority = 1):
-                        yield m
-                    completes, losts, retries, _ = self.apiroutine.retvalue
+                    completes, losts, retries, _ =\
+                            await client.requests([zk.getchildren(b'/vlcp/kvdb/' + k)
+                                                     for k in escaped_keys],
+                                                    self.apiroutine, 60, session_lock, priority = 1)
                     if losts or retries:
                         raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                     self._check_completes(completes)
@@ -983,58 +932,54 @@ class ZooKeeperDB(TcpServerBase):
                                             if item[0] < barrier_seq), reverse = True)))
                             else:
                                 value_path.append((False, b'/vlcp/kvdb/' + k + b'/' + name))
-                    def _normal_get_value():
-                        for m in client.requests([zk.getdata(p[1])
-                                             for p in value_path if p is not None and not p[0]],
-                                            self.apiroutine, 60, session_lock, priority = 1):
-                            yield m
-                        completes, losts, retries, _ = self.apiroutine.retvalue
+                    async def _normal_get_value():
+                        completes, losts, retries, _ =\
+                                await client.requests([zk.getdata(p[1])
+                                                         for p in value_path if p is not None and not p[0]],
+                                                        self.apiroutine, 60, session_lock, priority = 1)
                         if losts or retries:
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                         self._check_completes(completes)
-                        self.apiroutine.retvalue = [r.data if r.data else None for r in completes]
-                    def _wait_value(key, children):
+                        return [r.data if r.data else None for r in completes]
+                    async def _wait_value(key, children):
                         dup_names = [name for _,name in children if name.startswith(identifier)]
                         if dup_names:
                             self._logger.warning('There are duplicated barriers. Removing...')
                             delete_requests = [zk.delete(b'/vlcp/kvdb/' + key + b'/' + name)
                                                      for name in dup_names]
                             while delete_requests:
-                                for m in client.requests(delete_requests,
-                                                         self.apiroutine, 60, session_lock, priority = 1):
-                                    yield m
-                                completes, lost, retries, _ = self.apiroutine.retvalue
+                                completes, lost, retries, _ =\
+                                        await client.requests(delete_requests,
+                                                              self.apiroutine, 60, session_lock, priority = 1)
                                 self._check_completes(completes[:len(completes) - len(lost) - len(retries)],
                                                       (zk.ZOO_ERR_NONODE,))
                                 if lost or retries:
                                     delete_requests = lost + retries
+                                else:
+                                    break
                             children = [child for child in children if not child[1].startswith(identifier)]
                         for seq, name in children:
                             if name.startswith(b'barrier'):
                                 while True:
-                                    for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name, True)],
-                                                        self.apiroutine, 60, session_lock, priority = 1):
-                                        yield m
-                                    completes, losts, retries, waiters = self.apiroutine.retvalue
+                                    completes, losts, retries, waiters =\
+                                            await client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name, True)],
+                                                                  self.apiroutine, 60, session_lock, priority = 1)
                                     try:
                                         if losts or retries:
                                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                                         self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                                         if completes[0].err == zk.ZOO_ERR_OK:
                                             # wait for the barrier to be removed
-                                            with closing(self.apiroutine.executeWithTimeout(90, waiters[0].wait(self.apiroutine))) as g:
-                                                for m in g:
-                                                    yield m
-                                            if self.apiroutine.timeout:
+                                            timeout_, watch_event = await self.apiroutine.execute_with_timeout(90, waiters[0].wait(self.apiroutine))
+                                            if timeout_:
                                                 self._logger.warning('Wait too long on a barrier, possible deadlock, key = %r, name = %r', key, name)
                                                 self._logger.warning('Try to remove it to solve the problem. THIS IS NOT NORMAL.')
-                                                for m in client.requests([zk.delete(b'/vlcp/kvdb/' + key + b'/' + name)],
-                                                                         self.apiroutine, 60, session_lock, priority = 2):
-                                                    yield m
-                                                completes, lost, retries, _ = self.apiroutine.retvalue
+                                                completes, lost, retries, _ =\
+                                                        await client.requests([zk.delete(b'/vlcp/kvdb/' + key + b'/' + name)],
+                                                                              self.apiroutine, 60, session_lock, priority = 2)
                                                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                                             else:
-                                                if self.apiroutine.retvalue.type != zk.DELETED_EVENT_DEF:
+                                                if watch_event.type != zk.DELETED_EVENT_DEF:
                                                     # Should not happen
                                                     continue
                                                 else:
@@ -1044,42 +989,39 @@ class ZooKeeperDB(TcpServerBase):
                                     finally:
                                         _discard_watchers(waiters)
                                 # Done or roll back, let's check
-                                for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/data-' + seq)],
-                                                    self.apiroutine, 60, session_lock, priority = 1):
-                                    yield m
-                                completes, losts, retries, _ = self.apiroutine.retvalue
+                                completes, losts, retries, _ =\
+                                        await client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/data-' + seq)],
+                                                              self.apiroutine, 60, session_lock, priority = 1)
                                 if losts or retries:
                                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                                 if completes[0].err == zk.ZOO_ERR_OK:
                                     # Done
-                                    self.apiroutine.retvalue = completes[0].data if completes[0].data else None
-                                    return
+                                    return completes[0].data if completes[0].data else None
+                                # If rollback, try next node
                             else:
                                 # Normal get
-                                for m in client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name)],
-                                                    self.apiroutine, 60, session_lock, priority = 1):
-                                    yield m
-                                completes, losts, retries, _ = self.apiroutine.retvalue
+                                completes, losts, retries, _ =\
+                                        await client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name)],
+                                                              self.apiroutine, 60, session_lock, priority = 1)
                                 if losts or retries:
                                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                                 self._check_completes(completes)
-                                self.apiroutine.retvalue = completes[0].data if completes[0].data else None
-                                return
-                        self.apiroutine.retvalue = None
+                                return completes[0].data if completes[0].data else None
+                        # All nodes have been rolled back
+                        return None
                     try:
-                        with closing(self.apiroutine.executeAll([_normal_get_value()] + \
-                                        [_wait_value(vp[1], vp[2])
-                                         for vp in value_path
-                                         if vp and vp[0]])) as g:
-                            for m in g:
-                                yield m
+                        results = await self.apiroutine.execute_all([_normal_get_value()] + \
+                                                                    [_wait_value(vp[1], vp[2])
+                                                                     for vp in value_path
+                                                                     if vp and vp[0]])
                     except MultipleException as exc:
                         raise exc.args[0]
-                    results = self.apiroutine.retvalue
                     values = []
-                    normal_result_iterator = iter(results[0][0])
-                    wait_result_iterator = (r[0] for r in results[1:])
+                    normal_result_iterator = iter(results[0])
+                    wait_result_iterator = iter(results)
+                    # Skip first result
+                    next(wait_result_iterator)
                     for vp in value_path:
                         if vp is None:
                             values.append(None)
@@ -1092,35 +1034,31 @@ class ZooKeeperDB(TcpServerBase):
                     escaped_keys = []
                     # We still need a timestamp, use /vlcp/tmp/timer
                     while True:
-                        for m in client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
-                                             zk.exists(b'/vlcp/tmp/timer')],
-                                            self.apiroutine, 60, priority = 1):
-                            yield m
-                        completes, losts, retries, _ = self.apiroutine.retvalue
+                        completes, losts, retries, _ =\
+                                await client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
+                                                     zk.exists(b'/vlcp/tmp/timer')],
+                                                    self.apiroutine, 60, priority = 1)
                         if not losts and not retries:
                             break
                     self._check_completes(completes)
                     server_time = completes[1].stat.mtime * 1000
                     session_lock = client.session_id
                     values = []
-                try:
-                    new_keys, new_values = updater(keys, [self._decode(v) for v in values], server_time)
-                    keys_deleted = []
-                    values_encoded = []
-                    key_dup_test_set = set()
-                    kv_set_list = list(izip(new_keys, new_values))
-                    kv_set_list.reverse()
-                    for k,v in kv_set_list:
-                        if k in key_dup_test_set:
-                            self._logger.warning('Updater returns duplicated keys %r, this is a BUG.', k)
-                            continue
-                        key_dup_test_set.add(k)
-                        if v is None:
-                            keys_deleted.append(k)
-                        else:
-                            values_encoded.append((k, self._encode(v)))
-                except Exception:
-                    raise
+                new_keys, new_values = updater(keys, [self._decode(v) for v in values], server_time)
+                keys_deleted = []
+                values_encoded = []
+                key_dup_test_set = set()
+                kv_set_list = list(izip(new_keys, new_values))
+                kv_set_list.reverse()
+                for k,v in kv_set_list:
+                    if k in key_dup_test_set:
+                        self._logger.warning('Updater returns duplicated keys %r, this is a BUG.', k)
+                        continue
+                    key_dup_test_set.add(k)
+                    if v is None:
+                        keys_deleted.append(k)
+                    else:
+                        values_encoded.append((k, self._encode(v)))
                 # Write the result
                 # If the keys are in the old keys, replace the barrier to the new data.
                 # If the keys are not in the old keys, create a new node
@@ -1132,8 +1070,7 @@ class ZooKeeperDB(TcpServerBase):
                 
                 barrier_dict = dict(zip(escaped_keys, barrier_list))
                 # pre-create the new keys parent node
-                for m in _pre_create_keys(delete_other_keys + [k for k,_ in set_other_keys], session_lock):
-                    yield m
+                await _pre_create_keys(delete_other_keys + [k for k,_ in set_other_keys], session_lock)
                 # register them to be recycled later
                 self._recycle_list[vhost].update((b'/vlcp/kvdb/' + k for k in (delete_other_keys + [k for k,_ in set_other_keys])))
                 # We must create/delete all the keys in a single transaction
@@ -1150,21 +1087,19 @@ class ZooKeeperDB(TcpServerBase):
                 multi_op.extend((zk.multi_delete(k) for k in barrier_list))
                 if multi_op:
                     while True:
-                        for m in client.requests([zk.multi(*multi_op)],
-                                            self.apiroutine, 60, session_lock, priority = 2):
-                            yield m                    
-                        completes, losts, retries, _ = self.apiroutine.retvalue
+                        completes, losts, retries, _ =\
+                                await client.requests([zk.multi(*multi_op)],
+                                                      self.apiroutine, 60, session_lock, priority = 2)
                         if retries:
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                         elif losts:
                             if barrier_list:
                                 self._logger.warning('Write response is lost, check the result')
                                 # Check whether the transaction is succeeded
-                                for m in client.requests([zk.sync(barrier_list[0]),
-                                                     zk.exists(barrier_list[0])],
-                                                    self.apiroutine, 60, session_lock, priority = 2):
-                                    yield m
-                                completes, losts, retries, _ = self.apiroutine.retvalue
+                                completes, losts, retries, _ =\
+                                        await client.requests([zk.sync(barrier_list[0]),
+                                                             zk.exists(barrier_list[0])],
+                                                            self.apiroutine, 60, session_lock, priority = 2)
                                 if losts or retries:
                                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                                 else:
@@ -1183,15 +1118,18 @@ class ZooKeeperDB(TcpServerBase):
                             self._check_completes(completes)
                             self._check_completes(completes[0].responses[:len(multi_op)])
                             break
-                self.apiroutine.retvalue = (new_keys, new_values)
+                return (new_keys, new_values)
             except Exception:
                 if barrier_list:
-                    def clearup():
+                    async def clearup():
                         # if the session expires, the barrier should automatically be removed
                         try:
-                            for m in client.requests([zk.delete(p) for p in barrier_list],
-                                                self.apiroutine, 60, client.session_id, priority = 2):
-                                yield m
+                            requests = [zk.delete(p) for p in barrier_list]
+                            while requests:
+                                completes, losts, retries, _ = \
+                                        await client.requests(requests,
+                                                               self.apiroutine, 60, client.session_id, priority = 2)
+                                requests = losts + retries
                         except ZooKeeperSessionUnavailable:
                             pass
                     self.apiroutine.subroutine(clearup(), False)
@@ -1199,22 +1137,19 @@ class ZooKeeperDB(TcpServerBase):
         finally:
             for l in locks:
                 l.unlock()
-    
-    def _recycle_routine(self, client, vhost):
+
+    async def _recycle_routine(self, client, vhost):
         # Sleep for a random interval
-        with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
-            for m in g:
-                yield m
+        await self.apiroutine.wait_with_timeout(randrange(0, 60))
         _recycle_list = set(self._recycle_list[vhost])
         self._recycle_list[vhost].clear()
-        def _recycle_key(recycle_key):
+        async def _recycle_key(recycle_key):
             is_notifier = recycle_key.startswith(b'/vlcp/notifier/bykey/')
             # Retrieve server time
-            for m in client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
-                                 zk.exists(b'/vlcp/tmp/timer')],
-                                self.apiroutine, 60):
-                yield m
-            completes, losts, retries, _ = self.apiroutine.retvalue
+            completes, losts, retries, _ =\
+                    await client.requests([zk.setdata(b'/vlcp/tmp/timer', b''),
+                                         zk.exists(b'/vlcp/tmp/timer')],
+                                        self.apiroutine, 60)
             if losts or retries:
                 raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
             self._check_completes(completes)
@@ -1223,16 +1158,14 @@ class ZooKeeperDB(TcpServerBase):
             # recycle parent after 60 minutes
             parent_time_limit = completes[1].stat.mtime - 3600000
             # Get the children list
-            for m in client.requests([zk.getchildren2(recycle_key)],
-                                     self.apiroutine, 60):
-                yield m
-            completes, losts, retries, _ = self.apiroutine.retvalue
+            completes, losts, retries, _ = \
+                    await client.requests([zk.getchildren2(recycle_key)],
+                                          self.apiroutine, 60)
             if losts or retries:
                 raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
             self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
             if completes[0].err == zk.ZOO_ERR_NONODE:
-                self.apiroutine.retvalue = False
-                return
+                return False
             can_recycle_parent = (completes[0].stat.mtime < parent_time_limit)
             recycle_parent_version = completes[0].stat.version
             children = [name for name in completes[0].children if name.startswith(b'data') or name.startswith(b'notify')]
@@ -1249,10 +1182,9 @@ class ZooKeeperDB(TcpServerBase):
             is_empty = True
             while begin < end:
                 middle = (begin + end) // 2
-                for m in client.requests([zk.exists(recycle_key + b'/' + children[middle])],
-                                         self.apiroutine, 60):
-                    yield m
-                completes, losts, retries, _ = self.apiroutine.retvalue
+                completes, losts, retries, _ =\
+                        await client.requests([zk.exists(recycle_key + b'/' + children[middle])],
+                                              self.apiroutine, 60)
                 if losts or retries:
                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
@@ -1266,8 +1198,7 @@ class ZooKeeperDB(TcpServerBase):
                 else:
                     end = middle
             if not recycle_key:
-                self.apiroutine.retvalue = False
-                return
+                return False
             if not is_notifier and not is_empty and begin >= 0:
                 # Leave an extra node
                 begin -= 1
@@ -1282,14 +1213,13 @@ class ZooKeeperDB(TcpServerBase):
                 operations.append(zk.delete(recycle_key, recycle_parent_version))
             if operations:
                 while operations:
-                    for m in client.requests(operations, self.apiroutine, 60):
-                        yield m
-                    completes, losts, retries, _ = self.apiroutine.retvalue
+                    completes, losts, retries, _ = \
+                            await client.requests(operations, self.apiroutine, 60)
                     operations = losts + retries
                     # It is not necessary to check the return value; any result is acceptable.
-                self.apiroutine.retvalue = True
+                return True
             else:
-                self.apiroutine.retvalue = False
+                return False
         recycle_all_freq = 10
         recycle_all_counter = 8
         while True:
@@ -1298,9 +1228,7 @@ class ZooKeeperDB(TcpServerBase):
                     self._logger.info('Recycling pended to wait for keys expiration, recycle_all_counter = %d, vhost = %r', recycle_all_counter, vhost)
                     _recycle_list.update(self._recycle_list[vhost])
                     self._recycle_list[vhost].clear()
-                    with closing(self.apiroutine.waitWithTimeout(180 - len(self._recycle_list[vhost]) / 5.0)) as g:
-                        for m in g:
-                            yield m
+                    await self.apiroutine.wait_with_timeout(180 - len(self._recycle_list[vhost]) / 5.0)
                     recycle_all_counter += 1
                 else:
                     _recycle_list.update(self._recycle_list[vhost])
@@ -1314,11 +1242,10 @@ class ZooKeeperDB(TcpServerBase):
                     # which means when we random select 10N keys,
                     # the expectation of recycled keys are less than N
                     try:
-                        for m in client.requests([zk.getchildren(b'/vlcp/kvdb'),
-                                                  zk.getchildren(b'/vlcp/notifier/bykey')],
-                                                 self.apiroutine, 60):
-                            yield m
-                        completes, losts, retries, _ = self.apiroutine.retvalue
+                        completes, losts, retries, _ =\
+                                await client.requests([zk.getchildren(b'/vlcp/kvdb'),
+                                                      zk.getchildren(b'/vlcp/notifier/bykey')],
+                                                     self.apiroutine, 60)
                         if losts or retries:
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                         all_path = [b'/vlcp/kvdb/' + p for p in completes[0].children] + \
@@ -1334,10 +1261,9 @@ class ZooKeeperDB(TcpServerBase):
                         for i in range(0, len(all_path), 50):
                             step_succ = 0
                             for p in all_path[i:i+50]:
-                                for m in _recycle_key(p):
-                                    yield m
+                                result = await _recycle_key(p)
                                 _total_try += 1
-                                if self.apiroutine.retvalue:
+                                if result:
                                     step_succ += 1
                                     _total_succ += 1
                             if step_succ < 3:
@@ -1365,36 +1291,29 @@ class ZooKeeperDB(TcpServerBase):
                             self._logger.info('Redistribute recycling counter to %d', recycle_all_counter)
                     except ZooKeeperSessionUnavailable:
                         self._logger.info('Full recycling cancelled because we are disconnected from ZooKeeper server')
-                        with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
-                            for m in g:
-                                yield m
+                        await self.apiroutine.wait_with_timeout(randrange(0, 60))
                     except Exception:
                         self._logger.warning('Full recycle exception occurs, vhost = %r', vhost,
                                              exc_info = True)
-                        with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
-                            for m in g:
-                                yield m
+                        await self.apiroutine.wait_with_timeout(randrange(0, 60))
                 continue
             recycle_key = _recycle_list.pop()
             try:
-                for m in _recycle_key(recycle_key):
-                    yield m
+                await _recycle_key(recycle_key)
             except ZooKeeperSessionUnavailable:
                 self._recycle_list[vhost].add(recycle_key)
-                with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
-                    for m in g:
-                        yield m
+                await self.apiroutine.wait_with_timeout(randrange(0, 60))
             except Exception:
                 self._logger.warning('recycle routine exception occurs, vhost = %r, current_key = %r', vhost, recycle_key,
                                      exc_info = True)
-                with closing(self.apiroutine.waitWithTimeout(randrange(0, 60))) as g:
-                    for m in g:
-                        yield m
+                await self.apiroutine.wait_with_timeout(randrange(0, 60))
+
     def recycle(self, keys, vhost = ''):
         '''
         Recycle extra versions from the specified keys.
         '''
         self._recycle_list[vhost].update(_tobytes(k) for k in keys)
+
     def createnotifier(self, vhost = None):
         "Create a new notifier object"
         if vhost is None:
@@ -1402,21 +1321,22 @@ class ZooKeeperDB(TcpServerBase):
         n = _Notifier(vhost, self.scheduler, self.singlecastlimit, not self.deflate and self.notifierdeflate)
         n.start()
         return n
-    def listallkeys(self, vhost = ''):
+
+    async def listallkeys(self, vhost = ''):
         '''
         Return all keys in the KVDB. For management purpose.
         '''
         client = self._zookeeper_clients.get(vhost)
         if client is None:
             raise ValueError('vhost ' + repr(vhost) + ' is not defined')
-        for m in client.requests([zk.getchildren(b'/vlcp/kvdb')],
-                                 self.apiroutine, 60):
-            yield m
-        completes, lost, retries, _ = self.apiroutine.retvalue
+        completes, lost, retries, _ =\
+                await client.requests([zk.getchildren(b'/vlcp/kvdb')],
+                                      self.apiroutine, 60)
         if lost or retries:
             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
         self._check_completes(completes)
-        self.apiroutine.retvalue = [_str(k) for k in completes[0].children]
+        return [_str(k) for k in completes[0].children]
+
     def status(self, vhost = ''):
         client = self._zookeeper_clients.get(vhost)
         if client is None:

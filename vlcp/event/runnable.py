@@ -583,22 +583,35 @@ class RoutineContainer(object):
     
     waitForEmpty = wait_for_empty 
     
-    async def wait_for_all(self, *matchers):
+    async def wait_for_all(self, *matchers, eventlist = None, eventdict = None, callback = None):
         """
         Wait until each matcher matches an event. When this coroutine method returns,
         `eventlist` is set to the list of events in the arriving order (may not
         be the same as the matchers); `eventdict` is set to a dictionary
         `{matcher1: event1, matcher2: event2, ...}`
-                
+        
+        :param eventlist: use external event list, so when an exception occurs
+                          (e.g. routine close), you can retrieve the result
+                          from the passed-in list
+        
+        :param eventdict: use external event dict
+        
+        :param callback: if not None, the callback should be a callable callback(event, matcher)
+                         which is called each time an event is received
+        
         :return: (eventlist, eventdict)
         """
-        eventdict = {}
-        eventlist = []
+        if eventdict is None:
+            eventdict = {}
+        if eventlist is None:
+            eventlist = []
         ms = len(matchers)
         last_matchers = Diff_(matchers)
         while ms:
             ev, m = await last_matchers
-            ms -= 1            
+            ms -= 1
+            if callback:
+                callback(ev, m)
             eventlist.append(ev)
             eventdict[m] = ev
             last_matchers = Diff_(last_matchers, remove=(m,))
@@ -606,24 +619,19 @@ class RoutineContainer(object):
     
     waitForAll = wait_for_all
     
-    async def wait_for_all_to_process(self, *matchers):
+    async def wait_for_all_to_process(self, *matchers, eventlist = None, eventdict = None,
+                                            callback = None):
         """
         Similar to `waitForAll`, but set `canignore=True` for these events. This ensures
         blocking events are processed correctly.
         """
-        eventdict = {}
-        eventlist = []
-        ms = len(matchers)
-        last_matchers = Diff_(matchers)
-        while ms:
-            ev, m = await last_matchers
-            ev.canignore = True
-            ms -= 1
-            eventlist.append(ev)
-            eventdict[m] = ev
-            last_matchers = Diff_(last_matchers, remove=(m,))
-        return eventlist, eventdict
-    
+        def _callback(event, matcher):
+            event.canignore = True
+            if callback:
+                callback(event, matcher)
+        return await self.wait_for_all(*matchers, eventlist=eventlist,
+                                       eventdict=eventdict, callback=_callback)
+
     waitForAllToProcess = wait_for_all_to_process
     
     async def wait_for_all_empty(self, *queues):
@@ -680,21 +688,32 @@ class RoutineContainer(object):
         :return: original return value
         '''
         finish, r = self.begin_delegate(subprocess)
+        return await self.end_delegate(finish, r, forceclose)
+    
+    async def end_delegate(self, delegate_matcher, routine = None, forceclose = False):
+        """
+        Retrieve a begin_delegate result. Must be called immediately after begin_delegate
+        before any other `await`, or the result might be lost.
+        
+        Do not use this method without thinking. Always use `RoutineFuture` when possible.
+        """
         try:
-            ev = await finish
+            ev = await delegate_matcher
             if hasattr(ev, 'exception'):
                 raise ev.exception
             else:
                 return ev.result
         finally:
-            if forceclose:
-                r.close()
+            if forceclose and routine:
+                routine.close()
 
     def begin_delegate(self, subprocess):
         '''
         Start the delegate routine, but do not wait for result, instead returns a (matcher, routine) tuple.
         Useful for advanced delegates (e.g. delegate multiple subprocesses in the same time).
         This is NOT a coroutine method.
+        
+        WARNING: this is not a safe way for asynchronous executing and get the result. Use `RoutineFuture` instead.
         
         :param subprocess: a coroutine
         
@@ -760,15 +779,8 @@ class RoutineContainer(object):
         
         '''
         finish, r = self.beginDelegateOther(subprocess, container, retnames)
-        try:
-            ev = await finish
-            if hasattr(ev, 'exception'):
-                raise ev.exception
-            return ev.result
-        finally:
-            if forceclose:
-                r.close()
-    
+        return await self.end_delegate(finish, r, forceclose)
+
     delegateOther = delegate_other
     
     async def execute_all_with_names(self, subprocesses, container = None, retnames = ('',), forceclose = True):
