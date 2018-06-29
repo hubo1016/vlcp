@@ -7,9 +7,8 @@ from vlcp.config.config import manager
 
 from vlcp.protocol.openflow import Openflow,OpenflowConnectionStateEvent,OpenflowAsyncMessageEvent
 from vlcp.protocol.openflow import common
-from vlcp.utils.ethernet import ethernetPacket
+from vlcp.utils.ethernet import ethernet_l2, mac_addr, mac_addr_bytes
 
-from netaddr import EUI
 
 # decide which openflow protocl used
 of_proto = Openflow((common.OFP13_VERSION,))
@@ -85,10 +84,10 @@ class l2switch(RoutineContainer):
             event = await asyncEventMatcher
 
             if event.type == ofpParser.OFPT_PORT_STATUS:
-                self.subroutine(self.portStatsHandler(self.event))
+                self.subroutine(self.portStatsHandler(event))
         
             if event.type == ofpParser.OFPT_PACKET_IN:
-                self.subroutine(self.packet_in_handler(self.event))
+                self.subroutine(self.packet_in_handler(event))
         
 
     async def switch_del_handler(self,event):
@@ -104,12 +103,12 @@ class l2switch(RoutineContainer):
         #ofpVersion = event.connection.openflowdef
 
         if event.state == 'setup':
-            self.subroutine(self.switch_add_handler(self.event)) 
+            self.subroutine(self.switch_add_handler(event)) 
         
         #for m in self.switch_add_handler(self.event):
         #    yield m
         elif event.state == 'down':
-            self.subroutine(self.switch_del_handler(self.event))
+            self.subroutine(self.switch_del_handler(event))
 
     async def portStatsHandler(self,event):
         pass
@@ -129,11 +128,11 @@ class l2switch(RoutineContainer):
             if datapathid not in self.mac_to_port:
                 return
 
-            ethernet = common.dump(ethernetPacket.create(event.message.data))
-            dstMac = ethernet['dstMac']
-            srcMac = ethernet['srcMac']
+            ethernet = ethernet_l2.create(event.message.data)
+            dstMac = mac_addr.tobytes(ethernet.dl_dst)
+            srcMac = mac_addr.tobytes(ethernet.dl_src)
             
-            log.debug("pakcet in %r,%r, %r",srcMac,dstMac,in_port)
+            log.debug("packet in %r,%r, %r", mac_addr_bytes.formatter(srcMac), mac_addr_bytes.formatter(dstMac), in_port)
             self.mac_to_port[datapathid][srcMac] = in_port
             
             data = event.message.data
@@ -146,7 +145,7 @@ class l2switch(RoutineContainer):
                 await self.packetout(ofpParser,event.connection,in_port,output,buffer_id,data)
         
                 match = ofpParser.ofp_match_oxm()
-                match.oxm_fields.append(ofpParser.create_oxm(ofpParser.OXM_OF_ETH_DST,EUI(dstMac).packed))
+                match.oxm_fields.append(ofpParser.create_oxm(ofpParser.OXM_OF_ETH_DST,dstMac))
                 action = ofpParser.ofp_action_output(port = output)
         
                 await self.add_flow(connection=event.connection,parser=ofpParser,
@@ -167,7 +166,7 @@ class l2switch(RoutineContainer):
             buffer_data = data 
         
         packetoutMessage.data = buffer_data
-            
+        
         action = parser.ofp_action_output(port = output)
         
         packetoutMessage.actions.append(action)
