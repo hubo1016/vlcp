@@ -5,7 +5,7 @@ Created on 2016/3/31
 '''
 from __future__ import print_function, absolute_import, division
 from vlcp.utils.dataobject import DataObject, DataObjectSet, updater, DataObjectUpdateEvent,\
-    multiwaitif, dump, set_new, ReferenceObject, request_context
+    multiwaitif, dump, set_new, ReferenceObject, request_context, Relationship
 from vlcp.server.module import depend, Module, call_api, ModuleLoadStateChanged,\
     api
 import vlcp.service.kvdb.objectdb as objectdb
@@ -14,6 +14,7 @@ from vlcp.event.runnable import RoutineContainer, RoutineException
 from uuid import uuid1
 from vlcp.server import main
 import logging
+from functools import partial
 
 class PhysicalNetwork(DataObject):
     _prefix = 'vlcptest.physicalnetwork'
@@ -32,12 +33,20 @@ class PhysicalNetworkMap(DataObject):
         self.network_allocation = dict()
         self.ports = DataObjectSet()
 
+
+PhysicalNetworkMap._network = Relationship(PhysicalNetworkMap, PhysicalNetwork, ('id', 'id'))
+
+
 class LogicalNetworkMap(DataObject):
     _prefix = 'vlcptest.logicalnetworkmap'
     _indices = ('id',)
     def __init__(self, prefix=None, deleted=False):
         DataObject.__init__(self, prefix=prefix, deleted=deleted)
         self.ports = DataObjectSet()
+
+
+LogicalNetworkMap._network = Relationship(LogicalNetworkMap, LogicalNetwork, ('id', 'id'))
+
 
 class PhysicalPort(DataObject):
     _prefix = 'vlcptest.physicalport'
@@ -320,28 +329,46 @@ class TestObjectDB(Module):
         new_ports = [self._createphysicalport(**p) for p in ports]
         physical_networks = list(set([p.physicalnetwork.getkey() for p in new_ports]))
         physical_maps = [PhysicalNetworkMap.default_key(*PhysicalNetwork._getIndices(k)[1]) for k in physical_networks]
-        @updater
-        def create_ports(portset, *objs):
-            old_ports = objs[:len(new_ports)]
-            phymaps = list(objs[len(new_ports):len(new_ports) + len(physical_networks)])
-            phynets = list(objs[len(new_ports) + len(physical_networks):])
-            phydict = dict(zip(physical_networks, zip(phynets, phymaps)))
-            return_ports = [None] * len(new_ports)
-            for i in range(0, len(new_ports)):
-                return_ports[i] = set_new(old_ports[i], new_ports[i])
-            for p in return_ports:
-                phynet, phymap = phydict[p.physicalnetwork.getkey()]
-                if phynet is None:
-                    _, (phyid,) = PhysicalNetwork._getIndices(p.physicalnetwork.getkey())
-                    raise ValueError('Physical network %r does not exist' % (phyid,))
-                phymap.ports.dataset().add(p.create_weakreference())
-            portset.set.dataset().add(p.create_weakreference())
-            return [portset] + return_ports + phymaps
-        await call_api(self.apiroutine, 'objectdb', 'transact', {'keys': [PhysicalPortSet.default_key()] +\
+        def _walker(walk, write):
+            for p, port in zip(new_ports, ports):
+                key = p.getkey()
+                try:
+                    value = walk(key)
+                except KeyError:
+                    pass
+                else:
+                    new_port = self._createphysicalport(**port)
+                    value = set_new(value, new_port)
+                    try:
+                        phynet = walk(new_port.physicalnetwork.getkey())
+                    except KeyError:
+                        pass
+                    else:
+                        if phynet is None:
+                            _, (phyid,) = PhysicalNetwork._getIndices(p.physicalnetwork.getkey())
+                            raise ValueError('Physical network %r does not exist' % (phyid,))
+                    write(key, value)
+                    try:
+                        phymap = walk(PhysicalNetworkMap._network.leftkey(new_port.physicalnetwork))
+                    except KeyError:
+                        pass
+                    else:
+                        if phymap is not None:
+                            phymap.ports.dataset().add(value.create_weakreference())
+                            write(phymap.getkey(), phymap)
+                    try:
+                        portset = walk(PhysicalPortSet.default_key())
+                    except KeyError:
+                        pass
+                    else:
+                        portset.set.dataset().add(value.create_weakreference())
+                        write(portset.getkey(), portset)
+        
+        await call_api(self.apiroutine, 'objectdb', 'writewalk', {'keys': set([PhysicalPortSet.default_key()] +\
                                                                             [p.getkey() for p in new_ports] +\
                                                                             physical_maps +\
-                                                                            physical_networks,
-                                                                   'updater': create_ports})
+                                                                            physical_networks),
+                                                                   'walker': _walker})
         return await self._dumpkeys([p.getkey() for p in new_ports])
 
     async def createlogicalport(self, logicalnetwork, id = None, **kwargs):
@@ -360,30 +387,47 @@ class TestObjectDB(Module):
 
     async def createlogicalports(self, ports):
         new_ports = [self._createlogicalport(**p) for p in ports]
-        logical_networks = list(set([p.logicalnetwork.getkey() for p in new_ports]))
-        logical_maps = [LogicalNetworkMap.default_key(*LogicalNetwork._getIndices(k)[1]) for k in logical_networks]
-        @updater
-        def create_ports(portset, *objs):
-            old_ports = objs[:len(new_ports)]
-            logmaps = list(objs[len(new_ports):len(new_ports) + len(logical_networks)])
-            lognets = list(objs[len(new_ports) + len(logical_networks):])
-            logdict = dict(zip(logical_networks, zip(lognets, logmaps)))
-            return_ports = [None] * len(new_ports)
-            for i in range(0, len(new_ports)):
-                return_ports[i] = set_new(old_ports[i], new_ports[i])
-            for p in return_ports:
-                lognet, logmap = logdict[p.logicalnetwork.getkey()]
-                if lognet is None:
-                    _, (logid,) = LogicalNetwork._getIndices(p.logicalnetwork.getkey())
-                    raise ValueError('Logical network %r does not exist' % (logid,))
-                logmap.ports.dataset().add(p.create_weakreference())
-            portset.set.dataset().add(p.create_weakreference())
-            return [portset] + return_ports + logmaps
-        await call_api(self.apiroutine, 'objectdb', 'transact', {'keys': [LogicalPortSet.default_key()] +\
-                                                                            [p.getkey() for p in new_ports] +\
-                                                                            logical_maps +\
-                                                                            logical_networks,
-                                                                   'updater': create_ports})
+        def _walker(walk, write):
+            for p in new_ports:
+                key = p.getkey()
+                try:
+                    value = walk(key)
+                except KeyError:
+                    pass
+                else:
+                    value = set_new(value, p)
+                    try:
+                        lognet = walk(value.logicalnetwork.getkey())
+                    except KeyError:
+                        pass
+                    else:
+                        if lognet is None:
+                            _, (logid,) = LogicalNetwork._getIndices(value.logicalnetwork.getkey())
+                            raise ValueError("Logical network %r does not exist" % (logid,))
+                    try:
+                        logmap = walk(LogicalNetworkMap._network.leftkey(value.logicalnetwork))
+                    except KeyError:
+                        pass
+                    else:
+                        if logmap is not None:
+                            logmap.ports.dataset().add(value.create_weakreference())
+                            write(key, value)
+                            write(logmap.getkey(), logmap)
+                    try:
+                        portset = walk(LogicalPortSet.default_key())
+                    except KeyError:
+                        pass
+                    else:
+                        portset.set.dataset().add(value.create_weakreference())
+                        write(portset.getkey(), portset)
+        keys = set()
+        keys.update(p.getkey() for p in new_ports)
+        keys.update(p.logicalnetwork.getkey() for p in new_ports)
+        keys.update(LogicalNetworkMap._network.leftkey(p.logicalnetwork)
+                    for p in new_ports)
+        keys.add(LogicalPortSet.default_key())
+        await call_api(self.apiroutine, 'objectdb', 'writewalk', {'keys': keys,
+                                                                  'walker': _walker})
         return await self._dumpkeys([p.getkey() for p in new_ports])
 
     async def getlogicalnetworks(self, id = None, physicalnetwork = None, **kwargs):

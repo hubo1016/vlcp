@@ -30,8 +30,10 @@ class Protocol(Configurable):
     # Message event queue size for each connection
     _default_messagequeuesize = 10
     # Enable keep-alive for this protocol: send protocol specified keep-alive packages when
-    # the connection idles to detect the connection liveness
+    # no data is read from the connection to detect the connection liveness
     _default_keepalivetime = None
+    # Send protocol specified keep-alive packages when no data is written to the connection
+    _default_writekeepalivetime = None
     # Use SO_REUSEPORT socket option for the connections, so that multiple processes can bind to
     # the same port; can be used to create load-balanced services
     _default_reuseport = False

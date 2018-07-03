@@ -18,7 +18,7 @@ import logging
 from vlcp.event.runnable import RoutineContainer, MultipleException
 from vlcp.event.event import withIndices, Event, M_
 import functools
-from vlcp.event.core import QuitException
+from vlcp.event.core import QuitException, TimerEvent
 from contextlib import closing
 from vlcp.utils.kvcache import KVCache
 from vlcp.event.ratelimiter import RateLimiter
@@ -559,6 +559,9 @@ class ZooKeeperDB(TcpServerBase):
         self._recycle_list = {}
         self._identifier_uuid = uuid1().hex
         self._identifier_counter = 0
+        # vHost => (Key => (revision, data))
+        # Double buffered
+        self._get_cache = ({}, {})
 
     def _check_completes(self, completes, err_allows = (), err_expects = ()):
         for result in completes:
@@ -566,6 +569,30 @@ class ZooKeeperDB(TcpServerBase):
                 if result.err not in err_expects:
                     self._logger.warning('Unexpected err result received: %r', dump(result))
                 raise ZooKeeperResultException('Error result received: ' + str(result.err))
+    
+    async def _clean_cache(self):
+        th = self.apiroutine.scheduler.setTimer(60, 60)
+        tm = TimerEvent.createMatcher(th)
+        try:
+            while True:
+                await tm
+                p, q = self._get_cache
+                q.clear()
+                self._get_cache = (q, p)
+        finally:
+            self.apiroutine.scheduler.cancelTimer(th)            
+    
+    def _get_from_cache(self, key, vhost=''):
+        p, q = self._get_cache
+        if vhost in p and key in p[vhost]:
+            return p[vhost][key]
+        elif vhost in q and key in q[vhost]:
+            return q[vhost][key]
+        else:
+            return None
+    
+    def _set_to_cache(self, key, value, vhost=''):
+        self._get_cache[0].setdefault(vhost, {})[key] = value
     
     async def _main(self):
         # Initialize structures
@@ -600,6 +627,7 @@ class ZooKeeperDB(TcpServerBase):
                 recycle_routines = [self._recycle_routine(client, vh) for vh, client in self._zookeeper_clients.items()]
             else:
                 recycle_routines = [self._recycle_routine(client, vh) for vh, client in self._zookeeper_clients.items() if vh in allow_vhosts]
+            recycle_routines.append(self._clean_cache())
             await self.apiroutine.execute_all(recycle_routines)
 
     def _client_class(self, config, protocol, vhost):
@@ -933,14 +961,22 @@ class ZooKeeperDB(TcpServerBase):
                             else:
                                 value_path.append((False, b'/vlcp/kvdb/' + k + b'/' + name))
                     async def _normal_get_value():
+                        paths = [p[1] for p in value_path if p is not None and not p[0]]
+                        cached = [self._get_from_cache(p) for p in paths]
+                        not_cached = [(i, p) for i, (c, p) in enumerate(zip(cached, paths))
+                                      if c is None]
                         completes, losts, retries, _ =\
-                                await client.requests([zk.getdata(p[1])
-                                                         for p in value_path if p is not None and not p[0]],
+                                await client.requests([zk.getdata(p)
+                                                         for _, p in not_cached],
                                                         self.apiroutine, 60, session_lock, priority = 1)
                         if losts or retries:
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                         self._check_completes(completes)
-                        return [r.data if r.data else None for r in completes]
+                        for (i, _), r in zip(not_cached, completes):
+                            cached[i] = r.data
+                        for p, c in zip(paths, cached):
+                            self._set_to_cache(p, c, vhost)
+                        return [r if r else None for r in cached]
                     async def _wait_value(key, children):
                         dup_names = [name for _,name in children if name.startswith(identifier)]
                         if dup_names:
@@ -1001,13 +1037,18 @@ class ZooKeeperDB(TcpServerBase):
                                 # If rollback, try next node
                             else:
                                 # Normal get
-                                completes, losts, retries, _ =\
-                                        await client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name)],
-                                                              self.apiroutine, 60, session_lock, priority = 1)
-                                if losts or retries:
-                                    raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
-                                self._check_completes(completes)
-                                return completes[0].data if completes[0].data else None
+                                _path = b'/vlcp/kvdb/' + key + b'/' + name
+                                c = self._get_from_cache(_path, vhost)
+                                if c is None:
+                                    completes, losts, retries, _ =\
+                                            await client.requests([zk.getdata(b'/vlcp/kvdb/' + key + b'/' + name)],
+                                                                  self.apiroutine, 60, session_lock, priority = 1)
+                                    if losts or retries:
+                                        raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
+                                    self._check_completes(completes)
+                                    c = completes[0].data
+                                    self._set_to_cache(_path, c, vhost)
+                                return c if c else None
                         # All nodes have been rolled back
                         return None
                     try:

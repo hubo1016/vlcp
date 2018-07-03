@@ -16,8 +16,12 @@ from vlcp.event.core import QuitException, syscall_removequeue
 import itertools
 from vlcp.utils.dataobject import AlreadyExistsException, UniqueKeyReference,\
     MultiKeyReference, DataObjectSet, UniqueKeySet, WeakReferenceObject,\
-    MultiKeySet, ReferenceObject
+    MultiKeySet, ReferenceObject, request_context
 from contextlib import closing
+import functools
+import copy
+from vlcp.utils.exceptions import AsyncTransactionLockException, StaleResultException,\
+    TransactionRetryExceededException, TransactionTimeoutException
 
 try:
     from itertools import izip
@@ -51,13 +55,11 @@ def _str2(b):
         return str(b)
 
 
-class StaleResultException(Exception):
-    def __init__(self, result, desc = "Result is stale"):
-        Exception.__init__(desc)
-        self.result = result
-
 class _NeedMoreKeysException(Exception):
     pass
+
+
+
 
 @defaultconfig
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
@@ -98,7 +100,11 @@ class ObjectDB(Module):
                        api(self.unwatchall, self.apiroutine),
                        api(self.transact, self.apiroutine),
                        api(self.watchlist),
-                       api(self.walk, self.apiroutine)
+                       api(self.walk, self.apiroutine),
+                       api(self.gettimestamp, self.apiroutine),
+                       api(self.asynctransact, self.apiroutine),
+                       api(self.writewalk, self.apiroutine),
+                       api(self.asyncwritewalk, self.apiroutine)
                        )
 
     def _set_watch(self, key, requestid):
@@ -752,7 +758,7 @@ class ObjectDB(Module):
         if hasattr(ev, 'exception'):
             raise ev.exception
 
-    async def transact(self, keys, updater, withtime = False):
+    async def transact(self, keys, updater, withtime = False, maxtime = 60):
         """
         Try to update keys in a transact, with an ``updater(keys, values)``,
         which returns ``(updated_keys, updated_values)``.
@@ -967,6 +973,7 @@ class ObjectDB(Module):
                     new_version.append((timestamp, 1))
             updated_ref[1] = new_version
             return (updated_keys, updated_values)
+        start_time = self.apiroutine.scheduler.current_time
         while True:
             try:
                 await call_api(self.apiroutine, 'kvstorage', 'updateallwithtime',
@@ -974,7 +981,9 @@ class ObjectDB(Module):
                                          tuple(extra_keys) + tuple(extra_key_set),
                                          'updater': object_updater})
             except _NeedMoreKeysException:
-                pass
+                if maxtime is not None and\
+                    self.apiroutine.scheduler.current_time - start_time > maxtime:
+                    raise TransactionTimeoutException
             else:
                 break
         # Short cut update notification
@@ -991,6 +1000,20 @@ class ObjectDB(Module):
             # Fake notification
             await self.apiroutine.wait_for_send(RetrieveRequestSend())
         await self._notifier.publish(updated_ref[0], updated_ref[1])
+    
+    async def gettimestamp(self):
+        """
+        Get a timestamp from database server
+        """
+        _timestamp = None
+        def _updater(keys, values, timestamp):
+            nonlocal _timestamp
+            _timestamp = timestamp
+            return ((), ())
+        await call_api(self.apiroutine, 'kvstorage', 'updateallwithtime',
+                                 {'keys': (),
+                                  'updater': _updater})
+        return _timestamp
 
     def watchlist(self, requestid = None):
         """
@@ -1016,3 +1039,181 @@ class ObjectDB(Module):
         if nostale and ev.stale:
             raise StaleResultException(ev.result)
         return ev.result
+    
+    async def asynctransact(self, asyncupdater, withtime = False,
+                            maxretry = None, maxtime=60):
+        """
+        Read-Write transaction with asynchronous operations.
+        
+        First, the `asyncupdater` is called with `asyncupdater(last_info, container)`.
+        `last_info` is the info from last `AsyncTransactionLockException`.
+        When `asyncupdater` is called for the first time, last_info = None.
+        
+        The async updater should be an async function, and return
+        `(updater, keys)`. The `updater` should
+        be a valid updater function used in `transaction` API. `keys` will
+        be the keys used in the transaction.
+        
+        The async updater can return None to terminate the transaction
+        without exception.
+        
+        After the call, a transaction is automatically started with the
+        return values of `asyncupdater`.
+        
+        `updater` can raise `AsyncTransactionLockException` to restart
+        the transaction from `asyncupdater`.
+        
+        :param asyncupdater: An async updater `asyncupdater(last_info, container)`
+                             which returns `(updater, keys)`
+        
+        :param withtime: Whether the returned updater need a timestamp
+        
+        :param maxretry: Limit the max retried times
+        
+        :param maxtime: Limit the execution time. The transaction is abandoned
+                        if still not completed after `maxtime` seconds. 
+        """
+        start_time = self.apiroutine.scheduler.current_time
+        def timeleft():
+            if maxtime is None:
+                return None
+            else:
+                time_left = maxtime + start_time - \
+                                self.apiroutine.scheduler.current_time
+                if time_left <= 0:
+                    raise TransactionTimeoutException
+                else:
+                    return time_left
+        retry_times = maxretry
+        last_info = None
+        while True:
+            timeout, r = \
+                    await self.apiroutine.execute_with_timeout(
+                            timeleft(),
+                            asyncupdater(last_info, self.apiroutine)
+                        )
+            if timeout:
+                raise TransactionTimeoutException
+            if r is None:
+                return
+            updater, keys = r
+            def _updater(keys, values, timestamp):
+                if withtime:
+                    return updater(keys, values, timestamp)
+                else:
+                    return updater(keys, values)
+            try:
+                return await self.transact(keys, updater, True, timeleft())
+            except AsyncTransactionLockException as e:
+                if retry_times is not None:
+                    retry_times -= 1
+                    if retry_times < 0:
+                        raise TransactionRetryExceededException
+                # Check time left
+                timeleft()
+                last_info = e.info
+    
+    async def writewalk(self, keys, walker, withtime = False, maxtime = 60):
+        """
+        A read-write transaction with walkers
+        
+        :param keys: initial keys used in walk. Provide keys already known to
+                     be necessary to optimize the transaction.
+
+        :param walker: A walker should be `walker(walk, write)`,
+                           where `walk` is a function `walk(key)->value`
+                           to get a value from the database, and
+                           `write` is a function `write(key, value)`
+                           to save value to the database.
+                           
+                           A value can be write to a database any times.
+                           A `walk` called after `write` is guaranteed
+                           to retrieve the previously written value.
+
+        :param withtime: if withtime=True, an extra timestamp parameter is given to
+                         walkers, so walker should be
+                         `walker(walk, write, timestamp)`
+        
+        :param maxtime: max execution time of this transaction
+        """
+        async def _asyncwalker(last_info, container):
+            return (keys, walker)
+        return await self.asyncwritewalk(_asyncwalker, withtime, maxtime)
+
+    async def asyncwritewalk(self, asyncwalker, withtime = False, maxtime = 60):
+        """
+        A read-write transaction with walker factory
+        
+        :param asyncwalker: an async function called as `asyncwalker(last_info, container)`
+                            and returns (keys, walker), which
+                            are the same as parameters of `writewalk`
+        
+                            :param keys: initial keys used in walk
+                            
+                            :param walker: A walker should be `walker(walk, write)`,
+                                               where `walk` is a function `walk(key)->value`
+                                               to get a value from the database, and
+                                               `write` is a function `write(key, value)`
+                                               to save value to the database.
+                                               
+                                               A value can be write to a database any times.
+                                               A `walk` called after `write` is guaranteed
+                                               to retrieve the previously written value.
+                                               
+                                               raise AsyncTransactionLockException in walkers
+                                               to restart the transaction
+        
+        :param withtime: if withtime=True, an extra timestamp parameter is given to
+                         walkers, so walkers should be
+                         `walker(key, value, walk, write, timestamp)`
+        
+        :param maxtime: max execution time of this transaction
+        """
+        async def _asyncupdater(last_info, container):
+            if last_info is not None:
+                from_walker, real_info = last_info
+                if not from_walker:
+                    keys, orig_keys, walker = real_info
+                else:
+                    r = await asyncwalker(real_info, container)
+                    if r is None:
+                        return None
+                    keys, walker = r
+                    orig_keys = keys
+            else:
+                r = await asyncwalker(None, container)
+                if r is None:
+                    return None
+                keys, walker = r
+                orig_keys = keys
+            def _updater(keys, values, timestamp):
+                _stored_objs = dict(zip(keys, values))
+                # Keys written by walkers
+                _walker_write_dict = {}
+                _lost_keys = set()
+                _used_keys = set()
+                def _walk(key):
+                    if key not in _stored_objs:
+                        _lost_keys.add(key)
+                        raise KeyError
+                    else:
+                        if key not in _walker_write_dict:
+                            _used_keys.add(key)
+                        return _stored_objs[key]
+                def _write(key, value):
+                    _walker_write_dict[key] = value
+                    _stored_objs[key] = value
+                try:
+                    if withtime:
+                        walker(_walk, _write, timestamp)
+                    else:
+                        walker(_walk, _write)
+                except AsyncTransactionLockException as e:
+                    raise AsyncTransactionLockException((True, e.info))
+                if _lost_keys:
+                    _lost_keys.update(_used_keys)
+                    _lost_keys.update(orig_keys)
+                    raise AsyncTransactionLockException((False, (_lost_keys, orig_keys, walker)))
+                return tuple(zip(*_walker_write_dict.items()))
+            return (_updater, keys)
+        return await self.asynctransact(_asyncupdater, withtime, maxtime=maxtime)

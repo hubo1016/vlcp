@@ -96,6 +96,8 @@ class IndexedHeap(object):
                 self._push(value, priority)
             else:
                 self.pending[value] = priority
+                if priority < self.pendingpriority:
+                    self.pendingpriority = priority
             return
         temp = self.heap[pos]
         self.heap[pos] = (priority, value)
@@ -103,6 +105,7 @@ class IndexedHeap(object):
             self._siftdown(pos)
         else:
             self._siftup(pos)
+        self._check_pending()
     def replace(self, value, value2):
         pos = self.index[value]
         del self.index[value]

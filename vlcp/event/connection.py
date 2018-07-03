@@ -68,6 +68,7 @@ class Connection(RoutineContainer):
         self.persist = getattr(protocol, 'persist', False)
         self.need_reconnect = self.persist
         self.keepalivetime = getattr(protocol, 'keepalivetime', None)
+        self.writekeepalivetime = getattr(protocol, 'writekeepalivetime', None)
         self.logContext = {'connection': self, 'protocol':protocol, 'socket':None if self.socket is None else self.socket.fileno()}
         self.logger = ContextAdapter(Connection.logger, {'context':self.logContext}) 
         # Counters
@@ -205,6 +206,7 @@ class Connection(RoutineContainer):
             write_matcher = ConnectionWriteEvent.createMatcher(self, self.connmark)
             queue_empty = None
             exitLoop = False
+            writekeepalivetime = self.writekeepalivetime
             def _process_conn_event(event, matcher):
                 nonlocal exitLoop, queue_empty
                 if event.type == ConnectionControlEvent.RECONNECT:
@@ -223,7 +225,10 @@ class Connection(RoutineContainer):
                 if queue_empty is not None:
                     ev, m = await M_(write_matcher, queue_empty)
                 else:
-                    ev, m = await M_(write_matcher, connection_control)
+                    timeout, ev, m = await self.wait_with_timeout(writekeepalivetime, write_matcher, connection_control)
+                    if timeout:
+                        self.subroutine(self.protocol.keepalive(self))
+                        continue
                 if m is connection_control:
                     _process_conn_event(ev, m)
                 elif m is queue_empty:

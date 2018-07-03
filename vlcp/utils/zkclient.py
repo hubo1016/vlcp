@@ -327,7 +327,7 @@ class ZooKeeperClient(Configurable):
                                 rebalancetime = self.rebalancetime
                                 if rebalancetime is not None:
                                     rebalancetime += random() * 60
-                                timeout, ev, m = await self._container.waitWithTimeout(rebalancetime, conn_down, auth_failed)
+                                timeout, ev, m = await self._container.wait_with_timeout(rebalancetime, conn_down, auth_failed)
                                 if timeout:
                                     # Rebalance
                                     if conn.zookeeper_requests:
@@ -362,7 +362,7 @@ class ZooKeeperClient(Configurable):
                                 break
                             else:
                                 # Connection is down, try other servers
-                                if not self._container.timeout:
+                                if not timeout:
                                     self._logger.warning('Connection lost to %r, try next server', self.currentserver)
                                 else:
                                     self._logger.info('Rebalance to next server')

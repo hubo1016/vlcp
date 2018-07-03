@@ -294,7 +294,50 @@ class DataObject(object):
             if '_auto_removes' in c.__dict__:
                 auto_removes.update(c.__dict__['_auto_removes'])
         return set(itertools.chain.from_iterable(v(self) for v in auto_removes.values()))
-        
+
+
+class Relationship(object):
+    def __init__(self, left, right, *joined_key_pairs):
+        self.left = left
+        self.right = right
+        joins = []
+        for lk, rk in joined_key_pairs:
+            l_index = left._indices.index(lk)
+            r_index = right._indices.index(rk)
+            joins.append((l_index, r_index))
+        dup_left = len(set(j[0] for j in joins)) < len(joins)
+        dup_right = len(set(j[1] for j in joins)) < len(joins)
+        left_all = len(joins) == len(left._indices)
+        right_all = len(joins) == len(right._indices)
+        self._left_unique = left_all and not dup_left
+        self._right_unique = right_all and not dup_right
+        if not self._left_unique and not self._right_unique:
+            raise ValueError("Invalid relationship - not determinate")
+        self._joins = joins
+
+    def rightkey(self, leftkey):
+        if not self._right_unique:
+            raise ValueError("Cannot get target - not determinate")
+        if hasattr(leftkey, 'getkey'):
+            leftkey = leftkey.getkey()
+        _, indices = self.left._getIndices(leftkey)
+        right_indices = [None] * len(self.right._indices)
+        for li, ri in self._joins:
+            right_indices[ri] = indices[li]
+        return self.right.default_key(*right_indices)
+
+    def leftkey(self, rightkey):
+        if not self._left_unique:
+            raise ValueError("Cannot get target - not determinate")
+        if hasattr(rightkey, 'getkey'):
+            rightkey = rightkey.getkey()
+        _, indices = self.right._getIndices(rightkey)
+        left_indices = [None] * len(self.left._indices)
+        for li, ri in self._joins:
+            left_indices[li] = indices[ri]
+        return self.left.default_key(*left_indices)
+
+
 class DataObjectSet(object):
     "A set of data objects, usually of a same type. Allow weak references only."
     def __init__(self):
