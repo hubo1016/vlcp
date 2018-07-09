@@ -974,6 +974,7 @@ class ObjectDB(Module):
             updated_ref[1] = new_version
             return (updated_keys, updated_values)
         start_time = self.apiroutine.scheduler.current_time
+        retry_times = 1
         while True:
             try:
                 await call_api(self.apiroutine, 'kvstorage', 'updateallwithtime',
@@ -984,7 +985,12 @@ class ObjectDB(Module):
                 if maxtime is not None and\
                     self.apiroutine.scheduler.current_time - start_time > maxtime:
                     raise TransactionTimeoutException
+                retry_times += 1
+            except Exception:
+                self._logger.debug("Transaction %r interrupted in %r retries", updater, retry_times)
+                raise
             else:
+                self._logger.debug("Transaction %r done in %r retries", updater, retry_times)                
                 break
         # Short cut update notification
         update_keys = self._watchedkeys.intersection(updated_ref[0])
@@ -1084,7 +1090,7 @@ class ObjectDB(Module):
                     raise TransactionTimeoutException
                 else:
                     return time_left
-        retry_times = maxretry
+        retry_times = 0
         last_info = None
         while True:
             timeout, r = \
@@ -1103,15 +1109,20 @@ class ObjectDB(Module):
                 else:
                     return updater(keys, values)
             try:
-                return await self.transact(keys, updater, True, timeleft())
+                await self.transact(keys, updater, True, timeleft())
             except AsyncTransactionLockException as e:
-                if retry_times is not None:
-                    retry_times -= 1
-                    if retry_times < 0:
-                        raise TransactionRetryExceededException
+                retry_times += 1
+                if maxretry is not None and retry_times > maxretry:
+                    raise TransactionRetryExceededException
                 # Check time left
                 timeleft()
                 last_info = e.info
+            except Exception:
+                self._logger.debug("Async transaction %r interrupted in %r retries", asyncupdater, retry_times + 1)
+                raise
+            else:
+                self._logger.debug("Async transaction %r done in %r retries", asyncupdater, retry_times + 1)
+                break
     
     async def writewalk(self, keys, walker, withtime = False, maxtime = 60):
         """
