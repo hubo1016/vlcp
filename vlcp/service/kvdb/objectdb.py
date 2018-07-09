@@ -1103,13 +1103,8 @@ class ObjectDB(Module):
             if r is None:
                 return
             updater, keys = r
-            def _updater(keys, values, timestamp):
-                if withtime:
-                    return updater(keys, values, timestamp)
-                else:
-                    return updater(keys, values)
             try:
-                await self.transact(keys, updater, True, timeleft())
+                await self.transact(keys, updater, withtime, timeleft())
             except AsyncTransactionLockException as e:
                 retry_times += 1
                 if maxretry is not None and retry_times > maxretry:
@@ -1147,6 +1142,7 @@ class ObjectDB(Module):
         
         :param maxtime: max execution time of this transaction
         """
+        @functools.wraps(walker)
         async def _asyncwalker(last_info, container):
             return (keys, walker)
         return await self.asyncwritewalk(_asyncwalker, withtime, maxtime)
@@ -1180,6 +1176,7 @@ class ObjectDB(Module):
         
         :param maxtime: max execution time of this transaction
         """
+        @functools.wraps(asyncwalker)
         async def _asyncupdater(last_info, container):
             if last_info is not None:
                 from_walker, real_info = last_info
@@ -1197,6 +1194,7 @@ class ObjectDB(Module):
                     return None
                 keys, walker = r
                 orig_keys = keys
+            @functools.wraps(walker)
             def _updater(keys, values, timestamp):
                 _stored_objs = dict(zip(keys, values))
                 # Keys written by walkers
@@ -1227,4 +1225,4 @@ class ObjectDB(Module):
                     raise AsyncTransactionLockException((False, (_lost_keys, orig_keys, walker)))
                 return tuple(zip(*_walker_write_dict.items()))
             return (_updater, keys)
-        return await self.asynctransact(_asyncupdater, withtime, maxtime=maxtime)
+        return await self.asynctransact(_asyncupdater, True, maxtime=maxtime)
