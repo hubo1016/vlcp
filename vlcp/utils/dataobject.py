@@ -18,6 +18,7 @@ except ImportError:
     def izip(*args, **kwargs):
         return iter(zip(*args, **kwargs))
 
+
 @withIndices('key', 'transactid', 'type')
 class DataObjectUpdateEvent(Event):
     UPDATED = 'updated'
@@ -614,3 +615,4 @@ def dump(obj, attributes = True, _refset = None):
         return [dump(v, attributes, _refset) for v in obj]
     else:
         return obj
+

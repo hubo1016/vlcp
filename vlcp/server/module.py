@@ -13,9 +13,10 @@ import functools
 import copy
 from vlcp.config.config import manager
 from vlcp.event.core import QuitException
-from inspect import cleandoc
+from inspect import cleandoc, getfullargspec
 from vlcp.event.event import Diff_
-
+from vlcp.utils.exceptions import ModuleAPICallTimeoutException,\
+        APIRejectedException
 from importlib import reload
 
 
@@ -54,8 +55,6 @@ class ModuleAPICall(Event):
 class ModuleAPIReply(Event):
     pass
 
-class ModuleAPICallTimeoutException(Exception):
-    pass
 
 @withIndices('module', 'state', 'instance')
 class ModuleLoadStateChanged(Event):
@@ -68,31 +67,47 @@ class ModuleLoadStateChanged(Event):
     UNLOADED = 'unloaded'
 
 def create_discover_info(func):
-    code = func.__code__
-    if code.co_flags & 0x08:
-        haskwargs = True
-    else:
-        haskwargs = False
-    # Remove argument env
-    arguments = code.co_varnames[0:code.co_argcount]
-    if hasattr(func, '__self__') and func.__self__:
-        # First argument is self, remove an extra argument
-        arguments=arguments[1:]
-    # Optional arguments
-    if hasattr(func, '__defaults__') and func.__defaults__:
-        requires = arguments[:-len(func.__defaults__)]
-        optionals = arguments[-len(func.__defaults__):]
-    else:
-        requires = arguments[:]
-        optionals = []
-    return {'description': cleandoc(func.__doc__) if func.__doc__ is not None else '',
+    realf = func
+    while hasattr(realf, '__wrapped__'):
+        realf = realf.__wrapped__
+    argspec = getfullargspec(realf)
+    kwargs = argspec.varkw
+    arguments = []
+    default_value = {}
+    if argspec.args:
+        args = list(argspec.args)
+        if argspec.defaults:
+            default_value.update(zip(args[-len(argspec.defaults):], argspec.defaults))
+        if hasattr(func, '__self__') and func.__self__:
+            # First argument is self, remove an extra argument
+            args = args[1:]
+        arguments.extend(args)
+    if argspec.kwonlyargs:
+        arguments.extend(argspec.kwonlyargs)
+        if argspec.kwonlydefaults:
+            default_value.update(argspec.kwonlydefaults)
+    def _create_parameter_definition(name):
+        d = {"name": name}
+        if name in default_value:
+            d['optional'] = True
+            d['default'] = default_value[name]
+        else:
+            d['optional'] = False
+        if name in argspec.annotations:
+            d['type'] = argspec.annotations[name]
+        return d
+    info =  {'description': cleandoc(func.__doc__) if func.__doc__ is not None else '',
             'parameters':
-                [{'name':n,'optional':False} for n in requires]
-                + [{'name':optionals[i],'optional':True,'default':func.__defaults__[i]}
-                   for i in range(0,len(optionals))],
-            'extraparameters': haskwargs
-                }
-    
+                [_create_parameter_definition(n)
+                 for n in arguments],
+            'extraparameters': bool(kwargs)
+            }
+    if kwargs and kwargs in argspec.annotations:
+        info['extraparameters_type'] = argspec.annotations[kwargs]
+    if 'return' in argspec.annotations:
+        info['return_type'] = argspec.annotations
+    return info
+
 
 def api(func, container = None, criteria = None):
     '''
@@ -232,7 +247,7 @@ class ModuleAPIHandler(RoutineContainer):
         else:
             return dict((k,v.get('description', '')) for k,v in self.discoverinfo.items())
     def reject(self, name, args):
-        raise ValueError('%r is not defined in module %r' % (name, self.servicename))
+        raise APIRejectedException('%r is not defined in module %r' % (name, self.servicename))
     def start(self, asyncStart=False):
         if self.apidefs:
             self.registerAPIs(self.apidefs)
@@ -470,9 +485,9 @@ class ModuleLoader(RoutineContainer):
             public_api = ModuleAPICall.createMatcher(target = "public")
             while True:
                 ev = await public_api
-                if ev.canignore:
+                if not ev.canignore:
                     ev.canignore = True
-                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(ev.handle, ValueError("public API is not processed")))
+                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(ev.handle, APIRejectedException("public API is not processed")))
         except QuitException:
             c = ModuleAPICall.createMatcher()
             while True:

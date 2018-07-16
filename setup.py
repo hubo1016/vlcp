@@ -23,7 +23,7 @@ setup(name='vlcp',
       keywords=['SDN', 'VLCP', 'Openflow'],
       test_suite = 'tests',
       use_2to3=False,
-      install_requires = ["nstruct>=1.2.1"],
+      install_requires = ["nstruct>=1.2.1", "pychecktype>=1.4.0"],
       packages=find_packages(exclude=("tests","tests.*","misc","misc.*")),
       entry_points={'console_scripts': ['vlcp-start = vlcp.start:default_start']},
       python_requires='>=3.5'

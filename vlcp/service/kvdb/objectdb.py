@@ -21,7 +21,7 @@ from contextlib import closing
 import functools
 import copy
 from vlcp.utils.exceptions import AsyncTransactionLockException, StaleResultException,\
-    TransactionRetryExceededException, TransactionTimeoutException
+    TransactionRetryExceededException, TransactionTimeoutException, WalkKeyNotRetrieved
 
 try:
     from itertools import izip
@@ -57,8 +57,6 @@ def _str2(b):
 
 class _NeedMoreKeysException(Exception):
     pass
-
-
 
 
 @defaultconfig
@@ -384,7 +382,7 @@ class ObjectDB(Module):
                             if key not in self._watchedkeys:
                                 # This key is not retrieved, raise a KeyError, and record this key
                                 new_retrieve_keys.add(key)
-                                raise KeyError('Not retrieved')
+                                raise WalkKeyNotRetrieved(key)
                             elif self._stale:
                                 if key not in self._managed_objs:
                                     new_retrieve_keys.add(key)
@@ -393,7 +391,7 @@ class ObjectDB(Module):
                             elif key not in update_result and key not in self._managed_objs:
                                 # This key is not retrieved, raise a KeyError, and record this key
                                 new_retrieve_keys.add(key)
-                                raise KeyError('Not retrieved')
+                                raise WalkKeyNotRetrieved(key)
                             # Check revision
                             current_revision = (
                                 max(revision_min.get(key, -1), revision_range[0]),
@@ -404,7 +402,7 @@ class ObjectDB(Module):
                                 new_retrieve_keys.add(key)
                                 if strict:
                                     used_keys.add(key)
-                                    raise KeyError('Not retrieved')
+                                    raise WalkKeyNotRetrieved(key)
                             else:
                                 # update revision range
                                 revision_range[:] = current_revision
@@ -1197,6 +1195,10 @@ class ObjectDB(Module):
             @functools.wraps(walker)
             def _updater(keys, values, timestamp):
                 _stored_objs = dict(zip(keys, values))
+                if self.debuggingupdater:
+                    _stored_old_values = {k: v.jsonencode()
+                                          for k,v in zip(keys, values)
+                                          if hasattr(v, 'jsonencode')}
                 # Keys written by walkers
                 _walker_write_dict = {}
                 _lost_keys = set()
@@ -1204,7 +1206,7 @@ class ObjectDB(Module):
                 def _walk(key):
                     if key not in _stored_objs:
                         _lost_keys.add(key)
-                        raise KeyError
+                        raise WalkKeyNotRetrieved(key)
                     else:
                         if key not in _walker_write_dict:
                             _used_keys.add(key)
@@ -1223,6 +1225,12 @@ class ObjectDB(Module):
                     _lost_keys.update(_used_keys)
                     _lost_keys.update(orig_keys)
                     raise AsyncTransactionLockException((False, (_lost_keys, orig_keys, walker)))
+                if self.debuggingupdater:
+                    # Check if there are changes not written
+                    for k, v in _stored_old_values.items():
+                        if k not in _walker_write_dict:
+                            v2 = _stored_objs[k]
+                            assert hasattr(v2, 'jsonencode') and v2.jsonencode() == v
                 return tuple(zip(*_walker_write_dict.items()))
             return (_updater, keys)
         return await self.asynctransact(_asyncupdater, True, maxtime=maxtime)

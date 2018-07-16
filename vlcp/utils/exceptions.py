@@ -3,6 +3,13 @@ Created on 2018/7/2
 
 :author: hubo
 '''
+class ModuleAPICallTimeoutException(Exception):
+    pass
+
+
+class APIRejectedException(Exception):
+    pass
+
 
 class StaleResultException(Exception):
     def __init__(self, result, desc = "Result is stale"):
@@ -29,3 +36,6 @@ class TransactionTimeoutException(TransactionFailedException):
     def __init__(self):
         TransactionFailedException.__init__(self, "Timeout exceeded")
 
+
+class WalkKeyNotRetrieved(KeyError):
+    pass
