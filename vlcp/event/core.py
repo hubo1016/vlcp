@@ -464,6 +464,8 @@ class Scheduler(object):
                                 self.unregisterall(r)
                             processSyscall()
                         processYields()
+                    if self.quitsignal:
+                        self.quit()
                     processedEvents += 1
                 if len(self.registerIndex) <= len(self.daemons):
                     break
