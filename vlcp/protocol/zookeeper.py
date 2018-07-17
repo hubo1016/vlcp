@@ -83,7 +83,7 @@ class ZooKeeper(Protocol):
     # default ZooKeeper port
     _default_defaultport = 2181
     _default_createqueue = True
-    _default_buffersize = 4194304
+    _default_buffersize = 524288
     # Limit the response and watcher queue size
     _default_messagequeuesize = 1024
     # Send ping command when the connection is idle
