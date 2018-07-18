@@ -12,6 +12,7 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.config import manager
 from vlcp.utils.pycache import remove_cache
 import traceback
+from vlcp.utils.exceptions import APIRejectedException
 
 try:
     reload
@@ -300,7 +301,7 @@ class Test(unittest.TestCase):
                 apiResults.append(False)
             try:
                 await r.execute_with_timeout(1.0, call_api(r, "testmodule1", "notexists", {}))
-            except ValueError:
+            except APIRejectedException:
                 apiResults.append(True)
             except Exception:
                 apiResults.append(False)
