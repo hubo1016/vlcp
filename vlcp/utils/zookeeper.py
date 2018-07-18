@@ -7,6 +7,17 @@ Created on 2016/8/25
 from namedstruct import *
 from namedstruct.namedstruct import BadFormatError, BadLenError, Parser, _create_struct
 
+
+def _copy(buffer):
+    try:
+        if isinstance(buffer, memoryview):
+            return buffer.tobytes()
+        else:
+            return buffer[:]
+    except Exception:
+        return buffer[:]
+
+
 def _tobytes(s, encoding = 'utf-8'):
     if s is None:
         return None
@@ -30,7 +41,7 @@ class UStringParser(object):
         if len(buffer) < 4 + length:
             return None
         else:
-            return (buffer[4:4+length], 4 + length)
+            return (_copy(buffer[4:4+length]), 4 + length)
     def new(self, inlineparent = None):
         return b''
     def create(self, data, inlineparent = None):
@@ -52,6 +63,14 @@ class UStringParser(object):
             return int32.tobytes(-1)
         else:
             return int32.tobytes(len(prim)) + prim
+    def tostream(self, prim, stream, skipprepack = False):
+        prim = _tobytes(prim)
+        if prim is None:
+            return stream.write(int32.tobytes(-1))
+        else:
+            stream.write(int32.tobytes(len(prim)))
+            return stream.write(prim) + 4
+
 
 class ustringtype(typedef):
     '''
@@ -111,6 +130,16 @@ class VectorParser(object):
             return int32.tobytes(-1)
         else:
             return int32.tobytes(len(prim)) + b''.join(self._innerparser.tobytes(r) for r in prim)
+    def tostream(self, prim, stream, skipprepack = False):
+        if prim is None:
+            return stream.write(int32.tobytes(-1))
+        else:
+            stream.write(int32.tobytes(len(prim)))
+            totalsize = 4
+            for r in prim:
+                totalsize += self._innerparser.tostream(r, stream)
+            return totalsize
+
 
 class vector(typedef):
     '''
