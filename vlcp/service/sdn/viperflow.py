@@ -208,12 +208,6 @@ class ViperFlow(Module):
 
     async def _dumpone(self, key, filter):
         return await self._dumpkeys([key], filter)
-
-    async def _getkeys(self,keys):
-        self._reqid += 1
-        reqid = ('viperflow', self._reqid)
-        with request_context(reqid, self.app_routine):
-            return await call_api(self.app_routine,'objectdb','mget',{'keys':keys,'requestid':reqid})
     
     async def createphysicalnetwork(self, type: str = 'vlan', id: (str, None) = None, **kwargs: {'?vnirange': [tuple_((int, int))],
                                                                                                  "?vlanrange": [tuple_((int, int))]}):
