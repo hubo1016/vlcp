@@ -265,8 +265,8 @@ def Routine(coroutine, scheduler, asyncStart = True, container = None, manualSta
                     else:
                         reg = set(matchers).difference(lmatchers)
                         unreg = set(lmatchers).difference(matchers)
-                    scheduler.unregister(unreg, iterself)
                     scheduler.register(reg, iterself)
+                    scheduler.unregister(unreg, iterself)
                 except Exception:
                     try:
                         iterator.throw(IllegalMatchersException(matchers))

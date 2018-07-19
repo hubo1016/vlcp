@@ -84,6 +84,38 @@ class M_(object):
         return (yield self._matchers)
 
 
+class DiffRef_(object):
+    """
+    Append some matchers to a diff without breaking the difference structure
+    """
+    __slots__ = ('origin', 'add', 'result', 'length')
+    def __init__(self, origin, add):
+        self.origin = origin
+        self.add = add
+        self.result = None
+        self.length = None
+    
+    def __add__(self, matchers):
+        return DiffRef_(self.origin, self.add + matchers)
+    
+    def __iter__(self):
+        if self.result is None:
+            self.result = tuple(self.origin) + self.add
+        return iter(self.result)
+    
+    def __len__(self):
+        return len(self.origin) + len(self.add)
+    
+    def two_way_difference(self, b):
+        """
+        Return (self - b, b - self)
+        """
+        return self.origin.two_way_difference(b, self.add)
+
+    def __await__(self):
+        return (yield self)
+    
+
 class Diff_(object):
     """
     Special "differenced" set. Items in 'base', 'add', 'remove' must not be same
@@ -99,7 +131,7 @@ class Diff_(object):
         self.length = None
 
     def __add__(self, matchers):
-        return Diff_(self.base, self.add + matchers, self.remove)
+        return DiffRef_(self, matchers)
     
     def __iter__(self):
         if self.result is None:
@@ -107,8 +139,11 @@ class Diff_(object):
             remove = set()
             base = self
             while isinstance(base, Diff_):
-                add.update(self.add)
-                remove.update(self.remove)
+                if len(base) == len(base.add):
+                    base = base.add
+                    break
+                add.update(base.add)
+                remove.update(base.remove)
                 base = base.base
             add.update(base)
             add.difference_update(remove)
@@ -128,12 +163,17 @@ class Diff_(object):
         else:
             return self.length
 
-    def two_way_difference(self, b):
+    def two_way_difference(self, b, extra_add = (), extra_remove = ()):
         """
         Return (self - b, b - self)
         """
         if self is b:
             return ((), ())
+        if isinstance(b, DiffRef_):
+            extra_remove = extra_remove + b.add
+            b = b.origin
+        if extra_add == extra_remove:
+            extra_add = extra_remove = ()
         if isinstance(b, Diff_):
             if self.base is b.base:
                 first = self.add + b.remove
@@ -150,13 +190,15 @@ class Diff_(object):
         else:
             first = self
             second = b
-        if not first:
-            return ((), tuple(second))
-        elif not second:
-            return (tuple(first), ())
+        if not first and not extra_add:
+            return ((), tuple(second) + tuple(extra_remove))
+        elif not second and not extra_remove:
+            return (tuple(first) + tuple(extra_add), ())
         else:
             first = set(first)
+            first.update(extra_add)
             second = set(second)
+            second.update(extra_remove)
             return tuple(first.difference(second)), tuple(second.difference(first))
 
     def __await__(self):
