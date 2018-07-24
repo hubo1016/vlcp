@@ -4,16 +4,16 @@
 from vlcp.config import defaultconfig
 from vlcp.server.module import Module,depend,call_api,api
 from vlcp.event.runnable import RoutineContainer
-from vlcp.utils.ethernet import ip4_addr,mac_addr
-from vlcp.utils.dataobject import DataObjectSet,updater,\
-            set_new,DataObjectUpdateEvent,watch_context,dump,ReferenceObject,\
-    request_context
+from vlcp.utils.ethernet import ip4_addr
+from vlcp.utils.dataobject import updater,\
+            set_new,dump,ReferenceObject,\
+            request_context, WeakReferenceObject
 import vlcp.service.kvdb.objectdb as objectdb
 
 from vlcp.utils.networkmodel import *
 from vlcp.utils.netutils import ip_in_network, network_first, network_last,\
                         parse_ip4_address, parse_ip4_network,\
-    format_network_cidr, format_ip_address, check_ip_address
+                        format_network_cidr
 
 from uuid import uuid1
 import copy
@@ -27,7 +27,7 @@ from vlcp.utils.walkerlib import ensure_keys
 from pychecktype.checked import checked
 from vlcp.utils.typelib import ip_address_type, cidr_type, autoint, mac_address_type,\
     cidr_nonstrict_type
-from pychecktype import tuple_, NoMatch
+from pychecktype import tuple_
 
 logger = logging.getLogger('viperflow')
 
@@ -1257,6 +1257,8 @@ class ViperFlow(Module):
                 gateway = parse_ip4_address(subnet['gateway'])
                 if not ip_in_network(gateway, cidr, prefix):
                     raise ValueError(" %s not in cidr %s" % (subnet['gateway'], subnet["cidr"]))
+            if 'router' in subnet:
+                raise ValueError("Cannot directly update router; use virtual router APIs")
             if "allocated_start" not in subnet:
                 start = network_first(cidr, prefix)
             else:
@@ -1371,6 +1373,8 @@ class ViperFlow(Module):
                 raise ValueError("logical network cannot be changed")
             if "isexternal" in subnet:
                 raise ValueError("isexternal cannot be changed")
+            if 'router' in subnet:
+                raise ValueError("Cannot directly update router; use virtual router APIs")
             key = SubNet.default_key(subnet['id'])
             if key in parameter_dict:
                 raise ValueError("Repeated ID: " + subnet['id'])
@@ -1477,6 +1481,8 @@ class ViperFlow(Module):
                     subnet_map = walk(SubNetMap._subnet.leftkey(key))
                     if subnet_map.allocated_ips:
                         raise ValueError("Subnet " + parameters['id'] + " has logical ports or router ports")
+                    if hasattr(subnet_map, 'routers') and subnet_map.routers.dataset():
+                        raise ValueError("Subnet " + parameters['id'] + " has router ports")
                     with suppress(WalkKeyNotRetrieved):
                         # Remove from logical network map
                         lognet_map = walk(LogicalNetworkMap._network.leftkey(value.network))
@@ -1603,11 +1609,12 @@ def check_ip_pool(gateway, start, end, allocated, cidr):
         assert ip_in_network(nstart,ncidr,prefix)
         assert ip_in_network(nend,ncidr,prefix)
         assert nstart <= nend
-
-        for ip in allocated:
+        for ip, target in allocated.items():
             nip = parse_ip4_address(ip)
-            assert ip != ngateway
-            assert nstart <= nip <= nend
+            assert ip_in_network(nip, ncidr, prefix)
+            if isinstance(target, WeakReferenceObject):
+                assert ip != ngateway
+                assert nstart <= nip <= nend
     else:
         assert ip_in_network(nstart,ncidr,prefix)
         assert ip_in_network(nend,ncidr,prefix)
@@ -1615,5 +1622,7 @@ def check_ip_pool(gateway, start, end, allocated, cidr):
 
         for ip in allocated:
             nip = parse_ip4_address(ip)
-            assert nstart <= nip <= nend
+            assert ip_in_network(nip, ncidr, prefix)
+            if isinstance(target, WeakReferenceObject):
+                assert nstart <= nip <= nend
 

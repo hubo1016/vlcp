@@ -2,17 +2,23 @@ import logging
 import copy
 
 from uuid import uuid1
-from vlcp.server.module import Module,depend,api,callAPI
+from vlcp.server.module import Module,depend,api,call_api
 from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.networkmodel import *
-from vlcp.utils.dataobject import watch_context,set_new,dump,ReferenceObject
+from vlcp.utils.dataobject import watch_context,set_new,dump,ReferenceObject,\
+    request_context, create_new
 from vlcp.utils.ethernet import ip4_addr
-from vlcp.utils.netutils import format_network_cidr,check_ip_address, parse_ip4_network, ip_in_network
+from vlcp.utils.netutils import format_network_cidr,check_ip_address, parse_ip4_network, ip_in_network,\
+    parse_ip4_address
 
 import vlcp.service.kvdb.objectdb as objectdb
 from vlcp.config.config import defaultconfig
-
-logger = logging.getLogger("vrouterapi")
+from pychecktype.checked import checked
+from pychecktype import tuple_
+from vlcp.utils.typelib import ip_address_type, cidr_nonstrict_type
+from collections import OrderedDict
+from contextlib import suppress
+from vlcp.utils.exceptions import WalkKeyNotRetrieved
 
 
 @depend(objectdb.ObjectDB)
@@ -25,8 +31,6 @@ class VRouterApi(Module):
         super(VRouterApi,self).__init__(server)
 
         self.app_routine = RoutineContainer(self.scheduler)
-        self.app_routine.main = self.main
-        self.routines.append(self.app_routine)
         self._reqid = 0
 
         self.createAPI(api(self.createvirtualrouter,self.app_routine),
@@ -41,32 +45,23 @@ class VRouterApi(Module):
                        api(self.removerouterinterface,self.app_routine),
                        api(self.removerouterinterfaces,self.app_routine),
                        api(self.listrouterinterfaces,self.app_routine))
-    def main(self):
-        logger.info(" viperflow VRouterApi running --")
-        
-        if False:
-            yield 
-    def _dumpkeys(self,keys):
+
+    async def _dumpkeys(self, keys, filter=None):
         self._reqid += 1
-        reqid = ('virtualrouter',self._reqid)
+        reqid = ('virtualrouter', self._reqid)
 
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':keys,'requestid':reqid}):
-            yield m
+        with request_context(reqid, self.app_routine):
+            retobjs = await call_api(self.app_routine,'objectdb','mget',{'keys':keys,'requestid':reqid})
+            if filter is None:
+                return [dump(o) for o in retobjs]
+            else:
+                return [dump(o) for o in retobjs if o is not None and all(getattr(o, k, None) == v for k, v in filter.items())]
 
-        retobjs = self.app_routine.retvalue
+    async def _dumpone(self, key, filter):
+        return await self._dumpkeys([key], filter)
 
-        with watch_context(keys,retobjs,reqid,self.app_routine):
-            self.app_routine.retvalue = [dump(v) for v in retobjs]
-
-    def _getkeys(self,keys):
-        self._reqid += 1
-        reqid = ('virtualrouter',self._reqid)
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':keys,'requestid':reqid}):
-            yield m
-        with watch_context(keys,self.app_routine.retvalue,reqid,self.app_routine):
-            pass
-
-    def createvirtualrouter(self,id=None,**kwargs):
+    async def createvirtualrouter(self, id: (str, None) = None,
+                                        **kwargs: {"?routes": [tuple_((cidr_nonstrict_type, ip_address_type))]}):
         """
         Create a virtual router
         
@@ -82,10 +77,11 @@ class VRouterApi(Module):
         router = {"id":id}
         router.update(kwargs)
 
-        for m in self.createvirtualrouters([router]):
-            yield m
-
-    def createvirtualrouters(self,routers):
+        return await self.createvirtualrouters([router])
+    
+    @checked
+    async def createvirtualrouters(self, routers: [{"?id": str,
+                                                     "?routes": [tuple_((cidr_nonstrict_type, ip_address_type))]}]):
         """
         Create multiple virtual routers in a transaction
         """
@@ -97,7 +93,7 @@ class VRouterApi(Module):
                 router["id"] = str(uuid1())
             else:
                 if router["id"] in idset:
-                    raise ValueError("id repeat " + router['id'])
+                    raise ValueError("Repeated ID: " + router['id'])
                 else:
                     idset.add(router['id'])
 
@@ -116,15 +112,9 @@ class VRouterApi(Module):
                 routerset.set.dataset().add(routerobjects[i].create_weakreference())
 
             return keys,values
-        try:
-            for m in callAPI(self.app_routine,"objectdb","transact",
-                             {"keys":routersetkey+routerkeys,"updater":createrouterdb}):
-                yield m
-        except:
-            raise
-        else:
-            for m in self._dumpkeys(routerkeys):
-                yield m
+        await call_api(self.app_routine,"objectdb","transact",
+                         {"keys":routersetkey+routerkeys,"updater":createrouterdb})
+        return await self._dumpkeys(routerkeys)
 
     def _createvirtualrouter(self,id,**kwargs):
 
@@ -132,16 +122,7 @@ class VRouterApi(Module):
 
         # [(prefix, nexthop),(prefix, nexthop)]
         if 'routes' in kwargs:
-            for e in kwargs['routes']:
-                ip_prefix = e[0]
-                nexthop = e[1]
-
-                if ip_prefix and nexthop:
-                    ip_prefix = format_network_cidr(ip_prefix)
-                    nexthop = check_ip_address(nexthop)
-                    router.routes.append((ip_prefix,nexthop))
-                else:
-                    raise ValueError(" routes format error " + e)
+            router.routes.extend(kwargs['routes'])
 
         for k,v in kwargs.items():
             if k != "routes":
@@ -149,42 +130,29 @@ class VRouterApi(Module):
 
         return router
 
-    def updatevirtualrouter(self,id,**kwargs):
+    async def updatevirtualrouter(self, id: str, **kwargs: {"?routes": [tuple_((cidr_nonstrict_type, ip_address_type))]}):
         """
         Update virtual router
         """
         if not id:
-            raise ValueError(" must specify id")
+            raise ValueError("must specify id")
         router = {"id":id}
         router.update(kwargs)
-
-        for m in self.updatevirtualrouters([router]):
-            yield m
-
-    def updatevirtualrouters(self,routers):
+        return await self.updatevirtualrouters([router])
+    
+    @checked
+    async def updatevirtualrouters(self, routers: [{"id": str,
+                                                    "?routes": [tuple_((cidr_nonstrict_type, ip_address_type))]}]):
         "Update multiple virtual routers"
         idset = set()
         for router in routers:
             if 'id' not in router:
-                raise ValueError(" must specify id")
+                raise ValueError("must specify id")
             else:
                 if router['id'] in idset:
-                    raise ValueError(" id repeat " + router['id'])
+                    raise ValueError("Repeated ID: " + router['id'])
                 else:
                     idset.add(router['id'])
-
-            # if routers updating ,, check format
-            if 'routes' in router:
-                for r in router['routes']:
-                    ip_prefix = r[0]
-                    nexthop = r[1]
-
-                    if ip_prefix and nexthop:
-                        ip_prefix = parse_ip4_network(ip_prefix)
-                        nexthop = check_ip_address(nexthop)
-                    else:
-                        raise ValueError("routes format error " + r)
-
         routerkeys = [VRouter.default_key(r['id']) for r in routers]
 
         def updaterouter(keys,values):
@@ -192,48 +160,37 @@ class VRouterApi(Module):
             for i in range(0,len(routers)):
                 if values[i]:
                     for k,v in routers[i].items():
-
                         if k == 'routes':
-                            # update routers accord new static routes
-                            values[i].routes = []
-                            for pn in v:
-                                values[i].routes.append(pn)
+                            values[i].routes[:] = copy.deepcopy(v)
                         else:
-                            setattr(values[i],k,v)
+                            setattr(values[i], k, v)
                 else:
-                    raise ValueError("router object not exists " + routers[i]['id'])
+                    raise ValueError("Virtual router not exists: " + routers[i]['id'])
             
             return keys,values
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                             {'keys':routerkeys,'updater':updaterouter}):
-                yield m
-        except:
-            raise
-        else:
+        await call_api(self.app_routine,'objectdb','transact',
+                         {'keys':routerkeys,'updater':updaterouter})
+        return await self._dumpkeys(routerkeys)
 
-            for m in self._dumpkeys(routerkeys):
-                yield m
-
-    def deletevirtualrouter(self,id):
+    async def deletevirtualrouter(self, id: str):
         "Delete virtual router"
         if not id:
             raise ValueError("must specify id")
 
         router = {"id":id}
 
-        for m in self.deletevirtualrouters([router]):
-            yield m
-
-    def deletevirtualrouters(self,routers):
+        return await self.deletevirtualrouters([router])
+    
+    @checked
+    async def deletevirtualrouters(self, routers: [{"id": str}]):
         "Delete multiple virtual routers"
         idset = set()
         for router in routers:
             if 'id' not in router:
-                raise ValueError(" must specify id")
+                raise ValueError("must specify id")
             else:
                 if router['id'] in idset:
-                    raise ValueError(" id repeat " + router['id'])
+                    raise ValueError("Repeated ID: " + router['id'])
                 else:
                     idset.add(router['id'])
 
@@ -249,16 +206,11 @@ class VRouterApi(Module):
                 routerset.set.dataset().discard(values[i+1].create_weakreference())
 
             return keys,[routerset] + [None] * len(routers)
-        try:
-            for m in callAPI(self.app_routine,"objectdb","transact",
-                             {"keys":routersetkey + routerkeys,"updater":deletevrouter}):
-                yield m
-        except:
-            raise
-        else:
-            self.app_routine.retvalue = {"status":"OK"}
+        await call_api(self.app_routine,"objectdb","transact",
+                             {"keys":routersetkey + routerkeys,"updater":deletevrouter})
+        return {"status":"OK"}
 
-    def listvirtualrouters(self,id=None,**kwargs):
+    async def listvirtualrouters(self, id: (str, None) = None, **kwargs):
         """
         Query virtual router
         
@@ -269,22 +221,12 @@ class VRouterApi(Module):
         :return: a list of dictionaries each stands for a matched virtual router.
         """
         if id:
-            routerkey = [VRouter.default_key(id)]
-
-            for m in self._getkeys(routerkey):
-                yield m
-
-            retobj = self.app_routine.retvalue
-
-            if all(getattr(retobj,k,None) == v for k,v in kwargs.items()):
-                self.app_routine.retvalue = dump(retobj)
-            else:
-                self.app_routine.retvalue = []
+            return await self._dumpone(VRouter.default_key(id), kwargs)
         else:
             # we get all router from vrouterset index
             routersetkey = VRouterSet.default_key()
 
-            self._reqid = +1
+            self._reqid += 1
             reqid = ("virtualrouter",self._reqid)
 
             def set_walker(key,set,walk,save):
@@ -309,18 +251,14 @@ class VRouterApi(Module):
                     set_walker(key,set_func(obj),walk,save)
 
                 return walker
+            with request_context(reqid, self.app_routine):
+                _, values = await call_api(self.app_routine,"objectdb","walk",
+                                                 {"keys":[routersetkey],"walkerdict":{routersetkey:walker_func(lambda x:x.set)},
+                                                  "requestid":reqid})
+                return [dump(r) for r in values]
 
-            for m in callAPI(self.app_routine,"objectdb","walk",
-                             {"keys":[routersetkey],"walkerdict":{routersetkey:walker_func(lambda x:x.set)},
-                              "requestid":reqid}):
-                yield m
-
-            keys ,values = self.app_routine.retvalue
-
-            with watch_context(keys,values,reqid,self.app_routine):
-                self.app_routine.retvalue = [dump(r) for r in values]
-
-    def addrouterinterface(self,router,subnet,id=None,**kwargs):
+    async def addrouterinterface(self, router: str, subnet: str, id: (str, None) = None,
+                                 **kwargs: {'?ip_address': ip_address_type}):
         """
         Connect virtual router to a subnet
         
@@ -338,156 +276,102 @@ class VRouterApi(Module):
             id = str(uuid1())
 
         if not router:
-            raise ValueError(" must specify routerid")
+            raise ValueError("must specify virtual router ID")
 
         if not subnet:
-            raise ValueError(" must specify subnetid")
+            raise ValueError("must specify subnet ID")
 
         interface = {"id":id,"router":router,"subnet":subnet}
 
         interface.update(kwargs)
-        for m in self.addrouterinterfaces([interface]):
-            yield m
-
-    def addrouterinterfaces(self,interfaces):
+        return await self.addrouterinterfaces([interface])
+    
+    @checked
+    async def addrouterinterfaces(self, interfaces: [{"router": str,
+                                                      "subnet": str,
+                                                      "?id": str,
+                                                      '?ip_address': ip_address_type}]):
         """
         Create multiple router interfaces
         """
-        idset = set()
-        newinterfaces = []
+        keys = set()
+        parameter_dict = OrderedDict()
         for interface in interfaces:
             interface = copy.deepcopy(interface)
-            if 'id' in interface:
-                if interface['id'] not in idset:
-                    idset.add(interface['id'])
-                else:
-                    raise ValueError(" id repeat "+interface['id'])
-            else:
+            if 'id' not in interface['id']:
                 interface['id'] = str(uuid1())
-
-            if 'router' not in interface:
-                raise ValueError("must specify router id")
-
-            if 'subnet' not in interface:
-                raise ValueError("must specify subnet id")
-
-            newinterfaces.append(interface)
-
-        routerportkeys = [RouterPort.default_key(interface['id'])
-                           for interface in newinterfaces]
-        routerportobjects = [self._createrouterport(**interface) for interface in newinterfaces]
-
-        routerkeys = list(set([routerport.router.getkey() for routerport in routerportobjects]))
-
-        subnetkeys = list(set([routerport.subnet.getkey() for routerport in routerportobjects]))
-
-        subnetmapkeys = [SubNetMap.default_key(SubNet._getIndices(k)[1][0]) for k in subnetkeys]
-        keys = routerkeys + subnetkeys + subnetmapkeys + routerportkeys
-        newrouterportdict = dict(zip(routerportkeys,routerportobjects))
-
-        def addrouterinterface(keys,values):
-
-            rkeys = keys[0:len(routerkeys)]
-            robjs = values[0:len(routerkeys)]
-
-            snkeys = keys[len(routerkeys):len(routerkeys) + len(subnetkeys)]
-            snobjs = values[len(routerkeys):len(routerkeys) + len(subnetkeys)]
-
-            snmkeys = keys[len(routerkeys) + len(subnetkeys):len(routerkeys) + len(subnetkeys) + len(subnetmapkeys)]
-            snmobjs = values[len(routerkeys) + len(subnetkeys):len(routerkeys) + len(subnetkeys) + len(subnetmapkeys)]
-
-            rpkeys = keys[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys):]
-            rpobjs = values[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys):]
-
-            rdict = dict(zip(rkeys,robjs))
-            sndict = dict(zip(snkeys,zip(snobjs,snmobjs)))
-            rpdict = dict(zip(rpkeys,rpobjs))
-            
-            for i,interface in enumerate(newinterfaces):
-                routerport = interface['id']
-                router = interface['router']
-                subnet = interface['subnet']
-
-                routerobj = rdict.get(VRouter.default_key(router))
-                subnetobj,subnetmapobj = sndict.get(SubNet.default_key(subnet))
-                newrouterport = newrouterportdict.get(RouterPort.default_key(routerport))
-                routerport = rpdict.get(RouterPort.default_key(routerport))
-                
-                if routerobj and subnetobj and subnetmapobj:
-
-                    if newrouterport.create_weakreference() in routerobj.interfaces.dataset():
-                        raise ValueError(" subnet " + subnet + " has been added in router" + subnetobj.router.getkey())
-
-                    # now subnet only have one router ,,so check it (external subnet mybe add more router)
-                    if not hasattr(subnetobj,'router'):
-
-                        # new router port special ip address , we check it in subnetmap
-                        if hasattr(newrouterport,"ip_address"):
-                            ipaddress = ip4_addr(newrouterport.ip_address)
-
-                            n,p = parse_ip4_network(subnetobj.cidr)
-
-                            if not ip_in_network(ipaddress,n,p):
-                                raise ValueError(" special ip address not in subnet cidr")
-
-                            if str(ipaddress) not in subnetmapobj.allocated_ips:
-                                subnetmapobj.allocated_ips[str(ipaddress)] = newrouterport.create_weakreference()
-                            else:
-                                raise ValueError(" ip address have used in subnet "+ newrouterport.ip_address)
+            key = RouterPort.default_key(interface['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: "+interface['id'])
+            parameter_dict[key] = interface
+            keys.add(key)
+            keys.add(VRouter.default_key(interface['router']))
+            keys.add(SubNet.default_key(interface['subnet']))
+            keys.add(SubNetMap.default_key(interface['subnet']))
+        
+        def walker(walk, write):
+            for key, parameters in parameter_dict.items():
+                with suppress(WalkKeyNotRetrieved):
+                    value = walk(key)
+                    value = create_new(RouterPort, value, parameters['id'])
+                    subnet = walk(SubNet.default_key(parameters['subnet']))
+                    if subnet is None:
+                        raise ValueError("Subnet " + parameters['subnet'] + " not exists")
+                    subnet_map = walk(SubNetMap.default_key(parameters['subnet']))
+                    router = walk(VRouter.default_key(parameters['router']))
+                    if router is None:
+                        raise ValueError("Virtual router " + parameters['router'] + " not exists")
+                    if hasattr(subnet, 'router'):
+                        # normal subnet can only have one router
+                        _, (rid,) = VRouter._getIndices(subnet.router.getkey())
+                        raise ValueError("Subnet %r is already in virtual router %r", parameters['subnet'], rid)
+                    if hasattr(subnet_map, 'routers'):
+                        if router.create_weakreference() in subnet_map.routers.dataset():
+                            raise ValueError("Subnet %r is already in virtual router %r", parameters['subnet'],
+                                                                                          parameters['router'])
+                    if 'ip_address' in parameters:
+                        if getattr(subnet, 'isexternal', False):
+                            raise ValueError("Cannot specify IP address when add external subnet to virtual router")
+                        # Check IP address in CIDR
+                        nip = parse_ip4_address(parameters['ip_address'])
+                        cidr, prefix = parse_ip4_network(subnet.cidr)
+                        if not ip_in_network(nip, cidr, prefix):
+                            raise ValueError("IP address " + parameters['ip_address'] + " not in subnet CIDR")
+                        # Check IP not allocated
+                        if str(nip) in subnet_map.allocated_ips:
+                            raise ValueError("IP address " + parameters['ip_address'] + " has been used")
                         else:
-                            # not have special ip address, special gateway to this only router port
-                            # gateway in subnet existed be sure
-
-                            #
-                            # when this case , special subnet gateway as ip_address
-                            # but we do not set ip_address attr ,  when subnet gateway change ,
-                            # we do not need to change router port attr
-
-                            #setattr(newrouterport,"ip_address",subnetobj.gateway)
-
-                            # it may be subnet not have gateway, checkout it
-                            if not hasattr(subnetobj,"gateway"):
-                                raise ValueError(" interface not special ip_address and subnet has no gateway")
-
-                        #routerport = set_new(routerport,newrouterport)
-                        values[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys)+i] = set_new(
-                                    values[len(routerkeys) + len(subnetkeys) + len(subnetmapkeys) + i],
-                                    routerportobjects[i]
-                                )
-
-                        # is subnet is external , don't set router attr
-                        # because it mybe add more one router
-                        if not hasattr(subnetobj, "isexternal"):
-                            subnetobj.router = newrouterport.create_weakreference()
-
-                        routerobj.interfaces.dataset().add(newrouterport.create_weakreference())
+                            # Save to allocated map
+                            subnet_map.allocated_ips[str(nip)] = (value.create_weakreference(), router.create_weakreference())
+                            write(subnet_map.getkey(), subnet_map)
                     else:
-                        raise ValueError(" subnet " + subnet + " have router port " + subnetobj.router.getkey())
-                else:
-                    raise ValueError(" routerobj " + router + "or subnetobj " + subnet + " not existed ")
+                        # Use gateway
+                        if not hasattr(subnet, 'gateway'):
+                            raise ValueError("Subnet " + subnet.id + " does not have a gateway, IP address on router port must be specified explicitly")
+                    if not hasattr(subnet_map, 'routers'):
+                        subnet_map.routers = DataObjectSet()
+                    subnet_map.routers.dataset().add(router.create_weakreference())
+                    if not hasattr(subnet_map, 'routerports'):
+                        subnet_map.routerports = {}
+                    subnet_map.routerports[router.id] = value.create_weakreference()
+                    write(subnet_map.getkey(), subnet_map)
+                    if getattr(subnet, 'isexternal', False):
+                        subnet.router = value.create_weakreference()
+                        write(subnet.getkey(), subnet)
+                    # Save port to router
+                    router.interfaces.dataset().add(value.create_weakreference())
+                    write(router.getkey(), router)
+                    value.router = router.create_reference()
+                    value.subnet = subnet.create_reference()
+                    for k, v in parameters:
+                        if k not in ('router', 'subnet', 'id'):
+                            setattr(value, k, v)
+                    write(key, value)
+        await call_api(self.app_routine,'objectdb','writewalk',
+                       {"keys":keys, 'walker':walker})
+        return await self._dumpkeys(parameter_dict)
 
-            return keys,values
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                         {"keys":keys,"updater":addrouterinterface}):
-                yield m
-        except:
-            raise
-        else:
-            for m in self._dumpkeys(routerportkeys):
-                yield m
-
-    def _createrouterport(self,id,router,subnet,**kwargs):
-        routerport = RouterPort.create_instance(id)
-        routerport.router = ReferenceObject(VRouter.default_key(router))
-        routerport.subnet = ReferenceObject(SubNet.default_key(subnet))
-
-        for k,v in kwargs.items():
-            setattr(routerport,k,v)
-
-        return routerport
-
-    def removerouterinterface(self,router,subnet):
+    async def removerouterinterface(self, router: str, subnet: str):
         """
         Remote a subnet from the router
         
@@ -503,125 +387,51 @@ class VRouterApi(Module):
         if not subnet:
             raise ValueError("must specify subnet id")
 
-        interface = {"router":router,"subnet":subnet}
+        interface = {"router": router, "subnet": subnet}
 
-        for m in self.removerouterinterfaces([interface]):
-            yield m
-
-    def removerouterinterfaces(self,interfaces):
+        await self.removerouterinterfaces([interface])
+    
+    @checked
+    async def removerouterinterfaces(self, interfaces: [{"router": str,
+                                                   "subnet": str}]):
         """
         Remote multiple subnets from routers
         """
-        delete_interfaces = []
         for interface in interfaces:
-            interface = copy.deepcopy(interface)
             if 'router' not in interface:
-                raise ValueError(" must specify router=id")
+                raise ValueError("must specify router ID")
             if "subnet" not in interface:
-                raise ValueError(" must specify subnet=id")
-            delete_interfaces.append(interface)
+                raise ValueError("must specify subnet ID")
+        
+        keys = set()
+        keys.update(VRouter.default_key(interface['router']) for interface in interfaces)
+        keys.update(SubNet.default_key(interface['subnet']) for interface in interfaces)
+        keys.update(SubNetMap.default_key(interface['subnet']) for interface in interfaces)
+        
+        def walker(walk, write):
+            for interface in interfaces:
+                with suppress(WalkKeyNotRetrieved):
+                    router = walk(VRouter.default_key(interface['router']))
+                    if router is None:
+                        raise ValueError("Virtual router " + interface['router'] + " not exists")
+                    subnet = walk(SubNet.default_key(interface['subnet']))
+                    if subnet is None:
+                        raise ValueError("Subnet " + interface['subnet'] + " not exists")
+                    subnet_map = walk(SubNetMap.default_key(interface['subnet']))
+                    if router.create_weakreference() not in subnet_map.routers:
+                        raise ValueError("Subnet %r not in virtual router %r" % (subnet.id, router.id))
+                    port = subnet_map.routerports.pop(router.id)
+                    subnet_map.routers.discard(router.create_weakreference())
+                    write(subnet_map.getkey(), subnet_map)
+                    router.interfaces.discard(port)
+                    write(router.getkey(), None)
+                    write(port.getkey(), None)
 
-        routerkeys = list(set([VRouter.default_key(interface['router']) for interface in delete_interfaces]))
-        for m in self._getkeys(routerkeys):
-            yield m
+        await call_api(self.app_routine,"objectdb","transact",{"keys": keys,
+                                                               "writewalk": walker})
+        return {'status': 'OK'}
 
-        routerobjs = self.app_routine.retvalue
-
-        routerportkeys = set()
-        for key, obj in zip(routerkeys, routerobjs):
-            if not obj:
-                raise ValueError(" vrouter %r not existed " % key)
-            if not obj.interfaces.dataset():
-                raise ValueError(" vrouter %r not have subnet interface " % key)
-
-            for weakobj in obj.interfaces.dataset():
-                router_port_key = weakobj.getkey()
-                routerportkeys.add(router_port_key)
-
-        routerportkeys = list(routerportkeys)
-        subnetkeys = list(set([SubNet.default_key(interface["subnet"]) for interface in delete_interfaces]))
-        subnetmapkeys = list(set([SubNetMap.default_key(interface["subnet"]) for interface in delete_interfaces]))
-        for m in self._getkeys(subnetkeys):
-            yield m
-
-        subnetobjs = self.app_routine.retvalue
-
-        if None in subnetobjs:
-            raise ValueError(" subnet object not existed " +
-                             SubNet._getIndices(subnetkeys[subnetobjs.index(None)])[1][0])
-
-        def delete_interface(keys,values):
-            rkeys = keys[0:len(routerkeys)]
-            robjs = values[0:len(routerkeys)]
-
-            snkeys = keys[len(routerkeys):len(routerkeys) + len(subnetkeys)]
-            snobjs = values[len(routerkeys):len(routerkeys) + len(subnetkeys)]
-
-            snmkeys = keys[len(routerkeys) + len(subnetkeys):len(routerkeys) + len(subnetkeys) + len(subnetmapkeys)]
-            snmobjs = values[len(routerkeys) + len(subnetkeys):len(routerkeys) + len(subnetkeys) + len(subnetmapkeys)]
-
-            rpkeys = keys[-len(routerportkeys):]
-            rpobjs = values[-len(routerportkeys):]
-
-            rdict = dict(zip(rkeys,robjs))
-            sndict = dict(zip(snkeys,snobjs))
-            snmdict = dict(zip(snmkeys,snmobjs))
-            rpdict = dict(zip(rpkeys,rpobjs))
-
-            temp_rp_key = set()
-            for robj in routerobjs:
-                for weakobj in robj.interfaces.dataset():
-                    temp_rp_key.add(weakobj.getkey())
-            if temp_rp_key - set(rpkeys):
-                raise ValueError("data conflict , retry again !")
-
-            remove_rp_keys = []
-            for interface in delete_interfaces:
-                r = rdict.get(VRouter.default_key(interface["router"]), None)
-                sn = sndict.get(SubNet.default_key(interface["subnet"]), None)
-                snm = snmdict.get(SubNetMap.default_key(interface["subnet"]), None)
-                rp = dict()
-                if r and sn and snm:
-                    for rpkey, rpobj in rpdict.items():
-                        rp_to_router_key = rpobj.router.getkey()
-                        if rp_to_router_key == r.getkey():
-                            rp.update({rpkey: rpobj})
-
-                    for rpkey, rpobj in rp.items():
-                        rp_to_subnet_key = rpobj.subnet.getkey()
-                        if rp_to_subnet_key == sn.getkey():
-                            remove_rp_keys.append(rpkey)
-                            # has not attr ip_address, means router port use subnet gateway as ip_address
-                            if hasattr(rpobj, 'ip_address'):
-                                # it means have allocated ip address in subnetmap, delete it
-                                ipaddress = ip4_addr(rpobj.ip_address)
-                                del snm.allocated_ips[str(ipaddress)]
-
-                            # one subnet only have one router , so del this attr
-                            # when subnet is external , it do not has router attr
-                            if hasattr(sn, 'router'):
-                                delattr(sn, 'router')
-
-                            if rpobj.create_weakreference() in r.interfaces.dataset():
-                                r.interfaces.dataset().discard(rpobj.create_weakreference())
-                            else:
-                                raise ValueError("router " + interface["router"] + " have no router port " +
-                                                 interface["routerport"])
-                else:
-                    raise ValueError("route " + interface["router"] + " subnet " + interface["subnet"] +
-                                     " routerport " + interface["routerport"] + " not existed!")
-
-            return rkeys + snkeys + snmkeys + tuple(remove_rp_keys), robjs + snobjs + snmobjs + [None]*len(remove_rp_keys)
-
-        transact_keys = routerkeys + subnetkeys + subnetmapkeys + routerportkeys
-
-        for m in callAPI(self.app_routine,"objectdb","transact",{"keys":transact_keys,
-                                                                 "updater":delete_interface}):
-            yield m
-
-        self.app_routine.retvalue = {'status': 'OK'}
-
-    def listrouterinterfaces(self,id,**kwargs):
+    async def listrouterinterfaces(self, id: str, **kwargs):
         """
         Query router ports from a virtual router
         
@@ -632,18 +442,16 @@ class VRouterApi(Module):
         :return: a list of dictionaries each stands for a matched router interface
         """
         if not id:
-            raise ValueError(" must special router id")
+            raise ValueError("must specify router id")
 
         routerkey = VRouter.default_key(id)
 
-        self._reqid = +1
-        reqid = ("virtualrouter",self._reqid)
+        self._reqid += 1
+        reqid = ("virtualrouter", self._reqid)
         
-        def set_walker(key,interfaces,walk,save):
-
+        def set_walker(key, interfaces, walk, save):
             for weakobj in interfaces.dataset():
                 vpkey = weakobj.getkey()
-                
                 try:
                     virtualport = walk(vpkey)
                 except KeyError:
@@ -653,25 +461,18 @@ class VRouterApi(Module):
                         save(vpkey)
         
         def walk_func(filter_func):
-
             def walker(key,obj,walk,save):
                 if obj is None:
                     return
-            
                 set_walker(key,filter_func(obj),walk,save)
-
             return walker
-        for m in callAPI(self.app_routine,"objectdb","walk",
-                {"keys":[routerkey],"walkerdict":{routerkey:walk_func(lambda x:x.interfaces)},
-                    "requestid":reqid}):
-            yield m
+        with request_context(reqid, self.app_routine):
+            _, values = await call_api(self.app_routine,"objectdb","walk",
+                                            {"keys":[routerkey],"walkerdict":{routerkey:walk_func(lambda x:x.interfaces)},
+                                                "requestid":reqid})
+            return [dump(r) for r in values]
 
-        keys,values = self.app_routine.retvalue
-
-        with watch_context(keys,values,reqid,self.app_routine):
-            self.app_routine.retvalue = [dump(r) for r in values]
-
-    def load(self,container):
+    async def load(self,container):
 
         initkeys = [VRouterSet.default_key(),DVRouterForwardSet.default_key(),
                     DVRouterExternalAddressInfo.default_key()]
@@ -690,11 +491,7 @@ class VRouterApi(Module):
             return keys,values
 
         
-        for m in callAPI(container,"objectdb","transact",
-                         {"keys":initkeys,"updater":init}):
-            yield m
+        await call_api(container,"objectdb","transact",
+                         {"keys":initkeys,"updater":init})
         
-        for m in Module.load(self,container):
-            yield m
-
-
+        await Module.load(self, container)

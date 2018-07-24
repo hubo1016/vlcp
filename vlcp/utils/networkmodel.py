@@ -97,6 +97,8 @@ class SubNetMap(DataObject):
         super(SubNetMap, self).__init__(
                 prefix=prefix, deleted=deleted)
         self.allocated_ips = dict()
+        self.routers = DataObjectSet()
+        self.routerports = dict()
 
 
 SubNetMap._subnet = Relationship(SubNetMap, SubNet, ('id', 'id'))
