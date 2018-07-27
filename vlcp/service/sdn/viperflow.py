@@ -109,6 +109,7 @@ create_logicalnetwork_prekey = create_physicalport_prekey
 
 logicalnetwork_gettype = physicalport_gettype
 
+lease_time_type = (autoint, extra(str, check=lambda x: x == 'infinite'), None)
 
 def dispatch_async_walker(parameter_dict, create, get_type, publicapi_,
                           direct_get_type = False,
@@ -653,7 +654,7 @@ class ViperFlow(Module):
                                                     "?dns_nameservers": ([ip_address_type], None),
                                                     "?domain_name": (str, None),
                                                     "?ntp_servers": ([ip_address_type], None),
-                                                    "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                    "?lease_time": lease_time_type,
                                                     "?extra_dhcp_options": dhcp_options_type
                                                     }):
         """
@@ -691,7 +692,7 @@ class ViperFlow(Module):
                                                      "?dns_nameservers": ([ip_address_type], None),
                                                      "?domain_name": (str, None),
                                                      "?ntp_servers": ([ip_address_type], None),
-                                                     "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                     "?lease_time": lease_time_type,
                                                      "?extra_dhcp_options": dhcp_options_type}]):
         """
         Create multiple logical networks in a transaction.
@@ -725,7 +726,7 @@ class ViperFlow(Module):
                                                             "?dns_nameservers": ([ip_address_type], None),
                                                             "?domain_name": (str, None),
                                                             "?ntp_servers": ([ip_address_type], None),
-                                                            "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                            "?lease_time": lease_time_type,
                                                             "?extra_dhcp_options": dhcp_options_type}):
         """
         Update logical network attributes of the ID
@@ -744,7 +745,7 @@ class ViperFlow(Module):
                                                      "?dns_nameservers": ([ip_address_type], None),
                                                      "?domain_name": (str, None),
                                                      "?ntp_servers": ([ip_address_type], None),
-                                                     "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                     "?lease_time": lease_time_type,
                                                      "?extra_dhcp_options": dhcp_options_type}]):
         """
         Update multiple logical networks in a transaction
@@ -1220,7 +1221,7 @@ class ViperFlow(Module):
                                             "?dns_nameservers": ([ip_address_type], None),
                                             "?domain_name": (str, None),
                                             "?ntp_servers": ([ip_address_type], None),
-                                            "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                            "?lease_time": lease_time_type,
                                             "?extra_dhcp_options": dhcp_options_type}):
         """
         Create a subnet for the logical network.
@@ -1282,7 +1283,7 @@ class ViperFlow(Module):
                                              "?dns_nameservers": ([ip_address_type], None),
                                              "?domain_name": (str, None),
                                              "?ntp_servers": ([ip_address_type], None),
-                                             "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                             "?lease_time": lease_time_type,
                                              "?extra_dhcp_options": dhcp_options_type}]):
         """
         Create multiple subnets in a transaction.
@@ -1390,7 +1391,7 @@ class ViperFlow(Module):
                                                     "?dns_nameservers": ([ip_address_type], None),
                                                     "?domain_name": (str, None),
                                                     "?ntp_servers": ([ip_address_type], None),
-                                                    "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                    "?lease_time": lease_time_type,
                                                     "?extra_dhcp_options": dhcp_options_type}):
         """
         Update subnet attributes
@@ -1416,7 +1417,7 @@ class ViperFlow(Module):
                                              "?dns_nameservers": ([ip_address_type], None),
                                              "?domain_name": (str, None),
                                              "?ntp_servers": ([ip_address_type], None),
-                                             "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                             "?lease_time": lease_time_type,
                                              "?extra_dhcp_options": dhcp_options_type}]):
         """
         Update multiple subnets

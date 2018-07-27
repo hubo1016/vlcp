@@ -5,7 +5,7 @@ import time
 from vlcp.server.module import Module,depend,call_api
 from vlcp.server import main
 from vlcp.event.runnable import RoutineContainer
-from vlcp.service.sdn import viperflow
+import vlcp.service.sdn.viperflow as viperflow
 
 logger = logging.getLogger("testviperflow")
 logger.setLevel(logging.DEBUG)
