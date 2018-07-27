@@ -290,11 +290,11 @@ class OVSDBManager(Module):
         "Wait for a datapath connection"
         c = await self.getconnection(datapathid, vhost)
         if c is None:
-            timeout, ev, m = await self.apiroutine.wait_with_timeout(timeout,
+            timeout_, ev, m = await self.apiroutine.wait_with_timeout(timeout,
                                             OVSDBBridgeSetup.createMatcher(
                                                     state = OVSDBBridgeSetup.UP,
                                                     datapathid = datapathid, vhost = vhost))
-            if timeout:
+            if timeout_:
                 raise ConnectionResetException('Datapath is not connected')
             return ev.connection
         else:
@@ -368,8 +368,8 @@ class OVSDBManager(Module):
             conn_down = JsonRPCConnectionStateEvent.createMatcher(JsonRPCConnectionStateEvent.CONNECTION_DOWN,
                                                                   connection,
                                                                   connection.connmark)
-            timeout, ev, m = await self.apiroutine.wait_with_timeout(timeout, bridge_setup, conn_down)
-            if timeout:
+            timeout_, ev, m = await self.apiroutine.wait_with_timeout(timeout, bridge_setup, conn_down)
+            if timeout_:
                 raise OVSDBBridgeNotAppearException('Bridge ' + repr(name) + ' does not appear')
             elif m is conn_down:
                 raise ConnectionResetException('Connection is down before bridge ' + repr(name) + ' appears')
@@ -401,8 +401,8 @@ class OVSDBManager(Module):
             conn_down = JsonRPCConnectionStateEvent.createMatcher(JsonRPCConnectionStateEvent.CONNECTION_DOWN,
                                                                   connection,
                                                                   connection.connmark)
-            timeout, ev, m = await self.apiroutine.wait_with_timeout(timeout, bridge_setup, conn_down)
-            if timeout:
+            timeout_, ev, m = await self.apiroutine.wait_with_timeout(timeout, bridge_setup, conn_down)
+            if timeout_:
                 raise OVSDBBridgeNotAppearException('Bridge ' + repr(uuid) + ' does not appear')
             elif m is conn_down:
                 raise ConnectionResetException('Connection is down before bridge ' + repr(uuid) + ' appears')
@@ -429,11 +429,11 @@ class OVSDBManager(Module):
         "Wait for a connection with specified system-id"
         c = await self.getconnectionbysystemid(systemid, vhost)
         if c is None:
-            timeout, ev, _ = await self.apiroutine.wait_with_timeout(
+            timeout_, ev, _ = await self.apiroutine.wait_with_timeout(
                                             timeout, 
                                             OVSDBConnectionSetup.createMatcher(
                                                     systemid, None, None, vhost))
-            if timeout:
+            if timeout_:
                 raise ConnectionResetException('Datapath is not connected')
             return ev.connection
         else:
@@ -454,8 +454,8 @@ class OVSDBManager(Module):
             request = (name, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG | socket.AI_V4MAPPED)
             # Resolve hostname
             await self.apiroutine.wait_for_send(ResolveRequestEvent(request))
-            timeout, ev, _ = await self.apiroutine.wait_with_timeout(timeout, ResolveResponseEvent.createMatcher(request))
-            if timeout:
+            timeout_, ev, _ = await self.apiroutine.wait_with_timeout(timeout, ResolveResponseEvent.createMatcher(request))
+            if timeout_:
                 # Resolve is only allowed through asynchronous resolver
                 #try:
                 #    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
@@ -506,12 +506,14 @@ class OVSDBManager(Module):
         "Wait for bridge with datapathid, and return ``(bridgename, systemid, bridge_uuid)`` tuple"
         bridge = await self.getbridgeinfo(datapathid, vhost)
         if bridge is None:
-            timeout, ev, m = await self.apiroutine.wait_with_timeout(
+            timeout_, ev, m = await self.apiroutine.wait_with_timeout(
                                             timeout,
                                             OVSDBBridgeSetup.createMatcher(
                                                         OVSDBBridgeSetup.UP, datapathid,
                                                         None, None, None, None,
                                                         vhost))
-            if timeout:
+            if timeout_:
                 raise OVSDBBridgeNotAppearException('Bridge 0x%016x does not appear before timeout' % (datapathid,))
             return (ev.name, ev.systemid, ev.bridgeuuid)
+        else:
+            return bridge

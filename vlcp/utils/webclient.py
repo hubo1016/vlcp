@@ -422,7 +422,7 @@ class WebClient(Configurable):
                     datagen_routine = container.subroutine(datagen)
                 else:
                     datagen_routine = None
-                timeout, result = await container.execute_with_timeout(
+                timeout_, result = await container.execute_with_timeout(
                                                 timeout,
                                                 self._protocol.request_with_response(
                                                         container,
@@ -431,7 +431,7 @@ class WebClient(Configurable):
                                                         _bytes(request.path),
                                                         _bytes(request.method),
                                                         [(_bytes(k), _bytes(v)) for k,v in request.header_items()], stream))
-                if timeout:
+                if timeout_:
                     if datagen_routine:
                         container.terminate(datagen_routine)
                     container.subroutine(self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True), False)

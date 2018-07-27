@@ -4,13 +4,14 @@ Created on 2016/12/1
 :author: hubo
 '''
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module, api, depend, ModuleNotification, callAPI
+from vlcp.server.module import Module, api, depend, ModuleNotification, call_api,\
+    send_api
 from vlcp.event.runnable import RoutineContainer
 import vlcp.utils.ovsdb as ovsdb
 import vlcp.service.connection.jsonrpcserver as jsonrpcserver
 from vlcp.protocol.jsonrpc import JsonRPCErrorResultException,\
     JsonRPCConnectionStateEvent, JsonRPCNotificationEvent
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 from contextlib import closing
 from vlcp.event.connection import ConnectionResetException
 from vlcp.utils.vxlandiscover import lognet_vxlan_walker, update_vxlaninfo,\
@@ -84,11 +85,11 @@ class VtepController(Module):
         self._monitor_routines = set()
         self._requestid = 0
         
-    def _wait_for_sync(self):
+    async def _wait_for_sync(self):
         if not self._synchronized:
-            yield (ModuleNotification.createMatcher(self.getServiceName(), 'synchronized'),)
+            await ModuleNotification.createMatcher(self.getServiceName(), 'synchronized')
     
-    def _monitor_conn(self, conn, notification = False):
+    async def _monitor_conn(self, conn, notification = False):
         current_routine = self.apiroutine.currentroutine
         self._monitor_routines.add(current_routine)
         ls_monitor = self.apiroutine.subroutine(self._monitor_logicalswitches(conn))
@@ -143,17 +144,12 @@ class VtepController(Module):
                                         ovsdb.monitor_request(['name', 'tunnel_ips'], True, True, True, True)
                                 })
             try:
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
             except JsonRPCErrorResultException:
                 # The monitor is already set, cancel it first
                 method2, params2 = ovsdb.monitor_cancel('vlcp_vtepcontroller_physicalswitch_monitor')
-                for m in protocol.querywithreply(method2, params2, conn, self.apiroutine, False):
-                    yield m
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                await protocol.querywithreply(method2, params2, conn, self.apiroutine, False)
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
             for r in result['Physical_Switch'].values():
                 _process_result(r)
             initialized = True
@@ -162,11 +158,11 @@ class VtepController(Module):
             monitor_matcher = ovsdb.monitor_matcher(conn, 'vlcp_vtepcontroller_physicalswitch_monitor')
             conn_state = protocol.statematcher(conn)
             while True:
-                yield (monitor_matcher, conn_state)
-                if self.apiroutine.matcher is conn_state:
+                ev, m = await M_(monitor_matcher, conn_state)
+                if m is conn_state:
                     break
                 else:
-                    for r in self.apiroutine.event.params[1]['Physical_Switch'].values():
+                    for r in ev.params[1]['Physical_Switch'].values():
                         _process_result(r)
         except Exception:
             self._logger.warning('Initialize OVSDB vtep connection failed, maybe this is not a valid vtep endpoint',
@@ -183,32 +179,27 @@ class VtepController(Module):
                 del self._connection_ps[conn]
             self._monitor_routines.discard(current_routine)
 
-    def _monitor_logicalswitches(self, conn):
+    async def _monitor_logicalswitches(self, conn):
         protocol = conn.protocol
         lockid = self.masterlock
         # There may be multiple vtep controllers running, only the one which successfully acquired the
         # master lock should update the ObjectDB
         method, params = ovsdb.lock(lockid)
-        def _unlock():
+        async def _unlock():
             method, params = ovsdb.unlock(lockid)
             if conn.connected:
                 try:
-                    for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                        yield m
+                    await protocol.querywithreply(method, params, conn, self.apiroutine)
                 except Exception:
                     # Any result is acceptable, including: error result; connection down; etc.
                     # We don't report an exception that we cannot do anything for it.
                     pass
         try:
-            for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                yield m
+            result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
         except JsonRPCErrorResultException:
             # For some reason the lock is not released? let's try it out
-            for m in _unlock():
-                yield m
-            for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                yield m                
-        result = self.apiroutine.jsonrpc_result
+            await _unlock()
+            result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
         switch_routines = {}
         try:
             if not result['locked']:
@@ -219,8 +210,8 @@ class VtepController(Module):
                                             conn.connmark,
                                             _ismatch = lambda x: x.params[0] == lockid)
                 conn_matcher = protocol.statematcher(conn)
-                yield (lock_notification, conn_matcher)
-                if self.apiroutine.matcher is conn_matcher:
+                _, m = await M_(lock_notification, conn_matcher)
+                if m is conn_matcher:
                     return
             # Now we acquired the lock, start monitoring the logical switches
             method, params = ovsdb.monitor(
@@ -231,29 +222,24 @@ class VtepController(Module):
                                         ovsdb.monitor_request(['name'], True, True, True, False)
                                 })
             try:
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
             except JsonRPCErrorResultException:
                 # The monitor is already set, cancel it first
                 method2, params2 = ovsdb.monitor_cancel('vlcp_vtepcontroller_logicalswitch_monitor')
-                for m in protocol.querywithreply(method2, params2, conn, self.apiroutine, False):
-                    yield m
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                await protocol.querywithreply(method2, params2, conn, self.apiroutine, False)
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
             if 'Logical_Switch' in result:
                 for k, r in result['Logical_Switch'].items():
                     switch_routines[k] = self.apiroutine.subroutine(self._update_logicalswitch_info(conn, r['new']['name'], k))
             monitor_matcher = ovsdb.monitor_matcher(conn, 'vlcp_vtepcontroller_logicalswitch_monitor')
             conn_state = protocol.statematcher(conn)
             while True:
-                yield (monitor_matcher, conn_state)
-                if self.apiroutine.matcher is conn_state:
+                ev, m = await M_(monitor_matcher, conn_state)
+                if m is conn_state:
                     break
-                updates = self.apiroutine.event.params[1]
+                updates = ev.params[1]
                 if 'Logical_Switch' in updates:
-                    for k,r in self.apiroutine.event.params[1]['Logical_Switch'].items():
+                    for k,r in ev.params[1]['Logical_Switch'].items():
                         if 'old' in r:
                             if k in switch_routines:
                                 switch_routines[k].close()
@@ -267,13 +253,13 @@ class VtepController(Module):
                 r.close()
             self.apiroutine.subroutine(_unlock(), False)
     
-    def _push_logicalswitch_endpoints(self, conn, logicalswitchid):
+    async def _push_logicalswitch_endpoints(self, conn, logicalswitchid):
         while True:
             if conn in self._connection_ps:
                 ps_list = [(name, self._physical_switchs[name][1])
                            for name in self._connection_ps[conn]]
                 for name, tunnel_ip in ps_list:
-                    with closing(update_vxlaninfo(
+                    await update_vxlaninfo(
                                     self.apiroutine,
                                     {logicalswitchid: tunnel_ip},
                                     {},
@@ -282,14 +268,10 @@ class VtepController(Module):
                                     name,
                                     'hardware_vtep',
                                     self.allowedmigrationtime,
-                                    self.refreshinterval)) as g:
-                        for m in g:
-                            yield m
-            with closing(self.apiroutine.waitWithTimeout(self.refreshinterval)) as g:
-                for m in g:
-                    yield m
+                                    self.refreshinterval)
+            await self.apiroutine.wait_with_timeout(self.refreshinterval)
     
-    def _poll_logicalswitch_endpoints(self, conn, logicalswitchid, lsuuid):
+    async def _poll_logicalswitch_endpoints(self, conn, logicalswitchid, lsuuid):
         protocol = conn.protocol
         walker = lognet_vxlan_walker(self.prepush)
         self._requestid += 1
@@ -301,11 +283,9 @@ class VtepController(Module):
         _update_set = set()
         _detect_update_routine = None
         identifier = object()
-        def _detect_update(saved_result):
+        async def _detect_update(saved_result):
             while True:
-                for m in multiwaitif(saved_result, self.apiroutine, lambda x,y: True, True):
-                    yield m
-                updated_values, _ = self.apiroutine.retvalue
+                updated_values, _ = await multiwaitif(saved_result, self.apiroutine, lambda x,y: True, True)
                 if not _update_set:
                     self.apiroutine.scheduler.emergesend(_DataUpdateEvent(identifier))
                 _update_set.update(updated_values)
@@ -315,7 +295,7 @@ class VtepController(Module):
         # These are: set of network tunnelips; dictionary for mac: tunnelip; last_physical_switch
         _last_endpoints = [set(), {}, None]
         
-        def _update_hardware_vtep(saved_result):
+        async def _update_hardware_vtep(saved_result):
             if conn not in self._connection_ps or not self._connection_ps[conn]:
                 _last_endpoints[:] = [set(), {}, None]
                 return
@@ -389,9 +369,7 @@ class VtepController(Module):
                                           for ip in using_ips)
                     method, params = ovsdb.transact('hardware_vtep',
                                                     *check_operates)
-                    for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                        yield m
-                    result = self.apiroutine.jsonrpc_result
+                    result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                     _check_transact_result(result, check_operates)
                     if not result[0]['rows']:
                         # Logical switch is removed
@@ -495,9 +473,7 @@ class VtepController(Module):
                                                           "locator": locator_uuid_dict[tunnel]})
                                             for mac, tunnel in add_ucasts.items())
                     method, params = ovsdb.transact('hardware_vtep', *(wait_operates + set_operates))
-                    for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                        yield m
-                    result = self.apiroutine.jsonrpc_result
+                    result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                     if any(r is None or 'error' in r for r in result[:len(wait_operates)]):
                         # Some wait operates failed, retry
                         continue
@@ -511,81 +487,70 @@ class VtepController(Module):
                 _last_endpoints[:] = [broadcast_ips, mac_ip_dict, ps]
         try:
             while True:
-                for m in callAPI(self.apiroutine, 'objectdb', 'walk',
+                walk_result = await call_api(self.apiroutine, 'objectdb', 'walk',
                                  {'keys': (lognet_key,
                                            endpointset_key,
                                            lognetmap_key),
                                   'walkerdict': {lognet_key: walker},
                                   'requestid': requestid
-                                  }):
-                    yield m
+                                  })
                 if _update_set:
                     _update_set.clear()
                     continue
                 lastkeys = set(_savedkeys)
-                _savedkeys, _savedresult = self.apiroutine.retvalue
+                _savedkeys, _savedresult = walk_result
                 if _detect_update_routine is not None:
                     _detect_update_routine.close()
                 _detect_update_routine = self.apiroutine.subroutine(_detect_update(_savedresult), False)
                 removekeys = tuple(lastkeys.difference(_savedkeys))
                 if removekeys:
                     # Unwatch unnecessary keys
-                    for m in callAPI(self.apiroutine, 'objectdb', 'munwatch', {'keys': removekeys,
-                                                                    'requestid': requestid}):
-                        yield m
-                for m in _update_hardware_vtep(_savedresult):
-                    yield m
+                    await call_api(self.apiroutine, 'objectdb', 'munwatch', {'keys': removekeys,
+                                                                    'requestid': requestid})
+                await _update_hardware_vtep(_savedresult)
                 while True:
                     if not _update_set:
-                        yield (update_matcher,)
+                        await update_matcher
                     should_rewalk = any(v.getkey() in rewalk_keys for v in _update_set if v is not None)
                     _update_set.clear()
                     if should_rewalk:
                         break
                     else:
-                        for m in _update_hardware_vtep(_savedresult):
-                            yield m
+                        await _update_hardware_vtep(_savedresult)
         finally:
             if _detect_update_routine is not None:
                 _detect_update_routine.close()
-            self.apiroutine.subroutine(callAPI(self.apiroutine,'objectdb', 'unwatchall', {'requestid': requestid}))
+            self.apiroutine.subroutine(send_api(self.apiroutine,'objectdb', 'unwatchall', {'requestid': requestid}), False)
     
-    def _update_logicalswitch_info(self, conn, logicalswitch, lsuuid):
-        with closing(self.apiroutine.executeAll([self._push_logicalswitch_endpoints(conn, logicalswitch),
-                                                 self._poll_logicalswitch_endpoints(conn, logicalswitch, lsuuid)], None, ())) as g:
-            for m in g:
-                yield m
+    async def _update_logicalswitch_info(self, conn, logicalswitch, lsuuid):
+        await self.apiroutine.execute_all([self._push_logicalswitch_endpoints(conn, logicalswitch),
+                                           self._poll_logicalswitch_endpoints(conn, logicalswitch, lsuuid)])
     
-    def _manage_existing(self):
-        for m in callAPI(self.apiroutine, "jsonrpcserver", "getconnections", {}):
-            yield m
+    async def _manage_existing(self):
+        conns = await call_api(self.apiroutine, "jsonrpcserver", "getconnections", {})
         vb = self.vhostbind
-        conns = self.apiroutine.retvalue
         matchers = []
         for c in conns:
             if vb is None or c.protocol.vhost in vb:
                 self.apiroutine.subroutine(self._monitor_conn(c, True))
                 matchers.append(VtepConnectionSynchronized.createMatcher(c))
-        for m in self.apiroutine.waitForAll(*matchers):
-            yield m
+        await self.apiroutine.wait_for_all(*matchers)
         self._synchronized = True
-        for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):
-            yield m
+        await self.apiroutine.wait_for_send(ModuleNotification(self.getServiceName(), 'synchronized'))
             
-    def _recycling(self):
+    async def _recycling(self):
         interval = self.recycleinterval
         if interval is None:
             return
-        def _recycle_logical_switches(conn):
+        async def _recycle_logical_switches(conn):
             try:
                 protocol = conn.protocol
                 method, params = ovsdb.transact('hardware_vtep',
                                                 ovsdb.select('Logical_Switch',
                                                              [],
                                                              ["_uuid", "name"]))
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                ls_list = [(r['_uuid'][1], r['name']) for r in self.apiroutine.jsonrpc_result[0]['rows']]
+                jsonrpc_result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
+                ls_list = [(r['_uuid'][1], r['name']) for r in jsonrpc_result[0]['rows']]
                 for l, name in ls_list:
                     method, params = ovsdb.transact('hardware_vtep',
                                                     ovsdb.delete('Ucast_Macs_Remote',
@@ -598,26 +563,21 @@ class VtepController(Module):
                                                                  [["logical_switch", "==", ovsdb.uuid(l)]]),
                                                     ovsdb.delete('Logical_Switch',
                                                                  [["_uuid", "==", ovsdb.uuid(l)]]))
-                    for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                        yield m
+                    jsonrpc_result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                     # If the logical switch is still referenced, the transact will fail
-                    if 'error' in self.apiroutine.jsonrpc_result[0]:
+                    if 'error' in jsonrpc_result[0]:
                         self._logger.warning('Recycling logical switch %r (uuid = %r) failed: %r',
-                                             name, l, self.apiroutine.jsonrpc_result[0]['error'])
-                    elif not any(r for r in self.apiroutine.jsonrpc_result if 'error' in r):
+                                             name, l, jsonrpc_result[0]['error'])
+                    elif not any(r for r in jsonrpc_result if 'error' in r):
                         self._logger.info('Recycle logical switch %r for no longer in use', name)
             except Exception:
                 self._logger.warning('Recycling failed on connecton %r', conn, exc_info = True)
         while True:
-            with closing(self.apiroutine.waitWithTimeout(interval)) as g:
-                for m in g:
-                    yield m
-            with closing(self.apiroutine.executeAll([_recycle_logical_switches(c)
-                                                     for c in self._connection_ps], None, ())) as g:
-                for m in g:
-                    yield m
-                    
-    def _main(self):
+            await self.apiroutine.wait_with_timeout(interval)
+            await self.apiroutine.execute_all([_recycle_logical_switches(c)
+                                               for c in self._connection_ps])
+
+    async def _main(self):
         self.apiroutine.subroutine(self._manage_existing())
         self.apiroutine.subroutine(self._recycling(), True, '_recycling_routine')
         try:
@@ -628,15 +588,15 @@ class VtepController(Module):
             else:
                 conn_up = JsonRPCConnectionStateEvent.createMatcher(state = JsonRPCConnectionStateEvent.CONNECTION_UP)
             while True:
-                yield (conn_up,)
-                self.apiroutine.subroutine(self._monitor_conn(self.apiroutine.event.connection))
+                ev = await conn_up
+                self.apiroutine.subroutine(self._monitor_conn(ev.connection))
         finally:
             for r in list(self._monitor_routines):
                 r.close()
             if hasattr(self.apiroutine, '_recycling_routine'):
                 self.apiroutine._recycling_routine.close()
         
-    def listphysicalports(self, physicalswitch = None):
+    async def listphysicalports(self, physicalswitch = None):
         '''
         Get physical ports list from this controller, grouped by physical switch name
         
@@ -644,51 +604,44 @@ class VtepController(Module):
         
         :return: dictionary: {physicalswitch: [physicalports]} e.g. {'ps1': ['port1', 'port2']}
         '''
-        for m in self._wait_for_sync():
-            yield m
-        def _getports(conn):
+        await self._wait_for_sync()
+        async def _getports(conn):
             try:
                 method, params = ovsdb.transact('hardware_vtep',
                                                 ovsdb.select('Physical_Switch', [], ["name", "ports"]),
                                                 ovsdb.select('Physical_Port', [], ["_uuid", "name"]))
-                for m in conn.protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await conn.protocol.querywithreply(method, params, conn, self.apiroutine)
                 if 'error' in result[0] or 'error' in result[1]:
                     raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(result))
                 switches = result[0]['rows']
                 ports = result[1]['rows']
                 ports_dict = dict((r['_uuid'][1], r['name']) for r in ports)
-                self.apiroutine.retvalue = dict((switch['name'],
-                                                 [ports_dict[p[1]] for p in ovsdb.getlist(switch['ports'])
-                                                  if p[1] in ports_dict])
-                                                for switch in switches)
+                return dict((switch['name'],
+                             [ports_dict[p[1]] for p in ovsdb.getlist(switch['ports'])
+                              if p[1] in ports_dict])
+                            for switch in switches)
             except Exception:
                 self._logger.warning('Query OVSDB on %r failed with exception; will ignore this connection',
                                      conn, exc_info = True)
-                self.apiroutine.retvalue = {}
+                return {}
         if physicalswitch is None:
             routines = [_getports(c) for c in self._connection_ps]
-            with closing(self.apiroutine.executeAll(routines)) as g:
-                for m in g:
-                    yield m
+            result = await self.apiroutine.execute_all(routines)
             all_result = {}
-            for (r,) in self.apiroutine.retvalue:
+            for r in result:
                 all_result.update(r)
-            self.apiroutine.retvalue = all_result
+            return all_result
         else:
             if physicalswitch not in self._physical_switchs:
-                self.apiroutine.retvalue = {}
+                return {}
             else:
-                for m in _getports(self._physical_switchs[physicalswitch]):
-                    yield m
-                result = self.apiroutine.retvalue
+                result = await _getports(self._physical_switchs[physicalswitch])
                 if physicalswitch in result:
-                    self.apiroutine.retvalue = {physicalswitch: result[physicalswitch]}
+                    return {physicalswitch: result[physicalswitch]}
                 else:
-                    self.apiroutine.retvalue = {}
+                    return {}
     
-    def listphysicalswitches(self, physicalswitch = None):
+    async def listphysicalswitches(self, physicalswitch = None):
         '''
         Get physical switch info
         
@@ -697,52 +650,45 @@ class VtepController(Module):
         :return: dictionary: {physicalswitch: {key: value}} keys include: management_ips,
                              tunnel_ips, description, switch_fault_status
         '''
-        for m in self._wait_for_sync():
-            yield m
-        def _getswitch(conn):
+        await self._wait_for_sync()
+        async def _getswitch(conn):
             try:
                 method, params = ovsdb.transact('hardware_vtep',
                                                 ovsdb.select('Physical_Switch', [],
                                                              ["name", "management_ips", "tunnel_ips",
                                                               "description", "switch_fault_status"]))
-                for m in conn.protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await conn.protocol.querywithreply(method, params, conn, self.apiroutine)
                 if 'error' in result[0]:
                     raise JsonRPCErrorResultException('OVSDB request failed: ' + repr(result))
                 switches = result[0]['rows']
-                self.apiroutine.retvalue = dict((s['name'],
-                                                 {'management_ips': ovsdb.getlist(s['management_ips']),
-                                                  'tunnel_ips': ovsdb.getlist(s['tunnel_ips']),
-                                                  'description': s['description'],
-                                                  'switch_fault_status': ovsdb.getlist(s['switch_fault_status'])})
-                                                for s in switches)
+                return dict((s['name'],
+                             {'management_ips': ovsdb.getlist(s['management_ips']),
+                              'tunnel_ips': ovsdb.getlist(s['tunnel_ips']),
+                              'description': s['description'],
+                              'switch_fault_status': ovsdb.getlist(s['switch_fault_status'])})
+                            for s in switches)
             except Exception:
                 self._logger.warning('Query OVSDB on %r failed with exception; will ignore this connection',
                                      conn, exc_info = True)
-                self.apiroutine.retvalue = {}
+                return {}
         if physicalswitch is None:
             routines = [_getswitch(c) for c in self._connection_ps]
-            with closing(self.apiroutine.executeAll(routines)) as g:
-                for m in g:
-                    yield m
+            result = await self.apiroutine.execute_all(routines)
             all_result = {}
-            for (r,) in self.apiroutine.retvalue:
+            for r in result:
                 all_result.update(r)
-            self.apiroutine.retvalue = all_result
+            return all_result
         else:
             if physicalswitch not in self._physical_switchs:
-                self.apiroutine.retvalue = {}
+                return {}
             else:
-                for m in _getswitch(self._physical_switchs[physicalswitch]):
-                    yield m
-                result = self.apiroutine.retvalue
+                result = await _getswitch(self._physical_switchs[physicalswitch])
                 if physicalswitch in result:
-                    self.apiroutine.retvalue = {physicalswitch: result[physicalswitch]}
+                    return {physicalswitch: result[physicalswitch]}
                 else:
-                    self.apiroutine.retvalue = {}
-        
-    def updatelogicalswitch(self, physicalswitch, physicalport, vlanid, logicalnetwork, vni, logicalports):
+                    return {}
+
+    async def updatelogicalswitch(self, physicalswitch, physicalport, vlanid, logicalnetwork, vni, logicalports):
         '''
         Bind VLAN on physicalport to specified logical network, and update logical port vxlan info
         
@@ -758,8 +704,7 @@ class VtepController(Module):
         
         :param logicalports: a list of logical port IDs. The VXLAN info of these ports will be updated.
         '''
-        for m in self._wait_for_sync():
-            yield m
+        await self._wait_for_sync()
         vlanid = int(vlanid)
         vni = int(vni)
         if physicalswitch is None:
@@ -767,13 +712,12 @@ class VtepController(Module):
         # We may retry some times
         while True:
             if physicalswitch not in self._physical_switchs:
-                with closing(self.apiroutine.waitWithTimeout(5,
+                timeout, _, _ = await self.apiroutine.wait_with_timeout(
+                                                         5,
                                                          VtepPhysicalSwitchStateChanged.createMatcher(
                                                             VtepPhysicalSwitchStateChanged.UP,
-                                                            physicalswitch))) as g:
-                    for m in g:
-                        yield m
-                if self.apiroutine.timeout or physicalswitch not in self._physical_switchs:
+                                                            physicalswitch))
+                if timeout or physicalswitch not in self._physical_switchs:
                     raise ValueError('Physical switch %r is not found' % (physicalswitch,))
             conn, tunnelip = self._physical_switchs[physicalswitch]
             protocol = conn.protocol
@@ -790,9 +734,7 @@ class VtepController(Module):
                                                              [["name", "==", logicalnetwork]],
                                                              ["_uuid", "name"])
                                                 )
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                 if 'rows' not in result[0]:
                     raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
                 if 'rows' not in result[1]:
@@ -872,27 +814,21 @@ class VtepController(Module):
                                                                  else ovsdb.named_uuid('new_logicalnetwork'))
                                                     )]]))
                 method, params = ovsdb.transact('hardware_vtep', *operations)
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                 if any(r for r in result[:3] if 'error' in r):
                     # Wait failed, the OVSDB is modified, retry
                     continue
                 _check_transact_result(result[3:], operations[3:])
                 break
             except ConnectionResetException:
-                with closing(self.apiroutine.waitWithTimeout(1)) as g:
-                    for m in g:
-                        yield m
+                await self.apiroutine.wait_with_timeout(1)
                 continue
             except IOError:
-                with closing(self.apiroutine.waitWithTimeout(1)) as g:
-                    for m in g:
-                        yield m
+                await self.apiroutine.wait_with_timeout(1)
                 continue
         if logicalports:
             # Refresh network with monitor, only update the logical port information
-            for m in update_vxlaninfo(self.apiroutine,
+            await update_vxlaninfo(self.apiroutine,
                                       {},
                                       dict((p, tunnelip) for p in logicalports),
                                       {},
@@ -900,11 +836,9 @@ class VtepController(Module):
                                       physicalswitch,
                                       'hardware_vtep',
                                       self.allowedmigrationtime,
-                                      self.refreshinterval):
-                yield m
-        self.apiroutine.retvalue = None
+                                      self.refreshinterval)
         
-    def unbindlogicalswitch(self, physicalswitch, physicalport, vlanid, logicalnetwork):
+    async def unbindlogicalswitch(self, physicalswitch, physicalport, vlanid, logicalnetwork):
         '''
         Remove bind of a physical port
         
@@ -916,21 +850,19 @@ class VtepController(Module):
         
         :param logicalnetwork: the logical network id, will also be the logical switch id
         '''
-        for m in self._wait_for_sync():
-            yield m
+        await self._wait_for_sync()
         vlanid = int(vlanid)
         if physicalswitch is None:
             raise ValueError('Physical switch cannot be None')
         # We may retry some times
         while True:
             if physicalswitch not in self._physical_switchs:
-                with closing(self.apiroutine.waitWithTimeout(5,
-                                                         VtepPhysicalSwitchStateChanged.createMatcher(
-                                                            VtepPhysicalSwitchStateChanged.UP,
-                                                            physicalswitch))) as g:
-                    for m in g:
-                        yield m
-                if self.apiroutine.timeout or physicalswitch not in self._physical_switchs:
+                timeout, _, _ = await self.apiroutine.wait_with_timeout(
+                                                    5,
+                                                    VtepPhysicalSwitchStateChanged.createMatcher(
+                                                        VtepPhysicalSwitchStateChanged.UP,
+                                                        physicalswitch))
+                if timeout or physicalswitch not in self._physical_switchs:
                     raise ValueError('Physical switch %r is not found' % (physicalswitch,))
             conn, tunnelip = self._physical_switchs[physicalswitch]
             protocol = conn.protocol
@@ -946,9 +878,7 @@ class VtepController(Module):
                                                              [["name", "==", logicalnetwork]],
                                                              ["_uuid", "name"])
                                                 )
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                 if 'rows' not in result[0]:
                     raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
                 if 'rows' not in result[1]:
@@ -997,27 +927,20 @@ class VtepController(Module):
                                                     )]]))
                 # We do not delete the logical switch; it will be deleted by the recycling process if not used
                 method, params = ovsdb.transact('hardware_vtep', *operations)
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                 if any(r for r in result[:3] if 'error' in r):
                     # Wait failed, the OVSDB is modified, retry
                     continue
                 _check_transact_result(result[3:], operations[3:])
                 break
             except ConnectionResetException:
-                with closing(self.apiroutine.waitWithTimeout(1)) as g:
-                    for m in g:
-                        yield m
+                await self.apiroutine.wait_with_timeout(1)
                 continue
             except IOError:
-                with closing(self.apiroutine.waitWithTimeout(1)) as g:
-                    for m in g:
-                        yield m
+                await self.apiroutine.wait_with_timeout(1)
                 continue
-        self.apiroutine.retvalue = None
     
-    def unbindphysicalport(self, physicalswitch, physicalport):
+    async def unbindphysicalport(self, physicalswitch, physicalport):
         '''
         Remove all bindings for a physical port
 
@@ -1025,20 +948,18 @@ class VtepController(Module):
         
         :param physicalport: physical port name, should be the name in OVSDB vtep database        
         '''
-        for m in self._wait_for_sync():
-            yield m
+        await self._wait_for_sync()
         if physicalswitch is None:
             raise ValueError('Physical switch cannot be None')
         # We may retry some times
         while True:
             if physicalswitch not in self._physical_switchs:
-                with closing(self.apiroutine.waitWithTimeout(5,
-                                                         VtepPhysicalSwitchStateChanged.createMatcher(
-                                                            VtepPhysicalSwitchStateChanged.UP,
-                                                            physicalswitch))) as g:
-                    for m in g:
-                        yield m
-                if self.apiroutine.timeout or physicalswitch not in self._physical_switchs:
+                timeout, _, _ = await self.apiroutine.waitWithTimeout(
+                                            5,
+                                            VtepPhysicalSwitchStateChanged.createMatcher(
+                                                VtepPhysicalSwitchStateChanged.UP,
+                                                physicalswitch))
+                if timeout or physicalswitch not in self._physical_switchs:
                     raise ValueError('Physical switch %r is not found' % (physicalswitch,))
             conn, tunnelip = self._physical_switchs[physicalswitch]
             protocol = conn.protocol
@@ -1051,9 +972,7 @@ class VtepController(Module):
                                                              [["name", "==", physicalport]],
                                                              ["_uuid", "name", "vlan_bindings"])
                                                 )
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                 if 'rows' not in result[0]:
                     raise JsonRPCErrorResultException('select from Physical_Switch failed: ' + repr(result[0]))
                 if 'rows' not in result[1]:
@@ -1082,23 +1001,15 @@ class VtepController(Module):
                                             {"vlan_bindings": ovsdb.omap()})]
                 # We do not delete the logical switch; it will be deleted by the recycling process if not used
                 method, params = ovsdb.transact('hardware_vtep', *operations)
-                for m in protocol.querywithreply(method, params, conn, self.apiroutine):
-                    yield m
-                result = self.apiroutine.jsonrpc_result
+                result, _ = await protocol.querywithreply(method, params, conn, self.apiroutine)
                 if any(r for r in result[:2] if 'error' in r):
                     # Wait failed, the OVSDB is modified, retry
                     continue
                 _check_transact_result(result[2:], operations[2:])
                 break
             except ConnectionResetException:
-                with closing(self.apiroutine.waitWithTimeout(1)) as g:
-                    for m in g:
-                        yield m
+                await self.apiroutine.wait_with_timeout(1)
                 continue
             except IOError:
-                with closing(self.apiroutine.waitWithTimeout(1)) as g:
-                    for m in g:
-                        yield m
+                await self.apiroutine.wait_with_timeout(1)
                 continue
-        self.apiroutine.retvalue = None
-

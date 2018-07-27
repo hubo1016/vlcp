@@ -1,6 +1,7 @@
 from vlcp.server.module import Module, publicapi
 from vlcp.event.runnable import RoutineContainer
-from vlcp.utils.networkmodel import PhysicalNetworkMap, PhysicalNetwork
+from vlcp.utils.networkmodel import PhysicalNetworkMap, PhysicalNetwork,\
+    VXLANEndpointSet
 from vlcp.config.config import defaultconfig
 from vlcp.utils.networkplugin import createphysicalnetwork,\
     updatephysicalnetwork, default_physicalnetwork_keys, deletephysicalnetwork,\
@@ -108,6 +109,9 @@ class NetworkVxlanDriver(Module):
                 write(physicalnetworkmap.getkey(), physicalnetworkmap)
             logicalnetwork.vni = vni
             write(logicalnetwork.getkey(), logicalnetwork)
+            # Create VXLANEndpointSet
+            vxlanendpoint_set = VXLANEndpointSet.create_instance(logicalnetwork.id)
+            write(vxlanendpoint_set.getkey(), vxlanendpoint_set)
             return default_processor(logicalnetwork, parameters=parameters, excluding=('id', 'physicalnetwork', 'vni'))
         # Process logical networks with specified IDs first
         return createlogicalnetwork(create_processor=logicalnetwork_processor,

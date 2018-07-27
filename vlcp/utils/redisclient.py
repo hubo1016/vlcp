@@ -375,7 +375,7 @@ class RedisClient(RedisClientBase):
                 realkeys.append(k)
             self._psubscribecounter[k] = count + 1
         await self._protocol.execute_command(self._subscribeconn, container, 'PSUBSCRIBE', *realkeys)
-        container.retvalue = [self._protocol.subscribematcher(self._subscribeconn, k, None, RedisSubscribeMessageEvent.PMESSAGE) for k in keys]
+        return [self._protocol.subscribematcher(self._subscribeconn, k, None, RedisSubscribeMessageEvent.PMESSAGE) for k in keys]
 
     async def punsubscribe(self, container, *keys):
         '''

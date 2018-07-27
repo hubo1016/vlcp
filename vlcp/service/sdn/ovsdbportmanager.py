@@ -271,7 +271,7 @@ class OVSDBPortManager(Module):
                         method, params = ovsdb.transact('Open_vSwitch', ovsdb.select('Port',
                                                                                      [["_uuid", "==", ovsdb.uuid(puuid)]],
                                                                                      ["interfaces"]))
-                        result = await protocol.querywithreply(method, params, connection, self.apiroutine)
+                        result, _ = await protocol.querywithreply(method, params, connection, self.apiroutine)
                         r = result[0]
                         if 'error' in r:
                             raise JsonRPCErrorResultException('Error when query interfaces from port ' + repr(puuid) + ': ' + r['error'])
@@ -391,7 +391,7 @@ class OVSDBPortManager(Module):
                 self.apiroutine.subroutine(r)
         else:
             try:
-                self.apiroutine.execute_all(working_routines, None, ())
+                await self.apiroutine.execute_all(working_routines)
             finally:
                 self.scheduler.emergesend(OVSDBConnectionPortsSynchronized(connection))
 
@@ -403,12 +403,12 @@ class OVSDBPortManager(Module):
                                                     'Port':[ovsdb.monitor_request(["interfaces"])]
                                                 })
                 try:
-                    r = await protocol.querywithreply(method, params, connection, self.apiroutine)
+                    r, _ = await protocol.querywithreply(method, params, connection, self.apiroutine)
                 except JsonRPCErrorResultException:
                     # The monitor is already set, cancel it first
                     method2, params2 = ovsdb.monitor_cancel('ovsdb_port_manager_interfaces_monitor')
                     await protocol.querywithreply(method2, params2, connection, self.apiroutine, False)
-                    r = await protocol.querywithreply(method, params, connection, self.apiroutine)
+                    r, _ = await protocol.querywithreply(method, params, connection, self.apiroutine)
             except:
                 async def _msg():
                     await self.apiroutine.wait_for_send(OVSDBConnectionPortsSynchronized(connection))
@@ -452,7 +452,6 @@ class OVSDBPortManager(Module):
             bridgedown = OVSDBBridgeSetup.createMatcher(OVSDBBridgeSetup.DOWN)
             while True:
                 e, m = await M_(connsetup, bridgedown)
-                e = self.apiroutine.event
                 if m is connsetup:
                     self.monitor_routines.add(self.apiroutine.subroutine(self._get_ports(e.connection, e.connection.protocol)))
                 else:
@@ -522,7 +521,7 @@ class OVSDBPortManager(Module):
         await self._wait_for_sync()
         return self._getportbyno(datapathid, portno, vhost)
 
-    async def _getportbyno(self, datapathid, portno, vhost = ''):
+    def _getportbyno(self, datapathid, portno, vhost = ''):
         ports = self.managed_ports.get((vhost, datapathid))
         if ports is None:
             return None
@@ -555,7 +554,7 @@ class OVSDBPortManager(Module):
                     raise
                 else:
                     return ev.port
-        timeout_, r = self.apiroutine.execute_with_timeout(timeout, waitinner())
+        timeout_, r = await self.apiroutine.execute_with_timeout(timeout, waitinner())
         if timeout_:
             raise OVSDBPortNotAppearException('Port ' + repr(portno) + ' does not appear before timeout')
         else:

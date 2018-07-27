@@ -350,7 +350,7 @@ class Redis(Protocol):
         
         :param \*args: command paramters, begin with command name, e.g. `'SET'`,`'key'`,`'value'`
         
-        :returns: Event matcher to wait for reply. The value is returned from container.retvalue
+        :returns: Event matcher to wait for reply
         '''
         if not args:
             raise RedisProtocolException('No command name')
@@ -391,7 +391,7 @@ class Redis(Protocol):
         
         :param \*args: command paramters, begin with command name, e.g. `'SET'`,`'key'`,`'value'`
         
-        :returns: Response from Redis server. The value is returned from container.retvalue
+        :returns: Response from Redis server
         
         :raises RedisReplyException: Redis server returns an error (e.g. "-ERR ...")
         '''

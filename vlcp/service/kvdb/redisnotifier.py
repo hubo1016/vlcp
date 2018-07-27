@@ -143,7 +143,7 @@ class _Notifier(RoutineContainer):
                                     recreate_matchers = True
                                     continue
                                 else:
-                                    self._matchers = dict(zip(self._matchers.keys(), self.retvalue))
+                                    self._matchers = dict(zip(self._matchers.keys(), s_matchers))
                                     self.subroutine(self._modifier(client), True, "modifierroutine")
                                     matchers = tuple(self._matchers.values()) + (listen_modify, connection_down)
                                     break

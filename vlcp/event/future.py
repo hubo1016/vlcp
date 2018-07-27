@@ -65,7 +65,7 @@ class Future(object):
         '''
         :param container: DEPRECATED container of current routine
         
-        :return: The result, or raise the exception from set_exception. The result is returned to container.retvalue.
+        :return: The result, or raise the exception from set_exception.
         '''
         if hasattr(self, '_result'):
             if hasattr(self, '_exception'):
@@ -130,7 +130,7 @@ class RoutineFuture(Future):
         '''
         Start the subprocess
         
-        :param subprocess: a generator process, which returns the result to container.retvalue on exit
+        :param subprocess: a generator process, which returns the result to future on exit
         
         :param container: the routine container to run the subprocess with
         '''

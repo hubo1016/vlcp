@@ -66,6 +66,7 @@ class RemoteCall(Module):
                                                     params,
                                                     b'POST',
                                                     {"Content-Type":"application/json"},
+                                                    tostr=True,
                                                     timeout=timeout)
                 except WebException as e:
                     # this endpoint connection error , try next url

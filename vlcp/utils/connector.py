@@ -472,7 +472,7 @@ class TaskPool(Connector):
     runGenTask = run_gen_task
     
     async def run_async_task(self, container, asynctask, newthread = True):
-        "Run asynctask(sender) in task pool, call sender(events) to send customized events, and also return value in container.retvalue"
+        "Run asynctask(sender) in task pool, call sender(events) to send customized events, return result"
         e = TaskEvent(self, async_task = asynctask, newthread = newthread)
         await container.wait_for_send(e)
         ev = await TaskDoneEvent.createMatcher(e)

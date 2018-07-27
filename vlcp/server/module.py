@@ -768,8 +768,8 @@ async def call_api(container, targetname, name, params = {}, timeout = 120.0):
     apiEvent = ModuleAPICall(handle, targetname, name, params = params)
     await container.wait_for_send(apiEvent)
     replyMatcher = ModuleAPIReply.createMatcher(handle)
-    timeout, ev, m = await container.wait_with_timeout(timeout, replyMatcher)
-    if timeout:
+    timeout_, ev, m = await container.wait_with_timeout(timeout, replyMatcher)
+    if timeout_:
         # Ignore the Event
         apiEvent.canignore = True
         container.scheduler.ignore(ModuleAPICall.createMatcher(handle))

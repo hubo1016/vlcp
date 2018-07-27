@@ -355,7 +355,7 @@ class VRouterApi(Module):
                         subnet_map.routerports = {}
                     subnet_map.routerports[router.id] = value.create_weakreference()
                     write(subnet_map.getkey(), subnet_map)
-                    if getattr(subnet, 'isexternal', False):
+                    if not getattr(subnet, 'isexternal', False):
                         subnet.router = value.create_weakreference()
                         write(subnet.getkey(), subnet)
                     # Save port to router
@@ -363,7 +363,7 @@ class VRouterApi(Module):
                     write(router.getkey(), router)
                     value.router = router.create_reference()
                     value.subnet = subnet.create_reference()
-                    for k, v in parameters:
+                    for k, v in parameters.items():
                         if k not in ('router', 'subnet', 'id'):
                             setattr(value, k, v)
                     write(key, value)
@@ -418,17 +418,20 @@ class VRouterApi(Module):
                     if subnet is None:
                         raise ValueError("Subnet " + interface['subnet'] + " not exists")
                     subnet_map = walk(SubNetMap.default_key(interface['subnet']))
-                    if router.create_weakreference() not in subnet_map.routers:
+                    if router.create_weakreference() not in subnet_map.routers.dataset():
                         raise ValueError("Subnet %r not in virtual router %r" % (subnet.id, router.id))
                     port = subnet_map.routerports.pop(router.id)
-                    subnet_map.routers.discard(router.create_weakreference())
+                    subnet_map.routers.dataset().discard(router.create_weakreference())
                     write(subnet_map.getkey(), subnet_map)
-                    router.interfaces.discard(port)
-                    write(router.getkey(), None)
+                    router.interfaces.dataset().discard(port)
+                    write(router.getkey(), router)
+                    if hasattr(subnet, 'router') and subnet.router == port:
+                        delattr(subnet, 'router')
+                        write(subnet.getkey(), subnet)
                     write(port.getkey(), None)
 
-        await call_api(self.app_routine,"objectdb","transact",{"keys": keys,
-                                                               "writewalk": walker})
+        await call_api(self.app_routine,"objectdb","writewalk",{"keys": keys,
+                                                               "walker": walker})
         return {'status': 'OK'}
 
     async def listrouterinterfaces(self, id: str, **kwargs):

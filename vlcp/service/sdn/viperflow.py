@@ -27,7 +27,8 @@ from vlcp.utils.walkerlib import ensure_keys
 from pychecktype.checked import checked
 from vlcp.utils.typelib import ip_address_type, cidr_type, autoint, mac_address_type,\
     cidr_nonstrict_type
-from pychecktype import tuple_
+from pychecktype import tuple_, extra
+from vlcp.utils.dhcp import dhcp_options_type
 
 logger = logging.getLogger('viperflow')
 
@@ -648,7 +649,13 @@ class ViperFlow(Module):
                                          id: (str, None) = None,
                                          **kwargs: {"?vni": autoint,
                                                     "?vxlan": autoint,
-                                                    "?mtu": autoint}):
+                                                    "?mtu": autoint,
+                                                    "?dns_nameservers": ([ip_address_type], None),
+                                                    "?domain_name": (str, None),
+                                                    "?ntp_servers": ([ip_address_type], None),
+                                                    "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                    "?extra_dhcp_options": dhcp_options_type
+                                                    }):
         """
         Create logical network
         
@@ -680,7 +687,12 @@ class ViperFlow(Module):
                                                      "?id": str,
                                                      "?vni": autoint,
                                                      "?vxlan": autoint,
-                                                     "?mtu": autoint}]):
+                                                     "?mtu": autoint,
+                                                     "?dns_nameservers": ([ip_address_type], None),
+                                                     "?domain_name": (str, None),
+                                                     "?ntp_servers": ([ip_address_type], None),
+                                                     "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                     "?extra_dhcp_options": dhcp_options_type}]):
         """
         Create multiple logical networks in a transaction.
         
@@ -709,7 +721,12 @@ class ViperFlow(Module):
     
     async def updatelogicalnetwork(self, id: str, **kwargs: {"?vni": autoint,
                                                             "?vxlan": autoint,
-                                                            "?mtu": autoint}):
+                                                            "?mtu": autoint,
+                                                            "?dns_nameservers": ([ip_address_type], None),
+                                                            "?domain_name": (str, None),
+                                                            "?ntp_servers": ([ip_address_type], None),
+                                                            "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                            "?extra_dhcp_options": dhcp_options_type}):
         """
         Update logical network attributes of the ID
         """
@@ -723,7 +740,12 @@ class ViperFlow(Module):
     async def updatelogicalnetworks(self,networks: [{"id": str,
                                                      "?vni": autoint,
                                                      "?vxlan": autoint,
-                                                     "?mtu": autoint}]):
+                                                     "?mtu": autoint,
+                                                     "?dns_nameservers": ([ip_address_type], None),
+                                                     "?domain_name": (str, None),
+                                                     "?ntp_servers": ([ip_address_type], None),
+                                                     "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                     "?extra_dhcp_options": dhcp_options_type}]):
         """
         Update multiple logical networks in a transaction
         """
@@ -847,7 +869,9 @@ class ViperFlow(Module):
                                       id: (str, None) = None,
                                       subnet: (str, None) = None,
                                       **kwargs: {"?mac_address": mac_address_type,
-                                                 "?ip_address": ip_address_type}):
+                                                 "?ip_address": ip_address_type,
+                                                 "?hostname": (str, None),
+                                                 "?extra_dhcp_options": dhcp_options_type}):
         """
         Create logical port
         
@@ -885,7 +909,9 @@ class ViperFlow(Module):
                                                 "logicalnetwork": str,
                                                 "?subnet": str,
                                                 "?mac_address": mac_address_type,
-                                                "?ip_address": ip_address_type}]):
+                                                "?ip_address": ip_address_type,
+                                                "?hostname": (str, None),
+                                                "?extra_dhcp_options": dhcp_options_type}]):
         """
         Create multiple logical ports in a transaction
         """
@@ -982,7 +1008,9 @@ class ViperFlow(Module):
         return await self._dumpkeys(parameter_dict)
 
     async def updatelogicalport(self, id: str, **kwargs: {"?mac_address": mac_address_type,
-                                                          "?ip_address": ip_address_type}):
+                                                          "?ip_address": ip_address_type,
+                                                          "?hostname": (str, None),
+                                                          "?extra_dhcp_options": dhcp_options_type}):
         "Update attributes of the specified logical port"
         if not id :
             raise ValueError("must specify id")
@@ -995,7 +1023,9 @@ class ViperFlow(Module):
     @checked
     async def updatelogicalports(self, ports: [{"id": str,
                                                 "?mac_address": mac_address_type,
-                                                "?ip_address": ip_address_type}]):
+                                                "?ip_address": ip_address_type,
+                                                "?hostname": (str, None),
+                                                "?extra_dhcp_options": dhcp_options_type}]):
         "Update multiple logcial ports"
         # ports [{"id":id,...},{...}]
         
@@ -1102,6 +1132,7 @@ class ViperFlow(Module):
                         logport_set = walk(LogicalPortSet.default_key())
                         logport_set.set.dataset().discard(value.create_weakreference())
                         write(logport_set.getkey(), logport_set)
+                    write(key, None)
         await call_api(self.app_routine, 'objectdb', 'writewalk',{'keys': tuple(parameter_dict) + (LogicalPortSet.default_key(),),
                                                                   'walker': walker})
         return {"status":'OK'}
@@ -1184,7 +1215,13 @@ class ViperFlow(Module):
                                                                   "?vhost": str,
                                                                   "?cidr": cidr_type,
                                                                   "?local_address": ip_address_type,
-                                                                  "?gateway": ip_address_type}]}):
+                                                                  "?gateway": ip_address_type}],
+                                            "?mtu": autoint,
+                                            "?dns_nameservers": ([ip_address_type], None),
+                                            "?domain_name": (str, None),
+                                            "?ntp_servers": ([ip_address_type], None),
+                                            "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                            "?extra_dhcp_options": dhcp_options_type}):
         """
         Create a subnet for the logical network.
         
@@ -1240,7 +1277,13 @@ class ViperFlow(Module):
                                                                    "?vhost": str,
                                                                    "?cidr": cidr_type,
                                                                    "?local_address": ip_address_type,
-                                                                   "?gateway": ip_address_type}]}]):
+                                                                   "?gateway": ip_address_type}],
+                                             "?mtu": autoint,
+                                             "?dns_nameservers": ([ip_address_type], None),
+                                             "?domain_name": (str, None),
+                                             "?ntp_servers": ([ip_address_type], None),
+                                             "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                             "?extra_dhcp_options": dhcp_options_type}]):
         """
         Create multiple subnets in a transaction.
         """
@@ -1342,7 +1385,13 @@ class ViperFlow(Module):
                                                                           "?vhost": str,
                                                                           "?cidr": cidr_type,
                                                                           "?local_address": ip_address_type,
-                                                                          "?gateway": ip_address_type}]}):
+                                                                          "?gateway": ip_address_type}],
+                                                    "?mtu": autoint,
+                                                    "?dns_nameservers": ([ip_address_type], None),
+                                                    "?domain_name": (str, None),
+                                                    "?ntp_servers": ([ip_address_type], None),
+                                                    "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                                    "?extra_dhcp_options": dhcp_options_type}):
         """
         Update subnet attributes
         """
@@ -1362,7 +1411,13 @@ class ViperFlow(Module):
                                                                    "?vhost": str,
                                                                    "?cidr": cidr_type,
                                                                    "?local_address": ip_address_type,
-                                                                   "?gateway": ip_address_type}]}]):
+                                                                   "?gateway": ip_address_type}],
+                                             "?mtu": autoint,
+                                             "?dns_nameservers": ([ip_address_type], None),
+                                             "?domain_name": (str, None),
+                                             "?ntp_servers": ([ip_address_type], None),
+                                             "?lease_time": (autoint, extra(str, check=lambda x: x == 'infinite'), None),
+                                             "?extra_dhcp_options": dhcp_options_type}]):
         """
         Update multiple subnets
         """
@@ -1419,7 +1474,7 @@ class ViperFlow(Module):
                         check_ip_pool(gateway=getattr(value, 'gateway', None),
                                       start=value.allocated_start,
                                       end=value.allocated_end,
-                                      allocated=subnet_map.allocated_ips.keys(),
+                                      allocated=subnet_map.allocated_ips,
                                       cidr=value.cidr)
                     except Exception:
                         raise ValueError("New configurations conflicts with the old configuration or allocations in subnet "\

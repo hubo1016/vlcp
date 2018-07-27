@@ -5,16 +5,18 @@ import vlcp.service.sdn.ofpportmanager as ofpportmanager
 import vlcp.service.kvdb.objectdb as objectdb
 import vlcp.service.sdn.ioprocessing as iop
 from vlcp.service.sdn.flowbase import FlowBase
-from vlcp.server.module import depend, callAPI
+from vlcp.server.module import depend, call_api
 from vlcp.config.config import defaultconfig
 from vlcp.event.runnable import RoutineContainer
 from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.utils.ethernet import mac_addr_bytes, ip4_addr_bytes,ip4_icmp_payload,\
-    ethernet_l7, ip4_packet_l7, ip4_payload,ICMP_ECHOREPLY,icmp_bestparse,icmp_echo
+    ethernet_l7, ip4_packet_l7, ip4_payload,ICMP_ECHOREPLY,icmp_bestparse,icmp_echo,\
+    ip_frag
 from vlcp.utils.flowupdater import FlowUpdater
 from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent, OpenflowAsyncMessageEvent
 from vlcp.utils.networkmodel import SubNet,RouterPort
 from namedstruct.stdprim import uint16
+from vlcp.event.event import M_
 
 class ICMPResponderUpdater(FlowUpdater):
     def __init__(self,connection,parent):
@@ -25,7 +27,7 @@ class ICMPResponderUpdater(FlowUpdater):
         self._lastsubnetsinfo = dict()
         self._orig_initialkeys = ()
 
-    def main(self):
+    async def main(self):
         try:
             self.subroutine(self._update_handler(),True,"update_handler_routine")
 
@@ -33,8 +35,7 @@ class ICMPResponderUpdater(FlowUpdater):
             if not self.parent.prepush:
                 self.subroutine(self._icmp_packetin_handler(),True,"icmp_packetin_handler_routine")
 
-            for m in FlowUpdater.main(self):
-                yield m
+            await FlowUpdater.main(self)
         finally:
             if hasattr(self,"update_handler_routine"):
                 self.update_handler_routine.close()
@@ -42,15 +43,15 @@ class ICMPResponderUpdater(FlowUpdater):
             if hasattr(self,"icmp_packetin_handler_routine"):
                 self.icmp_packetin_handler_routine.close()
 
-    def _icmp_packetin_handler(self):
+    async def _icmp_packetin_handler(self):
         conn = self._connection
         ofdef = self._connection.openflowdef
         l3input = self.parent._gettableindex("l3input",self._connection.protocol.vhost)
         
         transactid = uint16.create(os.urandom(2)) 
 
-        def send_packet_out(portid,packet):
-            for m in self.execute_commands(conn,
+        async def send_packet_out(portid,packet):
+            await self.execute_commands(conn,
                         [
                             ofdef.ofp_packet_out(
                                 buffer_id = ofdef.OFP_NO_BUFFER,
@@ -62,19 +63,22 @@ class ICMPResponderUpdater(FlowUpdater):
                                 ],
                                 data = packet._tobytes()
                             )
-                        ]):
-                yield m
+                        ])
 
         icmp_packetin_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN,None,None,l3input,2,
                                                             self._connection,self._connection.connmark)
 
         while True:
-            yield (icmp_packetin_matcher,)
-            msg = self.event.message
+            ev = await icmp_packetin_matcher
+            msg = ev.message
             inport = ofdef.ofp_port_no.create(ofdef.get_oxm(msg.match.oxm_fields,ofdef.OXM_OF_IN_PORT))
 
             # it must be icmp packet ...
             icmp_packet = ethernet_l7.create(msg.data)
+            
+            if ip_frag(icmp_packet) != 0:
+                # ignore fragmented packets
+                continue
             
             transactid = (transactid + 1) & 0xffff
             reply_packet = ip4_packet_l7((ip4_payload,ip4_icmp_payload),
@@ -83,7 +87,7 @@ class ICMPResponderUpdater(FlowUpdater):
                                         dl_dst = icmp_packet.dl_src,
                                         ip_src = icmp_packet.ip_dst,
                                         ip_dst = icmp_packet.ip_src,
-                                        frag_off = icmp_packet.frag_off,
+                                        frag_off = 0,
                                         ttl = 128,
                                         identifier = transactid,
                                         icmp_type = ICMP_ECHOREPLY,
@@ -94,16 +98,17 @@ class ICMPResponderUpdater(FlowUpdater):
                                         )
            
             self.subroutine(send_packet_out(inport,reply_packet))
-    def _update_handler(self):
+    
+    async def _update_handler(self):
 
         # when lgport,lgnet,phyport,phynet object change , receive this event from ioprocessing module
         dataobjectchange = iop.DataObjectChanged.createMatcher(None,None,self._connection)
 
         while True:
-            yield (dataobjectchange,)
+            ev = await dataobjectchange
 
             # save to instance attr ,  us in other method
-            self._lastlogports,_,self._lastlognets,_ = self.event.current
+            self._lastlogports,_,self._lastlognets,_ = ev.current
             self._update_walk()
 
     def _walk_lgport(self,key,value,walk,save):
@@ -152,7 +157,7 @@ class ICMPResponderUpdater(FlowUpdater):
 
         self._initialkeys = tuple(itertools.chain(self._orig_initialkeys,subnetkeys))
     
-    def updateflow(self, connection, addvalues, removevalues, updatedvalues):
+    async def updateflow(self, connection, addvalues, removevalues, updatedvalues):
         try:
             allobjects = set(o for o in self._savedresult if o is not None and not o.isdeleted())
 
@@ -322,14 +327,12 @@ class ICMPResponderUpdater(FlowUpdater):
                     ip_address, mac_address, networkid, nid = lastsubnetsinfo[subnet]
 
                     remove_arp = {(ip_address,mac_address,networkid,True),}
-                    for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection':connection,
-                                                                              'arpentries': remove_arp}):
-                        yield m
+                    await call_api(self, 'arpresponder', 'removeproxyarp', {'connection':connection,
+                                                                              'arpentries': remove_arp})
 
                     cmds.extend(_deleteicmpflows(ip_address,mac_address,nid))
 
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
 
             for subnet in currentsubnetsinfo.keys():
                 if subnet not in lastsubnetsinfo\
@@ -338,14 +341,12 @@ class ICMPResponderUpdater(FlowUpdater):
                     ip_address, mac_address, networkid, nid = currentsubnetsinfo[subnet]
 
                     add_arp = {(ip_address,mac_address,networkid,True),}
-                    for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
-                                                                               'arpentries': add_arp}):
-                        yield m
+                    await call_api(self, 'arpresponder', 'createproxyarp', {'connection': connection,
+                                                                               'arpentries': add_arp})
 
                     cmds.extend(_createicmpflows(ip_address,mac_address,nid))
 
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
 
         except Exception:
             self._logger.warning("Unexpected exception in icmp_flow_updater, ignore it! Continue",exc_info=True)
@@ -377,7 +378,7 @@ class ICMPResponder(FlowBase):
         self.routines.append(self.app_routine)
         self._flowupdater = dict()
 
-    def _main(self):
+    async def _main(self):
 
         flowinit = FlowInitialize.createMatcher(_ismatch=lambda x: self.vhostbind is None or
                                                 x.vhost in self.vhostbind)
@@ -385,15 +386,15 @@ class ICMPResponder(FlowBase):
                                                 _ismatch=lambda x:self.vhostbind is None or
                                                 x.createby.vhost in self.vhostbind)
         while True:
-            yield (flowinit,conndown)
-            if self.app_routine.matcher is flowinit:
-                c = self.app_routine.event.connection
+            ev, m = await M_(flowinit,conndown)
+            if m is flowinit:
+                c = ev.connection
                 self.app_routine.subroutine(self._init_conn(c))
-            if self.app_routine.matcher is conndown:
-                c = self.app_routine.event.connection
+            if m is conndown:
+                c = ev.connection
                 self.app_routine.subroutine(self._remove_conn(c))
 
-    def _init_conn(self,conn):
+    async def _init_conn(self,conn):
 
         if conn in self._flowupdater:
             updater = self._flowupdater.pop(conn)
@@ -403,14 +404,8 @@ class ICMPResponder(FlowBase):
         self._flowupdater[conn] = updater
         updater.start()
 
-        if False:
-            yield
-
-    def _remove_conn(self,conn):
+    async def _remove_conn(self,conn):
 
         if conn in self._flowupdater:
             updater = self._flowupdater.pop(conn)
             updater.close()
-
-        if False:
-            yield

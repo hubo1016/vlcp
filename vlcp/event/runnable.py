@@ -458,11 +458,11 @@ class RoutineContainer(object):
     async def execute_with_timeout(self, timeout, subprocess):
         """
         Execute a subprocess with timeout. If time limit exceeds, the subprocess is terminated,
-        and `container.timeout` is set to True; otherwise the `container.timeout` is set to False.
+        and `is_timeout` is set to True; otherwise the `is_timeout` is set to False.
         
-        You can uses `executeWithTimeout` with other help functions to create time limit for them::
+        You can uses `execute_with_timeout` with other help functions to create time limit for them::
         
-            timeout, result = await container.executeWithTimeout(10, container.executeAll([routine1(), routine2()]))
+            timeout, result = await container.execute_with_timeout(10, container.execute_all([routine1(), routine2()]))
         
         :return: (is_timeout, result) When is_timeout = True, result = None
         """

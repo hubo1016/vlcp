@@ -92,7 +92,7 @@ class OpenflowPortManager(Module):
             pass
 
     async def _get_existing_ports(self):
-        r =  call_api(self.apiroutine, 'openflowmanager', 'getallconnections', {'vhost':None})
+        r =  await call_api(self.apiroutine, 'openflowmanager', 'getallconnections', {'vhost':None})
         await self.apiroutine.execute_all([self._get_ports(c, c.protocol, False, False)
                                            for c in r
                                            if c.openflow_auxiliaryid == 0])

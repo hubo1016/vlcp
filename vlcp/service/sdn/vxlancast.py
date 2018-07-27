@@ -6,7 +6,7 @@ Created on 2016/5/30
 
 
 from vlcp.config.config import defaultconfig
-from vlcp.server.module import depend, publicapi, callAPI
+from vlcp.server.module import depend, publicapi, call_api
 from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.utils.flowupdater import FlowUpdater
@@ -22,7 +22,7 @@ from vlcp.utils.ethernet import ethernet_l2, mac_addr, mac_addr_bytes
 import vlcp.service.sdn.ioprocessing as iop
 import itertools
 from namedstruct.namedstruct import dump
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 from vlcp.service.sdn import ovsdbportmanager
 from vlcp.utils import ovsdb
 from vlcp.utils.dataobject import updater, ReferenceObject
@@ -76,24 +76,27 @@ class VXLANUpdater(FlowUpdater):
         # LogicalNetworkID -> PhysicalPortNo map
         self._current_groups = {}
         self._walk_lognet = vxlandiscover.lognet_vxlan_walker(self._parent.prepush)
-    def wait_for_group(self, container, networkid, timeout = 120):
+
+    async def wait_for_group(self, container, networkid, timeout = 120):
+        """
+        Wait for a VXLAN group to be created
+        """
         if networkid in self._current_groups:
-            container.retvalue = self._current_groups[networkid]
+            return self._current_groups[networkid]
         else:
             if not self._connection.connected:
                 raise ConnectionResetException
             groupchanged = VXLANGroupChanged.createMatcher(self._connection, networkid, VXLANGroupChanged.UPDATED)
             conn_down = self._connection.protocol.statematcher(self._connection)
-            with closing(container.waitWithTimeout(timeout, groupchanged, conn_down)) as g:
-                for m in g:
-                    yield m
-            if container.timeout:
+            timeout_, ev, m = await container.wait_with_timeout(timeout, groupchanged, conn_down)
+            if timeout_:
                 raise ValueError('VXLAN group is still not created after a long time')
-            elif container.matcher is conn_down:
+            elif m is conn_down:
                 raise ConnectionResetException
             else:
-                container.retvalue = container.event.physicalportid
-    def main(self):
+                return ev.physicalportid
+
+    async def main(self):
         try:
             if self._connection.protocol.disablenxext:
                 return
@@ -101,25 +104,28 @@ class VXLANUpdater(FlowUpdater):
             self.subroutine(self._refresh_handler(), name = '_refresh_handler_routine')
             if not self._parent.prepush and not self._parent.learning:
                 self.subroutine(self._query_packet_handler(), name = '_query_packet_handler_routine')
-            for m in FlowUpdater.main(self):
-                yield m
+            await FlowUpdater.main(self)
         finally:
             if hasattr(self, '_update_handler_routine'):
                 self._update_handler_routine.close()
             if hasattr(self, '_refresh_handler_routine'):
                 self._refresh_handler_routine.close()
             if hasattr(self, '_query_packet_handler_routine'):
-                self._query_packet_handler_routine.close()                           
+                self._query_packet_handler_routine.close()
+
     def reset_initialkeys(self, keys, values):
         if self._parent.prepush:
             self._watched_maps = [k for k,v in zip(keys, values)
                                   if v is not None and not v.isdeleted() and v.isinstance(LogicalNetworkMap)]
             # If the logical network map changed, restart the walk process
             self._initialkeys = tuple(itertools.chain(self._orig_initialkeys, self._watched_maps))
+
     def _walk_phyport(self, key, value, walk, save):
         save(key)
+
     def _walk_logport(self, key, value, walk, save):
         save(key)
+
     def _walk_mac_key(self, key, value, walk, save):
         save(key)
         if value is not None:
@@ -138,6 +144,7 @@ class VXLANUpdater(FlowUpdater):
                 pass
             else:
                 save(portinfokey)
+
     def _get_watched_mac_keys(self):
         keys = []
         current_time = time()
@@ -159,13 +166,15 @@ class VXLANUpdater(FlowUpdater):
             else:
                 keys.append(LogicalPort.unique_key('_mac_address_index', *k))
         return (keys, changed)
-    def _update_handler(self):
+
+    async def _update_handler(self):
         dataobjectchanged = iop.DataObjectChanged.createMatcher(None, None, self._connection)
         while True:
-            yield (dataobjectchanged,)
-            self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
+            ev = await dataobjectchanged
+            self._lastlogports, self._lastphyports, self._lastlognets, _ = ev.current
             self._update_walk()
             self.updateobjects([p for p,_ in self._lastlogports])
+
     def _update_walk(self):
         phyport_keys = [p.getkey() for p,_ in self._lastphyports]
         lognet_keys = [n.getkey() for n,_ in self._lastlognets]
@@ -178,7 +187,8 @@ class VXLANUpdater(FlowUpdater):
                                                 ((p, self._walk_logport) for p in logport_keys),
                                                 ((p, self._walk_mac_key) for p in mac_keys)))
         self.subroutine(self.restart_walk(), False)
-    def _query_packet_handler(self):
+
+    async def _query_packet_handler(self):
         ofdef = self._connection.openflowdef
         vhost = self._connection.protocol.vhost
         vo = self._parent._gettableindex('vxlanoutput', vhost)
@@ -188,15 +198,13 @@ class VXLANUpdater(FlowUpdater):
                                                               vo, 3, self._connection, self._connection.connmark,
                                                               _ismatch = lambda x: x.message.reason == ofdef.OFPRR_IDLE_TIMEOUT)
         while True:
-            with closing(self.waitWithTimeout(self._parent.pushtimeout, packet_in, flow_remove)) as g:
-                for m in g:
-                    yield m
-            if self.timeout:
+            timeout, ev, m = await self.wait_with_timeout(self._parent.pushtimeout, packet_in, flow_remove)
+            if timeout:
                 _, changed = self._get_watched_mac_keys()
                 if changed:
                     self._update_walk()
-            elif self.matcher is packet_in:
-                msg = self.event.message
+            elif m is packet_in:
+                msg = ev.message
                 try:
                     packet = ethernet_l2.create(msg.data)
                 except Exception:
@@ -243,7 +251,7 @@ class VXLANUpdater(FlowUpdater):
                                 self._buffered_packets[(network, mac_address)] = l
             else:
                 # A flow is expired, also remove the watch list
-                msg = self.event.message
+                msg = ev.message
                 nid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
                 mac_address = mac_addr_bytes.formatter(ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_ETH_DST))
                 networks = [n for n,nid2 in self._lastlognets if nid2 == nid]
@@ -254,13 +262,13 @@ class VXLANUpdater(FlowUpdater):
                         if (network, mac_address) in self._buffered_packets:
                             del self._buffered_packets[(network, mac_address)]
                         self._update_walk()
-    def _refresh_handler(self):
+
+    async def _refresh_handler(self):
         while True:
-            with closing(self.waitWithTimeout(self._parent.refreshinterval)) as g:
-                for m in g:
-                    yield m
+            await self.wait_with_timeout(self._parent.refreshinterval)
             self.updateobjects(n for n,_ in self._lastlognets)
-    def updateflow(self, conn, addvalues, removevalues, updatedvalues):
+
+    async def updateflow(self, conn, addvalues, removevalues, updatedvalues):
         # Following works are done in parallel:
         # 1. Modify the VXLANEndpointSet in KVDB
         # 2. Create/Modify the broadcast group for every logical network in VXLAN
@@ -295,48 +303,40 @@ class VXLANUpdater(FlowUpdater):
         datapath_id = conn.openflow_datapathid
         ovsdb_vhost = self._parent.vhostmap.get(vhost, "")
         try:
-            for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid' : datapath_id,
-                                                                     'vhost' : ovsdb_vhost}):
-                yield m
+            bridge, system_id, _ = await call_api(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid' : datapath_id,
+                                                                     'vhost' : ovsdb_vhost})
         except Exception:
             self._logger.warning("OVSDB bridge is not ready", exc_info = True)
             return
-        else:
-            bridge, system_id, _ = self.retvalue
         if newports:
             try:
-                for m in callAPI(self, 'ovsdbmanager', 'waitconnection', {'datapathid': datapath_id,
-                                                                         'vhost': ovsdb_vhost}):
-                    yield m
+                ovsdb_conn = await call_api(self, 'ovsdbmanager', 'waitconnection', {'datapathid': datapath_id,
+                                                                         'vhost': ovsdb_vhost})
             except Exception:
                 self._parent._logger.warning("OVSDB connection is not ready for datapathid = %016x, vhost = %r(%r)",
                                              datapath_id, vhost, ovsdb_vhost, exc_info = True)
             else:
                 try:
-                    ovsdb_conn = self.retvalue
                     port_requests = [(p, phyportdict[p]) for p in newports]
-                    def wait_and_ignore(portno):
+                    async def wait_and_ignore(portno):
                         try:
-                            for m in callAPI(self, 'ovsdbportmanager', 'waitportbyno', {'datapathid': datapath_id,
+                            return await call_api(self, 'ovsdbportmanager', 'waitportbyno', {'datapathid': datapath_id,
                                                                                  'portno': portno,
                                                                                  'timeout': 1,
-                                                                                 'vhost': ovsdb_vhost}):
-                                yield m
+                                                                                 'vhost': ovsdb_vhost})
                         except ovsdbportmanager.OVSDBPortNotAppearException:
-                            self.retvalue = None
-                    for m in self.executeAll([wait_and_ignore(pid) for _,pid in port_requests]):
-                        yield m
-                    uuids = [r[0]['_uuid'] for r in self.retvalue]
+                            return None
+                    wait_result = await self.execute_all([wait_and_ignore(pid) for _,pid in port_requests])
+                    uuids = [r['_uuid'] for r in wait_result]
                     method, params = ovsdb.transact('Open_vSwitch',
                                                     *[ovsdb.select('Interface', [["_uuid", "==", ovsdb.uuid(u)]],
                                                                                  ["_uuid", "options"])
                                                       for u in uuids])
-                    for m in ovsdb_conn.protocol.querywithreply(method, params, ovsdb_conn, self):
-                        yield m
+                    jsonrpc_result, _ = await ovsdb_conn.protocol.querywithreply(method, params, ovsdb_conn, self)
                     src_ips = [ovsdb.omap_getvalue(r['rows'][0]['options'], "local_ip")
                                if 'error' not in r and r['rows'] and 'options' in r['rows'][0]
                                else None
-                               for r in self.jsonrpc_result]
+                               for r in jsonrpc_result]
                     newphyports = [(p, (p.physicalnetwork, pid, src_ip))
                                   for (p, pid),src_ip in zip(port_requests, src_ips)
                                   if _get_ip(src_ip, ofdef) is not None]
@@ -529,10 +529,9 @@ class VXLANUpdater(FlowUpdater):
                                   buckets = []
                             ))                        
         if group_cmds:
-            def group_mod():
+            async def group_mod():
                 try:
-                    for m in conn.protocol.batch(group_cmds, conn, self):
-                        yield m
+                    await conn.protocol.batch(group_cmds, conn, self)
                 except Exception:
                     self._parent._logger.warning("Some Openflow commands return error result on connection %r, will ignore and continue.\n"
                                                  "Details:\n%s", conn,
@@ -551,11 +550,9 @@ class VXLANUpdater(FlowUpdater):
                                     created_groups[netid] = portid
                 self._current_groups.update(created_groups)
                 for g in deleted_groups:
-                    for m in self.waitForSend(VXLANGroupChanged(conn, g, VXLANGroupChanged.DELETED)):
-                        yield m
+                    await self.wait_for_send(VXLANGroupChanged(conn, g, VXLANGroupChanged.DELETED))
                 for g,pid in created_groups.items():
-                    for m in self.waitForSend(VXLANGroupChanged(conn, g, VXLANGroupChanged.UPDATED, physicalportid = pid)):
-                        yield m
+                    await self.wait_for_send(VXLANGroupChanged(conn, g, VXLANGroupChanged.UPDATED, physicalportid = pid))
             subroutines.append(group_mod())
         # Finally, lets create flow entries for VXLAN input/output
         # There are three patterns with different options:
@@ -586,7 +583,7 @@ class VXLANUpdater(FlowUpdater):
                 return ofdef.create_oxm(ofdef.NXM_NX_REG5, nid)
             def _flags(learned, in_port):
                 return ofdef.create_oxm(ofdef.NXM_NX_REG7_W, int(bool(learned)) | ((int(bool(in_port)) << 15)), 0x8001)
-        def flow_mod():
+        async def flow_mod():
             cmds = []
             for p in itertools.chain(removevalues, updatedvalues):
                 if p.isinstance(PhysicalPort) and p in lastphyportinfo and not p in currentphyportinfo:
@@ -638,8 +635,7 @@ class VXLANUpdater(FlowUpdater):
                                                                     _flags(True, True)
                                                                     ) + [ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid)]
                                                             )))
-            for m in self.execute_commands(conn, cmds):
-                yield m
+            await self.execute_commands(conn, cmds)
             del cmds[:]
             if self._parent.learning:
                 # Also delete all learned flows
@@ -670,8 +666,7 @@ class VXLANUpdater(FlowUpdater):
                                                                         _outnet_oxm(nid)
                                                                         )
                                                                 )))
-                for m in self.execute_commands(conn, cmds):
-                    yield m
+                await self.execute_commands(conn, cmds)
             for p in itertools.chain(addvalues, updatedvalues):
                 if p.isinstance(PhysicalPort) and p in currentphyportinfo and p not in lastphyportinfo:
                     _, pid, _ = currentphyportinfo[p]
@@ -785,8 +780,7 @@ class VXLANUpdater(FlowUpdater):
                                                             )
                                                         ]
                                                    ))
-            for m in self.execute_commands(conn, cmds):
-                yield m
+            await self.execute_commands(conn, cmds)
         subroutines.append(flow_mod())
         if self._parent.prepush or (not self._parent.prepush and not self._parent.learning):
             # prepush can be used together with learning
@@ -797,7 +791,7 @@ class VXLANUpdater(FlowUpdater):
             else:
                 idle_timeout = self._parent.pushtimeout
                 flags = ofdef.OFPFF_SEND_FLOW_REM
-            def flow_mod_prepush():
+            async def flow_mod_prepush():
                 remove_cmds = []
                 add_cmds = []
                 current_time = time()
@@ -932,14 +926,11 @@ class VXLANUpdater(FlowUpdater):
                                                    vni)
                         add_cmds.extend(_create_flow(pid, nid, mac_address, vni, endpoint['tunnel_dst'], lognet))
                 self._parent._logger.debug("Send %d remove commands and %d add commands", len(remove_cmds), len(add_cmds))
-                for m in self.execute_commands(conn, remove_cmds):
-                    yield m
-                for m in self.execute_commands(conn, add_cmds):
-                    yield m
+                await self.execute_commands(conn, remove_cmds)
+                await self.execute_commands(conn, add_cmds)
             subroutines.append(flow_mod_prepush())            
         try:
-            for m in self.executeAll(subroutines, retnames = ()):
-                yield m
+            await self.execute_all(subroutines)
         except Exception:
             self._parent._logger.warning("Update vxlancast flow for connection %r failed with exception", conn, exc_info = True)
 
@@ -1000,19 +991,19 @@ class VXLANCast(FlowBase):
         self.createAPI(publicapi(self.createioflowparts, self.apiroutine,
                                  lambda connection,logicalnetwork,**kwargs:
                                         _is_vxlan(logicalnetwork)))
-    def _main(self):
+    async def _main(self):
         flow_init = FlowInitialize.createMatcher(_ismatch = lambda x: self.vhostbind is None or x.vhost in self.vhostbind)
         conn_down = OpenflowConnectionStateEvent.createMatcher(state = OpenflowConnectionStateEvent.CONNECTION_DOWN,
                                                                _ismatch = lambda x: self.vhostbind is None or x.createby.vhost in self.vhostbind)
         while True:
-            yield (flow_init, conn_down)
-            if self.apiroutine.matcher is flow_init:
-                c = self.apiroutine.event.connection
-                self.apiroutine.subroutine(self._init_conn(self.apiroutine.event.connection))
+            ev, m = await M_(flow_init, conn_down)
+            if m is flow_init:
+                c = ev.connection
+                self.apiroutine.subroutine(self._init_conn(c))
             else:
-                c = self.apiroutine.event.connection
+                c = ev.connection
                 self.apiroutine.subroutine(self._remove_conn(c))
-    def _init_conn(self, conn):
+    async def _init_conn(self, conn):
         # Default
         ofdef = conn.openflowdef
         vhost = conn.protocol.vhost
@@ -1061,16 +1052,15 @@ class VXLANCast(FlowBase):
                                                                                                 ofs_nbits = ofdef.create_ofs_nbits(0, 1),
                                                                                                 value = 0)]
                                                             )]))
-        for m in conn.protocol.batch(cmds, conn, self.apiroutine):
-            yield m
-    def _remove_conn(self, conn):
+        await conn.protocol.batch(cmds, conn, self.apiroutine)
+
+    async def _remove_conn(self, conn):
         # Do not need to modify flows
         if conn in self._flowupdaters:
             vxlanupdater = self._flowupdaters.pop(conn)
             vxlanupdater.close()
-        if False:
-            yield
-    def createioflowparts(self,connection,logicalnetwork,physicalport,logicalnetworkid,physicalportid):
+
+    async def createioflowparts(self,connection,logicalnetwork,physicalport,logicalnetworkid,physicalportid):
         #
         #  1. used in IOProcessing , when physicalport add to logicalnetwork 
         #     return : input flow match vxlan vni, input flow vlan parts actions
@@ -1083,8 +1073,7 @@ class VXLANCast(FlowBase):
             # Wait for group creation
             vxlanupdater = self._flowupdaters[connection]
             try:
-                for m in vxlanupdater.wait_for_group(self.apiroutine, logicalnetworkid, self.grouptimeout):
-                    yield m
+                group_portid = await vxlanupdater.wait_for_group(self.apiroutine, logicalnetworkid, self.grouptimeout)
             except ConnectionResetException:
                 # connection aborted, ignore
                 pass
@@ -1092,27 +1081,26 @@ class VXLANCast(FlowBase):
                 self._logger.warning("Group is not created, connection = %r, logicalnetwork = %r, logicalnetworkid = %r", connection, logicalnetwork, logicalnetworkid, exc_info = True)
             else:
                 group_created = True
-                group_portid = self.apiroutine.retvalue
         if not group_created:
-            self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
-                                        [],
-                                        [],
-                                        [],
-                                        [])
+            return ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
+                    [],
+                    [],
+                    [],
+                    [])
         # We are removing this because the physical port may change. If there are more than one physical port
         # in the physical network, the packets may be sent more than once,
         # but the solution is simple: DON'T DO THAT
         # elif group_portid == physicalportid:
         else:
-            self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
-                                        [],
-                                        [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
-                                         ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
-                                        [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
-                                         ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
-                                        [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
-                                         ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x20000)],
-                                        )
+            return ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],
+                    [],
+                    [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
+                     ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
+                    [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
+                     ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x10000)],
+                    [ofdef.ofp_action_set_field(field = ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))),
+                     ofdef.ofp_action_group(group_id = (logicalnetworkid & 0xffff) | 0x20000)],
+                    )
         #=======================================================================
         # else:
         #     self.apiroutine.retvalue = ([ofdef.create_oxm(ofdef.OXM_OF_TUNNEL_ID, getattr(logicalnetwork, 'vni', 0))],

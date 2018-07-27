@@ -1,7 +1,9 @@
 from vlcp.scripts.script import ScriptModule
-from vlcp.server.module import depend, callAPI
+from vlcp.server.module import depend, call_api
 from vlcp.service.kvdb import objectdb
 from vlcp.utils.networkmodel import PhysicalNetworkMap, PhysicalNetworkSet
+from vlcp.utils.exceptions import WalkKeyNotRetrieved
+from contextlib import suppress
 
 
 @depend(objectdb.ObjectDB)
@@ -11,45 +13,37 @@ class RepairPhyMapDB(ScriptModule):
      have problem about physicalmap don't remove weakref(logicalnetwork)
      this script repair this problem in DB
     """
-    def run(self):
+    async def run(self):
 
         saved_lgnet_keys = []
         saved_phymap_keys = []
         saved_physicalnetworkmap_to_logicalnetwork = {}
 
         def walk_phynetset(key,value,walk,save):
+            del saved_lgnet_keys[:]
+            del saved_phymap_keys[:]
+            saved_physicalnetworkmap_to_logicalnetwork.clear()
             for weak_phynet in value.set.dataset():
-                try:
+                with suppress(WalkKeyNotRetrieved):
                     phynetobj = walk(weak_phynet.getkey())
-                except KeyError:
-                    pass
-                else:
                     phynetmapkey = PhysicalNetworkMap.default_key(phynetobj.id)
-                    try:
-                        phynetmapobj = walk(phynetmapkey)
-                    except KeyError:
-                        pass
-                    else:
-                        save(phynetmapobj.getkey())
-                        saved_phymap_keys.append(phynetmapobj.getkey())
-                        saved_physicalnetworkmap_to_logicalnetwork[phynetmapobj.getkey()] = []
-                        for lgnet in phynetmapobj.logicnetworks.dataset():
-                            try:
-                                lgnetobj = walk(lgnet.getkey())
-                            except KeyError:
-                                pass
-                            else:
-                                if not lgnetobj:
-                                    save(lgnet.getkey())
-                                    saved_lgnet_keys.append(lgnet.getkey())
-                                    saved_physicalnetworkmap_to_logicalnetwork[phynetmapobj.getkey()]\
-                                        .append(lgnet.getkey())
+                    phynetmapobj = walk(phynetmapkey)
+                    save(phynetmapobj.getkey())
+                    saved_phymap_keys.append(phynetmapobj.getkey())
+                    saved_physicalnetworkmap_to_logicalnetwork[phynetmapobj.getkey()] = []
+                    for lgnet in phynetmapobj.logicnetworks.dataset():
+                        with suppress(WalkKeyNotRetrieved):
+                            lgnetobj = walk(lgnet.getkey())
+                            if not lgnetobj:
+                                save(lgnet.getkey())
+                                saved_lgnet_keys.append(lgnet.getkey())
+                                saved_physicalnetworkmap_to_logicalnetwork[phynetmapobj.getkey()]\
+                                    .append(lgnet.getkey())
 
-        for m in callAPI(self.apiroutine,"objectdb","walk",
+        await call_api(self.apiroutine,"objectdb","walk",
                     {"keys":[PhysicalNetworkSet.default_key()],
                     "walkerdict":{PhysicalNetworkSet.default_key():walk_phynetset},
-                    "requestid":1}):
-            yield m
+                    "requestid":1})
 
         saved_lgnet_keys = list(set(saved_lgnet_keys))
         saved_phymap_keys = list(set(saved_phymap_keys))
@@ -87,9 +81,8 @@ class RepairPhyMapDB(ScriptModule):
                 transact_keys.append(key)
 
         if transact_keys:
-            for m in callAPI(self.apiroutine,"objectdb","transact",{"keys":transact_keys,
-                                                                "updater":updater}):
-                yield m
+            await call_api(self.apiroutine,"objectdb","transact",{"keys":transact_keys,
+                                                                "updater":updater})
 
         print("# # # # # # repair success !")
 

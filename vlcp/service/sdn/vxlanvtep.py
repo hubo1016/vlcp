@@ -3,7 +3,7 @@ from vlcp.event import Event
 from vlcp.event import RoutineContainer
 from vlcp.event import withIndices
 from vlcp.protocol.openflow import OpenflowConnectionStateEvent
-from vlcp.server.module import callAPI, publicapi, api
+from vlcp.server.module import call_api, publicapi, api
 from vlcp.service.sdn import ioprocessing
 from vlcp.service.sdn import ovsdbportmanager
 from vlcp.service.sdn.flowbase import FlowBase
@@ -11,6 +11,7 @@ from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.service.utils.remoteapi import remoteAPI
 from vlcp.utils.ethernet import ETHERTYPE_8021Q
 from contextlib import closing
+from vlcp.event.event import M_
 
 
 def _is_vxlan(obj):
@@ -50,9 +51,9 @@ class VXLANHandler(RoutineContainer):
         if self._parent.remote_api:
             self.api = remoteAPI
         else:
-            self.api = callAPI
+            self.api = call_api
 
-    def main(self):
+    async def main(self):
 
         try:
             data_change_event = ioprocessing.DataObjectChanged.createMatcher(None, None, self._conn)
@@ -60,20 +61,22 @@ class VXLANHandler(RoutineContainer):
             # routine sync call to vtep controller (updatelogicalswitch,unbindlogicalswitch,unbindphysicalport)
             self.subroutine(self.action_handler(),True,"_action_handler")
 
-            _last_change_event = [None]
+            _last_change_event = None
             while True:
-                yield (data_change_event,)
-                _last_change_event[0] = self.event
+                ev = await data_change_event
+                _last_change_event = ev
                 def _update_callback(event, matcher):
-                    _last_change_event[0] = event
-                def _update_loop():
-                    while _last_change_event[0] is not None:
+                    nonlocal _last_change_event
+                    _last_change_event = event
+                async def _update_loop():
+                    nonlocal _last_change_event
+                    while _last_change_event is not None:
                         try:
                             last_lognets_info = self._last_lognets_info
                             last_phyport_info = self._last_phyport_info
         
-                            current_logports,current_phyports,current_lognets,_ = _last_change_event[0].current
-                            _last_change_event[0] = None
+                            current_logports,current_phyports,current_lognets,_ = _last_change_event.current
+                            _last_change_event = None
         
                             lognet_to_logports = {}
                             for p, _ in current_logports:
@@ -82,26 +85,24 @@ class VXLANHandler(RoutineContainer):
                             datapath_id = self._conn.openflow_datapathid
                             vhost = self._conn.protocol.vhost
         
-                            def get_phyport_info(portid):
+                            async def get_phyport_info(portid):
                                 try:
-                                    for m in callAPI(self, "ovsdbportmanager", "waitportbyno",
+                                    return await call_api(self, "ovsdbportmanager", "waitportbyno",
                                                  {"datapathid": datapath_id,
                                                   "vhost": vhost,
                                                   "timeout": 1,
-                                                  "portno": portid}):
-                                        yield m
+                                                  "portno": portid})
                                 except ovsdbportmanager.OVSDBPortNotAppearException:
-                                    self.retvalue = None
+                                    return None
                             phy_ports = [p for p in current_phyports if _is_vxlan(p[0])]
-                            for m in self.executeAll([get_phyport_info(pid) for p,pid in phy_ports]):
-                                yield m
+                            port_result = await self.execute_all([get_phyport_info(pid) for p,pid in phy_ports])
         
-                            phy_port_info  = dict((k[0], (v[0]['external_ids']['vtep-physname'],
-                                                                v[0]['external_ids']['vtep-phyiname']))
-                                                  for k,v in zip(phy_ports,self.retvalue)
-                                                  if v[0] is not None and \
-                                                    'vtep-physname' in v[0]['external_ids'] and \
-                                                    'vtep-phyiname' in v[0]['external_ids'])
+                            phy_port_info  = dict((k[0], (v['external_ids']['vtep-physname'],
+                                                                v['external_ids']['vtep-phyiname']))
+                                                  for k,v in zip(phy_ports, port_result)
+                                                  if v is not None and \
+                                                    'vtep-physname' in v['external_ids'] and \
+                                                    'vtep-phyiname' in v['external_ids'])
                             unique_phyports = dict((p.physicalnetwork, p)
                                                    for p,_ in sorted(phy_ports, key = lambda x: x[1])
                                                    if p in phy_port_info)
@@ -129,8 +130,7 @@ class VXLANHandler(RoutineContainer):
                                     event = VtepControllerCall(connection=self._conn,type=VtepControllerCall.UNBINDALL,
                                                                physname=physname,phyiname=phyiname)
         
-                                    for m in self.waitForSend(event):
-                                        yield m
+                                    await self.wait_for_send(event)
         
         
                             # remove phyport , unbind all physical interface bind also
@@ -143,8 +143,7 @@ class VXLANHandler(RoutineContainer):
                                     event = VtepControllerCall(connection=self._conn,type=VtepControllerCall.UNBINDALL,
                                                                physname=physname,phyiname=phyiname)
         
-                                    for m in self.waitForSend(event):
-                                        yield m
+                                    await self.wait_for_send(event)
         
                             for n in last_lognets_info:
                                 if n not in current_lognets_info:
@@ -162,15 +161,13 @@ class VXLANHandler(RoutineContainer):
         
                                         event = VXLANMapChanged(self._conn,n.id,VXLANMapChanged.DELETED)
         
-                                        for m in self.waitForSend(event):
-                                            yield m
+                                        await self.wait_for_send(event)
         
                                         event = VtepControllerCall(connection=self._conn,logicalnetworkid=n.id,
                                                                    physname=physname,phyiname=phyiname,vlanid=vlan_id,
                                                                    type=VtepControllerCall.UNBIND)
         
-                                        for m in self.waitForSend(event):
-                                            yield m
+                                        await self.wait_for_send(event)
                                 
                                 else:
                                     last_info = last_lognets_info[n]
@@ -191,15 +188,11 @@ class VXLANHandler(RoutineContainer):
                                                                        physname=physname, phyiname=phyiname, vlanid=vid,
                                                                        type=VtepControllerCall.UNBIND)
         
-                                            for m in self.waitForSend(event):
-                                                yield m
+                                            await self.wait_for_send(event)
                                            
                                     else:
-                                        if last_info[1] != current_info[1]:
-                                            add_ports = list(set(current_info[1]).difference(set(last_info[1])))
-        
-                                            if add_ports:
-                                                # add new add_ports
+                                        if last_info[1] != current_info[1]:        
+                                            if set(current_info[1]) != set(last_info[1]):
                                                 # update bind logical ports
         
                                                 if n.id in self.vxlan_vlan_map_info:
@@ -208,12 +201,11 @@ class VXLANHandler(RoutineContainer):
                                                     phyiname = last_lognets_info[n][0][1]
         
                                                     event = VtepControllerCall(connection=self._conn, logicalnetworkid=n.id,
-                                                                               vni = n.vni,logicalports=add_ports,
+                                                                               vni = n.vni,logicalports=current_info[1],
                                                                                physname=physname, phyiname=phyiname, vlanid=vid,
                                                                                type=VtepControllerCall.BIND)
         
-                                                    for m in self.waitForSend(event):
-                                                        yield m
+                                                    await self.wait_for_send(event)
         
         
                             for n in current_lognets_info:
@@ -235,8 +227,7 @@ class VXLANHandler(RoutineContainer):
                                         self.vxlan_vlan_map_info[n.id] = vid
         
                                         event = VXLANMapChanged(self._conn,n.id,VXLANMapChanged.UPDATED,vlan_id = vid)
-                                        for m in self.waitForSend(event):
-                                            yield m
+                                        await self.wait_for_send(event)
         
                                         physname = current_lognets_info[n][0][0]
                                         phyiname = current_lognets_info[n][0][1]
@@ -247,14 +238,12 @@ class VXLANHandler(RoutineContainer):
                                                                    physname=physname, phyiname=phyiname, vlanid=vid,
                                                                    type=VtepControllerCall.BIND)
         
-                                        for m in self.waitForSend(event):
-                                            yield m
+                                        await self.wait_for_send(event)
         
                                     else:
                                         self._parent._logger.warning('Not enough vlan_id for logical network %r', n.id)
                                         event = VXLANMapChanged(self._conn,n.id,VXLANMapChanged.UPDATED,vlan_id = None)
-                                        for m in self.waitForSend(event):
-                                            yield m
+                                        await self.wait_for_send(event)
                                 else:
         
                                     last_info = last_lognets_info[n]
@@ -274,14 +263,12 @@ class VXLANHandler(RoutineContainer):
                                                                        physname=physname, phyiname=phyiname, vlanid=vid,
                                                                        type=VtepControllerCall.BIND)
         
-                                            for m in self.waitForSend(event):
-                                                yield m
+                                            await self.wait_for_send(event)
         
         
                         except Exception:
                             self._parent._logger.info(" vxlan vtep handler exception , continue", exc_info = True)
-                for m in self.withCallback(_update_loop(), _update_callback, data_change_event):
-                    yield m
+                await self.with_callback(_update_loop(), _update_callback, data_change_event)
         finally:
 
             if hasattr(self,"_action_handler"):
@@ -310,19 +297,27 @@ class VXLANHandler(RoutineContainer):
 #                     self.scheduler.emergesend(event)
 # ===============================================================================
 
-    def action_handler(self):
-
+    async def action_handler(self):
+        """
+        Call vtep controller in sequence, merge mutiple calls if possible
+        
+        When a bind relationship is updated, we always send all logical ports to a logicalswitch,
+        to make sure it recovers from some failed updates (so called idempotency). When multiple
+        calls are pending, we only need to send the last of them.
+        """
         bind_event = VtepControllerCall.createMatcher(self._conn)
         event_queue = []
         timeout_flag = [False]
 
-        def handle_action():
+        async def handle_action():
             while event_queue or timeout_flag[0]:
                 events = event_queue[:]
                 del event_queue[:]
 
                 for e in events:
                     # every event must have physname , phyiname
+                    # physname: physical switch name - must be same with OVSDB-VTEP switch
+                    # phyiname: physical port name - must be same with the corresponding port
                     physname = e.physname
                     phyiname = e.phyiname
                     if e.type == VtepControllerCall.UNBINDALL:
@@ -335,15 +330,7 @@ class VXLANHandler(RoutineContainer):
                             v = self._store_event[(physname,phyiname)]
 
                             if vlanid in v:
-                                x = v[vlanid]
                                 logicalports = e.logicalports
-
-                                if x[0] == VtepControllerCall.BIND and x[1] == e.logicalnetworkid:
-                                    new_set = set(e.logicalports)
-                                    old_set = set(x[3])
-                                    new_set.update(old_set)
-                                    logicalports = list(new_set)
-
                                 v.update({vlanid:(e.type,e.logicalnetworkid,e.vni,logicalports)})
                                 self._store_event[(physname,phyiname)] = v
                             else:
@@ -366,7 +353,7 @@ class VXLANHandler(RoutineContainer):
                             self._store_event[(physname,phyiname)] = {vlanid:(e.type,e.logicalnetworkid)}
 
                     else:
-                        self._parent._logger.warning("catch error type event %r , ignore it", e)
+                        self._parent._logger.warning("catch error type event %r , ignore it", exc_info=True)
                         continue
 
                 call = []
@@ -381,10 +368,9 @@ class VXLANHandler(RoutineContainer):
                         del v["all"]
 
                 try:
-                    for m in self.executeAll(call):
-                        yield m
+                    await self.execute_all(call)
                 except Exception:
-                    self._parent._logger.warning("unbindall remove call failed")
+                    self._parent._logger.warning("unbindall remove call failed", exc_info=True)
 
                 for k,v in self._store_event.items():
                     for vlanid , e in dict(v).items():
@@ -399,15 +385,14 @@ class VXLANHandler(RoutineContainer):
                                             "logicalports": e[3]}
 
                                 try:
-                                    for m in self.api(self,target_name,"updatelogicalswitch",
-                                                  params,timeout=10):
-                                        yield m
+                                    await self.api(self,target_name,"updatelogicalswitch",
+                                                  params,timeout=10)
                                 except Exception:
-                                    self._parent._logger.warning("update logical switch error,try next %r",params)
+                                    self._parent._logger.warning("update logical switch error,try next %r",params, exc_info=True)
                                 else:
                                     del self._store_event[k][vlanid]
 
-                            if e[0] == VtepControllerCall.UNBIND:
+                            elif e[0] == VtepControllerCall.UNBIND:
 
                                 params = {"logicalnetwork":e[1],
                                                 "physicalswitch":k[0],
@@ -415,50 +400,55 @@ class VXLANHandler(RoutineContainer):
                                                   "vlanid":vlanid}
 
                                 try:
-                                    for m in self.api(self,target_name,"unbindlogicalswitch",
-                                                      params,timeout=10):
-                                        yield m
+                                    await self.api(self,target_name,"unbindlogicalswitch",
+                                                      params,timeout=10)
                                 except Exception:
-                                    self._parent._logger.warning("unbind logical switch error,try next %r",params)
+                                    self._parent._logger.warning("unbind logical switch error,try next %r",params, exc_info=True)
                                 else:
                                     del self._store_event[k][vlanid]
 
-                self._store_event = dict((k,v) for k,v in self._store_event.items() if v )
+                self._store_event = dict((k,v) for k,v in self._store_event.items() if v)
 
                 if timeout_flag[0]:
                     timeout_flag[0] = False
 
-        def append_event(event,matcher):
+        def append_event(event, matcher):
             event_queue.append(event)
 
         while True:
-            with closing(self.waitWithTimeout(10,bind_event)) as g:
-                for m in g:
-                    yield m
+            timeout, ev, m = await self.wait_with_timeout(10, bind_event)
 
-            if not self.timeout:
-                event_queue.append(self.event)
+            if not timeout:
+                event_queue.append(ev)
             else:
                 timeout_flag[0] = True
 
-            for m in self.withCallback(handle_action(),append_event,bind_event):
-                yield m
+            await self.with_callback(handle_action(), append_event, bind_event)
 
 
-    def wait_vxlan_map_info(self,container,logicalnetworkid,timeout = 4):
+    async def wait_vxlan_map_info(self,container,logicalnetworkid,timeout = 4):
 
         if logicalnetworkid in self.vxlan_vlan_map_info:
-            container.retvalue = self.vxlan_vlan_map_info[logicalnetworkid]
+            return self.vxlan_vlan_map_info[logicalnetworkid]
         else:
-            event = VXLANMapChanged.createMatcher(self._conn,logicalnetworkid,VXLANMapChanged.UPDATED)
-            with closing(container.waitWithTimeout(timeout,event)) as g:
-                for m in g:
-                    yield m
+            matcher = VXLANMapChanged.createMatcher(self._conn,logicalnetworkid,VXLANMapChanged.UPDATED)
+            timeout_, ev, m = await container.wait_with_timeout(timeout, matcher)
 
-            if container.timeout:
+            if timeout_:
                 raise ValueError(" cannot find vxlan vlan map info ")
             else:
-                container.retvalue = container.event.vlan_id
+                return ev.vlan_id
+
+
+def _check_vlanrange(vlanrange):
+    lastend = 0
+    for start,end in vlanrange:
+        if start <= 0 or end > 4095:
+            raise ValueError('VLAN ID out of range (1 - 4095)')
+        if start > end or start <= lastend:
+            raise ValueError('VLAN sequences overlapped or disordered: [%r, %r]' % (start, end))
+        lastend = end
+
 
 @defaultconfig
 class VXLANVtep(FlowBase):
@@ -488,16 +478,11 @@ class VXLANVtep(FlowBase):
                                         _is_vxlan(logicalnetwork)),
                        api(self.get_vxlan_bind_info,self.app_routine))
 
-    def _main(self):
+    async def _main(self):
 
         # check vlan pool
         lastend = 0
-        for start,end in self.vlanid_pool:
-            if start > end or start < lastend:
-                raise ValueError(" vlan sequences overlapped or disorder ")
-            if end > 4095:
-                raise ValueError(" vlan out of range (0 -- 4095) ")
-            lastend = end
+        _check_vlanrange(self.vlanid_pool)
 
         flow_init = FlowInitialize.createMatcher(_ismatch= lambda x : self.vhostbind is None
                                                  or x.vhost in self.vhostbind)
@@ -506,20 +491,20 @@ class VXLANVtep(FlowBase):
                                                                or x.createby.vhost in self.vhostbind)
 
         while True:
-            yield (flow_init,conn_down)
+            ev, m = await M_(flow_init,conn_down)
 
-            if self.app_routine.matcher is flow_init:
+            if m is flow_init:
 
-                conn = self.app_routine.event.connection
+                conn = ev.connection
 
                 self.app_routine.subroutine(self._init_conn(conn))
 
-            if self.app_routine.matcher is conn_down:
-                conn = self.app_routine.event.connection
+            elif m is conn_down:
+                conn = ev.connection
 
                 self.app_routine.subroutine(self._uninit_conn(conn))
 
-    def _init_conn(self,conn):
+    async def _init_conn(self,conn):
         if conn in self.conns:
             handler = self.conns.pop(conn)
             handler.close()
@@ -528,18 +513,12 @@ class VXLANVtep(FlowBase):
         handler.start()
         self.conns[conn] = handler
 
-        if None:
-            yield
-
-    def _uninit_conn(self,conn):
+    async def _uninit_conn(self,conn):
         if conn in self.conns:
             handler = self.conns.pop(conn)
             handler.close()
 
-        if None:
-            yield
-
-    def get_vxlan_bind_info(self,systemid=None):
+    async def get_vxlan_bind_info(self,systemid=None):
         """get vxlan -> vlan , bind info"""
 
         ret = []
@@ -547,12 +526,11 @@ class VXLANVtep(FlowBase):
             datapath_id = conn.openflow_datapathid
             vhost = conn.protocol.vhost
 
-            for m in callAPI(self.app_routine,"ovsdbmanager","getbridgeinfo",{"datapathid":datapath_id,
-                                                                              "vhost":vhost}):
-                yield m
+            r = await call_api(self.app_routine,"ovsdbmanager","getbridgeinfo",{"datapathid":datapath_id,
+                                                                              "vhost":vhost})
 
-            if self.app_routine.retvalue:
-                _,system_id,_ = self.app_routine.retvalue
+            if r:
+                _,system_id,_ = r
 
                 if systemid:
                     if systemid == system_id:
@@ -564,9 +542,9 @@ class VXLANVtep(FlowBase):
                     ret.append({system_id:handler.vxlan_vlan_map_info})
 
 
-        self.app_routine.retvalue = ret
+        return ret
 
-    def createioflowparts(self,connection,logicalnetwork,physicalport,logicalnetworkid,physicalportid):
+    async def createioflowparts(self,connection,logicalnetwork,physicalport,logicalnetworkid,physicalportid):
 
         self._logger.debug(" create flow parts connection = %r",connection)
         self._logger.debug(" create flow parts logicalnetworkid = %r", logicalnetworkid)
@@ -579,22 +557,19 @@ class VXLANVtep(FlowBase):
             handler = self.conns[connection]
 
             try:
-                for m in handler.wait_vxlan_map_info(self.app_routine,logicalnetwork.id):
-                    yield m
+                vid = await handler.wait_vxlan_map_info(self.app_routine,logicalnetwork.id)
             except Exception:
                 find = False
                 self._logger.warning(" get vxlan vlan map info error", exc_info = True)
             else:
                 find = True
-                vid = self.app_routine.retvalue
                 if vid is None:
                     self._logger.warning('Not enough vlan ID, io flow parts not created')
                     find = False
-
         if find:
-            self.app_routine.retvalue = self.createflowparts(connection, vid, physicalportid)
+            return self.createflowparts(connection, vid, physicalportid)
         else:
-            self.app_routine.retvalue = ([],[],[],[],[])
+            return ([],[],[],[],[])
 
     def createflowparts(self,connection,vid,physicalportid):
         ofdef = connection.openflowdef

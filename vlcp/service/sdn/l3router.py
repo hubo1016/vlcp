@@ -10,7 +10,7 @@ from vlcp.event import RoutineContainer
 from vlcp.event import withIndices
 from vlcp.protocol.openflow import OpenflowAsyncMessageEvent
 from vlcp.protocol.openflow import OpenflowConnectionStateEvent
-from vlcp.server.module import callAPI, depend
+from vlcp.server.module import call_api, depend
 from vlcp.service.kvdb import objectdb
 from vlcp.service.sdn.flowbase import FlowBase
 from vlcp.service.sdn.ofpmanager import FlowInitialize
@@ -24,7 +24,9 @@ from vlcp.utils.netutils import parse_ip4_network,get_netmask, parse_ip4_address
 from vlcp.utils.networkmodel import VRouter, RouterPort, SubNet, SubNetMap,DVRouterForwardInfo, \
     DVRouterForwardSet, DVRouterForwardInfoRef, DVRouterExternalAddressInfo, LogicalNetworkMap, LogicalNetwork, \
     LogicalPort
-from contextlib import closing
+from contextlib import closing, suppress
+from vlcp.event.event import M_
+from vlcp.utils.exceptions import WalkKeyNotRetrieved
 
 
 @withIndices("connection")
@@ -59,7 +61,7 @@ class RouterUpdater(FlowUpdater):
         self._packet_buffer = dict()
         self._arp_cache = dict()
 
-    def main(self):
+    async def main(self):
         try:
             self.subroutine(self._update_handler(), True, "updater_handler")
             self.subroutine(self._router_packetin_handler(), True, "router_packetin_handler")
@@ -68,8 +70,7 @@ class RouterUpdater(FlowUpdater):
             if self._parent.enable_router_forward:
                 self.subroutine(self._keep_forwardinfo_alive_handler(),True,"keep_forwardinfo_alive_handler")
                 self.subroutine(self._keep_addressinfo_alive_handler(),True,"keep_addressinfo_alive_handler")
-            for m in FlowUpdater.main(self):
-                yield m
+            await FlowUpdater.main(self)
         finally:
 
             if hasattr(self, "updater_handler"):
@@ -139,23 +140,18 @@ class RouterUpdater(FlowUpdater):
 
         return ret_info
 
-    def _keep_forwardinfo_alive_handler(self):
+    async def _keep_forwardinfo_alive_handler(self):
         while True:
-            with closing(self.waitWithTimeout(self._parent.forwardinfo_discover_update_time)) as g:
-                for m in g:
-                    yield m
+            await self.wait_with_timeout(self._parent.forwardinfo_discover_update_time)
 
             datapath_id = self._connection.openflow_datapathid
             vhost = self._connection.protocol.vhost
             try:
-                for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
-                                                                          'vhost': vhost}):
-                    yield m
+                bridge, system_id, _ = await call_api(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
+                                                                          'vhost': vhost})
             except Exception:
                 self._logger.warning("OVSDB bridge is not ready", exc_info=True)
                 return
-            else:
-                bridge, system_id, _ = self.retvalue
 
             forward_keys = [DVRouterForwardInfo.default_key(k[0],k[1]) for k in self._laststoreinfo.keys()]
             ref_forward_keys = [DVRouterForwardInfoRef.default_key(k[0],k[1]) for k in self._laststoreinfo.keys()]
@@ -198,26 +194,20 @@ class RouterUpdater(FlowUpdater):
                 return retdict.keys(), retdict.values()
 
             if forward_keys + ref_forward_keys:
-                for m in callAPI(self,"objectdb","transact",{"keys":transact_keys,"updater":updater,"withtime":True}):
-                    yield m
+                await call_api(self,"objectdb","transact",{"keys":transact_keys,"updater":updater,"withtime":True})
 
-    def _keep_addressinfo_alive_handler(self):
+    async def _keep_addressinfo_alive_handler(self):
         while True:
-            with closing(self.waitWithTimeout(self._parent.addressinfo_discover_update_time)) as g:
-                for m in g:
-                    yield m
+            await self.wait_with_timeout(self._parent.addressinfo_discover_update_time)
 
             datapath_id = self._connection.openflow_datapathid
             vhost = self._connection.protocol.vhost
             try:
-                for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
-                                                                          'vhost': vhost}):
-                    yield m
+                bridge, system_id, _ = await call_api(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
+                                                                                               'vhost': vhost})
             except Exception:
                 self._logger.warning("OVSDB bridge is not ready", exc_info=True)
                 return
-            else:
-                bridge, system_id, _ = self.retvalue
 
             for k,v in self._lastsubnetinfo.items():
                 if v[1] and v[7] and not v[10]:
@@ -245,16 +235,15 @@ class RouterUpdater(FlowUpdater):
 
                         return keys,values
 
-                    for m in callAPI(self,"objectdb","transact",
+                    await call_api(self,"objectdb","transact",
                                      {"keys":[DVRouterExternalAddressInfokey,subnetmapkey],
-                                      "updater":updater,"withtime":True}):
-                        yield m
+                                      "updater":updater,"withtime":True})
 
-    def _packet_out_message(self,netid,packet,portno):
+    async def _packet_out_message(self,netid,packet,portno):
         l2output_next = self._parent._getnexttable('', 'l2output', self._connection.protocol.vhost)
         ofdef = self._connection.openflowdef
 
-        for m in self.execute_commands(self._connection,
+        await self.execute_commands(self._connection,
                                        [
                                            ofdef.ofp_packet_out(
                                                buffer_id=ofdef.OFP_NO_BUFFER,
@@ -280,15 +269,12 @@ class RouterUpdater(FlowUpdater):
                                                data=packet._tobytes()
                                            )
                                        ]
-                                       ):
-            yield m
+                                    )
 
-    def _time_cycle_handler(self):
+    async def _time_cycle_handler(self):
 
         while True:
-            with closing(self.waitWithTimeout(self._parent.arp_cycle_time)) as g:
-                for m in g:
-                    yield m
+            await self.wait_with_timeout(self._parent.arp_cycle_time)
             ct = int(time.time())
 
             # check incomplte arp entry ,, send arp request cycle unitl timeout
@@ -313,8 +299,7 @@ class RouterUpdater(FlowUpdater):
                                     arp_spa=ip4_addr(ipaddress),
                                     arp_tpa=request_ip
                                 )
-                                for m in self._packet_out_message(outnetid, arp_request_packet, phyport):
-                                    yield m
+                                await self._packet_out_message(outnetid, arp_request_packet, phyport)
                     if status == 2:
                         if ct > timeout:
                             if ct - timeout >= self._parent.static_host_arp_refresh_interval:
@@ -336,8 +321,7 @@ class RouterUpdater(FlowUpdater):
                                         arp_spa=ip4_addr(ipaddress),
                                         arp_tpa=request_ip
                                     )
-                                    for m in self._packet_out_message(outnetid, arp_request_packet, phyport):
-                                        yield m
+                                    await self._packet_out_message(outnetid, arp_request_packet, phyport)
                 else:
                     if status == 1:
                         if ct > timeout:
@@ -362,8 +346,7 @@ class RouterUpdater(FlowUpdater):
                                         arp_spa=ip4_addr(ipaddress),
                                         arp_tpa=request_ip
                                     )
-                                    for m in self._packet_out_message(outnetid,arp_request_packet,phyport):
-                                        yield m
+                                    await self._packet_out_message(outnetid,arp_request_packet,phyport)
                                 # else
                                 # arp_cache will not have entry which goto network has no phyport
                                 # so nerver run here
@@ -391,8 +374,7 @@ class RouterUpdater(FlowUpdater):
                                     arp_spa=ip4_addr(ipaddress),
                                     arp_tpa=request_ip
                                 )
-                                for m in self._packet_out_message(outnetid,arp_request_packet,phyport):
-                                    yield m
+                                await self._packet_out_message(outnetid,arp_request_packet,phyport)
 
 
             # when request one arp , but there no reply ,
@@ -401,22 +383,22 @@ class RouterUpdater(FlowUpdater):
                 nv = [(p,bid,t) for p,bid,t in v if ct < t]
                 self._packet_buffer[k] = nv
 
-    def _arp_cache_handler(self):
+    async def _arp_cache_handler(self):
 
         arp_request_matcher = ARPRequest.createMatcher(connection=self._connection)
         arp_incomplete_timeout = self._parent.arp_incomplete_timeout
 
         while True:
-            yield (arp_request_matcher,)
+            ev = await arp_request_matcher
             ct = int(time.time())
 
-            ipaddress = self.event.ipaddress
-            netid = self.event.logicalnetworkid
+            ipaddress = ev.ipaddress
+            netid = ev.logicalnetworkid
 
             # isstatic : this type arp entry will add when arp request static router and gateway
             # cidr : when isstatic arp entry reply , use cidr to add flows into sw
-            isstatic = self.event.isstatic
-            cidr = self.event.cidr
+            isstatic = ev.isstatic
+            cidr = ev.cidr
 
             if (netid,ipaddress) not in self._arp_cache:
                 entry = (1,ct + arp_incomplete_timeout,isstatic,"",cidr)
@@ -452,7 +434,7 @@ class RouterUpdater(FlowUpdater):
                 entry = (s, ct + arp_incomplete_timeout, isstatic,mac,cidr)
                 self._arp_cache[(netid,ipaddress)] = entry
 
-    def _router_packetin_handler(self):
+    async def _router_packetin_handler(self):
         conn = self._connection
         ofdef = self._connection.openflowdef
 
@@ -473,11 +455,11 @@ class RouterUpdater(FlowUpdater):
         arpflow_request_matcher = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l3output,
                                                     0x1,self._connection, self._connection.connmark)
 
-        def _send_broadcast_packet_out(netid,packet):
+        async def _send_broadcast_packet_out(netid,packet):
             # in_port == controller
             # input network( reg4 ) == outnetwork (reg5)
             # output port (reg6) = 0xffffffff
-            for m in self.execute_commands(conn,
+            await self.execute_commands(conn,
                         [
                             ofdef.ofp_packet_out(
                                 buffer_id=ofdef.OFP_NO_BUFFER,
@@ -500,11 +482,10 @@ class RouterUpdater(FlowUpdater):
                                 data = packet._tobytes()
                             )
                         ]
-                        ):
-                yield m
+                        )
 
-        def _send_buffer_packet_out(netid,macaddress,ipaddress,srcmacaddress,packet,bid = ofdef.OFP_NO_BUFFER):
-            for m in self.execute_commands(conn,
+        async def _send_buffer_packet_out(netid,macaddress,ipaddress,srcmacaddress,packet,bid = ofdef.OFP_NO_BUFFER):
+            await self.execute_commands(conn,
                         [
                             ofdef.ofp_packet_out(
                                 buffer_id = bid,
@@ -530,14 +511,13 @@ class RouterUpdater(FlowUpdater):
                                         table = l2output
                                     )
                                 ],
-                                data = packet._tobytes()
+                                data = packet._tobytes() if bid != ofdef.OFP_NO_BUFFER else b''
                             )
                         ]
-                        ):
-                yield m
+                        )
 
-        def _add_host_flow(netid,macaddress,ipaddress,srcmaddress):
-            for m in self.execute_commands(conn,
+        async def _add_host_flow(netid,macaddress,ipaddress,srcmaddress):
+            await self.execute_commands(conn,
                         [
                             ofdef.ofp_flow_mod(
                                 table_id=l3output,
@@ -611,13 +591,12 @@ class RouterUpdater(FlowUpdater):
                                 ]
                             )
                         ]
-                        ):
-                yield m
+                        )
 
-        def _add_static_routes_flow(from_net_id,cidr,to_net_id,smac,dmac):
+        async def _add_static_routes_flow(from_net_id,cidr,to_net_id,smac,dmac):
             network,prefix = parse_ip4_network(cidr)
 
-            for m in self.execute_commands(conn,[
+            await self.execute_commands(conn,[
                 ofdef.ofp_flow_mod(
                     table_id=l3router,
                     command=ofdef.OFPFC_ADD,
@@ -654,12 +633,11 @@ class RouterUpdater(FlowUpdater):
                         ofdef.ofp_instruction_goto_table(table_id=l2output)
                     ]
                 )
-            ]):
-                yield m
+            ])
 
-        def _add_static_host_flow(ipaddress, dmac, netid, smac):
+        async def _add_static_host_flow(ipaddress, dmac, netid, smac):
 
-            for m in self.execute_commands(conn, [
+            await self.execute_commands(conn, [
                 ofdef.ofp_flow_mod(
                     table_id=l3output,
                     command=ofdef.OFPFC_ADD,
@@ -691,15 +669,14 @@ class RouterUpdater(FlowUpdater):
                         ofdef.ofp_instruction_goto_table(table_id=l2output)
                     ]
                 )
-            ]):
-                yield m
+            ])
 
         while True:
-            yield (packetin_matcher, arpreply_matcher,arpflow_request_matcher,arpflow_remove_matcher)
+            ev, m = await M_(packetin_matcher, arpreply_matcher,arpflow_request_matcher,arpflow_remove_matcher)
 
-            msg = self.event.message
+            msg = ev.message
             try:
-                if self.matcher is packetin_matcher:
+                if m is packetin_matcher:
                     outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
 
                     ippacket = ethernet_l4.create(msg.data)
@@ -731,9 +708,9 @@ class RouterUpdater(FlowUpdater):
                                     logicalnetworkid=outnetworkid,isstatic=False,
                                     cidr=ip4_addr.formatter(ippacket.ip_dst))
 
-                    self.subroutine(self.waitForSend(e))
+                    self.subroutine(self.wait_for_send(e), False)
 
-                if self.matcher is arpflow_request_matcher:
+                elif m is arpflow_request_matcher:
                     outnetworkid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
                     #ipaddress = ofdef.get_oxm(msg.match.oxm_fields,ofdef.OXM_OF_IPV4_DST)
 
@@ -750,7 +727,7 @@ class RouterUpdater(FlowUpdater):
                             entry = (3,timeout,isstatic,mac,cidr)
                             self._arp_cache[(outnetworkid,ipaddress)] = entry
 
-                if self.matcher is arpflow_remove_matcher:
+                elif m is arpflow_remove_matcher:
                     nid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields, ofdef.NXM_NX_REG5))
                     ip_address = ip4_addr(ip4_addr_bytes.formatter(
                                     ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IPV4_DST)))
@@ -765,7 +742,7 @@ class RouterUpdater(FlowUpdater):
                             if (nid,ip_address) in self._packet_buffer:
                                 del self._packet_buffer[(nid,ip_address)]
 
-                if self.matcher is arpreply_matcher:
+                elif m is arpreply_matcher:
                     netid = ofdef.uint32.create(ofdef.get_oxm(msg.match.oxm_fields,ofdef.NXM_NX_REG5))
 
                     arp_reply_packet = ethernet_l7.create(msg.data)
@@ -819,14 +796,14 @@ class RouterUpdater(FlowUpdater):
             except Exception:
                 self._logger.warning(" handler router packetin message error , ignore !",exc_info=True)
 
-    def _update_handler(self):
+    async def _update_handler(self):
 
         dataobjectchange = iop.DataObjectChanged.createMatcher(None, None, self._connection)
 
         while True:
-            yield (dataobjectchange,)
+            ev = await dataobjectchange
 
-            self._lastlogicalport, self._lastphyport, self._lastlogicalnet, self._lastphynet = self.event.current
+            self._lastlogicalport, self._lastphyport, self._lastlogicalnet, self._lastphynet = ev.current
 
             self._update_walk()
 
@@ -876,74 +853,39 @@ class RouterUpdater(FlowUpdater):
         save(key)
         lgnetmapkey = LogicalNetworkMap.default_key(LogicalNetwork._getIndices(key)[1][0])
 
-        try:
+        with suppress(WalkKeyNotRetrieved):
             lgnetmap = walk(lgnetmapkey)
-        except KeyError:
-            pass
-        else:
             save(lgnetmap.getkey())
-
             if self._parent.prepush:
                 for lgport_weak in lgnetmap.ports.dataset():
-                    try:
+                    with suppress(WalkKeyNotRetrieved):
                         lgport = walk(lgport_weak.getkey())
-                    except KeyError:
-                        pass
-                    else:
                         save(lgport.getkey())
 
             for subnet_weak in lgnetmap.subnets.dataset():
-                try:
+                with suppress(WalkKeyNotRetrieved):
                     subnetobj = walk(subnet_weak.getkey())
-                except KeyError:
-                    pass
-                else:
                     save(subnetobj.getkey())
                     if hasattr(subnetobj, "router"):
-                        try:
-                            routerport = walk(subnetobj.router.getkey())
-                        except KeyError:
-                            pass
-                        else:
-                            save(routerport.getkey())
+                        routerport = walk(subnetobj.router.getkey())
+                        save(routerport.getkey())
+                        if hasattr(routerport, "router"):
+                            router = walk(routerport.router.getkey())
+                            save(router.getkey())
+                            for weakobj in router.interfaces.dataset():
+                                routerport_weakkey = weakobj.getkey()
 
-                            if hasattr(routerport, "router"):
-                                try:
-                                    router = walk(routerport.router.getkey())
-                                except KeyError:
-                                    pass
-                                else:
-                                    save(router.getkey())
-
-                                    if router.interfaces.dataset():
-
-                                        for weakobj in router.interfaces.dataset():
-                                            routerport_weakkey = weakobj.getkey()
-
-                                            # we walk from this key , so except
-                                            if routerport_weakkey != routerport.getkey():
-                                                try:
-                                                    weakrouterport = walk(routerport_weakkey)
-                                                except KeyError:
-                                                    pass
-                                                else:
-                                                    save(routerport_weakkey)
-
-                                                    if hasattr(weakrouterport, "subnet"):
-                                                        try:
-                                                            weaksubnet = walk(weakrouterport.subnet.getkey())
-                                                        except KeyError:
-                                                            pass
-                                                        else:
-                                                            save(weaksubnet.getkey())
-
-                                                            if hasattr(weaksubnet, "network"):
-                                                                try:
-                                                                    logicalnetwork = walk(weaksubnet.network.getkey())
-                                                                except KeyError:
-                                                                    pass
-                                                                else:
-                                                                    save(logicalnetwork.getkey())
+                                # we walk from this key , so except
+                                if routerport_weakkey != routerport.getkey():
+                                    with suppress(WalkKeyNotRetrieved):
+                                        weakrouterport = walk(routerport_weakkey)
+                                        save(routerport_weakkey)
+                                        if hasattr(weakrouterport, "subnet"):
+                                            weaksubnet = walk(weakrouterport.subnet.getkey())
+                                            save(weaksubnet.getkey())
+                                            if hasattr(weaksubnet, "network"):
+                                                logicalnetwork = walk(weaksubnet.network.getkey())
+                                                save(logicalnetwork.getkey())
 
 
     def _walk_phyport(self, key, value, walk, save):
@@ -972,7 +914,7 @@ class RouterUpdater(FlowUpdater):
         self._initialkeys = tuple(itertools.chain(self._original_keys,subnetkeys,
                                     routerportkeys,routerkeys,forwardinfokeys))
 
-    def updateflow(self, connection, addvalues, removevalues, updatedvalues):
+    async def updateflow(self, connection, addvalues, removevalues, updatedvalues):
 
         try:
             datapath_id = connection.openflow_datapathid
@@ -1014,11 +956,12 @@ class RouterUpdater(FlowUpdater):
                 if n.physicalnetwork in currentphyportinfo:
                     _,phyportid = currentphyportinfo[n.physicalnetwork]
 
-                    for m in callAPI(self, "openflowportmanager", "waitportbyno",
-                                     {"datapathid": datapath_id, "vhost": vhost, "portno": phyportid}):
-                        yield m
+                    openflow_port = await call_api(self, "openflowportmanager", "waitportbyno",
+                                                   {"datapathid": datapath_id,
+                                                    "vhost": vhost,
+                                                    "portno": phyportid})
 
-                    portmac = self.retvalue.hw_addr
+                    portmac = openflow_port.hw_addr
 
                     # convert physicalport mac as router out mac
                     outmac = [s ^ m for s, m in zip(portmac, mac_addr(self._parent.outroutermacmask))]
@@ -1053,14 +996,12 @@ class RouterUpdater(FlowUpdater):
                                        and r in router_to_routerport)
 
             try:
-                for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
-                                                                          'vhost': vhost}):
-                    yield m
+                bridge, system_id, _ = await call_api(self, 'ovsdbmanager', 'waitbridgeinfo',
+                                                      {'datapathid': datapath_id,
+                                                       'vhost': vhost})
             except Exception:
                 self._logger.warning("OVSDB bridge is not ready", exc_info=True)
                 return
-            else:
-                bridge, system_id, _ = self.retvalue
 
             currentsubnetinfo = dict()
             for s in allobjects:
@@ -1158,10 +1099,9 @@ class RouterUpdater(FlowUpdater):
 
                                 return tuple([keys[0],keys[2]]),tuple([values[0],values[2]])
 
-                            for m in callAPI(self,"objectdb","transact",
+                            await call_api(self,"objectdb","transact",
                                              {"keys":[DVRouterExternalAddressInfokey,subnetkey, subnetmapkey],
-                                              "updater":allocate_ip,"withtime":True}):
-                                yield m
+                                              "updater":allocate_ip,"withtime":True})
 
                             allocated_ip_address = allocated_ip_address[0]
 
@@ -1201,10 +1141,9 @@ class RouterUpdater(FlowUpdater):
 
                                 return keys,values
 
-                            for m in callAPI(self,"objectdb","transact",
+                            await call_api(self,"objectdb","transact",
                                              {"keys":[DVRouterExternalAddressInfokey,subnetmapkey],
-                                              "updater":release_ip,"withtime":True}):
-                                yield m
+                                              "updater":release_ip,"withtime":True})
 
             self._lastsubnetinfo = currentsubnetinfo
 
@@ -1286,15 +1225,12 @@ class RouterUpdater(FlowUpdater):
 
                     transact_keys = [DVRouterForwardSet.default_key()] + forward_keys + ref_forward_keys
                     try:
-                        for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
-                                                                                  'vhost': vhost}):
-                            yield m
+                        bridge, system_id, _ = await call_api(self, 'ovsdbmanager', 'waitbridgeinfo',
+                                                                {'datapathid': datapath_id,
+                                                                 'vhost': vhost})
                     except Exception:
                         self._logger.warning("OVSDB bridge is not ready", exc_info=True)
                         return
-                    else:
-                        bridge, system_id, _ = self.retvalue
-
 
                     def store_transact(keys,values,timestamp):
 
@@ -1359,12 +1295,11 @@ class RouterUpdater(FlowUpdater):
                                             WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]))
                                         transact_object[keys[0]] = values[0]
 
+                        
+                        return tuple(zip(*transact_object.items()))
 
-                        return transact_object.keys(),transact_object.values()
-
-                    for m in callAPI(self,"objectdb","transact",
-                                     {"keys":transact_keys,"updater":store_transact,"withtime":True}):
-                        yield m
+                    await call_api(self,"objectdb","transact",
+                                     {"keys":transact_keys,"updater":store_transact,"withtime":True})
 
             currentnetworkrouterinfo = dict()
             network_to_router = dict()
@@ -1455,7 +1390,7 @@ class RouterUpdater(FlowUpdater):
             #
             # if transact_dvrouter_info_keys:
             #     try:
-            #         for m in callAPI(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
+            #         for m in call_api(self, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
             #                                                                   'vhost': vhost}):
             #             yield m
             #     except Exception:
@@ -1481,7 +1416,7 @@ class RouterUpdater(FlowUpdater):
             #         return keys,values
             #
             #
-            #     for m in callAPI(self,"objectdb","transact",
+            #     for m in call_api(self,"objectdb","transact",
             #                      {"keys":transact_dvrouter_info_keys,"updater":transact_store__dvr_info,
             #                       "withtime":True}):
             #         yield m
@@ -1879,9 +1814,8 @@ class RouterUpdater(FlowUpdater):
                             cmds.extend(_deletearpreplyflow(external_ip,outmac,networkid))
 
                             # remove arp proxy for external ip
-                            for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
-                                                            'arpentries': [(external_ip,outmac,n.id,False)]}):
-                                yield m
+                            await call_api(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
+                                                            'arpentries': [(external_ip,outmac,n.id,False)]})
 
             for n in lastnetworkroutertableinfo:
                 if n not in currentnetworkroutertableinfo:
@@ -1947,9 +1881,8 @@ class RouterUpdater(FlowUpdater):
                     cmds.extend(_remove_host_flow(ipaddress,macaddrss,netid,self._parent.inroutermac))
 
                     # remove arp proxy
-                    for m in callAPI(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
-                                                    'arpentries': [(ipaddress,macaddrss,netkey,False)]}):
-                        yield m
+                    await call_api(self, 'arpresponder', 'removeproxyarp', {'connection': connection,
+                                                    'arpentries': [(ipaddress,macaddrss,netkey,False)]})
 
             for p in lastexternallgportinfo:
                 if p not in currentexternallgportinfo or\
@@ -1968,8 +1901,7 @@ class RouterUpdater(FlowUpdater):
                         cmds.extend(_delete_forward_route(from_network_id,cidr,outmac))
 
 
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
 
             del cmds[:]
             for n in currentnetworkrouterinfo:
@@ -1998,9 +1930,8 @@ class RouterUpdater(FlowUpdater):
                             cmds.extend(_createarpreplyflow(external_ip,outmac,networkid))
 
                             #add arp proxy for external ip
-                            for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
-                                                            'arpentries': [(external_ip,outmac,n.id,False)]}):
-                                yield m
+                            await call_api(self, 'arpresponder', 'createproxyarp', {'connection': connection,
+                                                            'arpentries': [(external_ip,outmac,n.id,False)]})
 
             for n in currentnetworkroutertableinfo:
                 if n not in lastnetworkroutertableinfo:
@@ -2089,9 +2020,8 @@ class RouterUpdater(FlowUpdater):
                     ipaddress,macaddrss,netid,netkey = currentlgportinfo[p]
 
                     #add arp proxy in physicalport
-                    for m in callAPI(self, 'arpresponder', 'createproxyarp', {'connection': connection,
-                                            'arpentries': [(ipaddress,macaddrss,netkey,False)]}):
-                        yield m
+                    await call_api(self, 'arpresponder', 'createproxyarp', {'connection': connection,
+                                            'arpentries': [(ipaddress,macaddrss,netkey,False)]})
 
                     #add host learn
                     cmds.extend(_add_host_flow(ipaddress,macaddrss,netid,self._parent.inroutermac))
@@ -2111,8 +2041,7 @@ class RouterUpdater(FlowUpdater):
             # so change to new in last
             self._lastallrouterinfo = allrouterinterfaceinfo
 
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
 
         except Exception:
             self._logger.warning("router update flow exception, ignore it! continue", exc_info=True)
@@ -2166,7 +2095,7 @@ class L3Router(FlowBase):
         self.routines.append(self.app_routine)
         self._flowupdater = dict()
 
-    def _main(self):
+    async def _main(self):
         flowinit = FlowInitialize.createMatcher(_ismatch=lambda x: self.vhostbind is None or
                                                                    x.vhost in self.vhostbind)
 
@@ -2175,16 +2104,16 @@ class L3Router(FlowBase):
                                                                                  or x.createby.vhost in self.vhostbind)
 
         while True:
-            yield (flowinit, conndown)
+            ev, m = await M_(flowinit, conndown)
 
-            if self.app_routine.matcher is flowinit:
-                c = self.app_routine.event.connection
+            if m is flowinit:
+                c = ev.connection
                 self.app_routine.subroutine(self._init_conn(c))
-            if self.app_routine.matcher is conndown:
-                c = self.app_routine.event.connection
+            elif m is conndown:
+                c = ev.connection
                 self.app_routine.subroutine(self._uninit_conn(c))
 
-    def _init_conn(self, conn):
+    async def _init_conn(self, conn):
 
         if conn in self._flowupdater:
             updater = self._flowupdater.pop(conn)
@@ -2232,14 +2161,10 @@ class L3Router(FlowBase):
             ]
         )
 
-        for m in conn.protocol.batch([l3router_default_flow, l3output_default_flow],conn,self.app_routine):
-            yield m
+        await conn.protocol.batch([l3router_default_flow, l3output_default_flow],conn,self.app_routine)
 
-    def _uninit_conn(self, conn):
+    async def _uninit_conn(self, conn):
 
         if conn in self._flowupdater:
             updater = self._flowupdater.pop(conn)
             updater.close()
-
-        if False:
-            yield
