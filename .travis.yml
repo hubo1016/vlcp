@@ -3,8 +3,7 @@ sudo: required
 python:
   - "3.5"
   - "3.6"
-  - "3.7-dev"
-  - "pypy3"
+  - "pypy3.5"
  
 services:
   - docker
@@ -16,7 +15,7 @@ env:
 
 # command to install dependencies
 install: 
-  - "pip install nstruct hiredis"
+  - "pip install nstruct hiredis pychecktype"
   - pip install coverage
 
 cache:
