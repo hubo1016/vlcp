@@ -20,6 +20,7 @@ from json import dumps
 from vlcp.event.ratelimiter import RateLimiter
 from vlcp.event.future import RoutineFuture
 from vlcp.event.runnable import RoutineException
+from vlcp.event.runnable import _close_generator
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class ZooKeeperConnectionStateEvent(Event):
@@ -249,8 +250,8 @@ class ZooKeeper(Protocol):
 
     async def async_requests(self, connection, requests, container = None, priority = 0):
         '''
-        :return: (matchers, generator), where matchers are event matchers for the requests; generator
-                 is the routine to send to requests.
+        :return: (matchers, sendall), where matchers are event matchers for the requests; sendall
+                 is an async function to send to requests. Use `await sendall()` to send the requests.
         '''
         matchers = []
         for r in requests:
@@ -279,7 +280,7 @@ class ZooKeeper(Protocol):
                 except ZooKeeperRetryException:
                     raise ZooKeeperRetryException(sent_requests)
             return sent_requests
-        return (matchers, _sendall())
+        return (matchers, _sendall)
 
     async def requests(self, connection, requests, container = None, callback = None, priority = 0):
         '''
@@ -299,10 +300,11 @@ class ZooKeeper(Protocol):
                     but the responses are lost due to connection lost, it is the caller's responsibility to determine whether
                     the call is succeeded or failed; retry_requests are the requests which are not sent and are safe to retry. 
         '''
-        matchers, routine = await self.async_requests(connection, requests, container, priority)
+        matchers, _sendall = await self.async_requests(connection, requests, container, priority)
         requests_dict = dict((m,r) for m,r in zip(matchers, requests))
         connmark = connection.connmark
         if not connection.connected:
+            
             return (), (), requests
         conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
                                                                    connection,
@@ -326,7 +328,7 @@ class ZooKeeper(Protocol):
                         )
         try:
             try:
-                sent_events = await routine
+                sent_events = await _sendall()
             except ZooKeeperRetryException as exc:
                 sent_events = exc.args[0]
             try:
