@@ -24,13 +24,13 @@ class BreakingZooKeeper(ZooKeeper):
     _default_senddrop = 0.001
     _default_receivedrop = 0.01
     
-    async def _senddata(self, connection, data, container):
+    async def _senddata(self, connection, data, container, priority = 0):
         if random() < self.senddrop:
             _logger.warning("Oops, I break a connection when sending")
             await connection.reset(True)
-        return await ZooKeeper._senddata(self, connection, data, container)
+        return await ZooKeeper._senddata(self, connection, data, container, priority)
 
-    async def requests(self, connection, requests, container, callback=None):
+    async def requests(self, connection, requests, container, callback=None, priority = 0):
         def evil_callback(request, response):
             if random() < self.receivedrop:
                 _logger.warning("Oops, I break a connection when receiving")
@@ -38,7 +38,7 @@ class BreakingZooKeeper(ZooKeeper):
                 connection.subroutine(connection.syscall_noreturn(syscall_clearqueue(connection.scheduler.queue[('message', connection)])))
             if callback:
                 callback(request, response)
-        return await ZooKeeper.requests(self, connection, requests, container, callback=callback)
+        return await ZooKeeper.requests(self, connection, requests, container, callback=callback, priority)
 
 
 def patch_zookeeper():
