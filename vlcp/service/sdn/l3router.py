@@ -1295,8 +1295,10 @@ class RouterUpdater(FlowUpdater):
                                             WeakReferenceObject(keys[i + 1 + (len(transact_keys) - 1) // 2]))
                                         transact_object[keys[0]] = values[0]
 
-                        
-                        return tuple(zip(*transact_object.items()))
+                        if transact_object:
+                            return tuple(zip(*transact_object.items()))
+                        else:
+                            return (), ()
 
                     await call_api(self,"objectdb","transact",
                                      {"keys":transact_keys,"updater":store_transact,"withtime":True})

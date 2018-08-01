@@ -1231,6 +1231,9 @@ class ObjectDB(Module):
                         if k not in _walker_write_dict:
                             v2 = _stored_objs[k]
                             assert hasattr(v2, 'jsonencode') and v2.jsonencode() == v
-                return tuple(zip(*_walker_write_dict.items()))
+                if _walker_write_dict:
+                    return tuple(zip(*_walker_write_dict.items()))
+                else:
+                    return (), ()
             return (_updater, keys)
         return await self.asynctransact(_asyncupdater, True, maxtime=maxtime)
