@@ -302,6 +302,8 @@ class ZooKeeper(Protocol):
         matchers, routine = await self.async_requests(connection, requests, container, priority)
         requests_dict = dict((m,r) for m,r in zip(matchers, requests))
         connmark = connection.connmark
+        if not connection.connected:
+            return (), (), requests
         conn_matcher = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
                                                                    connection,
                                                                    connmark)
