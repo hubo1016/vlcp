@@ -9,6 +9,12 @@ import vlcp.protocol.zookeeper
 from random import random
 from vlcp.event.core import syscall_clearqueue
 
+from logging import getLogger
+
+
+_logger = getLogger(__name__)
+
+
 @config('zookeeper')
 class BreakingZooKeeper(ZooKeeper):
     '''
@@ -20,11 +26,13 @@ class BreakingZooKeeper(ZooKeeper):
     
     async def _senddata(self, connection, data, container):
         if random() < self.senddrop:
+            _logger.warning("Oops, I break a connection when sending")
             await connection.reset(True)
         await ZooKeeper._senddata(self, connection, data, container)
     async def requests(self, connection, requests, container, callback=None):
         def evil_callback(request, response):
             if random() < self.receivedrop:
+                _logger.warning("Oops, I break a connection when receiving")
                 connection.subroutine(connection.reset(True), False)
                 connection.subroutine(connection.syscall_noreturn(syscall_clearqueue(connection.scheduler.queue[('message', connection)])))
             if callback:
