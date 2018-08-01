@@ -38,7 +38,7 @@ class BreakingZooKeeper(ZooKeeper):
                 connection.subroutine(connection.syscall_noreturn(syscall_clearqueue(connection.scheduler.queue[('message', connection)])))
             if callback:
                 callback(request, response)
-        return await ZooKeeper.requests(self, connection, requests, container, callback=callback, priority)
+        return await ZooKeeper.requests(self, connection, requests, container, callback, priority)
 
 
 def patch_zookeeper():
