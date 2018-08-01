@@ -562,6 +562,8 @@ class ZooKeeperDB(TcpServerBase):
         # vHost => (Key => (revision, data))
         # Double buffered
         self._get_cache = ({}, {})
+        # Key => last_touched_time
+        self._precreated_keys = {}
 
     def _check_completes(self, completes, err_allows = (), err_expects = ()):
         for result in completes:
@@ -579,6 +581,10 @@ class ZooKeeperDB(TcpServerBase):
                 p, q = self._get_cache
                 q.clear()
                 self._get_cache = (q, p)
+                
+                time_limit = time() - 1800
+                self._precreated_keys = {k:v for k,v in self._precreated_keys.items()
+                                         if v >= time_limit}
         finally:
             self.apiroutine.scheduler.cancelTimer(th)            
     
@@ -816,22 +822,31 @@ class ZooKeeperDB(TcpServerBase):
                 if escaped_keys:
                     # Even if the node already exists, we modify it to increase the version,
                     # So recycling would not remove it
-                    create_requests = [request
-                                        for k in escaped_keys
-                                           for request in (
-                                                zk.setdata(b'/vlcp/kvdb/' + k, b''),
-                                                zk.create(b'/vlcp/kvdb/' + k, b'')
-                                            )
-                                        ]
-                    while True:
-                        completes, losts, retries, _ = \
-                                await client.requests(create_requests, self.apiroutine, 60, session_lock,
-                                                      priority = 1)
-                        self._check_completes(completes[:len(create_requests) - len(losts) - len(retries)], (zk.ZOO_ERR_NONODE, zk.ZOO_ERR_NODEEXISTS))
-                        if losts or retries:
-                            create_requests = losts + retries
-                        else:
-                            break
+                    
+                    # Skip keys that are pre-created in 30 minutes
+                    current_time = time()
+                    time_limit = current_time - 1800
+                    escaped_keys_not_created = [k for k in escaped_keys
+                                                if k not in self._precreated_keys
+                                                   or self._precreated_keys[k] < time_limit]
+                    if escaped_keys_not_created:
+                        create_requests = [request
+                                            for k in escaped_keys_not_created
+                                               for request in (
+                                                    zk.setdata(b'/vlcp/kvdb/' + k, b''),
+                                                    zk.create(b'/vlcp/kvdb/' + k, b'')
+                                                )
+                                            ]
+                        while True:
+                            completes, losts, retries, _ = \
+                                    await client.requests(create_requests, self.apiroutine, 60, session_lock,
+                                                          priority = 1)
+                            self._check_completes(completes[:len(create_requests) - len(losts) - len(retries)], (zk.ZOO_ERR_NONODE, zk.ZOO_ERR_NODEEXISTS))
+                            if losts or retries:
+                                create_requests = losts + retries
+                            else:
+                                break
+                        self._precreated_keys.update((k, current_time) for k in escaped_keys_not_created)
             try:
                 if keys:
                     # Create barriers
