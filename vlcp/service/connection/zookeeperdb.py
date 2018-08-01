@@ -404,7 +404,7 @@ class _Notifier(RoutineContainer):
                     # At least the last request is lost, we must detect whether it is completed
                     try:
                         completes, lost, retries, _ = await client.requests([zk.getchildren(detect_path)],
-                                                                            self, 30, priority = 2)
+                                                                            self, 30, priority = 1)
                     except ZooKeeperSessionUnavailable:
                         self._logger.warning('Following keys are not published because exception occurred, delay to next publish: %r', merged_keys, exc_info = True)
                         self._publish_wait.update(merged_keys)
@@ -877,7 +877,7 @@ class ZooKeeperDB(TcpServerBase):
                                     sync_limit = 4
                                 sync_limit -= 1
                                 await client.requests([zk.sync(b'/vlcp/kvdb')],
-                                                         self.apiroutine, 60)
+                                                         self.apiroutine, 60, priority = 1)
                                 continue
                             self._check_completes(multi_resp)
                             barrier_list = [r.path for r in multi_resp]
@@ -889,7 +889,7 @@ class ZooKeeperDB(TcpServerBase):
                             completes, losts, retries, _ =\
                                 await client.requests([zk.sync(b'/vlcp/kvdb/' + escaped_keys[0]),
                                                      zk.getchildren(b'/vlcp/kvdb/' + escaped_keys[0])],
-                                                    self.apiroutine, 60, priority = 2)
+                                                    self.apiroutine, 60, priority = 1)
                             if losts or retries:
                                 raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                             self._check_completes(completes)
@@ -907,7 +907,7 @@ class ZooKeeperDB(TcpServerBase):
                                     completes, losts, retries, _ =\
                                         await client.requests([zk.getchildren(b'/vlcp/kvdb/' + k)
                                                              for k in escaped_keys[1:]],
-                                                            self.apiroutine, 60, session_lock, priority = 2)
+                                                            self.apiroutine, 60, session_lock, priority = 1)
                                     if losts or retries:
                                         raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                                     self._check_completes(completes)
@@ -1012,7 +1012,7 @@ class ZooKeeperDB(TcpServerBase):
                                                 self._logger.warning('Try to remove it to solve the problem. THIS IS NOT NORMAL.')
                                                 completes, lost, retries, _ =\
                                                         await client.requests([zk.delete(b'/vlcp/kvdb/' + key + b'/' + name)],
-                                                                              self.apiroutine, 60, session_lock, priority = 2)
+                                                                              self.apiroutine, 60, session_lock, priority = 1)
                                                 self._check_completes(completes, (zk.ZOO_ERR_NONODE,))
                                             else:
                                                 if watch_event.type != zk.DELETED_EVENT_DEF:
@@ -1130,7 +1130,7 @@ class ZooKeeperDB(TcpServerBase):
                     while True:
                         completes, losts, retries, _ =\
                                 await client.requests([zk.multi(*multi_op)],
-                                                      self.apiroutine, 60, session_lock, priority = 2)
+                                                      self.apiroutine, 60, session_lock, priority = 1)
                         if retries:
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                         elif losts:
@@ -1140,7 +1140,7 @@ class ZooKeeperDB(TcpServerBase):
                                 completes, losts, retries, _ =\
                                         await client.requests([zk.sync(barrier_list[0]),
                                                              zk.exists(barrier_list[0])],
-                                                            self.apiroutine, 60, session_lock, priority = 2)
+                                                            self.apiroutine, 60, session_lock, priority = 1)
                                 if losts or retries:
                                     raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                                 else:
@@ -1169,7 +1169,7 @@ class ZooKeeperDB(TcpServerBase):
                             while requests:
                                 completes, losts, retries, _ = \
                                         await client.requests(requests,
-                                                               self.apiroutine, 60, client.session_id, priority = 2)
+                                                               self.apiroutine, 60, client.session_id, priority = 1)
                                 requests = losts + retries
                         except ZooKeeperSessionUnavailable:
                             pass

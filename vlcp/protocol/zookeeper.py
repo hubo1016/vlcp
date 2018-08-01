@@ -116,7 +116,7 @@ class ZooKeeper(Protocol):
                                                                                         priority = ZooKeeperWriteEvent.HIGH),
                                          None, self.writequeuesize)
         # Use limiter to limit the request serialization in one iteration
-        connection._rate_limiter = RateLimiter(256, connection)
+        connection._rate_limiter = (RateLimiter(256, connection), RateLimiter(256, connection))
         await self.reconnect_init(connection)
 
     async def reconnect_init(self, connection):
@@ -261,8 +261,8 @@ class ZooKeeper(Protocol):
         alldata = []
         for i in range(0, len(requests), 100):
             size = min(100, len(requests) - i)
-            if not priority:
-                await connection._rate_limiter.limit(size)
+            if priority < ZooKeeperWriteEvent.HIGH:
+                await connection._rate_limiter[priority].limit(size)
             for j in range(i, i + size):
                 r = requests[j]
                 data = r._tobytes()
