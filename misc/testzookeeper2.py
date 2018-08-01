@@ -13,9 +13,13 @@ from vlcp.protocol.zookeeper import ZooKeeper, ZooKeeperConnectionStateEvent,\
 import vlcp.utils.zookeeper as zk
 from vlcp.utils.zkclient import ZooKeeperClient, ZooKeeperSessionStateChanged
 from vlcp.event.runnable import RoutineContainer
-from namedstruct import dump
+from namedstruct import dump as _dump
 # from pprint import pprint
 import json
+
+def dump(value):
+    return _dump(value, tostr=True)
+
 def pprint(v):
     print(json.dumps(v, indent=2))
 
