@@ -15,7 +15,7 @@ from logging import getLogger
 _logger = getLogger(__name__)
 
 
-@config('zookeeper')
+@config('protocol.zookeeper')
 class BreakingZooKeeper(ZooKeeper):
     '''
     This evil protocol breaks ZooKeeper connection from time to time to validate your client
@@ -28,7 +28,8 @@ class BreakingZooKeeper(ZooKeeper):
         if random() < self.senddrop:
             _logger.warning("Oops, I break a connection when sending")
             await connection.reset(True)
-        await ZooKeeper._senddata(self, connection, data, container)
+        return await ZooKeeper._senddata(self, connection, data, container)
+
     async def requests(self, connection, requests, container, callback=None):
         def evil_callback(request, response):
             if random() < self.receivedrop:
@@ -37,7 +38,8 @@ class BreakingZooKeeper(ZooKeeper):
                 connection.subroutine(connection.syscall_noreturn(syscall_clearqueue(connection.scheduler.queue[('message', connection)])))
             if callback:
                 callback(request, response)
-        await ZooKeeper.requests(self, connection, requests, container, callback=callback)
-            
+        return await ZooKeeper.requests(self, connection, requests, container, callback=callback)
+
+
 def patch_zookeeper():
     vlcp.protocol.zookeeper.ZooKeeper = BreakingZooKeeper
