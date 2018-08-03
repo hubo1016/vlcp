@@ -124,11 +124,13 @@ def match_hostname(cert, hostname):
         raise CertificateException("no appropriate commonName or "
             "subjectAltName fields were found")
 
+
 def _str(s, encoding = 'ascii'):
     if not isinstance(s, str):
         return s.decode(encoding)
     else:
         return s
+
 
 def _bytes(s, encoding = 'ascii'):
     if isinstance(s, bytes):
@@ -136,19 +138,24 @@ def _bytes(s, encoding = 'ascii'):
     else:
         return s.encode(encoding)
 
+
 class WebException(IOError):
     pass
+
 
 class CertificateException(IOError):
     pass
 
+
 class ManualRedirectRequired(IOError):
     def __init__(self, msg, response, request, kwargs):
-        IOError.__init__(msg)
+        IOError.__init__(self, msg)
         self.response = response
         self.location = response.get_header('Location')
         self.request = request
         self.kwargs = kwargs
+
+
 class Request(object):
     def __init__(self, url, data = None, method = None, headers = {}, origin_req_host = None, unverifiable = False,
                  rawurl = False):

@@ -69,7 +69,7 @@ class OpenflowErrorResultException(Exception):
     def __init__(self, errormsg, prompt = 'An error message is returned: ', result = None):
         if result is None:
             result = errormsg
-        Exception.__init__(prompt + repr(dump(errormsg)))
+        Exception.__init__(self, prompt + repr(dump(errormsg)))
         self.result = result
 
 @defaultconfig
