@@ -28,17 +28,13 @@ class Test(unittest.TestCase):
         s = Stream()
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(b'abcde', rc):
-                yield m
-            for m in s.write(b'defgh', rc):
-                yield m
-            for m in s.write(b'ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(b'abcde', rc)
+            await s.write(b'defgh', rc)
+            await s.write(b'ijklm', rc, True)
+        async def read_routine():
+            data = await s.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         self.server.serve()
@@ -48,17 +44,13 @@ class Test(unittest.TestCase):
         s = Stream(True)
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(u'abcde', rc):
-                yield m
-            for m in s.write(u'defgh', rc):
-                yield m
-            for m in s.write(u'ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(u'abcde', rc)
+            await s.write(u'defgh', rc)
+            await s.write(u'ijklm', rc, True)
+        async def read_routine():
+            data = await s.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         self.server.serve()
@@ -68,22 +60,16 @@ class Test(unittest.TestCase):
         s = Stream()
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(b'abcde', rc):
-                yield m
-            for m in s.write(b'de\nf\rgh\r\n', rc, buffering=False):
-                yield m
-            for m in s.readline(rc):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.readline(rc):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.write(b'ijklm', rc, True):
-                yield m
-            for m in s.readline(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(b'abcde', rc)
+            await s.write(b'de\nf\rgh\r\n', rc, buffering=False)
+            data = await s.readline(rc)
+            retvalue.append(data)
+            data = await s.readline(rc)
+            retvalue.append(data)
+            await s.write(b'ijklm', rc, True)
+            data = await s.readline(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         self.server.serve()
         self.assertEqual(retvalue, [b'abcdede\n', b'f\rgh\r\n', b'ijklm'])
@@ -92,34 +78,24 @@ class Test(unittest.TestCase):
         s = Stream()
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(b'abcde', rc):
-                yield m
-            for m in s.write(b'de\nf\rgh\r\n', rc, buffering=False):
-                yield m
-            for m in s.readline(rc, 4):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.readline(rc, 3):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.readline(rc, 4):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.readline(rc, 4):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.readline(rc, 4):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.write(b'ijklm', rc, True):
-                yield m
-            for m in s.readline(rc, 4):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.readline(rc, 4):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(b'abcde', rc)
+            await s.write(b'de\nf\rgh\r\n', rc, buffering=False)
+            data = await s.readline(rc, 4)
+            retvalue.append(data)
+            data = await s.readline(rc, 3)
+            retvalue.append(data)
+            data = await s.readline(rc, 4)
+            retvalue.append(data)
+            data = await s.readline(rc, 4)
+            retvalue.append(data)
+            data = await s.readline(rc, 4)
+            retvalue.append(data)
+            await s.write(b'ijklm', rc, True)
+            data = await s.readline(rc, 4)
+            retvalue.append(data)
+            data = await s.readline(rc, 4)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         self.server.serve()
         self.assertEqual(retvalue, [b'abcd',b'ede', b'\n', b'f\rgh', b'\r\n', b'ijkl', b'm'])
@@ -128,32 +104,23 @@ class Test(unittest.TestCase):
         s = Stream()
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(b'abcde', rc):
-                yield m
-            for m in s.write(b'de\nf\rgh\r\n', rc, buffering=False):
-                yield m
-            for m in s.readline(rc, 4):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.readline(rc, 3):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.read(rc, 4):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.write(b'ijklm', rc, True):
-                yield m
-            for m in s.read(rc, 4):
-                yield m
-            retvalue.append(rc.data)
-            for m in s.readline(rc, 4):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(b'abcde', rc)
+            await s.write(b'de\nf\rgh\r\n', rc, buffering=False)
+            data = await s.readline(rc, 4)
+            retvalue.append(data)
+            data = await s.readline(rc, 3)
+            retvalue.append(data)
+            data = await s.read(rc, 4)
+            retvalue.append(data)
+            await s.write(b'ijklm', rc, True)
+            data = await s.read(rc, 4)
+            retvalue.append(data)
+            data = await s.readline(rc, 4)
+            retvalue.append(data)
             try:
-                for m in s.readline(rc, 4):
-                    yield m
-                retvalue.append(rc.data)
+                data = await s.readline(rc, 4)
+                retvalue.append(data)
             except EOFError:
                 retvalue.append(None)
         rc.subroutine(write_routine())
@@ -164,33 +131,25 @@ class Test(unittest.TestCase):
         s = Stream()
         retvalue = []
         rc = self.rc
-        def write_routine():
-            def read_next():
+        async def write_routine():
+            async def read_next():
                 data = s.readonce()
                 while not data:
-                    for m in s.prepareRead(rc):
-                        yield m
+                    await s.prepareRead(rc)
                     data = s.readonce()
-                rc.retvalue = data
-            for m in s.write(b'abcde', rc, buffering=False):
-                yield m
-            for m in s.write(b'de\nf\rgh\r\n', rc, buffering=False):
-                yield m
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in s.write(b'ijklm', rc, True):
-                yield m            
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
+                return data
+            await s.write(b'abcde', rc, buffering=False)
+            await s.write(b'de\nf\rgh\r\n', rc, buffering=False)
+            data = await read_next()
+            retvalue.append(data)
+            data = await read_next()
+            retvalue.append(data)
+            await s.write(b'ijklm', rc, True)
+            data = await read_next()
+            retvalue.append(data)
             try:
-                for m in read_next():
-                    yield m
-                retvalue.append(rc.retvalue)
+                data = await read_next()
+                retvalue.append(data)
             except EOFError:
                 retvalue.append(None)
         rc.subroutine(write_routine())
@@ -201,45 +160,33 @@ class Test(unittest.TestCase):
         s = Stream()
         retvalue = []
         rc = self.rc
-        def write_routine():
-            def read_next(size = None):
+        async def write_routine():
+            async def read_next(size = None):
                 data = s.readonce(size)
                 while not data:
-                    for m in s.prepareRead(rc):
-                        yield m
+                    await s.prepareRead(rc)
                     data = s.readonce(size)
-                rc.retvalue = data
-            for m in s.write(b'abcde', rc, buffering=False):
-                yield m
-            for m in s.write(b'de\nf\rgh\r\n', rc, buffering=False):
-                yield m
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in s.write(b'ijklm', rc, True):
-                yield m            
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
+                return data
+            await s.write(b'abcde', rc, buffering=False)
+            await s.write(b'de\nf\rgh\r\n', rc, buffering=False)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
+            await s.write(b'ijklm', rc, True)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
             try:
-                for m in read_next(4):
-                    yield m
-                retvalue.append(rc.retvalue)
+                data = await read_next(4)
+                retvalue.append(data)
             except EOFError:
                 retvalue.append(None)
         rc.subroutine(write_routine())
@@ -251,46 +198,34 @@ class Test(unittest.TestCase):
         s2 = Stream()
         retvalue = []
         rc = self.rc
-        def write_routine():
+        async def write_routine():
             rc.subroutine(s2.copyTo(s, rc, False))
-            def read_next(size = None):
+            async def read_next(size = None):
                 data = s.readonce(size)
                 while not data:
-                    for m in s.prepareRead(rc):
-                        yield m
+                    await s.prepareRead(rc)
                     data = s.readonce(size)
-                rc.retvalue = data
-            for m in s2.write(b'abcde', rc, buffering=False):
-                yield m
-            for m in s2.write(b'de\nf\rgh\r\n', rc, buffering=False):
-                yield m
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in s2.write(b'ijklm', rc, True):
-                yield m            
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next(4):
-                yield m
-            retvalue.append(rc.retvalue)
+                return data
+            await s2.write(b'abcde', rc, buffering=False)
+            await s2.write(b'de\nf\rgh\r\n', rc, buffering=False)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
+            await s2.write(b'ijklm', rc, True)
+            data = await read_next(4)
+            retvalue.append(data)
+            data = await read_next(4)
+            retvalue.append(data)
             try:
-                for m in read_next(4):
-                    yield m
-                retvalue.append(rc.retvalue)
+                data = await read_next(4)
+                retvalue.append(data)
             except EOFError:
                 retvalue.append(None)
         rc.subroutine(write_routine())
@@ -302,17 +237,13 @@ class Test(unittest.TestCase):
         s2 = Stream()
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(b'abcde', rc):
-                yield m
-            for m in s.write(b'defgh', rc):
-                yield m
-            for m in s.write(b'ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s2.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(b'abcde', rc)
+            await s.write(b'defgh', rc)
+            await s.write(b'ijklm', rc, True)
+        async def read_routine():
+            data = await s2.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         rc.subroutine(s.copyTo(s2, rc))
@@ -323,17 +254,13 @@ class Test(unittest.TestCase):
         s = Stream(isunicode=True, encoders=[unicode_decoder('utf-8')])
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(b'abcde', rc):
-                yield m
-            for m in s.write(b'defgh', rc):
-                yield m
-            for m in s.write(b'ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(b'abcde', rc)
+            await s.write(b'defgh', rc)
+            await s.write(b'ijklm', rc, True)
+        async def read_routine():
+            data = await s.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         self.server.serve()
@@ -343,17 +270,13 @@ class Test(unittest.TestCase):
         s = Stream(encoders=[unicode_encoder('utf-8')])
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(u'abcde', rc):
-                yield m
-            for m in s.write(u'defgh', rc):
-                yield m
-            for m in s.write(u'ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(u'abcde', rc)
+            await s.write(u'defgh', rc)
+            await s.write(u'ijklm', rc, True)
+        async def read_routine():
+            data = await s.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         self.server.serve()
@@ -363,17 +286,13 @@ class Test(unittest.TestCase):
         s = Stream(isunicode=(str is not bytes), encoders=[str_decoder('utf-8')])
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write(b'abcde', rc):
-                yield m
-            for m in s.write(b'defgh', rc):
-                yield m
-            for m in s.write(b'ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write(b'abcde', rc)
+            await s.write(b'defgh', rc)
+            await s.write(b'ijklm', rc, True)
+        async def read_routine():
+            data = await s.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         self.server.serve()
@@ -383,17 +302,13 @@ class Test(unittest.TestCase):
         s = Stream(encoders=[str_encoder('utf-8')])
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write('abcde', rc):
-                yield m
-            for m in s.write('defgh', rc):
-                yield m
-            for m in s.write('ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write('abcde', rc)
+            await s.write('defgh', rc)
+            await s.write('ijklm', rc, True)
+        async def read_routine():
+            data = await s.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         self.server.serve()
@@ -404,17 +319,13 @@ class Test(unittest.TestCase):
         s2 = Stream((str is not bytes), encoders=[deflate_decoder(), str_decoder('utf-8')])
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write('abcde', rc):
-                yield m
-            for m in s.write('defgh', rc):
-                yield m
-            for m in s.write('ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s2.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write('abcde', rc)
+            await s.write('defgh', rc)
+            await s.write('ijklm', rc, True)
+        async def read_routine():
+            data = await s2.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         rc.subroutine(s.copyTo(s2, rc))
@@ -426,17 +337,13 @@ class Test(unittest.TestCase):
         s2 = Stream((str is not bytes), encoders=[gzip_decoder(), str_decoder('utf-8')])
         retvalue = []
         rc = self.rc
-        def write_routine():
-            for m in s.write('abcde', rc):
-                yield m
-            for m in s.write('defgh', rc):
-                yield m
-            for m in s.write('ijklm', rc, True):
-                yield m
-        def read_routine():
-            for m in s2.read(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def write_routine():
+            await s.write('abcde', rc)
+            await s.write('defgh', rc)
+            await s.write('ijklm', rc, True)
+        async def read_routine():
+            data = await s2.read(rc)
+            retvalue.append(data)
         rc.subroutine(write_routine())
         rc.subroutine(read_routine())
         rc.subroutine(s.copyTo(s2, rc))
@@ -448,46 +355,34 @@ class Test(unittest.TestCase):
         s2 = Stream(writebufferlimit=0)
         retvalue = []
         rc = self.rc
-        def write_routine():
+        async def write_routine():
             rc.subroutine(s2.copyTo(s, rc, False))
-            def read_next(size = None):
+            async def read_next(size = None):
                 data = s.readonce(size)
                 while not data:
-                    for m in s.prepareRead(rc):
-                        yield m
+                    await s.prepareRead(rc)
                     data = s.readonce(size)
-                rc.retvalue = data
-            for m in s2.write(b'abcde', rc):
-                yield m
-            for m in s2.write(b'de\nf\rgh\r\n', rc):
-                yield m
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in s2.write(b'ijklm', rc, True):
-                yield m            
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
-            for m in read_next():
-                yield m
-            retvalue.append(rc.retvalue)
+                return data
+            await s2.write(b'abcde', rc)
+            await s2.write(b'de\nf\rgh\r\n', rc)
+            data = await read_next()
+            retvalue.append(data)
+            data = await read_next()
+            retvalue.append(data)
+            data = await read_next()
+            retvalue.append(data)
+            data = await read_next()
+            retvalue.append(data)
+            data = await read_next()
+            retvalue.append(data)
+            await s2.write(b'ijklm', rc, True)
+            data = await read_next()
+            retvalue.append(data)
+            data = await read_next()
+            retvalue.append(data)
             try:
-                for m in read_next():
-                    yield m
-                retvalue.append(rc.retvalue)
+                data = await read_next()
+                retvalue.append(data)
             except EOFError:
                 retvalue.append(None)
         rc.subroutine(write_routine())
@@ -498,10 +393,9 @@ class Test(unittest.TestCase):
         s = MemoryStream(b'abcdefg\nhijklmn\nopqrst\n')
         retvalue = []
         rc = self.rc
-        def read_routine():
-            for m in s.readline(rc):
-                yield m
-            retvalue.append(rc.data)
+        async def read_routine():
+            data = await s.readline(rc)
+            retvalue.append(data)
             retvalue.append(s.readonce())
         rc.subroutine(read_routine())
         self.server.serve()
@@ -514,24 +408,19 @@ class Test(unittest.TestCase):
             s = FileWriter(open(tmp, 'wb'))
             retvalue = []
             rc = self.rc
-            def write_routine():
-                for m in s.write(b'abcde\n', rc):
-                    yield m
-                for m in s.write(b'defgh', rc):
-                    yield m
-                for m in s.write(b'ijklm', rc, True):
-                    yield m
+            async def write_routine():
+                await s.write(b'abcde\n', rc)
+                await s.write(b'defgh', rc)
+                await s.write(b'ijklm', rc, True)
             rc.subroutine(write_routine())
             self.server.serve()
             s = FileStream(open(tmp, 'rb'))
-            def read_routine():
+            async def read_routine():
                 with closing(s):
-                    for m in s.readline(rc):
-                        yield m
-                    retvalue.append(rc.data)
-                    for m in s.read(rc):
-                        yield m
-                    retvalue.append(rc.data)
+                    data = await s.readline(rc)
+                    retvalue.append(data)
+                    data = await s.read(rc)
+                    retvalue.append(data)
             rc.subroutine(read_routine())
             self.server.serve()
             self.assertEqual(retvalue, [b'abcde\n', b'defghijklm'])

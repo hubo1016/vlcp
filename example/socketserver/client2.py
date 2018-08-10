@@ -9,28 +9,25 @@ from namedstruct import dump
 from time import time
 
 class MyClient(RoutineContainer):
-    def main(self):
+    async def main(self):
         conn_up = MyProtocolConnectionStateEvent.createMatcher(MyProtocolConnectionStateEvent.UP)
-        yield (conn_up,)
-        conn = self.event.connection
+        ev = await conn_up
+        conn = ev.connection
         requests = [conn.protocol.request(conn, d.message10_sum_request(numbers = list(range(i,100+i))), self)
                                   for i in range(0, 10000)]
-        def subr(k):
+        async def subr(k):
             r = []
             for i in range(k, len(requests), 20):
-                for m in requests[i]:
-                    yield m
-                r.append(self.retvalue)
-            self.retvalue = r
+                r.append(await requests[i])
+            return r
         start = time()
-        for m in self.executeAll([subr(i) for i in range(0,20)]):
-            yield m
+        result = await self.execute_all([subr(i) for i in range(0,20)])
         end = time()
-        results = [r for r0 in self.retvalue
-                   for r in r0[0]]
+        results = [r for r0 in result
+                   for r in r0]
         print('%d results in %f secs, %d errors' % (len(results), end-start, len([m for m in results if m.type == d.ERROR])))
-        for m in conn.shutdown():
-            yield m
+        await conn.shutdown()
+
 
 @defaultconfig
 class MyProtocolClient(Module):

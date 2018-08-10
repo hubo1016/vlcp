@@ -39,12 +39,12 @@ class Knowledge(Module):
                        api(self.mupdate),
                        api(self.updateall),
                        api(self.updateallwithtime))
-    def _timeout(self):
+    async def _timeout(self):
         th = self.scheduler.setTimer(self.checkinterval, self.checkinterval)
         try:
             tm = TimerEvent.createMatcher(th)
             while True:
-                yield (tm,)
+                await tm
                 t = time()
                 timeouts = [k for k,v in self.db.items() if v[1] is not None and v[1] < t]
                 for k in timeouts:

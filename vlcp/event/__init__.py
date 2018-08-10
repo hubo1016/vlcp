@@ -1,4 +1,4 @@
-from .event import Event, EventMatcher, withIndices
+from .event import Event, EventMatcher, withIndices, M_
 from .core import PollEvent, QuitException, Scheduler, SystemControlEvent, SystemControlLowPriorityEvent
 from .pqueue import CBQueue
 from .runnable import RoutineContainer, RoutineControlEvent, RoutineException, EventHandler

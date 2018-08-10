@@ -5,7 +5,7 @@ Created on 2015/12/2
 '''
 
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module, api, depend, callAPI
+from vlcp.server.module import Module, api, depend, call_api
 from vlcp.event.core import TimerEvent
 from vlcp.event.runnable import RoutineContainer
 import vlcp.service.connection.httpserver
@@ -30,7 +30,7 @@ class WebAPIHandler(HttpHandler):
         HttpHandler.__init__(self, scheduler=parent.scheduler, daemon=False, vhost=parent.vhostbind)
         self.parent = parent
         self.jsonencoder = JsonFormat()
-    def apiHandler(self, env, targetname, methodname, **kwargs):
+    async def apiHandler(self, env, targetname, methodname, **kwargs):
         params = kwargs
         parent = self.parent
         if not params:
@@ -39,9 +39,8 @@ class WebAPIHandler(HttpHandler):
                 m['content-type'] = _str(env.headerdict[b'content-type'])
                 if m.get_content_type() == 'application/json':
                     charset = m.get_content_charset('utf-8')
-                    for m in env.inputstream.read(self):
-                        yield m
-                    params = json.loads(_str(self.data, charset), encoding=charset, object_hook=decode_object)
+                    data = await env.inputstream.read(self)
+                    params = json.loads(_str(data, charset), encoding=charset, object_hook=decode_object)
         elif parent.typeextension:
             for k in params.keys():
                 v = params[k]
@@ -52,21 +51,17 @@ class WebAPIHandler(HttpHandler):
                         pass
         if parent.allowtargets is not None:
             if targetname not in parent.allowtargets:
-                for m in env.error(403):
-                    yield m
+                await env.error(403)
                 return
         elif parent.denytargets is not None:
             if targetname in parent.denytargets:
-                for m in env.error(403):
-                    yield m
+                await env.error(403)
                 return
         if parent.authmethod:
-            for m in callAPI(self, parent.authtarget, parent.authmethod,
-                             {'env':env, 'targetname':targetname, 'name':methodname, 'params': params}):
-                yield m
+            await call_api(self, parent.authtarget, parent.authmethod,
+                             {'env':env, 'targetname':targetname, 'name':methodname, 'params': params})
         try:
-            for m in callAPI(self, targetname, methodname, params):
-                yield m
+            result = await call_api(self, targetname, methodname, params)
         except Exception as exc:
             if parent.errordetails:
                 parent._logger.warning('Web API call failed for %r/%r', targetname, methodname, exc_info = True)
@@ -79,7 +74,7 @@ class WebAPIHandler(HttpHandler):
                 raise
         else:
             env.header('Content-Type', 'application/json')
-            env.outputdata(json.dumps({'result':self.retvalue}, default=self.jsonencoder.jsonencoder).encode('ascii'))
+            env.outputdata(json.dumps({'result':result}, default=self.jsonencoder.jsonencoder).encode('ascii'))
     def start(self, asyncStart=False):
         HttpHandler.start(self, asyncStart=asyncStart)
         path = self.parent.rootpath.encode('utf-8')

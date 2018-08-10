@@ -11,6 +11,7 @@ import logging
 import os
 from vlcp.event.stream import Stream, StreamDataEvent
 from vlcp.event.connection import Client
+from vlcp.event.event import M_
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class RawConnectionStateEvent(Event):
@@ -48,69 +49,54 @@ class Raw(Protocol):
         Constructor
         '''
         Protocol.__init__(self)
-    def init(self, connection):
-        for m in Protocol.init(self, connection):
-            yield m
+    async def init(self, connection):
+        await Protocol.init(self, connection)
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, RawConnectionStateEvent.createMatcher(connection = connection), ('connstate', connection)))
-        for m in self.reconnect_init(connection):
-            yield m
-    def _raw_writer(self, connection):
+        await self.reconnect_init(connection)
+    async def _raw_writer(self, connection):
         try:
             while True:
-                for m in connection.outputstream.prepareRead(connection):
-                    yield m
+                await connection.outputstream.prepareRead(connection)
                 try:
                     data = connection.outputstream.readonce()
                 except EOFError:
-                    for m in connection.write(ConnectionWriteEvent(connection, connection.connmark, data=b'', EOF=True)):
-                        yield m
+                    await connection.write(ConnectionWriteEvent(connection, connection.connmark, data=b'', EOF=True))
                     break
                 except IOError:
-                    for m in connection.reset():
-                        yield m
+                    await connection.reset()
                     break
                 else:
-                    for m in connection.write(ConnectionWriteEvent(connection, connection.connmark, data=data, EOF=False)):
-                        yield m
+                    await connection.write(ConnectionWriteEvent(connection, connection.connmark, data=data, EOF=False))
         finally:
             connection.outputstream.close(connection.scheduler)
-    def reconnect_init(self, connection):
+    async def reconnect_init(self, connection):
         connection.inputstream = Stream()
         connection.outputstream = Stream(writebufferlimit=(self.writebufferlimit if self.buffering else 0),
                                          splitsize=self.splitsize)
         connection.subroutine(self._raw_writer(connection), False, '_raw_writer')
-        for m in connection.waitForSend(RawConnectionStateEvent(RawConnectionStateEvent.CONNECTION_UP, connection, connection.connmark, self)):
-            yield m
-    def notconnected(self, connection):
-        for m in Protocol.notconnected(self, connection):
-            yield m
-        for m in connection.waitForSend(RawConnectionStateEvent(RawConnectionStateEvent.CONNECTION_NOTCONNECTED, connection, connection.connmark, self)):
-            yield m
-    def closed(self, connection):
-        for m in Protocol.closed(self, connection):
-            yield m
-        for m in connection.inputstream.write(b'', connection, True, True):
-            yield m
+        await connection.wait_for_send(RawConnectionStateEvent(RawConnectionStateEvent.CONNECTION_UP, connection, connection.connmark, self))
+    async def notconnected(self, connection):
+        await Protocol.notconnected(self, connection)
+        await connection.waitForSend(RawConnectionStateEvent(RawConnectionStateEvent.CONNECTION_NOTCONNECTED, connection, connection.connmark, self))
+    async def closed(self, connection):
+        await Protocol.closed(self, connection)
+        await connection.inputstream.write(b'', connection, True, True)
         connection.terminate(connection._raw_writer)
         connection._raw_writer = None
-        for m in connection.waitForSend(RawConnectionStateEvent(RawConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
-            yield m
-    def error(self, connection):
-        for m in Protocol.error(self, connection):
-            yield m
-        for m in connection.inputstream.error(connection, True):
-            yield m
+        await connection.wait_for_send(RawConnectionStateEvent(RawConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self))
+    async def error(self, connection):
+        await Protocol.error(self, connection)
+        await connection.inputstream.error(connection, True)
         connection.terminate(connection._raw_writer)
         connection._raw_writer = None
-        for m in connection.waitForSend(RawConnectionStateEvent(RawConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
-            yield m
+        await connection.wait_for_send(RawConnectionStateEvent(RawConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self))
     def statematcher(self, connection, state = RawConnectionStateEvent.CONNECTION_DOWN, currentconn = True):
         if currentconn:
             return RawConnectionStateEvent.createMatcher(state, connection, connection.connmark)
         else:
             return RawConnectionStateEvent.createMatcher(state, connection)
-    def client_connect(self, container, url, *args, **kwargs):
+    async def client_connect(self, container, url, *args, **kwargs):
         '''
         Create a connection with raw protocol
         
@@ -125,9 +111,9 @@ class Raw(Protocol):
         '''
         c = Client(url, self, container.scheduler, *args, **kwargs)
         c.start()
-        yield (self.statematcher(c, RawConnectionStateEvent.CONNECTION_UP, False), self.statematcher(c, RawConnectionStateEvent.CONNECTION_NOTCONNECTED, False))
-        if self.event.state == RawConnectionStateEvent.CONNECTION_UP:
-            container.retval = (c, self.event.inputstream, self.event.outputstream)
+        ev, m = await M_(self.statematcher(c, RawConnectionStateEvent.CONNECTION_UP, False), self.statematcher(c, RawConnectionStateEvent.CONNECTION_NOTCONNECTED, False))
+        if ev.state == RawConnectionStateEvent.CONNECTION_UP:
+            return (c, ev.inputstream, ev.outputstream)
         else:
             raise IOError('Connection failed')
     def redirect_outputstream(self, connection, stream):

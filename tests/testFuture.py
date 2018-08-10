@@ -23,16 +23,11 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send before wait
         obj = [0]
-        def routine_sender():
+        async def routine_sender():
             future.set_result('abc')
-            if False:
-                yield
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
-            for m in future.wait(rc):
-                yield m
-            obj[0] = rc.retvalue
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
+            obj[0] = await future.wait()
         rc.subroutine(routine_sender())
         rc.subroutine(routine_receiver())
         self.server.serve()
@@ -43,14 +38,41 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send after wait
         obj = [0]
-        def routine_sender():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_sender():
+            await rc.wait_with_timeout(0.1)
             future.set_result('abc')
-        def routine_receiver():
-            for m in future.wait(rc):
-                yield m
-            obj[0] = rc.retvalue
+        async def routine_receiver():
+            obj[0] = await future.wait()
+        rc.subroutine(routine_sender())
+        rc.subroutine(routine_receiver())
+        self.server.serve()
+        self.assertEqual(obj[0], 'abc')
+
+    def test_future_await1(self):
+        rc = self.rc
+        future = Future(self.server.scheduler)
+        # Test send before wait
+        obj = [0]
+        async def routine_sender():
+            future.set_result('abc')
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
+            obj[0] = await future
+        rc.subroutine(routine_sender())
+        rc.subroutine(routine_receiver())
+        self.server.serve()
+        self.assertEqual(obj[0], 'abc')
+
+    def test_future_await2(self):
+        rc = self.rc
+        future = Future(self.server.scheduler)
+        # Test send after wait
+        obj = [0]
+        async def routine_sender():
+            await rc.wait_with_timeout(0.1)
+            future.set_result('abc')
+        async def routine_receiver():
+            obj[0] = await future
         rc.subroutine(routine_sender())
         rc.subroutine(routine_receiver())
         self.server.serve()
@@ -61,13 +83,10 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send before wait
         obj = [None, None]
-        def routine_sender():
+        async def routine_sender():
             future.set_result('abc')
-            if False:
-                yield
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
             obj[0] = future.done()
             obj[1] = future.result()
         rc.subroutine(routine_sender())
@@ -80,15 +99,12 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send before wait
         obj = [None, None]
-        def routine_sender():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_sender():
+            await rc.wait_with_timeout(0.1)
             future.set_result('abc')
-        def routine_receiver():
+        async def routine_receiver():
             obj[0] = future.done()
             obj[1] = future.result()
-            if False:
-                yield
         rc.subroutine(routine_sender())
         rc.subroutine(routine_receiver())
         self.server.serve()
@@ -99,16 +115,12 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send before wait
         obj = [0]
-        def routine_sender():
+        async def routine_sender():
             future.set_exception(ValueError('abc'))
-            if False:
-                yield
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
             try:
-                for m in future.wait(rc):
-                    yield m
+                await future.wait()
             except ValueError as exc:
                 obj[0] = str(exc)
             else:
@@ -123,14 +135,12 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send before wait
         obj = [0]
-        def routine_sender():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_sender():
+            await rc.wait_with_timeout(0.1)
             future.set_exception(ValueError('abc'))
-        def routine_receiver():
+        async def routine_receiver():
             try:
-                for m in future.wait(rc):
-                    yield m
+                await future.wait()
             except ValueError as exc:
                 obj[0] = str(exc)
             else:
@@ -145,13 +155,10 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send before wait
         obj = [None, None]
-        def routine_sender():
+        async def routine_sender():
             future.set_exception(ValueError('abc'))
-            if False:
-                yield
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
             try:
                 obj[0] = future.done()
                 obj[1] = future.result()
@@ -167,18 +174,15 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send before wait
         obj = [None, None]
-        def routine_sender():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_sender():
+            await rc.wait_with_timeout(0.1)
             future.set_exception(ValueError('abc'))
-        def routine_receiver():
+        async def routine_receiver():
             try:
                 obj[0] = future.done()
                 obj[1] = future.result()
             except ValueError as exc:
                 obj[1] = str(exc)
-            if False:
-                yield
         rc.subroutine(routine_sender())
         rc.subroutine(routine_receiver())
         self.server.serve()
@@ -189,17 +193,12 @@ class Test(unittest.TestCase):
         future = Future(self.server.scheduler)
         # Test send before wait
         obj = [0]
-        def routine_sender():
+        async def routine_sender():
             with future.ensure_result():
                 future.set_result('abc')
-            if False:
-                yield
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
-            for m in future.wait(rc):
-                yield m
-            obj[0] = rc.retvalue
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
+            obj[0] = await future.wait()
         rc.subroutine(routine_sender())
         rc.subroutine(routine_receiver())
         self.server.serve()
@@ -211,7 +210,7 @@ class Test(unittest.TestCase):
         # Test send before wait
         obj = [0]
         obj2 = [0]
-        def routine_sender():
+        async def routine_sender():
             try:
                 with future.ensure_result():
                     raise ValueError('abc')
@@ -219,14 +218,10 @@ class Test(unittest.TestCase):
                 obj2[0] = True
             else:
                 obj2[0] = False
-            if False:
-                yield
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
             try:
-                for m in future.wait(rc):
-                    yield m
+                await future.wait()
             except ValueError as exc:
                 obj[0] = str(exc)
             else:
@@ -243,7 +238,7 @@ class Test(unittest.TestCase):
         # Test send before wait
         obj = [0]
         obj2 = [0]
-        def routine_sender():
+        async def routine_sender():
             try:
                 with future.ensure_result(True):
                     raise ValueError('abc')
@@ -251,14 +246,10 @@ class Test(unittest.TestCase):
                 obj2[0] = True
             else:
                 obj2[0] = False
-            if False:
-                yield
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
             try:
-                for m in future.wait(rc):
-                    yield m
+                await future.wait()
             except ValueError as exc:
                 obj[0] = str(exc)
             else:
@@ -275,7 +266,7 @@ class Test(unittest.TestCase):
         # Test send before wait
         obj = [0]
         obj2 = [0]
-        def routine_sender():
+        async def routine_sender():
             try:
                 with future.ensure_result(False, 'abc'):
                     pass
@@ -283,14 +274,9 @@ class Test(unittest.TestCase):
                 obj2[0] = True
             else:
                 obj2[0] = False
-            if False:
-                yield
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
-            for m in future.wait(rc):
-                yield m
-            obj[0] = rc.retvalue
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
+            obj[0] = await future.wait()
         rc.subroutine(routine_sender())
         rc.subroutine(routine_receiver())
         self.server.serve()
@@ -301,17 +287,12 @@ class Test(unittest.TestCase):
         rc = self.rc
         # Test send before wait
         obj = [0]
-        def routine_sender():
-            rc.retvalue = 'abc'
-            if False:
-                yield
+        async def routine_sender():
+            return 'abc'
         future = RoutineFuture(routine_sender(), rc)
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
-            for m in future.wait(rc):
-                yield m
-            obj[0] = rc.retvalue
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
+            obj[0] = await future.wait()
         rc.subroutine(routine_receiver())
         self.server.serve()
         self.assertEqual(obj[0], 'abc')
@@ -320,15 +301,12 @@ class Test(unittest.TestCase):
         rc = self.rc
         # Test send before wait
         obj = [0]
-        def routine_sender():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
-            rc.retvalue = 'abc'
+        async def routine_sender():
+            await rc.wait_with_timeout(0.1)
+            return 'abc'
         future = RoutineFuture(routine_sender(), rc)
-        def routine_receiver():
-            for m in future.wait(rc):
-                yield m
-            obj[0] = rc.retvalue
+        async def routine_receiver():
+            obj[0] = await future.wait()
         rc.subroutine(routine_receiver())
         self.server.serve()
         self.assertEqual(obj[0], 'abc')
@@ -337,17 +315,13 @@ class Test(unittest.TestCase):
         rc = self.rc
         # Test send before wait
         obj = [0]
-        def routine_sender():
+        async def routine_sender():
             raise ValueError('abc')
-            if False:
-                yield
         future = RoutineFuture(routine_sender(), rc)
-        def routine_receiver():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_receiver():
+            await rc.wait_with_timeout(0.1)
             try:
-                for m in future.wait(rc):
-                    yield m
+                await future.wait()
             except ValueError as exc:
                 obj[0] = str(exc)
             else:
@@ -360,15 +334,13 @@ class Test(unittest.TestCase):
         rc = self.rc
         # Test send before wait
         obj = [0]
-        def routine_sender():
-            for m in rc.waitWithTimeout(0.1):
-                yield m
+        async def routine_sender():
+            await rc.wait_with_timeout(0.1)
             raise ValueError('abc')
         future = RoutineFuture(routine_sender(), rc)
-        def routine_receiver():
+        async def routine_receiver():
             try:
-                for m in future.wait(rc):
-                    yield m
+                await future.wait()
             except ValueError as exc:
                 obj[0] = str(exc)
             else:

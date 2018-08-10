@@ -4,7 +4,7 @@ Created on 2015/11/9
 :author: hubo
 '''
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module, api, depend, callAPI
+from vlcp.server.module import Module, api, depend, call_api
 from vlcp.event.runnable import RoutineContainer
 from vlcp.event import Event, withIndices
 from vlcp.service.utils import knowledge
@@ -39,10 +39,9 @@ class Session(Module):
             self.vars = sessionobj.vars
             self._lock = Lock(sessionobj, container.scheduler)
             self.container = container
-        def lock(self):
+        async def lock(self):
             "Lock session"
-            for m in self._lock.lock(self.container):
-                yield m
+            await self._lock.lock(self.container)
         def unlock(self):
             "Unlock session"
             self._lock.unlock()
@@ -56,7 +55,7 @@ class Session(Module):
                        api(self.create, self.apiroutine),
                        api(self.get, self.apiroutine),
                        api(self.destroy, self.apiroutine))
-    def start(self, cookies, cookieopts = None):
+    async def start(self, cookies, cookieopts = None):
         """
         Session start operation. First check among the cookies to find existed sessions;
         if there is not an existed session, create a new one.
@@ -72,15 +71,11 @@ class Session(Module):
         sid = c.get(self.cookiename)
         create = True
         if sid is not None:
-            for m in self.get(sid.value):
-                yield m
-            if self.apiroutine.retvalue is not None:
-                self.apiroutine.retvalue = (self.SessionHandle(self.apiroutine.retvalue, self.apiroutine), [])
-                create = False
+            sh = await self.get(sid.value)
+            if sh is not None:
+                return (self.SessionHandle(sh, self.apiroutine), [])
         if create:
-            for m in self.create():
-                yield m
-            sh = self.apiroutine.retvalue
+            sh = await self.create()
             m = Morsel()
             m.key = self.cookiename
             m.value = sh.id
@@ -91,8 +86,8 @@ class Session(Module):
                 if not cookieopts['httponly']:
                     del cookieopts['httponly']
             m.update(opts)
-            self.apiroutine.retvalue = (sh, [m])
-    def get(self, sessionid, refresh = True):
+            return (sh, [m])
+    async def get(self, sessionid, refresh = True):
         """
         Get the seesion object of the session id
         
@@ -102,9 +97,8 @@ class Session(Module):
         
         :return: Session object or None if not exists
         """
-        for m in callAPI(self.apiroutine, 'memorystorage', 'get', {'key': __name__ + '.' + sessionid, 'timeout': self.timeout if refresh else None}):
-            yield m
-    def create(self):
+        return await call_api(self.apiroutine, 'memorystorage', 'get', {'key': __name__ + '.' + sessionid, 'timeout': self.timeout if refresh else None})
+    async def create(self):
         """
         Create a new session object
         
@@ -112,10 +106,10 @@ class Session(Module):
         """
         sid = uuid4().hex
         sobj = self.SessionObject(sid)
-        for m in callAPI(self.apiroutine, 'memorystorage', 'set', {'key': __name__ + '.' + sid, 'value': sobj, 'timeout': self.timeout}):
-            yield m
-        self.apiroutine.retvalue = self.SessionHandle(sobj, self.apiroutine)
-    def destroy(self, sessionid):
+        await call_api(self.apiroutine, 'memorystorage', 'set', {'key': __name__ + '.' + sid, 'value': sobj, 'timeout': self.timeout})
+        return self.SessionHandle(sobj, self.apiroutine)
+
+    async def destroy(self, sessionid):
         """
         Destroy a session
         
@@ -123,13 +117,12 @@ class Session(Module):
         
         :return: a list of Set-Cookie headers to be sent to the client
         """
-        for m in callAPI(self.apiroutine, 'memorystorage', 'delete', {'key': __name__ + '.' + sessionid}):
-            yield m
+        await call_api(self.apiroutine, 'memorystorage', 'delete', {'key': __name__ + '.' + sessionid})
         m = Morsel()
         m.key = self.cookiename
         m.value = 'deleted'
         m.coded_value = 'deleted'
         opts = {'path':'/', 'httponly':True, 'max-age':0}
         m.update(opts)
-        self.apiroutine.retvalue = [m]
+        return [m]
     

@@ -2,21 +2,33 @@
 #! --*-- utf-8 --*--
 
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module,depend,callAPI,api
+from vlcp.server.module import Module,depend,call_api,api
 from vlcp.event.runnable import RoutineContainer
-from vlcp.utils.ethernet import ip4_addr,mac_addr
-from vlcp.utils.dataobject import DataObjectSet,updater,\
-            set_new,DataObjectUpdateEvent,watch_context,dump,ReferenceObject
+from vlcp.utils.ethernet import ip4_addr
+from vlcp.utils.dataobject import updater,\
+            set_new,dump,ReferenceObject,\
+            request_context, WeakReferenceObject
 import vlcp.service.kvdb.objectdb as objectdb
 
 from vlcp.utils.networkmodel import *
 from vlcp.utils.netutils import ip_in_network, network_first, network_last,\
-                        parse_ip4_address, parse_ip4_network
+                        parse_ip4_address, parse_ip4_network,\
+                        format_network_cidr
 
 from uuid import uuid1
 import copy
 import logging
 import itertools
+from vlcp.utils.exceptions import AsyncTransactionLockException, WalkKeyNotRetrieved,\
+    APIRejectedException
+from collections import OrderedDict
+from contextlib import suppress
+from vlcp.utils.walkerlib import ensure_keys
+from pychecktype.checked import checked
+from vlcp.utils.typelib import ip_address_type, cidr_type, autoint, mac_address_type,\
+    cidr_nonstrict_type
+from pychecktype import tuple_, extra
+from vlcp.utils.dhcp import dhcp_options_type
 
 logger = logging.getLogger('viperflow')
 
@@ -25,6 +37,117 @@ logger = logging.getLogger('viperflow')
 class UpdateConflictException(Exception):
     def __init__(self,desc="db update conflict"):
         super(UpdateConflictException,self).__init__(desc)
+
+
+def dispatch_walker(parameter_dict, walker_map, create,
+                    get_type):
+    def _walker(walk, write, timestamp):
+        # Collect type of each item and group into dict
+        type_group = {}
+        all_collected = True
+        for key, parameters in parameter_dict.items():
+            try:
+                value = walk(key)
+            except WalkKeyNotRetrieved:
+                all_collected = False
+            else:
+                if value is None:
+                    if not create:
+                        raise ValueError(key + " does not exist")
+                else:
+                    if create:
+                        # Raise exception
+                        set_new(value, value)
+                try:
+                    type_, physicalnetwork_id = get_type(key, value, walk, parameters=parameters)
+                except WalkKeyNotRetrieved:
+                    all_collected = False
+                else:
+                    if type_ in type_group:
+                        type_group[type_][key] = (parameters, physicalnetwork_id)
+                    else:
+                        type_group[type_] = {key: (parameters, physicalnetwork_id)}
+        if not all_collected:
+            return
+        # Check if there are any types that are not in walker_map
+        if any(t not in walker_map for t in type_group):
+            raise AsyncTransactionLockException(type_group)
+        for t, d in type_group.items():
+            walker_map[t](walk, write, timestamp, {k: v[0] for k, v in d.items()})
+    return _walker
+
+
+def create_physicalnetwork_gettype(k, v, walk, parameters):
+    return parameters['type'], parameters['id']
+
+
+def physicalnetwork_gettype(k, v, walk, parameters):
+    return v.type, v.id
+
+
+def create_physicalport_gettype(k, v, walk, parameters):
+    phynet = walk(PhysicalNetwork.default_key(parameters['physicalnetwork']))
+    if phynet is None:
+        raise ValueError("Physical network " + parameters['physicalnetwork'] + ' not exists')
+    return phynet.type, phynet.id
+
+
+def create_physicalport_prekey(key, parameters):
+    return (PhysicalNetwork.default_key(parameters['physicalnetwork']),)
+
+
+def physicalport_gettype(k, v, walk, parameters):
+    phynet = walk(v.physicalnetwork.getkey())
+    return phynet.type, phynet.id
+    
+
+create_logicalnetwork_gettype = create_physicalport_gettype
+
+
+create_logicalnetwork_prekey = create_physicalport_prekey
+
+
+logicalnetwork_gettype = physicalport_gettype
+
+lease_time_type = (autoint, extra(str, check=lambda x: x == 'infinite'), None)
+
+def dispatch_async_walker(parameter_dict, create, get_type, publicapi_,
+                          direct_get_type = False,
+                          pre_keys = None):
+    async def _asyncwalker(last_info, container):
+        walker_map = {}
+        keys = set(parameter_dict)
+        if last_info is None and direct_get_type:
+            type_group = {}
+            for key, parameters in parameter_dict.items():
+                type_, physicalnetwork_id = get_type(key, None, None, parameters=parameters)
+                if type_ in type_group:
+                    type_group[type_][key] = (parameters, physicalnetwork_id)
+                else:
+                    type_group[type_] = {key: (parameters, physicalnetwork_id)}
+            last_info = type_group
+        if last_info is not None:            
+            for t, d in last_info.items():
+                # Collect walker and keys from public API
+                try:
+                    walker, k_ = await call_api(container, 'public', publicapi_,
+                                                {'type': t})
+                except APIRejectedException:
+                    raise ValueError("Physical network type %r is not supported, or the corresponding network plugin is not loaded" % (t,))
+                for _, (parameters, phynet_id) in d.items():
+                    # If it is not changed, this network is needed
+                    # this reduces an extra retry
+                    keys.add(PhysicalNetwork.default_key(phynet_id))
+                if k_:
+                    for _, (parameters, phynet_id) in d.items():
+                        keys.update(k_(phynet_id, parameters))
+                walker_map[t] = walker
+        else:
+            if pre_keys:
+                for key, parameters in parameter_dict.items():
+                    keys.update(pre_keys(key, parameters))
+        return (tuple(keys), dispatch_walker(parameter_dict, walker_map, create, get_type))
+    return _asyncwalker
 
 
 @defaultconfig
@@ -36,8 +159,6 @@ class ViperFlow(Module):
     def __init__(self,server):
         super(ViperFlow,self).__init__(server)
         self.app_routine = RoutineContainer(self.scheduler)
-        self.app_routine.main = self.main
-        self.routines.append(self.app_routine)
         self._reqid = 0
         self.createAPI(api(self.createphysicalnetwork,self.app_routine),
                        api(self.createphysicalnetworks,self.app_routine),
@@ -75,43 +196,23 @@ class ViperFlow(Module):
                        api(self.deletesubnets,self.app_routine),
                        api(self.listsubnets,self.app_routine)
                        )
-    def main(self):
-        if False:
-            yield
-    def _dumpkeys(self,keys):
+
+    async def _dumpkeys(self, keys, filter=None):
         self._reqid += 1
-        reqid = ('viperflow',self._reqid)
+        reqid = ('viperflow', self._reqid)
 
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':keys,'requestid':reqid}):
-            yield m
-
-        retobjs = self.app_routine.retvalue
-
-        with watch_context(keys,retobjs,reqid,self.app_routine):
-            self.app_routine.retvalue = [dump(v) for v in retobjs]
-
-
-    def _dumpone(self,key,filter):
-        for m in self._getkeys([key]):
-            yield m
-        retobjs = self.app_routine.retvalue
-        if len(retobjs) == 0 or retobjs[0] is None:
-            self.app_routine.retvalue = []
-        else:
-            if all(getattr(retobjs[0], k, None) == v for k, v in filter.items()):
-                self.app_routine.retvalue = dump(retobjs)
+        with request_context(reqid, self.app_routine):
+            retobjs = await call_api(self.app_routine,'objectdb','mget',{'keys':keys,'requestid':reqid})
+            if filter is None:
+                return [dump(o) for o in retobjs]
             else:
-                self.app_routine.retvalue = []
+                return [dump(o) for o in retobjs if o is not None and all(getattr(o, k, None) == v for k, v in filter.items())]
 
-    def _getkeys(self,keys):
-        self._reqid += 1
-        reqid = ('viperflow',self._reqid)
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':keys,'requestid':reqid}):
-            yield m
-        with watch_context(keys,self.app_routine.retvalue,reqid,self.app_routine):
-            pass
-
-    def createphysicalnetwork(self,type = 'vlan',id = None, **kwargs):
+    async def _dumpone(self, key, filter):
+        return await self._dumpkeys([key], filter)
+    
+    async def createphysicalnetwork(self, type: str = 'vlan', id: (str, None) = None, **kwargs: {'?vnirange': [tuple_((int, int))],
+                                                                                                 "?vlanrange": [tuple_((int, int))]}):
         """
         Create physical network.
         
@@ -139,9 +240,12 @@ class ViperFlow(Module):
         network = {'type':type,'id':id}
         network.update(kwargs)
 
-        for m in self.createphysicalnetworks([network]):
-            yield m
-    def createphysicalnetworks(self,networks):
+        return await self.createphysicalnetworks([network])
+    
+    @checked
+    async def createphysicalnetworks(self,networks: [{"?id": str, "type": str,
+                                                      '?vnirange': [tuple_((int, int))],
+                                                      "?vlanrange": [tuple_((int, int))]}]):
         """
         Create multiple physical networks in a transaction.
         
@@ -150,94 +254,30 @@ class ViperFlow(Module):
         :return: A list of dictionaries of information of the created physical networks.
         """
         #networks [{type='vlan' or 'vxlan',id = None or uuid1(),'vlanrange':[(100,200),(400,401)],kwargs}]
-
-        typenetworks = dict()
+        parameter_dict = OrderedDict()
         # first check id is None, allocate for it
         # group by type, do it use type driver
         for network in networks:
-            if 'type' not in network:
-                raise ValueError("network must have type attr")
             #
             # deepcopy every networks elements
             # case:[network]*N point to same object will auto create same id
             #
             network = copy.deepcopy(network)
-            network.setdefault('id',str(uuid1()))
-
-            if network['type'] not in typenetworks:
-                typenetworks.setdefault(network['type'],{'networks':[network]})
-            else:
-                typenetworks.get(network['type'])['networks'].append(network)
-
-        for k,v in typenetworks.items():
-            try:
-                for m in callAPI(self.app_routine,'public','createphysicalnetworks',
-                        {'networks':v['networks'],'type':k},timeout = 1):
-                    yield m
-                #
-                # this keys will have repeat, we don't care it,
-                # object will same with keys lasted
-                #
-
-                networkskey = [PhysicalNetwork.default_key(network['id'])
-                                    for network in v['networks']]
-                networksmapkey = [PhysicalNetworkMap.default_key(network['id'])
-                                    for network in v['networks']]
-
-                updater = self.app_routine.retvalue
-
-                v['networkskey'] = networkskey
-                v['networksmapkey'] = networksmapkey
-                v['updater'] = updater
-            except:
-                raise
-
-
-        keys = [PhysicalNetworkSet.default_key()]
-        for _,v in typenetworks.items():
-            keys.extend(v['networkskey'])
-            keys.extend(v['networksmapkey'])
-
-        def updater(keys,values):
-
-            retnetworks = [None]
-            retnetworkkeys = [keys[0]]
-            start = 1
-            physet = values[0]
-            for k,v in typenetworks.items():
-                # [0] is physet
-
-                typekeylen = len(v["networkskey"]) + len(v["networksmapkey"])
-
-                try:
-                    typeretnetworkkeys,typeretnetworks = v['updater'](tuple(keys[0:1])+keys[start:start+typekeylen],
-                                                            [physet]+values[start:start+typekeylen])
-                except:
-                    raise
-                else:
-                    retnetworks.extend(typeretnetworks[1:])
-                    retnetworkkeys.extend(typeretnetworkkeys[1:])
-                    physet = typeretnetworks[0]
-                    start = start + typekeylen
-
-            retnetworks[0] = physet
-
-            return retnetworkkeys,retnetworks
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                    {'keys':keys,'updater':updater}):
-                yield m
-        except:
-            raise
-
-        dumpkeys = []
-        for _,v in typenetworks.items():
-            dumpkeys.extend(v.get("networkskey"))
-
-        for m in self._dumpkeys(dumpkeys):
-            yield m
-
-    def updatephysicalnetwork(self,id,**kwargs):
+            if 'id' not in network:
+                network['id'] = str(uuid1())
+            phynetkey = PhysicalNetwork.default_key(network['id'])
+            if phynetkey in parameter_dict:
+                raise ValueError("Repeated ID: " + network['id'])
+            parameter_dict[phynetkey] = network
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                        {"asyncwalker": dispatch_async_walker(parameter_dict, True, create_physicalnetwork_gettype,
+                                                              'createphysicalnetwork',
+                                                              direct_get_type=True),
+                         "withtime": True})
+        return await self._dumpkeys(parameter_dict)
+    
+    async def updatephysicalnetwork(self, id: str, **kwargs: {'?vnirange': [tuple_((int, int))],
+                                                              "?vlanrange": [tuple_((int, int))]}):
         """
         Update physical network with the specified ID.
         
@@ -247,17 +287,15 @@ class ViperFlow(Module):
         
         :return: A dictionary of information of the updated physical network.        
         """
-
-        if id is None:
-            raise ValueError("update must be special id")
-
         network = {"id":id}
         network.update(kwargs)
 
-        for m in self.updatephysicalnetworks([network]):
-            yield m
-
-    def updatephysicalnetworks(self,networks):
+        return await self.updatephysicalnetworks([network])
+    
+    @checked
+    async def updatephysicalnetworks(self,networks: [{"id": str,
+                                                      '?vnirange': [tuple_((int, int))],
+                                                      "?vlanrange": [tuple_((int, int))]}]):
         """
         Update multiple physical networks in a transaction
         
@@ -268,102 +306,23 @@ class ViperFlow(Module):
 
         # networks [{"id":phynetid,....}]
 
-        phynetkeys = set()
-        typenetworks = dict()
+        parameter_dict = OrderedDict()
         for network in networks:
             if 'type' in network:
-                raise ValueError("physicalnetwork type can't be change")
-
-            if 'id' not in network:
-                raise ValueError("must special id")
+                raise ValueError("physical network type can't be changed")
 
             phynetkey = PhysicalNetwork.default_key(network['id'])
-            if phynetkey not in phynetkeys:
-                phynetkeys.add(phynetkey)
-            else:
-                raise ValueError("key repeat "+network['id'])
+            if phynetkey in parameter_dict:
+                raise ValueError("Repeated ID: "+network['id'])
+            parameter_dict[phynetkey] = network
 
-        phynetkeys = list(set(phynetkeys))
-
-        for m in self._getkeys(phynetkeys):
-            yield m
-
-        phynetvalues = self.app_routine.retvalue
-
-        if None in phynetvalues:
-            raise ValueError("physicalnetwork key not existed " +\
-                    PhysicalNetwork._getIndices(phynetkeys[phynetvalues.index(None)])[1][0])
-
-        phynetdict = dict(zip(phynetkeys,phynetvalues))
-
-        for network in networks:
-            phynetobj = phynetdict[PhysicalNetwork.default_key(network['id'])]
-
-            if phynetobj.type not in typenetworks:
-                typenetworks.setdefault(phynetobj.type,{"networks":[network]})
-            else:
-                typenetworks[phynetobj.type]['networks'].append(network)
-
-        for k,v in typenetworks.items():
-            try:
-                for m in callAPI(self.app_routine,'public','updatephysicalnetworks',
-                        {'type':k,'networks':v.get('networks')},timeout = 1):
-                    yield m
-            except:
-                raise
-
-            updater = self.app_routine.retvalue
-
-            #
-            # when networks have element to update same phynet,
-            # len(phynetkey) != len(networks)
-            #
-            phynetkey = list(set([PhysicalNetwork.default_key(n.get("id"))
-                            for n in v.get('networks')]))
-
-            phynetmapkey = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                for key in phynetkey]
-
-            v['updater'] = updater
-            v['phynetkey'] = phynetkey
-            v['phynetmapkey'] = phynetmapkey
-
-        keys = []
-        for _,v in typenetworks.items():
-            keys.extend(v.get("phynetkey"))
-            keys.extend(v.get("phynetmapkey"))
-
-        def updater(keys,values):
-            start = 0
-            retkeys = []
-            retvalues = []
-            for k,v in typenetworks.items():
-                typekeylen = len(v['phynetkey']) + len(v['phynetmapkey'])
-
-                try:
-                    rettypekeys,rettypevalues = v['updater'](keys[start:start+typekeylen],
-                                values[start:start+typekeylen])
-                except:
-                    raise
-                else:
-                    retkeys.extend(rettypekeys)
-                    retvalues.extend(rettypevalues)
-                    start = start + typekeylen
-            return retkeys,retvalues
-
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                    {'keys':keys,'updater':updater}):
-                yield m
-        except:
-            raise
-        else:
-            dumpkeys = []
-            for _,v in typenetworks.items():
-                dumpkeys.extend(v.get("phynetkey"))
-            for m in self._dumpkeys(dumpkeys):
-                yield m
-    def deletephysicalnetwork(self,id):
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                        {"asyncwalker": dispatch_async_walker(parameter_dict, False, physicalnetwork_gettype,
+                                                              'updatephysicalnetwork'),
+                         "withtime": True})
+        return await self._dumpkeys(parameter_dict)
+    
+    async def deletephysicalnetwork(self, id: str):
         """
         Delete physical network with specified ID
         
@@ -371,13 +330,11 @@ class ViperFlow(Module):
         
         :return: ``{"status": "OK"}``
         """
-        if id is None:
-            raise ValueError("delete netwrok must special id")
         network = {"id":id}
-
-        for m in self.deletephysicalnetworks([network]):
-            yield m
-    def deletephysicalnetworks(self,networks):
+        return await self.deletephysicalnetworks([network])
+    
+    @checked
+    async def deletephysicalnetworks(self,networks: [{"id": str}]):
         """
         Delete multiple physical networks with a transaction
         
@@ -386,100 +343,20 @@ class ViperFlow(Module):
         :return: ``{"status": "OK"}``
         """
         # networks [{"id":id},{"id":id}]
-
-        typenetworks = dict()
-        phynetkeys = set()
+        parameter_dict = {}
         for network in networks:
-            if 'id' not in network:
-                raise ValueError("must special id")
-
             phynetkey = PhysicalNetwork.default_key(network['id'])
-            if phynetkey not in phynetkeys:
-                phynetkeys.add(phynetkey)
-            else:
-                raise ValueError("key repeate "+network['id'])
+            if phynetkey in parameter_dict:
+                raise ValueError("Repeated ID: "+network['id'])
+            parameter_dict[phynetkey] = network
 
-        phynetkeys = list(phynetkeys)
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                {"asyncwalker": dispatch_async_walker(parameter_dict, False, physicalnetwork_gettype,
+                                                      'deletephysicalnetwork'),
+                 "withtime": True})
+        return {"status":'OK'}
 
-        for m in self._getkeys(phynetkeys):
-            yield m
-
-        phynetvalues = self.app_routine.retvalue
-
-        if None in phynetvalues:
-            raise ValueError("physicalnetwork key not existed " +\
-                    PhysicalNetwork._getIndices(phynetkeys[phynetvalues.index(None)])[1][0])
-
-        phynetdict = dict(zip(phynetkeys,phynetvalues))
-
-        for network in networks:
-            phynetobj = phynetdict[PhysicalNetwork.default_key(network["id"])]
-
-            if phynetobj.type not in typenetworks:
-                typenetworks.setdefault(phynetobj.type,{"networks":[network]})
-            else:
-                typenetworks[phynetobj.type]['networks'].append(network)
-
-        for k,v in typenetworks.items():
-
-            try:
-                for m in callAPI(self.app_routine,'public','deletephysicalnetworks',
-                        {'type':k,'networks':v.get('networks')}):
-                    yield m
-            except:
-                raise
-
-            updater = self.app_routine.retvalue
-            phynetkeys = list(set([PhysicalNetwork.default_key(n.get("id"))
-                            for n in v.get('networks')]))
-
-            phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                for key in phynetkeys]
-
-            v['updater'] = updater
-            v['phynetkeys'] = phynetkeys
-            v['phynetmapkeys'] = phynetmapkeys
-
-        keys = [PhysicalNetworkSet.default_key()]
-        for _,v in typenetworks.items():
-            keys.extend(v.get('phynetkeys'))
-            keys.extend(v.get('phynetmapkeys'))
-
-        def updater(keys,values):
-            start = 1
-            physet = values[0]
-
-            retkeys = [keys[0]]
-            retvalues = [None]
-            for k,v in typenetworks.items():
-
-                typekeylen = len(v['phynetkeys']) + len(v['phynetmapkeys'])
-
-                try:
-                    rettypekeys,rettypevalues = v['updater'](tuple(keys[0:1])+keys[start:start+typekeylen],
-                            [physet]+values[start:start+typekeylen])
-                except:
-                    raise
-                else:
-                    retkeys.extend(rettypekeys[1:])
-                    retvalues.extend(rettypevalues[1:])
-                    physet = rettypevalues[0]
-                    start = start + typekeylen
-
-            retvalues[0] = physet
-
-            return retkeys,retvalues
-
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                    {'keys':keys,'updater':updater}):
-                yield m
-        except:
-            raise
-        else:
-            self.app_routine.retvalue = {"status":'OK'}
-
-    def listphysicalnetworks(self,id = None,**kwargs):
+    async def listphysicalnetworks(self,id = None,**kwargs):
         """
         Query physical network information
         
@@ -496,18 +373,8 @@ class ViperFlow(Module):
                 return
             for refnetwork in set.dataset():
                 networkkey = refnetwork.getkey()
-                try:
+                with suppress(WalkKeyNotRetrieved):
                     networkobj = walk(networkkey)
-                except KeyError:
-                    pass
-                else:
-                    """
-                    for k,v in kwargs.items():
-                        if getattr(networkobj,k,None) != v:
-                            break
-                    else:
-                        save(networkkey)
-                    """
                     if all(getattr(networkobj,k,None) == v for k,v in kwargs.items()):
                         save(networkkey)
 
@@ -523,24 +390,20 @@ class ViperFlow(Module):
             # an unique id used to unwatch
             self._reqid += 1
             reqid = ('viperflow',self._reqid)
-
-            for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[physetkey],
-                'walkerdict':{physetkey:walker_func(lambda x:x.set)},
-                'requestid':reqid}):
-                yield m
-            keys,values = self.app_routine.retvalue
-            # dump will get reference
-            with watch_context(keys,values,reqid,self.app_routine):
-                self.app_routine.retvalue = [dump(r) for r in values]
-
+            with request_context(reqid, self.app_routine):
+                _, values = await call_api(self.app_routine,'objectdb','walk',{'keys':[physetkey],
+                                                'walkerdict':{physetkey:walker_func(lambda x:x.set)},
+                                                'requestid':reqid})
+                return [dump(r) for r in values]
         else:
             # get that id phynet info
             phynetkey = PhysicalNetwork.default_key(id)
-            for m in self._dumpone(phynetkey,kwargs):
-                yield m
-
-
-    def createphysicalport(self,physicalnetwork,name,vhost='',systemid='%',bridge='%',**kwargs):
+            return await self._dumpone(phynetkey,kwargs)
+    
+    async def createphysicalport(self,physicalnetwork: str, name: str, vhost: str='',
+                                 systemid: str='%',
+                                 bridge: str='%',
+                                 **kwargs):
         """
         Create physical port
         
@@ -561,9 +424,14 @@ class ViperFlow(Module):
         port = {'physicalnetwork':physicalnetwork,'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
         port.update(kwargs)
 
-        for m in self.createphysicalports([port]):
-            yield m
-    def createphysicalports(self,ports):
+        return await self.createphysicalports([port])
+    
+    @checked
+    async def createphysicalports(self,ports: [{"physicalnetwork": str,
+                                                "name": str,
+                                                "?vhost": str,
+                                                "?systemid": str,
+                                                "?bridge": str}]):
         """
         Create multiple physical ports in a transaction
         
@@ -573,119 +441,30 @@ class ViperFlow(Module):
         """
         # ports [{'physicalnetwork':id,'name':eth0,'vhost':'',systemid:'%'},{.....}]
 
-        phynetkeys = []
-        newports = []
-        porttype = dict()
-        idset = set()
+        parameter_dict = OrderedDict()
 
         for port in ports:
             port = copy.deepcopy(port)
-            if 'name' not in port:
-                raise ValueError("must special name")
-
-            if 'physicalnetwork' not in port:
-                raise ValueError("must special physicalnetwork")
-
             port.setdefault('vhost','')
             port.setdefault('systemid','%')
             port.setdefault('bridge','%')
-
-            key = '.'.join([port['vhost'],port['systemid'],port['bridge'],port['name']])
-            if key not in idset:
-                idset.add(key)
-            else:
-                raise ValueError("key repeat "+ key)
-
-            phynetkeys.append(PhysicalNetwork.default_key(port.get('physicalnetwork')))
-            newports.append(port)
-
-        phynetkeys = list(set(phynetkeys))
-
-        for m in self._getkeys(phynetkeys):
-            yield m
-
-        phynetvalues = self.app_routine.retvalue
-
-        if None in phynetvalues:
-            raise ValueError("physicalnetwork key not existed " +\
-                    PhysicalNetwork._getIndices(phynetkeys[phynetvalues.index(None)])[1][0])
-
-        phynetdict = dict(zip(phynetkeys,phynetvalues))
-
-        for port in newports:
-            phynetobj = phynetdict[PhysicalNetwork.default_key(port['physicalnetwork'])]
-            type = phynetobj.type
-
-            if type not in porttype:
-                porttype.setdefault(type,{'ports':[port]})
-            else:
-                porttype[type]['ports'].append(port)
-
-        for k,v in porttype.items():
-
-            try:
-                for m in callAPI(self.app_routine,'public','createphysicalports',
-                        {'type':k,'ports':v.get('ports')},timeout=1):
-                    yield m
-            except:
-                raise
-
-            phynetkeys = list(set([PhysicalNetwork.default_key(port["physicalnetwork"]) for port in v.get("ports")]))
-            phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                for key in phynetkeys]
-
-            phyportkeys = [PhysicalPort.default_key(port.get('vhost'),
-                    port.get('systemid'),port.get('bridge'),port.get('name'))
-                    for port in v.get('ports')]
-
-            updater = self.app_routine.retvalue
-
-            v['portkeys'] = phyportkeys
-            v['portnetkeys'] = phynetkeys
-            v['portmapkeys'] = phynetmapkeys
-            v['updater'] = updater
-
-        keys = [PhysicalPortSet.default_key()]
-        for _,v in porttype.items():
-            keys.extend(v.get('portkeys'))
-            keys.extend(v.get('portnetkeys'))
-            keys.extend(v.get('portmapkeys'))
-
-        def updater(keys,values):
-
-            retkeys = [keys[0]]
-            retvalues = [None]
-            physet = values[0]
-            start = 1
-            for k,v in porttype.items():
-                typekeylen = len(v['portkeys']) + len(v['portnetkeys']) + len(v['portmapkeys'])
-                try:
-                    rettypekeys,rettypevalues = v['updater'](keys[0:1]+keys[start:start+typekeylen],
-                                [physet]+values[start:start+typekeylen])
-                except:
-                    raise
-                else:
-                    retkeys.extend(rettypekeys[1:])
-                    retvalues.extend(rettypevalues[1:])
-                    physet = rettypevalues[0]
-                    start = start + typekeylen
-            retvalues[0] = physet
-            return retkeys,retvalues
-
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                    {'keys':keys,'updater':updater}):
-                yield m
-        except:
-            raise
-        else:
-            dumpkeys = []
-            for _,v in porttype.items():
-                dumpkeys.extend(v.get('portkeys'))
-            for m in self._dumpkeys(dumpkeys):
-                yield m
-
-    def updatephysicalport(self,name,vhost='',systemid='%',bridge='%',**args):
+            
+            key = PhysicalPort.default_key(port['vhost'], port['systemid'], port['bridge'], port['name'])
+            if key in parameter_dict:
+                raise ValueError("Repeated key: " + '.'.join([port['vhost'],port['systemid'],port['bridge'],port['name']]))
+            parameter_dict[key] = port
+        
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                        {"asyncwalker": dispatch_async_walker(parameter_dict, True, create_physicalport_gettype,
+                                                              'createphysicalport',
+                                                              pre_keys=create_physicalport_prekey),
+                         "withtime": True})
+        return await self._dumpkeys(parameter_dict)
+    
+    async def updatephysicalport(self, name: str, vhost : str = '',
+                                       systemid: str = '%',
+                                       bridge: str = '%',
+                                       **args):
         """
         Update physical port
         
@@ -701,16 +480,16 @@ class ViperFlow(Module):
         
         :return: Updated result as a dictionary.
         """
-        if not name:
-            raise ValueError("must speclial physicalport name")
-
         port = {'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
         port.update(args)
 
-        for m in self.updatephysicalports([port]):
-            yield m
-
-    def updatephysicalports(self,ports):
+        return await self.updatephysicalports([port])
+    
+    @checked
+    async def updatephysicalports(self, ports: [{"name": str,
+                                                "?vhost": str,
+                                                "?systemid": str,
+                                                "?bridge": str}]):
         """
         Update multiple physical ports with a transaction
         
@@ -719,122 +498,29 @@ class ViperFlow(Module):
         :return: Updated result as a list of dictionaries.
         """
         # ports [{'name':eth0,'vhost':'',systemid:'%'},{.....}]
-
-        self._reqid += 1
-        reqid = ('viperflow',self._reqid)
-        max_try = 1
-
-        fphysicalportkeys = set()
-        newports = []
-        typeport = dict()
+        parameter_dict = OrderedDict()
         for port in ports:
-
-            port = copy.deepcopy(port)
-
-            if 'name' not in port :
-                raise ValueError("must speclial physicalport name")
-
             if 'physicalnetwork' in port:
-                raise ValueError("physicalnetwork can not be change")
-
+                raise ValueError("physical network cannot be changed")
+            port = copy.deepcopy(port)
             port.setdefault("vhost","")
             port.setdefault("systemid","%")
             port.setdefault("bridge","%")
-            portkey = PhysicalPort.default_key(port.get('vhost'),
-                        port.get('systemid'),port.get('bridge'),port.get('name'))
-
-            if portkey not in fphysicalportkeys:
-                fphysicalportkeys.add(portkey)
-            else:
-                raise ValueError("key repeat "+ portkey)
-
-            newports.append(port)
-
-        fphysicalportkeys = list(fphysicalportkeys)
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':fphysicalportkeys,'requestid':reqid}):
-            yield m
-
-        fphysicalportvalues = self.app_routine.retvalue
-
-        with watch_context(fphysicalportkeys,fphysicalportvalues,reqid,self.app_routine):
-            if None in fphysicalportvalues:
-                raise ValueError(" physical ports is not existed "+ fphysicalportkeys[fphysicalportvalues.index(None)])
+            portkey = PhysicalPort.default_key(port['vhost'],
+                        port['systemid'], port['bridge'], port['name'])
+            
+            if portkey in parameter_dict:
+                raise ValueError("Repeated key: " + '.'.join([port['vhost'],port['systemid'],port['bridge'],port['name']]))
+            parameter_dict[portkey] = port
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                        {"asyncwalker": dispatch_async_walker(parameter_dict, False, physicalport_gettype,
+                                                              'updatephysicalport'),
+                         "withtime": True})
+        return await self._dumpkeys(parameter_dict)
     
-            physicalportdict = dict(zip(fphysicalportkeys,fphysicalportvalues))
-    
-            while True:
-                for port in newports:
-                    portobj = physicalportdict[PhysicalPort.default_key(port['vhost'],port['systemid'],
-                                        port['bridge'],port['name'])]
-
-                    porttype = portobj.physicalnetwork.type
-
-                    if porttype not in typeport:
-                        typeport.setdefault(porttype,{"ports":[port]})
-                    else:
-                        typeport.get(porttype).get("ports").append(port)
-
-                for k,v in typeport.items():
-                    try:
-                        for m in callAPI(self.app_routine,'public','updatephysicalports',
-                                {"phynettype":k,'ports':v.get('ports')},timeout = 1):
-                            yield m
-
-                    except:
-                        raise
-
-                    updater = self.app_routine.retvalue
-                    portkeys = list(set([PhysicalPort.default_key(p.get('vhost'),p.get('systemid'),p.get('bridge'),
-                                p.get('name')) for p in v.get('ports')]))
-
-                    v["updater"] = updater
-                    v["portkeys"] = portkeys
-
-                keys = []
-                typesortvalues = []
-                for _,v in typeport.items():
-                    keys.extend(v.get('portkeys'))
-                    typesortvalues.extend(physicalportdict[key] for key in v.get('portkeys'))
-
-                def update(keys,values):
-                    start = 0
-                    index = 0
-                    retkeys = []
-                    retvalues = []
-                    for k,v in typeport.items():
-                        typekeys = keys[start:start + len(v.get("portkeys"))]
-                        typevalues = values[start:start + len(v.get("portkeys"))]
-
-                        if [n.physicalnetwork.getkey() if n is not None else None for n in typevalues] !=\
-                                [n.physicalnetwork.getkey() for n in typesortvalues[index:index + len(v.get('portkeys'))]]:
-                            raise UpdateConflictException
-
-                        rettypekeys,rettypevalues = v.get('updater')(typekeys,typevalues)
-
-                        retkeys.extend(rettypekeys)
-                        retvalues.extend(rettypevalues)
-                        start = start + len(v.get('portkeys'))
-                        index = index + len(v.get('portkeys'))
-
-                    return keys,values
-
-                try:
-                    for m in callAPI(self.app_routine,'objectdb','transact',
-                            {"keys":keys,"updater":update}):
-                        yield m
-                except UpdateConflictException:
-                    max_try -= 1
-                    if max_try < 0:
-                        raise
-                    else:
-                        logger.info(" cause UpdateConflict Exception try once")
-                        continue
-                else:
-                    break    
-            for m in self._dumpkeys(keys):
-                yield m
-
-    def deletephysicalport(self,name,vhost='',systemid='%',bridge='%'):
+    async def deletephysicalport(self, name: str, vhost : str = '',
+                                       systemid: str = '%',
+                                       bridge: str = '%'):
         """
         Delete a physical port
         
@@ -848,13 +534,14 @@ class ViperFlow(Module):
         
         :return: ``{"status": "OK"}``
         """
-        if not name:
-            raise ValueError("must speclial physicalport name")
         port = {'name':name,'vhost':vhost,'systemid':systemid,'bridge':bridge}
+        return await self.deletephysicalports([port])
 
-        for m in self.deletephysicalports([port]):
-            yield m
-    def deletephysicalports(self,ports):
+    @checked
+    async def deletephysicalports(self, ports: [{"name": str,
+                                                  "?vhost": str,
+                                                  "?systemid": str,
+                                                  "?bridge": str}]):
         """
         Delete multiple physical ports in a transaction
         
@@ -864,128 +551,26 @@ class ViperFlow(Module):
         
         :return: ``{"status": "OK"}``
         """
-        self._reqid += 1
-        reqid = ('viperflow',self._reqid)
-        max_try = 1
 
-        typeport = dict()
-        fphysicalportkeys = set()
-        newports = []
+        parameter_dict = {}
         for port in ports:
-
             port = copy.deepcopy(port)
+            port.setdefault("vhost","")
+            port.setdefault("systemid","%")
+            port.setdefault("bridge","%")
+            portkey = PhysicalPort.default_key(port['vhost'],
+                        port['systemid'], port['bridge'], port['name'])
+            
+            if portkey in parameter_dict:
+                raise ValueError("Repeated key: " + '.'.join([port['vhost'],port['systemid'],port['bridge'],port['name']]))
+            parameter_dict[portkey] = port
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                        {"asyncwalker": dispatch_async_walker(parameter_dict, False, physicalport_gettype,
+                                                              'deletephysicalport'),
+                         "withtime": True})
+        return {"status":'OK'}
 
-            if 'name' not in port :
-                raise ValueError("must speclial physicalport name")
-
-            port.setdefault('vhost',"")
-            port.setdefault('systemid',"%")
-            port.setdefault('bridge',"%")
-
-            portkey = PhysicalPort.default_key(port.get('vhost'),port.get("systemid"),
-                        port.get("bridge"),port.get("name"))
-
-            if portkey not in fphysicalportkeys:
-                fphysicalportkeys.add(portkey)
-            else:
-                raise ValueError("key repeat "+portkey)
-
-            newports.append(port)
-
-        fphysicalportkeys = list(fphysicalportkeys)
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':fphysicalportkeys,'requestid':reqid}):
-            yield m
-
-        fphysicalportvalues = self.app_routine.retvalue
-
-        with watch_context(fphysicalportkeys, fphysicalportvalues, reqid, self.app_routine):
-            if None in fphysicalportvalues:
-                raise ValueError(" physical ports is not existed "+ fphysicalportkeys[fphysicalportvalues.index(None)])
-
-            physicalportdict = dict(zip(fphysicalportkeys,fphysicalportvalues))
-
-            while True:
-                for port in newports:
-                    portobj = physicalportdict[PhysicalPort.default_key(port['vhost'],port['systemid'],
-                                    port['bridge'],port['name'])]
-                    porttype = portobj.physicalnetwork.type
-                    phynetid = portobj.physicalnetwork.id
-
-                    port["phynetid"] = phynetid
-                    if porttype not in typeport:
-                        typeport.setdefault(porttype,{"ports":[port]})
-                    else:
-                        typeport.get(porttype).get("ports").append(port)
-
-                for k,v in typeport.items():
-                    for m in callAPI(self.app_routine,"public","deletephysicalports",
-                            {"phynettype":k,"ports":v.get("ports")},timeout = 1):
-                        yield m
-                    updater = self.app_routine.retvalue
-
-                    portkeys = [PhysicalPort.default_key(p.get('vhost'),p.get('systemid'),
-                                p.get('bridge'),p.get('name')) for p in v.get('ports')]
-                    phynetkeys = list(set([PhysicalNetwork.default_key(p.get("phynetid")) for p in v.get('ports')]))
-                    phynetmapkeys = list(set([PhysicalNetworkMap.default_key(p.get("phynetid")) for p in v.get('ports')]))
-
-                    v["updater"] = updater
-                    v["portkeys"] = portkeys
-                    v["phynetmapkeys"] = phynetmapkeys
-
-                keys = [PhysicalPortSet.default_key()]
-                typesortvalues = []
-                for _,v in typeport.items():
-                    keys.extend(v.get("portkeys"))
-                    keys.extend(v.get("phynetmapkeys"))
-                    typesortvalues.extend(physicalportdict[key] for key in v.get('portkeys'))
-
-                def update(keys,values):
-                    start = 1
-                    index = 0
-                    portset = values[0]
-                    retkeys = [keys[0]]
-                    retvalues = [None]
-                    for k,v in typeport.items():
-                        typekeylen = len(v['portkeys']) + len(v['phynetmapkeys'])
-                        sortkeylen = len(v['portkeys'])
-
-                        if [n.physicalnetwork.getkey() if n is not None else None
-                                for n in values[start:start + sortkeylen]]!=\
-                           [n.physicalnetwork.getkey() for n in typesortvalues[index:index+sortkeylen]]:
-                            raise UpdateConflictException
-
-                        try:
-                            typeretkeys,typeretvalues = v['updater'](keys[0:1]+keys[start:start+typekeylen],
-                                    [portset]+values[start:start+typekeylen])
-                        except:
-                            raise
-                        else:
-                            retkeys.extend(typeretkeys[1:])
-                            retvalues.extend(typeretvalues[1:])
-                            portset = typeretvalues[0]
-                            start = start + typekeylen
-                            index = index + sortkeylen
-                    retvalues[0] = portset
-
-                    return retkeys,retvalues
-
-
-                try:
-                    for m in callAPI(self.app_routine,"objectdb","transact",
-                            {"keys":keys,"updater":update}):
-                        yield m
-                except UpdateConflictException:
-                    max_try -= 1
-                    if max_try < 0:
-                        raise
-                    else:
-                        logger.info(" cause UpdateConflict Exception try once")
-                        continue
-                else:
-                    break
-            self.app_routine.retvalue = {"status":'OK'}
-
-    def listphysicalports(self,name = None,physicalnetwork = None,vhost='',
+    async def listphysicalports(self,name = None,physicalnetwork = None,vhost='',
             systemid='%',bridge='%',**kwargs):
         """
         Query physical port information
@@ -1009,41 +594,32 @@ class ViperFlow(Module):
 
         if name:
             phyportkey = PhysicalPort.default_key(vhost,systemid,bridge,name)
-
-            for m in self._dumpone(phyportkey,kwargs):
-                yield m
+            return await self._dumpone(phyportkey,kwargs)
         else:
             if physicalnetwork:
-                # special physicalnetwork , find it in map , filter it ..
+                # specify physicalnetwork , find it in map , filter it ..
                 physical_map_key = PhysicalNetworkMap.default_key(physicalnetwork)
 
                 self._reqid += 1
                 reqid = ('viperflow',self._reqid)
+                with request_context(reqid, self.app_routine):
+                    def walk_map(key,value,walk,save):
+                        if value is None:
+                            return
+    
+                        for weakobj in value.ports.dataset():
+                            phyport_key = weakobj.getkey()
+    
+                            with suppress(WalkKeyNotRetrieved):
+                                phyport_obj = walk(phyport_key)
+                                if all(getattr(phyport_obj,k,None) == v for k ,v in kwargs.items()):
+                                    save(phyport_key)
+                    _, values = await call_api(self.app_routine, 'objectdb', 'walk',
+                                               {"keys":[physical_map_key],
+                                                "walkerdict":{physical_map_key:walk_map},
+                                                "requestid":reqid})
 
-                def walk_map(key,value,walk,save):
-                    if value is None:
-                        return
-
-                    for weakobj in value.ports.dataset():
-                        phyport_key = weakobj.getkey()
-
-                        try:
-                            phyport_obj = walk(phyport_key)
-                        except KeyError:
-                            pass
-                        else:
-                            if all(getattr(phyport_obj,k,None) == v for k ,v in kwargs.items()):
-                                save(phyport_key)
-
-                for m in callAPI(self.app_routine,'objectdb','walk',{"keys":[physical_map_key],
-                                        "walkerdict":{physical_map_key:walk_map},
-                                        "requestid":reqid}):
-                    yield m
-
-                keys,values = self.app_routine.retvalue
-
-                with watch_context(keys,values,reqid,self.app_routine):
-                    self.app_routine.retvalue = [dump(r) for r in values]
+                    return [dump(r) for r in values]
 
             else:
                 # find it in all, , filter it ,,
@@ -1051,33 +627,36 @@ class ViperFlow(Module):
 
                 self._reqid += 1
                 reqid = ('viperflow',self._reqid)
-
-                def walk_set(key,value,walk,save):
-                    if value is None:
-                        return
-
-                    for weakobj in value.set.dataset():
-                        phyport_key = weakobj.getkey()
-
-                        try:
-                            phyport_obj = walk(phyport_key)
-                        except KeyError:
-                            pass
-                        else:
-                            if all(getattr(phyport_obj,k,None) == v for k,v in kwargs.items()):
-                                save(phyport_key)
-
-                for m in callAPI(self.app_routine,'objectdb','walk',{"keys":[phyport_set_key],
-                                        "walkerdict":{phyport_set_key:walk_set},
-                                        "requestid":reqid}):
-                    yield m
-
-                keys, values = self.app_routine.retvalue
-
-                with watch_context(keys,values,reqid,self.app_routine):
-                    self.app_routine.retvalue = [dump(r) for r in values]
-
-    def createlogicalnetwork(self,physicalnetwork,id = None,**kwargs):
+                with request_context(reqid, self.app_routine):
+                    def walk_set(key,value,walk,save):
+                        if value is None:
+                            return
+    
+                        for weakobj in value.set.dataset():
+                            phyport_key = weakobj.getkey()
+    
+                            with suppress(WalkKeyNotRetrieved):
+                                phyport_obj = walk(phyport_key)
+                                if all(getattr(phyport_obj,k,None) == v for k,v in kwargs.items()):
+                                    save(phyport_key)
+    
+                    _, values = await call_api(self.app_routine,'objectdb','walk',{"keys":[phyport_set_key],
+                                                                "walkerdict":{phyport_set_key:walk_set},
+                                                                "requestid":reqid})
+    
+                    return [dump(r) for r in values]
+    
+    async def createlogicalnetwork(self, physicalnetwork: str,
+                                         id: (str, None) = None,
+                                         **kwargs: {"?vni": autoint,
+                                                    "?vxlan": autoint,
+                                                    "?mtu": autoint,
+                                                    "?dns_nameservers": ([ip_address_type], None),
+                                                    "?domain_name": (str, None),
+                                                    "?ntp_servers": ([ip_address_type], None),
+                                                    "?lease_time": lease_time_type,
+                                                    "?extra_dhcp_options": dhcp_options_type
+                                                    }):
         """
         Create logical network
         
@@ -1102,9 +681,19 @@ class ViperFlow(Module):
         network = {'physicalnetwork':physicalnetwork,'id':id}
         network.update(kwargs)
 
-        for m in self.createlogicalnetworks([network]):
-            yield m
-    def createlogicalnetworks(self,networks):
+        return await self.createlogicalnetworks([network])
+    
+    @checked
+    async def createlogicalnetworks(self,networks: [{"physicalnetwork": str,
+                                                     "?id": str,
+                                                     "?vni": autoint,
+                                                     "?vxlan": autoint,
+                                                     "?mtu": autoint,
+                                                     "?dns_nameservers": ([ip_address_type], None),
+                                                     "?domain_name": (str, None),
+                                                     "?ntp_servers": ([ip_address_type], None),
+                                                     "?lease_time": lease_time_type,
+                                                     "?extra_dhcp_options": dhcp_options_type}]):
         """
         Create multiple logical networks in a transaction.
         
@@ -1114,274 +703,79 @@ class ViperFlow(Module):
         """
         # networks [{'physicalnetwork':'id','id':'id' ...},{'physicalnetwork':'id',...}]
 
-        idset = set()
-        phynetkeys = []
-        newnetworks = []
+        parameter_dict = OrderedDict()
 
         for network in networks:
             network = copy.deepcopy(network)
-            if 'physicalnetwork' not in network:
-                raise ValueError("create logicalnet must special physicalnetwork id")
-
-            if 'id' in network:
-                if network['id'] not in idset:
-                    idset.add(network['id'])
-                else:
-                    raise ValueError("key repeat "+network['id'])
-            else:
-                network.setdefault('id',str(uuid1()))
-
-            phynetkeys.append(PhysicalNetwork.default_key(network.get('physicalnetwork')))
-            newnetworks.append(network)
-
-        phynetkeys = list(set(phynetkeys))
-        for m in self._getkeys(phynetkeys):
-            yield m
-
-        phynetvalues = self.app_routine.retvalue
-
-        if None in phynetvalues:
-            raise ValueError("physicalnetwork key not existed " +\
-                    PhysicalNetwork._getIndices(phynetkeys[phynetvalues.index(None)])[1][0])
-
-        phynetdict = dict(zip(phynetkeys,phynetvalues))
-
-        typenetwork = dict()
-        for network in newnetworks:
-            phynetobj = phynetdict[PhysicalNetwork.default_key(network.get('physicalnetwork'))]
-            phynettype = phynetobj.type
-
-            if phynettype not in typenetwork:
-                typenetwork.setdefault(phynettype,{'networks':[network]})
-            else:
-                typenetwork[phynettype]['networks'].append(network)
-
-        for k, v in typenetwork.items():
-            try:
-                for m in callAPI(self.app_routine,'public','createlogicalnetworks',
-                        {'phynettype':k,'networks':v.get('networks')},timeout = 1):
-                    yield m
-            except:
-                    raise
-
-            updater = self.app_routine.retvalue
-
-            lgnetkey = [LogicalNetwork.default_key(n.get('id'))
-                            for n in v.get('networks')]
-            lgnetmapkey = [LogicalNetworkMap.default_key(n.get('id'))
-                            for n in v.get('networks')]
-
-            phynetkey = list(set([PhysicalNetwork.default_key(n.get('physicalnetwork'))
-                            for n in v.get('networks')]))
-
-            #
-            # if we use map default key , to set , it will be disorder with
-            # phynetkey,  so we create map key use set(phynetkey)
-            #
-            phynetmapkey = [PhysicalNetworkMap.default_key(PhysicalNetwork.\
-                    _getIndices(n)[1][0]) for n in phynetkey]
-
-            v['lgnetkeys'] = lgnetkey
-            v['lgnetmapkeys'] = lgnetmapkey
-            #
-            # will have more logicalnetwork create on one phynet,
-            # so we should reduce phynetkey , phynetmapkey
-            #
-            v['phynetkeys'] = phynetkey
-            v['phynetmapkeys'] = phynetmapkey
-            v['updater'] = updater
-
-        keys = [LogicalNetworkSet.default_key()]
-        for _,v in typenetwork.items():
-            keys.extend(v.get('lgnetkeys'))
-            keys.extend(v.get('lgnetmapkeys'))
-            keys.extend(v.get('phynetkeys'))
-            keys.extend(v.get('phynetmapkeys'))
-
-        def updater(keys,values):
-            retkeys = [keys[0]]
-            retvalues = [None]
-            lgnetset = values[0]
-            start = 1
-            for k,v in typenetwork.items():
-
-                typekeylen = len(v['lgnetkeys']) + len(v['lgnetmapkeys']) +\
-                        len(v['phynetkeys'])+len(v['phynetmapkeys'])
-
-                try:
-                    typeretkeys,typeretvalues = v['updater'](keys[0:1]+keys[start:start+typekeylen],
-                            [lgnetset]+values[start:start+typekeylen])
-                except:
-                    raise
-                else:
-                    retkeys.extend(typeretkeys[1:])
-                    retvalues.extend(typeretvalues[1:])
-                    lgnetset = typeretvalues[0]
-                    start = start + typekeylen
-
-            retvalues[0] = lgnetset
-            return retkeys,retvalues
-
-
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                    {'keys':keys,'updater':updater}):
-                yield m
-        except:
-            raise
-
-        dumpkeys = []
-        for _,v in typenetwork.items():
-            dumpkeys.extend(v.get('lgnetkeys'))
-        for m in self._dumpkeys(dumpkeys):
-            yield m
-
-    def updatelogicalnetwork(self,id,**kwargs):
+            if 'id' not in network:
+                network['id'] = str(uuid1())
+            key = LogicalNetwork.default_key(network['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: " + network['id'])
+            parameter_dict[key] = network        
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                        {"asyncwalker": dispatch_async_walker(parameter_dict, True, create_logicalnetwork_gettype,
+                                                              'createlogicalnetwork',
+                                                              pre_keys=create_logicalnetwork_prekey),
+                         "withtime": True})
+        return await self._dumpkeys(parameter_dict)
+    
+    async def updatelogicalnetwork(self, id: str, **kwargs: {"?vni": autoint,
+                                                            "?vxlan": autoint,
+                                                            "?mtu": autoint,
+                                                            "?dns_nameservers": ([ip_address_type], None),
+                                                            "?domain_name": (str, None),
+                                                            "?ntp_servers": ([ip_address_type], None),
+                                                            "?lease_time": lease_time_type,
+                                                            "?extra_dhcp_options": dhcp_options_type}):
         """
         Update logical network attributes of the ID
         """
         # update phynetid is disabled
-
-        if not id:
-            raise ValueError("must special logicalnetwork id")
-
         network = {'id':id}
         network.update(kwargs)
 
-        for m in self.updatelogicalnetworks([network]):
-            yield m
-    def updatelogicalnetworks(self,networks):
+        return await self.updatelogicalnetworks([network])
+    
+    @checked
+    async def updatelogicalnetworks(self,networks: [{"id": str,
+                                                     "?vni": autoint,
+                                                     "?vxlan": autoint,
+                                                     "?mtu": autoint,
+                                                     "?dns_nameservers": ([ip_address_type], None),
+                                                     "?domain_name": (str, None),
+                                                     "?ntp_servers": ([ip_address_type], None),
+                                                     "?lease_time": lease_time_type,
+                                                     "?extra_dhcp_options": dhcp_options_type}]):
         """
         Update multiple logical networks in a transaction
         """
         #networks [{'id':id,....},{'id':id,....}]
 
-        self._reqid += 1
-        reqid = ('viperflow',self._reqid)
-        maxtry = 1
+        parameter_dict = OrderedDict()
 
-        flgnetworkkeys = set()
-        newnetworks = []
         for network in networks:
-            network = copy.deepcopy(network)
+            if 'physicalnetwork' in network:
+                raise ValueError("physical network cannot be changed")
             key = LogicalNetwork.default_key(network['id'])
-            if key not in flgnetworkkeys:
-                flgnetworkkeys.add(key)
-            else:
-                raise ValueError("key repeate "+key)
-            newnetworks.append(network)
-
-        flgnetworkkeys = list(flgnetworkkeys)
-
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':flgnetworkkeys,'requestid':reqid}):
-            yield m
-
-        flgnetworkvalues = self.app_routine.retvalue
-
-        with watch_context(flgnetworkkeys, flgnetworkvalues, reqid, self.app_routine):
-            if None in flgnetworkvalues:
-                raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
-
-            lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
-
-            while True:
-                typenetwork = dict()
-                for network in newnetworks:
-                    lgnetworkobj = lgnetworkdict[LogicalNetwork.default_key(network["id"])]
-
-                    network["phynetid"] = lgnetworkobj.physicalnetwork.id
-
-                    if lgnetworkobj.physicalnetwork.type not in typenetwork:
-                        typenetwork.setdefault(lgnetworkobj.physicalnetwork.type,{'networks':[network],
-                            'phynetkey':[lgnetworkobj.physicalnetwork.getkey()]})
-                    else:
-                        typenetwork[lgnetworkobj.physicalnetwork.type]['networks'].append(network)
-                        typenetwork[lgnetworkobj.physicalnetwork.type]['phynetkey'].append(lgnetworkobj.physicalnetwork.getkey())
-
-                for k,v in typenetwork.items():
-                    for m in callAPI(self.app_routine,'public','updatelogicalnetworks',
-                        {'phynettype':k,'networks':v.get('networks')},timeout=1):
-                        yield m
-
-                    updater = self.app_routine.retvalue
-
-                    lgnetworkkeys = [LogicalNetwork.default_key(n.get('id'))
-                                for n in v.get('networks')]
-
-                    phynetkeys = list(set([k for k in v.get('phynetkey')]))
-
-                    phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                        for key in phynetkeys]
-                    v['lgnetworkkeys'] = lgnetworkkeys
-                    v['updater'] = updater
-                    v['phynetkeys'] = phynetkeys
-                    v['phynetmapkeys'] = phynetmapkeys
-
-                keys = []
-                typesortvalues = []
-                for _,v in typenetwork.items():
-                    keys.extend(v.get("lgnetworkkeys"))
-                    keys.extend(v.get("phynetkeys"))
-                    keys.extend(v.get("phynetmapkeys"))
-                    typesortvalues.extend(lgnetworkdict[key] for key in v.get("lgnetworkkeys"))
-
-                def updater(keys,values):
-
-                    start = 0
-                    index = 0
-                    retkeys = []
-                    retvalues = []
-                    for k,v in typenetwork.items():
-                        typekeylen = len(v['lgnetworkkeys']) + len(v['phynetkeys']) + len(v['phynetmapkeys'])
-                        objlen = len(v['lgnetworkkeys'])
-
-                        if [n.physicalnetwork.getkey() if n is not None else None for n in values[start:start+objlen]] !=\
-                                [n.physicalnetwork.getkey() for n in typesortvalues[index:index + objlen]]:
-                            raise UpdateConflictException
-
-                        typeretkeys,typeretvalues = v['updater'](keys[start:start+typekeylen],
-                                values[start:start+typekeylen])
-
-                        retkeys.extend(typeretkeys)
-                        retvalues.extend(typeretvalues)
-                        start = start + typekeylen
-                        index = index + objlen
-                    return retkeys,retvalues
-
-
-                try:
-                    for m in callAPI(self.app_routine,"objectdb",'transact',
-                            {"keys":keys,'updater':updater}):
-                        yield m
-                except UpdateConflictException:
-                    maxtry -= 1
-                    if maxtry < 0:
-                        raise
-                    else:
-                        logger.info(" cause UpdateConflict Exception try once")
-                        continue
-                else:
-                    break
-
-            dumpkeys = []
-            for _,v in typenetwork.items():
-                dumpkeys.extend(v.get("lgnetworkkeys"))
-
-            for m in self._dumpkeys(dumpkeys):
-                yield m
-
-    def deletelogicalnetwork(self,id):
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: " + network['id'])
+            parameter_dict[key] = network
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                        {"asyncwalker": dispatch_async_walker(parameter_dict, False, logicalnetwork_gettype,
+                                                              'updatelogicalnetwork'),
+                         "withtime": True})
+        return await self._dumpkeys(parameter_dict)
+    
+    async def deletelogicalnetwork(self, id: str):
         """
         Delete logical network
         """
-        if not id:
-            raise ValueError("must special id")
-
         network = {'id':id}
-        for m in self.deletelogicalnetworks([network]):
-            yield m
-
-    def deletelogicalnetworks(self,networks):
+        return await self.deletelogicalnetworks([network])
+    
+    @checked
+    async def deletelogicalnetworks(self, networks: [{"id": str}]):
         """
         Delete logical networks
         
@@ -1390,142 +784,20 @@ class ViperFlow(Module):
         :return: ``{"status": "OK"}``
         """
         # networks [{"id":id},{"id":id}]
-
-        self._reqid += 1
-        reqid = ('viperflow',self._reqid)
-        maxtry = 1
-
-        flgnetworkkeys = set()
-        newnetworks = []
+        parameter_dict = OrderedDict()
 
         for network in networks:
-            network = copy.deepcopy(network)
-            key = LogicalNetwork.default_key(network["id"])
-            if key not in flgnetworkkeys:
-                flgnetworkkeys.add(key)
-            else:
-                raise ValueError("key repeate "+key)
-            newnetworks.append(network)
+            key = LogicalNetwork.default_key(network['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: " + network['id'])
+            parameter_dict[key] = network
+        await call_api(self.app_routine, 'objectdb', 'asyncwritewalk',
+                        {"asyncwalker": dispatch_async_walker(parameter_dict, False, logicalnetwork_gettype,
+                                                              'deletelogicalnetwork'),
+                         "withtime": True})
+        return {"status":'OK'}
 
-        flgnetworkkeys = list(flgnetworkkeys)
-
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':flgnetworkkeys,'requestid':reqid}):
-            yield m
-
-        flgnetworkvalues = self.app_routine.retvalue
-
-        with watch_context(flgnetworkkeys, flgnetworkvalues, reqid, self.app_routine):
-            if None in flgnetworkvalues:
-                raise ValueError ("logical net id " + LogicalNetwork._getIndices(flgnetworkkeys[flgnetworkvalues.index(None)])[1][0] + " not existed")
-
-            lgnetworkdict = dict(zip(flgnetworkkeys,flgnetworkvalues))
-
-            while True:
-                typenetwork = dict()
-                for network in newnetworks:
-                    lgnetworkobj = lgnetworkdict[LogicalNetwork.default_key(network["id"])]
-
-                    # we save phynetid in update object, used to find phynet,phymap
-                    # will del this attr when update in driver
-                    network["phynetid"] = lgnetworkobj.physicalnetwork.id
-
-                    if lgnetworkobj.physicalnetwork.type not in typenetwork:
-                        typenetwork.setdefault(lgnetworkobj.physicalnetwork.type,{'networks':[network],
-                            'phynetkey':[lgnetworkobj.physicalnetwork.getkey()]})
-                    else:
-                        typenetwork[lgnetworkobj.physicalnetwork.type]['networks'].append(network)
-                        typenetwork[lgnetworkobj.physicalnetwork.type]['phynetkey'].append(lgnetworkobj.physicalnetwork.getkey())
-
-                for k,v in typenetwork.items():
-
-                    for m in callAPI(self.app_routine,'public','deletelogicalnetworks',
-                        {'phynettype':k,'networks':v.get('networks')},timeout=1):
-                        yield m
-
-                    updater = self.app_routine.retvalue
-
-                    lgnetworkkeys = [LogicalNetwork.default_key(n.get('id'))
-                                for n in v.get('networks')]
-
-                    lgnetworkmapkeys = [LogicalNetworkMap.default_key(n.get('id'))
-                                for n in v.get('networks')]
-
-                    phynetkeys = list(set([k for k in v.get('phynetkey')]))
-
-                    phynetmapkeys = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(key)[1][0])
-                                        for key in phynetkeys]
-                    v['lgnetworkkeys'] = lgnetworkkeys
-                    v['updater'] = updater
-                    v['lgnetworkmapkeys'] = lgnetworkmapkeys
-                    v['phynetmapkeys'] = phynetmapkeys
-
-                keys = [LogicalNetworkSet.default_key()]
-                typesortvalues = []
-                for _,v in typenetwork.items():
-                    keys.extend(v.get("lgnetworkkeys"))
-                    keys.extend(v.get("lgnetworkmapkeys"))
-                    keys.extend(v.get("phynetmapkeys"))
-                    typesortvalues.extend(lgnetworkdict[key] for key in v.get("lgnetworkkeys"))
-
-                def updater(keys,values):
-
-                    start = 1
-                    index = 0
-                    retkeys = [keys[0]]
-                    retvalues = [None]
-                    lgnetset = values[0]
-                    for k,v in typenetwork.items():
-                        lognetmaps = values[start + len(v['lgnetworkkeys']) : start + len(v['lgnetworkkeys'])
-                                                                              + len(v['lgnetworkmapkeys'])]
-                        # Must check if there are some ref object existed
-                        for lognetmap in lognetmaps:
-
-                            if not lognetmap:
-                                raise ValueError(" logical network mybe not existed %r" % (lognetmap.id,))
-
-                            if lognetmap.ports.dataset():
-                                raise ValueError('There are still ports in logical network %r' % (lognetmap.id,))
-
-                            if lognetmap.subnets.dataset():
-                                raise ValueError('There are still subnets in logical network %r' % (lognetmap.id,))
-
-
-                        typekeylen = len(v['lgnetworkkeys']) + len(v['lgnetworkmapkeys']) + len(v['phynetmapkeys'])
-                        objlen = len(v['lgnetworkkeys'])
-
-                        if [n.physicalnetwork.getkey() if n is not None else None for n in values[start:start+objlen]] !=\
-                                [n.physicalnetwork.getkey() for n in typesortvalues[index:index+objlen]]:
-                            raise UpdateConflictException
-
-                        typeretkeys,typeretvalues = v['updater'](keys[0:1]+keys[start:start+typekeylen],
-                                [lgnetset]+values[start:start+typekeylen])
-
-                        retkeys.extend(typeretkeys[1:])
-                        retvalues.extend(typeretvalues[1:])
-                        lgnetset = typeretvalues[0]
-                        start = start + typekeylen
-                        index = index + objlen
-                    retvalues[0] = lgnetset
-                    return retkeys,retvalues
-
-                try:
-                    for m in callAPI(self.app_routine,"objectdb",'transact',
-                            {"keys":keys,'updater':updater}):
-                        yield m
-
-                except UpdateConflictException:
-                    maxtry -= 1
-                    if maxtry < 0:
-                        raise
-                    else:
-                        logger.info(" cause UpdateConflict Exception try once")
-                        continue
-                else:
-                    break
-
-            self.app_routine.retvalue = {"status":'OK'}
-
-    def listlogicalnetworks(self,id = None,physicalnetwork = None,**kwargs):
+    async def listlogicalnetworks(self,id = None,physicalnetwork = None,**kwargs):
         """
         Query logical network information
         
@@ -1541,15 +813,14 @@ class ViperFlow(Module):
         """
 
         if id:
-            # special id ,, find it,, filter it
+            # specify id ,, find it,, filter it
             lgnetkey = LogicalNetwork.default_key(id)
 
-            for m in self._dumpone(lgnetkey,kwargs):
-                yield m
+            return await self._dumpone(lgnetkey,kwargs)
 
         else:
             if physicalnetwork:
-                # special physicalnetwork , find it in physicalnetwork,  filter it
+                # specify physicalnetwork , find it in physicalnetwork,  filter it
                 self._reqid += 1
                 reqid = ('viperflow',self._reqid)
 
@@ -1562,23 +833,16 @@ class ViperFlow(Module):
                     for weakobj in value.logicnetworks.dataset():
                         lgnet_key = weakobj.getkey()
 
-                        try:
+                        with suppress(WalkKeyNotRetrieved):
                             lgnet_obj = walk(lgnet_key)
-                        except KeyError:
-                            pass
-                        else:
                             if all(getattr(lgnet_obj,k,None) == v for k ,v in kwargs.items()):
                                 save(lgnet_key)
-
-                for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[physicalnetwork_map_key],
-                                        'walkerdict':{physicalnetwork_map_key:walk_map},
-                                        'requestid':reqid}):
-                    yield m
-
-                keys,values = self.app_routine.retvalue
-
-                with watch_context(keys,values,reqid,self.app_routine):
-                    self.app_routine.retvalue = [dump(r) for r in values]
+                with request_context(reqid, self.app_routine):
+                    _, values = await call_api(self.app_routine,'objectdb','walk',
+                                                    {'keys':[physicalnetwork_map_key],
+                                                    'walkerdict':{physicalnetwork_map_key:walk_map},
+                                                    'requestid':reqid})
+                    return [dump(r) for r in values]
             else:
                 # find it in all set , filter it
                 self._reqid += 1
@@ -1592,24 +856,23 @@ class ViperFlow(Module):
                     for weakobj in value.set.dataset():
                         lgnet_key = weakobj.getkey()
 
-                        try:
+                        with suppress(WalkKeyNotRetrieved):
                             lgnet_obj = walk(lgnet_key)
-                        except KeyError:
-                            pass
-                        else:
                             if all(getattr(lgnet_obj,k,None) == v for k,v in kwargs.items()):
                                 save(lgnet_key)
-
-                for m in callAPI(self.app_routine,"objectdb","walk",{'keys':[lgnet_set_key],
-                                    "walkerdict":{lgnet_set_key:walk_set},"requestid":reqid}):
-                    yield m
-
-                keys,values = self.app_routine.retvalue
-
-                with watch_context(keys,values,reqid,self.app_routine):
-                    self.app_routine.retvalue = [dump(r) for r in values]
-
-    def createlogicalport(self,logicalnetwork,id=None,subnet=None,**args):
+                with request_context(reqid, self.app_routine):
+                    _, values = await call_api(self.app_routine,"objectdb","walk",
+                                                    {'keys':[lgnet_set_key],
+                                                     "walkerdict":{lgnet_set_key:walk_set},"requestid":reqid})
+                    return [dump(r) for r in values]
+    
+    async def createlogicalport(self, logicalnetwork: str,
+                                      id: (str, None) = None,
+                                      subnet: (str, None) = None,
+                                      **kwargs: {"?mac_address": mac_address_type,
+                                                 "?ip_address": ip_address_type,
+                                                 "?hostname": (str, None),
+                                                 "?extra_dhcp_options": dhcp_options_type}):
         """
         Create logical port
         
@@ -1638,381 +901,244 @@ class ViperFlow(Module):
         else:
             port = {'logicalnetwork':logicalnetwork,'id':id}
         
-        port.update(args)
+        port.update(kwargs)
 
-        for m in self.createlogicalports([port]):
-            yield m
-
-    def createlogicalports(self,ports):
+        return await self.createlogicalports([port])
+    
+    @checked
+    async def createlogicalports(self, ports: [{"?id": str,
+                                                "logicalnetwork": str,
+                                                "?subnet": str,
+                                                "?mac_address": mac_address_type,
+                                                "?ip_address": ip_address_type,
+                                                "?hostname": (str, None),
+                                                "?extra_dhcp_options": dhcp_options_type}]):
         """
         Create multiple logical ports in a transaction
         """
-        idset = set()
-        newports = []
-        subnetids = []
+        parameter_dict = OrderedDict()
+        keys = set()
         for port in ports:
             port = copy.deepcopy(port)
-            if 'id' in port:
-                if port['id'] not in idset:
-                    idset.add(port['id'])
-                else:
-                    raise ValueError("id repeat "+ id)
-            else:
-                port.setdefault('id',str(uuid1()))
-
-            if 'mac_address' in port:
-                try:
-                    port['mac_address'] = mac_addr.formatter(mac_addr(port['mac_address']))
-                except Exception:
-                    raise ValueError(" invalid mac address " + port['mac_address'])
+            if 'id' not in port:
+                port['id'] = str(uuid1())
+            key = LogicalPort.default_key(port['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: "+ port['id'])
+            if 'logicalnetwork' not in port:
+                raise ValueError("must specify logicalnetwork ID")
+            keys.add(key)
+            keys.add(LogicalNetwork.default_key(port['logicalnetwork']))
+            keys.add(LogicalNetworkMap.default_key(port['logicalnetwork']))
             if 'subnet' in port:
-                subnetids.append(port['subnet'])
-
-            newports.append(port)
-
-        lgportsetkey = LogicalPortSet.default_key()
-        lgportkeys = [LogicalPort.default_key(p['id']) for p in newports]
-        lgports = [self._createlogicalports(**p) for p in newports]
-        lgnetkeys = list(set([p.network.getkey() for p in lgports]))
-        lgnetmapkeys = [LogicalNetworkMap.default_key(LogicalNetwork._getIndices(k)[1][0]) for k in lgnetkeys]
-        subnetkeys = list(set([SubNet.default_key(id) for id in subnetids]))
-        subnetmapkeys = [SubNetMap.default_key(SubNet._getIndices(key)[1][0]) for key in subnetkeys]
-
-        keys = [lgportsetkey] + lgportkeys + lgnetkeys + lgnetmapkeys + subnetkeys + subnetmapkeys
-        def updater(keys,values):
-            netkeys = keys[1+len(lgportkeys):1+len(lgportkeys)+len(lgnetkeys)]
-            netvalues = values[1+len(lgportkeys):1+len(lgportkeys)+len(lgnetkeys)]
-
-            netmapkeys = keys[1+len(lgportkeys)+len(lgnetkeys):1+len(lgportkeys)+len(lgnetkeys)*2]
-            netmapvalues = values[1+len(lgportkeys)+len(lgnetkeys):1+len(lgportkeys)+len(lgnetkeys)*2]
-
-            snkeys = keys[1+len(lgportkeys)+len(lgnetkeys)*2:1+len(lgportkeys)+len(lgnetkeys)*2 + len(subnetkeys)]
-            snobj =  values[1+len(lgportkeys)+len(lgnetkeys)*2:1+len(lgportkeys)+len(lgnetkeys)*2 + len(subnetkeys)]
-
-            snmkeys = keys[1+len(lgportkeys)+len(lgnetkeys)*2 + len(subnetkeys):]
-            snmobjs = values[1+len(lgportkeys)+len(lgnetkeys)*2 + len(subnetkeys):]
-            subnetdict = dict(zip(snkeys,zip(snobj,snmobjs)))
-            lgnetdict = dict(zip(netkeys,zip(netvalues,netmapvalues)))
-
-            for i in range(0,len(newports)):
-
-                values[1+i] = set_new(values[1+i],lgports[i])
-                
-                _,netmap = lgnetdict.get(values[1+i].network.getkey())
-
-                if not netmap:
-                    raise ValueError("lgnetworkkey not existed "+values[1+i].network.getkey())
-                
-                if hasattr(values[1+i],'subnet'):
-                    sk = SubNet.default_key(values[1+i].subnet)
-                    sn,smn = subnetdict.get(sk)
-                    if not sn or not smn:
-                        raise ValueError("special subnet " + values[1+i].subnet + " not existed")
-
-                    if sn.create_weakreference() not in netmap.subnets.dataset():
-                        raise ValueError("special subnet " + sn.id + " not in logicalnetwork " + smn.id)
-                    else:
-                        # we should allocated one ip_address for this lgport
-                        if hasattr(values[1+i],'ip_address'):
-                            try:
-                                ip_address = parse_ip4_address(values[1+i].ip_address)
-                            except Exception:
-                                raise ValueError("special ip_address" + values[1+i].ip_address + " invailed")
-                            else:
+                keys.add(SubNet.default_key(port['subnet']))
+                keys.add(SubNetMap.default_key(port['subnet']))
+            parameter_dict[key] = port
+        keys.add(LogicalPortSet.default_key())
+        def walker(walk, write):
+            # Process logical ports with specified IP address first,
+            # so the automatically allocated IPs do not conflict
+            # with specified IPs
+            for key, parameters in sorted(parameter_dict.items(),
+                                          key=lambda x: 'ip_address' in x[1],
+                                          reverse=True):
+                with suppress(WalkKeyNotRetrieved):
+                    value = walk(key)
+                    value = set_new(value, LogicalPort.create_instance(parameters['id']))
+                    with suppress(WalkKeyNotRetrieved):
+                        lognet_id = parameters['logicalnetwork']
+                        lognet = walk(LogicalNetwork.default_key(lognet_id))
+                        if not lognet:
+                            raise ValueError("Logical network " + lognet_id + " not exists")
+                        value.network = lognet.create_reference()
+                        logmap = walk(LogicalNetworkMap.default_key(lognet_id))
+                        logmap.ports.dataset().add(value.create_weakreference())
+                        write(logmap.getkey(), logmap)
+                        if 'subnet' in parameters:
+                            subnet_id = parameters['subnet']
+                            subnet = walk(SubNet.default_key(subnet_id))
+                            if not subnet:
+                                raise ValueError("Subnet " + subnet_id + " not exists")
+                            if subnet.create_weakreference() not in logmap.subnets.dataset():
+                                raise ValueError("Specified subnet " + subnet_id + " is not in logical network " + lognet_id)
+                            subnet_map = walk(SubNetMap.default_key(subnet_id))
+                            value.subnet = subnet.create_reference()
+                            if 'ip_address' in parameters:
+                                ip_address = parse_ip4_address(parameters['ip_address'])
+                                value.ip_address = ip4_addr.formatter(ip_address)
                                 # check ip_address in cidr
-                                start = parse_ip4_address(sn.allocated_start)
-                                end = parse_ip4_address(sn.allocated_end)
+                                start = parse_ip4_address(subnet.allocated_start)
+                                end = parse_ip4_address(subnet.allocated_end)
                                 try:
                                     assert start <= ip_address <= end
-                                    if hasattr(sn,'gateway'):
-                                        assert ip_address != parse_ip4_address(sn.gateway)
+                                    if hasattr(subnet, 'gateway'):
+                                        assert ip_address != parse_ip4_address(subnet.gateway)
                                 except Exception:
-                                    raise ValueError("special ipaddress " + values[1+i].ip_address + " invaild")
+                                    raise ValueError("Specified ip_address " + parameters['ip_address'] + " is not an usable IP address in subnet " + subnet_id)
 
-                                if str(ip_address) not in smn.allocated_ips:
-                                    smn.allocated_ips[str(ip_address)] = values[1+i].create_weakreference()
-                                    #overlay subnet attr to subnet weakref
-                                    setattr(values[1+i],'subnet',ReferenceObject(sn.getkey()))
+                                if str(ip_address) not in subnet_map.allocated_ips:
+                                    subnet_map.allocated_ips[str(ip_address)] = value.create_weakreference()
                                 else:
-                                    raise ValueError("ipaddress " + values[1+i].ip_address + " have been used")
-                        else:
-                            # allocated ip_address from cidr
-                            start = parse_ip4_address(sn.allocated_start)
-                            end = parse_ip4_address(sn.allocated_end)
-                            gateway = None
-                            if hasattr(sn,"gateway"):
-                                gateway = parse_ip4_address(sn.gateway)
-
-                            for ip_address in range(start,end):
-                                if str(ip_address) not in smn.allocated_ips and ip_address != gateway:
-                                    setattr(values[1+i],'ip_address',ip4_addr.formatter(ip_address))
-                                    smn.allocated_ips[str(ip_address)] = values[1+i].create_weakreference()
-                                    #overlay subnet attr to subnet weakref
-                                    setattr(values[1+i],'subnet',ReferenceObject(sn.getkey()))
-                                    break
+                                    raise ValueError("IP address " + parameters['ip_address'] + " has been used in subnet " + subnet_id)
                             else:
-                                raise ValueError("can not find avaliable ipaddress from pool")
+                                # allocated ip_address from cidr
+                                start = parse_ip4_address(subnet.allocated_start)
+                                end = parse_ip4_address(subnet.allocated_end)
+                                gateway = None
+                                if hasattr(subnet, "gateway"):
+                                    gateway = parse_ip4_address(subnet.gateway)
+    
+                                for ip_address in range(start, end + 1):
+                                    if str(ip_address) not in subnet_map.allocated_ips and ip_address != gateway:
+                                        value.ip_address = ip4_addr.formatter(ip_address)
+                                        subnet_map.allocated_ips[str(ip_address)] = value.create_weakreference()
+                                        break
+                                else:
+                                    raise ValueError("Cannot allocate an available IP address from subnet " + subnet_id)
+                            write(subnet_map.getkey(), subnet_map)
+                        # Process other parameters
+                        for k,v in parameters.items():
+                            if k not in ('id', 'logicalnetwork', 'subnet', 'ip_address'):
+                                setattr(value, k, v)
+                        write(key, value)
+                    with suppress(WalkKeyNotRetrieved):
+                        logport_set = walk(LogicalPortSet.default_key())
+                        logport_set.set.dataset().add(value.create_weakreference())
+                        write(logport_set.getkey(), logport_set)
+        await call_api(self.app_routine, 'objectdb', 'writewalk', {'keys': keys, 'walker': walker})
+        return await self._dumpkeys(parameter_dict)
 
-
-                if netmap:
-                    netmap.ports.dataset().add(values[1+i].create_weakreference())
-                    values[0].set.dataset().add(values[1+i].create_weakreference())
-                else:
-                    raise ValueError("lgnetworkkey not existed "+lgports[i].network.getkey())
-
-            return keys,values
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',
-                    {"keys":keys,'updater':updater}):
-                yield m
-        except:
-            raise
-        else:
-            for m in self._dumpkeys(lgportkeys):
-                yield m
-    def _createlogicalports(self,id,logicalnetwork,**args):
-
-        lgport = LogicalPort.create_instance(id)
-        lgport.network = ReferenceObject(LogicalNetwork.default_key(logicalnetwork))
-
-        for k,v in args.items():
-            setattr(lgport,k,v)
-
-        return lgport
-
-    def updatelogicalport(self,id,**kwargs):
+    async def updatelogicalport(self, id: str, **kwargs: {"?mac_address": mac_address_type,
+                                                          "?ip_address": ip_address_type,
+                                                          "?hostname": (str, None),
+                                                          "?extra_dhcp_options": dhcp_options_type}):
         "Update attributes of the specified logical port"
         if not id :
-            raise ValueError("must special id")
+            raise ValueError("must specify id")
 
         port = {"id":id}
         port.update(kwargs)
 
-        for m in self.updatelogicalports([port]):
-            yield m
-    def updatelogicalports(self,ports):
+        return await self.updatelogicalports([port])
+    
+    @checked
+    async def updatelogicalports(self, ports: [{"id": str,
+                                                "?mac_address": mac_address_type,
+                                                "?ip_address": ip_address_type,
+                                                "?hostname": (str, None),
+                                                "?extra_dhcp_options": dhcp_options_type}]):
         "Update multiple logcial ports"
         # ports [{"id":id,...},{...}]
-        lgportkeys = set()
-        updatesubnets = set()
+        
+        parameter_dict = OrderedDict()
         for port in ports:
-            if 'id' in port:
-                if port['id'] not in lgportkeys:
-                    lgportkeys.add(port['id'])
-                else:
-                    raise ValueError("key repeat "+ port['id'])
-            else:
-                raise ValueError("must special id")
-
+            port = copy.deepcopy(port)
+            key = LogicalPort.default_key(port['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: " + port['id'])
             if 'logicalnetwork' in port:
-                raise ValueError("can not update logicalnetwork id")
+                raise ValueError("logical network cannot be changed")
+            if 'network' in port:
+                raise ValueError("logical network cannot be changed")
             if 'subnet' in port:
-                raise ValueError("can not update subnet id")
+                raise ValueError("subnet cannot be changed")
+            parameter_dict[key] = port
 
-            if 'ip_address' in port:
-                updatesubnets.add(port['id'])
-
-        updatesubnetportkeys = [LogicalPort.default_key(key) for key in updatesubnets]
-        for m in self._getkeys(updatesubnetportkeys):
-            yield m
-        updatesubnetportobjs = self.app_routine.retvalue
-
-        if None in updatesubnetportobjs:
-            raise ValueError(" key logicalport not existed " +updatesubnets[updatesubnetportobjs.index(None)])
-
-        subnetmap = dict(zip(updatesubnets,[lgport.subnet.id for lgport in updatesubnetportobjs
-                                            if hasattr(lgport,'subnet')]))
-        subnetkeys = list(set([lgport.subnet.getkey() for lgport in updatesubnetportobjs 
-                                            if hasattr(lgport,'subnet')]))
-        subnetmapkeys = [SubNetMap.default_key(SubNet._getIndices(key)[1][0]) for key in subnetkeys]
-        lgportkeys = [LogicalPort.default_key(key) for key in lgportkeys]
-        def update(keys,values):
-
-            portkeys = keys[0:len(lgportkeys)]
-            portobj = values[0:len(lgportkeys)]
-            lgportdict = dict(zip(portkeys,portobj))
-
-            sk = keys[len(lgportkeys):len(lgportkeys) + len(subnetkeys)]
-            skobj = values[len(lgportkeys):len(lgportkeys) + len(subnetkeys)]
-            smk = keys[len(lgportkeys) + len(subnetkeys):]
-            smkobj = values[len(lgportkeys) + len(subnetkeys):]
-           
-            subnetdict = dict(zip(sk,zip(skobj,smkobj)))
-            for port in ports:
-                lgport = lgportdict.get(LogicalPort.default_key(port["id"]))
-                if not lgport:
-                    raise ValueError("key object not existed "+ port['id'])
-                if 'ip_address' in port:
-                    if getattr(lgport,'ip_address',None):
-                        subnetid = subnetmap.get(port['id'])
-                        subnetobj,subnetmapobj = subnetdict.get(SubNet.default_key(subnetid))
-                        if subnetobj and subnetmapobj:
-                            del subnetmapobj.allocated_ips[str(parse_ip4_address(lgport.ip_address))]
-                        else:
-                            raise ValueError("special subnetid " + subnetid + " not existed")
-            for port in ports:
-
-                lgport = lgportdict.get(LogicalPort.default_key(port["id"]))
-
-                if not lgport:
-                    raise ValueError("key object not existed "+ port['id'])
-
-                if 'ip_address' in port:
-                    subnetid = subnetmap.get(port['id'])
-                    subnetobj,subnetmapobj = subnetdict.get(SubNet.default_key(subnetid))
-                    if subnetobj and subnetmapobj:
-                        ip_address = parse_ip4_address(port['ip_address'])
-                        start = parse_ip4_address(subnetobj.allocated_start)
-                        end = parse_ip4_address(subnetobj.allocated_end)
+        def walker(walk, write):
+            # Must deallocate all IP addresses before allocating new
+            deallocated_all = True
+            for key, parameters in parameter_dict.items():
+                try:
+                    value = walk(key)
+                    if value is None:
+                        raise ValueError("Logical port " + parameters['id'] + " not exists")
+                    if 'ip_address' in parameters and hasattr(value, 'subnet') and hasattr(value, 'ip_address'):
+                        # Subnet is needed when allocating IP address
+                        ensure_keys(walk, value.subnet.getkey())
+                        subnet_map = walk(SubNetMap._subnet.leftkey(value.subnet))
+                        del subnet_map.allocated_ips[str(parse_ip4_address(value.ip_address))]
+                        write(subnet_map.getkey(), subnet_map)
+                except WalkKeyNotRetrieved:
+                    deallocated_all = False
+            if not deallocated_all:
+                return
+            # Update processing
+            for key, parameters in parameter_dict.items():
+                value = walk(key)
+                if 'ip_address' in parameters and hasattr(value, 'subnet'):
+                    with suppress(WalkKeyNotRetrieved):
+                        ensure_keys(walk, value.subnet.getkey(),
+                                          SubNetMap._subnet.leftkey(value.subnet))
+                        try:
+                            subnet = walk(value.subnet.getkey())
+                        except WalkKeyNotRetrieved:
+                            # Also retrieve subnet map to prevent another try
+                            ensure_keys(walk, SubNetMap._subnet.leftkey(value.subnet))
+                            raise
+                        subnet_map = walk(SubNetMap._subnet.leftkey(value.subnet))
+                        ip_address = parse_ip4_address(parameters['ip_address'])
+                        start = parse_ip4_address(subnet.allocated_start)
+                        end = parse_ip4_address(subnet.allocated_end)
                         try:
                             assert start <= ip_address <= end
-                            if hasattr(subnetobj,"gateway"):
-                                assert ip_address != parse_ip4_address(subnetobj.gateway)
+                            if hasattr(subnet,"gateway"):
+                                assert ip_address != parse_ip4_address(subnet.gateway)
                         except Exception:
-                            raise ValueError("special ipaddress " + port['ip_address'] + " invaild")
+                            raise ValueError("Specified ip_address " + parameters['ip_address'] + " is not an usable IP address in subnet " + subnet.id)
 
-                        if str(ip_address) not in subnetmapobj.allocated_ips:
-                            subnetmapobj.allocated_ips[str(ip_address)] = lgport.create_weakreference()
+                        if str(ip_address) not in subnet_map.allocated_ips:
+                            subnet_map.allocated_ips[str(ip_address)] = value.create_weakreference()
+                            write(subnet_map.getkey(), subnet_map)
                         else:
-                            raise ValueError("ipaddress " + port['ip_address'] + " have been used")
-                    else:
-                        raise ValueError("special subnetid " + subnetid + " not existed")
+                            raise ValueError("Cannot allocate an available IP address from subnet " + subnet.id)
+                for k, v in parameters.items():
+                    if k not in ('id',):
+                        setattr(value, k, v)
+                write(key, value)
 
-                if 'mac_address' in port:
-                    # check and format mac address
-                    try:
-                        mac = mac_addr(port['mac_address'])
-                    except Exception:
-                        raise ValueError("mac address invalid %r",port['mac_address'])
-                    else:
-                        # format
-                        port['mac_address'] = mac_addr.formatter(mac)
+        await call_api(self.app_routine, 'objectdb', 'writewalk', {'keys': tuple(parameter_dict.keys()),
+                                                                   'walker': walker})
+        return await self._dumpkeys(parameter_dict)
 
-                for k,v in port.items():
-                    setattr(lgport,k,v)
-
-            return keys,values
-
-        try:
-            for m in callAPI(self.app_routine,"objectdb","transact",
-                    {"keys":lgportkeys + subnetkeys + subnetmapkeys,"updater":update}):
-                yield m
-        except:
-            raise
-        else:
-            for m in self._dumpkeys(lgportkeys):
-                yield m
-
-    def deletelogicalport(self,id):
+    async def deletelogicalport(self, id: str):
         "Delete logical port"
-        if not id:
-            raise ValueError("must special id")
         p = {"id":id}
-        for m in self.deletelogicalports([p]):
-            yield m
-    def deletelogicalports(self,ports):
+        return await self.deletelogicalports([p])
+    
+    @checked
+    async def deletelogicalports(self, ports: [{"id": str}]):
         "Delete multiple logical ports"
-        self._reqid += 1
-        reqid = ('viperflow',self._reqid)
-        maxtry = 1
-        lgportkeys = set()
+        parameter_dict = OrderedDict()
         for port in ports:
-            if 'id' in port:
-                if port['id'] not in lgportkeys:
-                    lgportkeys.add(port['id'])
-                else:
-                    raise ValueError("key repeat "+ port['id'])
-            else:
-                raise ValueError("must special id")
+            key = LogicalPort.default_key(port['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: " + port['id'])
+            parameter_dict[key] = port
+        def walker(walk, write):
+            for key, parameters in parameter_dict.items():
+                with suppress(WalkKeyNotRetrieved):
+                    value = walk(key)
+                    if value is None:
+                        raise ValueError("Logical port " + parameters['id'] + " not exists")
+                    with suppress(WalkKeyNotRetrieved):
+                        lognet_map = walk(LogicalNetworkMap._network.leftkey(value.network))
+                        lognet_map.ports.dataset().discard(value.create_weakreference())
+                        write(lognet_map.getkey(), lognet_map)
+                    if hasattr(value, 'subnet'):
+                        with suppress(WalkKeyNotRetrieved):
+                            subnet_map = walk(SubNetMap._subnet.leftkey(value.subnet))
+                            del subnet_map.allocated_ips[str(parse_ip4_address(value.ip_address))]
+                            write(subnet_map.getkey(), subnet_map)
+                    with suppress(WalkKeyNotRetrieved):
+                        logport_set = walk(LogicalPortSet.default_key())
+                        logport_set.set.dataset().discard(value.create_weakreference())
+                        write(logport_set.getkey(), logport_set)
+                    write(key, None)
+        await call_api(self.app_routine, 'objectdb', 'writewalk',{'keys': tuple(parameter_dict) + (LogicalPortSet.default_key(),),
+                                                                  'walker': walker})
+        return {"status":'OK'}
 
-        lgportkeys = [LogicalPort.default_key(key) for key in lgportkeys]
-        
-        for m in callAPI(self.app_routine,'objectdb','mget',{'keys':lgportkeys,'requestid':reqid}):
-            yield m
-
-        flgportvalues = self.app_routine.retvalue
-
-        with watch_context(lgportkeys, flgportvalues, reqid, self.app_routine):
-            if None in flgportvalues:
-                raise ValueError("logicalport is not existed "+\
-                        LogicalPort._getIndices(lgportkeys[flgportvalues.index(None)])[1][0])
-
-            lgportdict = dict(zip(lgportkeys,flgportvalues))
-
-            while True:
-                newports = []
-                for port in ports:
-                    port = copy.deepcopy(port)
-                    key = LogicalPort.default_key(port["id"])
-                    portobj = lgportdict[key]
-
-                    # fake attr for delete
-                    port['lgnetid'] = portobj.network.id
-
-                    if hasattr(portobj,'subnet'):
-                        #fake attr for delete
-                        port['subnetid'] = portobj.subnet.id
-
-                    newports.append(port)
-
-                lgnetmapkeys = list(set([LogicalNetworkMap.default_key(p['lgnetid'])
-                            for p in newports]))
-
-                subnetmapkeys = list(set([SubNetMap.default_key(p['subnetid'])
-                                 for p in newports if p.get('subnetid') ]))
-                keys = [LogicalPortSet.default_key()] + lgportkeys + lgnetmapkeys + subnetmapkeys
-
-                def update(keys,values):
-                    lgportkeys = keys[1:1+len(ports)]
-                    lgportvalues = values[1:1+len(ports)]
-
-                    if [v.network.getkey() if v is not None else None for v in lgportvalues] !=\
-                            [v.network.getkey() for v in flgportvalues]:
-                        raise UpdateConflictException
-
-                    lgmapkeys = keys[1+len(ports):1+len(ports)+len(lgnetmapkeys)]
-                    lgmapvalues = values[1+len(ports):1 + len(ports) + len(lgnetmapkeys)]
-
-                    snmapkeys = keys[1 + len(ports) + len(lgnetmapkeys):]
-                    snmapvalues = values[1 + len(ports) + len(lgnetmapkeys):]
-                    lgportdict = dict(zip(lgportkeys,lgportvalues))
-                    lgnetmapdict = dict(zip(lgmapkeys,lgmapvalues))
-                    subnetdict = dict(zip(snmapkeys,snmapvalues))
-
-                    for port in newports:
-                        lgport = lgportdict.get(LogicalPort.default_key(port.get("id")))
-                        if 'subnetid' in port:
-                            smk = SubNetMap.default_key(port['subnetid'])
-                            smobj = subnetdict.get(smk)
-                            if smobj:
-                                del smobj.allocated_ips[str(parse_ip4_address(lgport.ip_address))]
-                            else:
-                                logging.warning("subnet obj" + smk + "not existed")
-                        lgnetmap = lgnetmapdict.get(LogicalNetworkMap.default_key(port.get("lgnetid")))
-
-                        lgnetmap.ports.dataset().discard(lgport.create_weakreference())
-
-                        values[0].set.dataset().discard(lgport.create_weakreference())
-
-                    return keys,[values[0]]+[None]*len(ports)+lgmapvalues+snmapvalues
-
-                try:
-                    for m in callAPI(self.app_routine,"objectdb","transact",
-                        {"keys":keys,"updater":update}):
-                        yield m
-                except UpdateConflictException:
-                    maxtry -= 1
-                    if maxtry < 0:
-                        raise
-                    else:
-                        logger.info(" cause UpdateConflict Exception try once")
-                        continue
-                else:
-                    break
-
-            self.app_routine.retvalue = {"status":'OK'}
-
-    def listlogicalports(self,id = None,logicalnetwork = None,**kwargs):
+    async def listlogicalports(self,id = None,logicalnetwork = None,**kwargs):
         """
         Query logical port
         
@@ -2025,42 +1151,32 @@ class ViperFlow(Module):
         :return: return matched logical ports
         """
         if id:
-            # special id ,  find it ,, filter it
+            # specify id ,  find it ,, filter it
             lgportkey = LogicalPort.default_key(id)
-
-            for m in self._dumpone(lgportkey,kwargs):
-                yield m
+            return await self._dumpone(lgportkey,kwargs)
         else:
             if logicalnetwork:
-                # special logicalnetwork , find in logicalnetwork map , filter it
+                # specify logicalnetwork , find in logicalnetwork map , filter it
                 lgnet_map_key = LogicalNetworkMap.default_key(logicalnetwork)
 
                 self._reqid += 1
                 reqid = ('viperflow',self._reqid)
-
                 def walk_map(key,value,walk,save):
                     if value is None:
                         return
 
                     for weakobj in value.ports.dataset():
                         lgportkey = weakobj.getkey()
-                        try:
+                        with suppress(WalkKeyNotRetrieved):
                             lgport_obj = walk(lgportkey)
-                        except KeyError:
-                            pass
-                        else:
                             if all(getattr(lgport_obj,k,None) == v for k,v in kwargs.items()):
                                 save(lgportkey)
-
-                for m in callAPI(self.app_routine,'objectdb','walk',{'keys':[lgnet_map_key],
-                                    'walkerdict':{lgnet_map_key:walk_map},
-                                    'requestid':reqid}):
-                    yield m
-
-                keys,values = self.app_routine.retvalue
-
-                with watch_context(keys,values,reqid,self.app_routine):
-                    self.app_routine.retvalue = [dump(r) for r in values]
+                with request_context(reqid, self.app_routine):
+                    _, values = await call_api(self.app_routine,'objectdb','walk',
+                                               {'keys':[lgnet_map_key],
+                                                'walkerdict':{lgnet_map_key:walk_map},
+                                                'requestid':reqid})
+                    return [dump(r) for r in values]
 
             else:
                 logport_set_key = LogicalPortSet.default_key()
@@ -2081,18 +1197,32 @@ class ViperFlow(Module):
                         else:
                             if all(getattr(lgport_obj,k,None) == v for k,v in kwargs.items()):
                                 save(lgportkey)
+                with request_context(reqid, self.app_routine):
+                    _, values = await call_api(self.app_routine,"objectdb","walk",{'keys':[logport_set_key],
+                                                                "walkerdict":{logport_set_key:walk_set},
+                                                                "requestid":reqid})
+                    return [dump(r) for r in values]
 
-                for m in callAPI(self.app_routine,"objectdb","walk",{'keys':[logport_set_key],
-                                                "walkerdict":{logport_set_key:walk_set},
-                                                "requestid":reqid}):
-                    yield m
-
-                keys,values = self.app_routine.retvalue
-
-                with watch_context(keys,values,reqid,self.app_routine):
-                    self.app_routine.retvalue = [dump(r) for r in values]
-
-    def createsubnet(self,logicalnetwork,cidr,id=None,**kwargs):
+    async def createsubnet(self, logicalnetwork: str,
+                                 cidr: cidr_type,
+                                 id: (str, None) = None,
+                                 **kwargs: {"?gateway": ip_address_type,
+                                            "?allocated_start": ip_address_type,
+                                            "?allocated_end": ip_address_type,
+                                            "?host_routes": [tuple_((cidr_nonstrict_type, ip_address_type))],
+                                            "?isexternal": bool,
+                                            "?pre_host_config": [{"?systemid": str,
+                                                                  "?bridge": str,
+                                                                  "?vhost": str,
+                                                                  "?cidr": cidr_type,
+                                                                  "?local_address": ip_address_type,
+                                                                  "?gateway": ip_address_type}],
+                                            "?mtu": autoint,
+                                            "?dns_nameservers": ([ip_address_type], None),
+                                            "?domain_name": (str, None),
+                                            "?ntp_servers": ([ip_address_type], None),
+                                            "?lease_time": lease_time_type,
+                                            "?extra_dhcp_options": dhcp_options_type}):
         """
         Create a subnet for the logical network.
         
@@ -2122,7 +1252,7 @@ class ViperFlow(Module):
                               This subnet can forward packet to external physical network
 
                            pre_host_config
-                              A list of ``[{systemid, bridge, cidr, local_ip, remote_ip, ...}]``
+                              A list of ``[{systemid, bridge, cidr, local_address, gateway, ...}]``
                               Per host configuration, will union with public info when used
         
         :return: A dictionary of information of the subnet.
@@ -2132,28 +1262,64 @@ class ViperFlow(Module):
         subnet = {'id':id,'logicalnetwork':logicalnetwork,'cidr':cidr}
         subnet.update(kwargs)
 
-        for m in self.createsubnets([subnet]):
-            yield m
-
-    def createsubnets(self,subnets):
+        return await self.createsubnets([subnet])
+    
+    @checked
+    async def createsubnets(self, subnets: [{"?id": str,
+                                             "logicalnetwork": str,
+                                             "cidr": cidr_type,
+                                             "?gateway": ip_address_type,
+                                             "?allocated_start": ip_address_type,
+                                             "?allocated_end": ip_address_type,
+                                             "?host_routes": [tuple_((cidr_nonstrict_type, ip_address_type))],
+                                             "?isexternal": bool,
+                                             "?pre_host_config": [{"?systemid": str,
+                                                                   "?bridge": str,
+                                                                   "?vhost": str,
+                                                                   "?cidr": cidr_type,
+                                                                   "?local_address": ip_address_type,
+                                                                   "?gateway": ip_address_type}],
+                                             "?mtu": autoint,
+                                             "?dns_nameservers": ([ip_address_type], None),
+                                             "?domain_name": (str, None),
+                                             "?ntp_servers": ([ip_address_type], None),
+                                             "?lease_time": lease_time_type,
+                                             "?extra_dhcp_options": dhcp_options_type}]):
         """
         Create multiple subnets in a transaction.
         """
-        idset = set()
-        newsubnets = list()
+        parameter_dict = OrderedDict()
         for subnet in subnets:
             subnet = copy.deepcopy(subnet)
-            if 'id' in subnet:
-                if subnet['id'] not in idset:
-                    idset.add(subnet['id'])
-                else:
-                    raise ValueError('id repeate' + id)
-            else:
+            if 'id' not in subnet:
                 subnet['id'] = str(uuid1())
-
-            if 'logicalnetwork' not in subnet:
-                raise ValueError('create subnet must special logicalnetwork')
-
+            key = SubNet.default_key(subnet['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: " + subnet['id'])
+            cidr, prefix = parse_ip4_network(subnet['cidr'])
+            if 'gateway' in subnet:
+                gateway = parse_ip4_address(subnet['gateway'])
+                if not ip_in_network(gateway, cidr, prefix):
+                    raise ValueError(" %s not in cidr %s" % (subnet['gateway'], subnet["cidr"]))
+            if 'router' in subnet:
+                raise ValueError("Cannot directly update router; use virtual router APIs")
+            if "allocated_start" not in subnet:
+                start = network_first(cidr, prefix)
+            else:
+                start = parse_ip4_address(subnet['allocated_start'])
+                if not ip_in_network(start, cidr, prefix):
+                    raise ValueError("%s not in cidr %s" % (subnet['allocated_start'], subnet["cidr"]))
+        
+            if "allocated_end" not in subnet:
+                end = network_last(cidr,prefix)
+            else:
+                end = parse_ip4_address(subnet['allocated_end'])
+                if not ip_in_network(end, cidr, prefix):
+                    raise ValueError("%s not in cidr %s" % (subnet['allocated_end'], subnet["cidr"]))
+            if start > end:
+                raise ValueError("IP pool is empty for subnet " + subnet['id'])
+            subnet['allocated_start'] = ip4_addr.formatter(start)
+            subnet['allocated_end'] = ip4_addr.formatter(end)
             if 'pre_host_config' in subnet:
                 for d in subnet['pre_host_config']:
                     if 'systemid' not in d:
@@ -2163,347 +1329,231 @@ class ViperFlow(Module):
                     if 'vhost' not in d:
                         d['vhost'] = ''
 
-                    if 'local_address' in d:
-                        parse_ip4_address(d['local_address'])
-                    if 'gateway' in d:
-                        parse_ip4_address(d['gateway'])
-
                     if 'cidr' in d:
-                        cidr, prefix = parse_ip4_network(d['cidr'])
-                        if 'local_address' in d:
-                            local = parse_ip4_address(d['local_address'])
-                            if not ip_in_network(local, cidr, prefix):
-                                raise ValueError(" %s not in cidr %s", d['local_address'], d["cidr"])
-                        if 'gateway' in d:
-                            gateway = parse_ip4_address(d['gateway'])
-                            if not ip_in_network(gateway, cidr, prefix):
-                                raise ValueError(" %s not in cidr %s", d['gateway'], d["cidr"])
-
-            if 'cidr' not in subnet:
-                raise ValueError('create subnet must special cidr')
-            else:
-                try:
-                    cidr,prefix = parse_ip4_network(subnet['cidr'])
-                except:
-                    raise
-                else:
-                    if 'gateway' in subnet:
-                        gateway = parse_ip4_address(subnet['gateway'])
-                        if not ip_in_network(gateway,cidr,prefix):
-                            raise ValueError(" gateway ip not in cidr")
-                            # format ipaddr to same in value store
-                        subnet['gateway'] = ip4_addr.formatter(gateway)
-
-                    if "allocated_start" not in subnet:
-                        if "allocated_end" not in subnet:
-                            start = network_first(cidr,prefix)
-                            end = network_last(cidr,prefix)
-
-                            subnet['allocated_start'] = ip4_addr.formatter(start)
-                            subnet['allocated_end'] = ip4_addr.formatter(end)
-                        else:
-                            start = network_first(cidr,prefix)
-                            end = parse_ip4_address(subnet['allocated_end'])
-
-                            if start >= end:
-                                raise ValueError(" allocated ip pool is None")
-
-                            subnet['allocated_start'] = ip4_addr.formatter(start)
-                            subnet['allocated_end'] = ip4_addr.formatter(end)
+                        local_cidr, local_prefix = parse_ip4_network(d['cidr'])
+                        local_cidr_str = d['cidr']
                     else:
-                        if "allocated_end" not in subnet:
-                            start = parse_ip4_address(subnet['allocated_start'])
-                            end = network_last(cidr,prefix)
+                        local_cidr, local_prefix = cidr, prefix
+                        local_cidr_str = subnet['cidr']
+                    if 'local_address' in d:
+                        local = parse_ip4_address(d['local_address'])
+                        if not ip_in_network(local, local_cidr, local_prefix):
+                            raise ValueError(" %s not in cidr %s" % (d['local_address'], local_cidr_str))
+                    if 'gateway' in d:
+                        gateway = parse_ip4_address(d['gateway'])
+                        if not ip_in_network(gateway, local_cidr, local_prefix):
+                            raise ValueError(" %s not in cidr %s" % (d['gateway'], local_cidr_str))
+            parameter_dict[key] = subnet
+        
+        keys = set(parameter_dict)
+        keys.update(SubNetMap.default_key(subnet['id']) for subnet in parameter_dict.values())
+        keys.update(LogicalNetworkMap.default_key(subnet['logicalnetwork']) for subnet in parameter_dict.values())
+        keys.add(SubNetSet.default_key())
+        def walker(walk, write):
+            for key, parameters in parameter_dict.items():
+                with suppress(WalkKeyNotRetrieved):
+                    value = walk(key)
+                    value = set_new(value, SubNet.create_instance(parameters['id']))
+                    subnet_map = SubNetMap.create_instance(parameters['id'])
+                    with suppress(WalkKeyNotRetrieved):
+                        network_map = walk(LogicalNetworkMap.default_key(parameters['logicalnetwork']))
+                        if network_map is None:
+                            raise ValueError("Logical network " + parameters['logicalnetwork'] + " not exists")
+                        value.network = ReferenceObject(LogicalNetwork.default_key(parameters['logicalnetwork']))
+                        network_map.subnets.dataset().add(value.create_weakreference())
+                        write(network_map.getkey(), network_map)
+                    for k,v in parameters.items():
+                        if k not in ('id', 'logicalnetwork', 'network'):
+                            setattr(value, k, v)
+                    with suppress(WalkKeyNotRetrieved):
+                        subnet_set = walk(SubNetSet.default_key())
+                        subnet_set.set.dataset().add(value.create_weakreference())
+                        write(subnet_set.getkey(), subnet_set)
+                    write(key, value)
+                    write(subnet_map.getkey(), subnet_map)
+        await call_api(self.app_routine,'objectdb','writewalk',{"keys":tuple(keys),
+                                                                'walker':walker})
+        return await self._dumpkeys(parameter_dict)
 
-                            if start >= end:
-                                raise ValueError(" allocated ip pool is None")
-
-                            subnet['allocated_start'] = ip4_addr.formatter(start)
-                            subnet['allocated_end'] = ip4_addr.formatter(end)
-                        else:
-                            start = parse_ip4_address(subnet['allocated_start'])
-                            end = parse_ip4_address(subnet['allocated_end'])
-
-                            if start >= end:
-                                raise ValueError(" allocated ip pool is None")
-
-                            subnet['allocated_start'] = ip4_addr.formatter(start)
-                            subnet['allocated_end'] = ip4_addr.formatter(end)
-            newsubnets.append(subnet)
-
-        subnetobjs = [self._createsubnet(**sn) for sn in newsubnets]
-        lgnetmapkeys = list(set([LogicalNetworkMap.default_key(sn['logicalnetwork']) for sn in newsubnets]))
-        subnetobjkeys = [subnetobj[0].getkey() for subnetobj in subnetobjs]
-        subnetmapobjkeys = [subnetobj[1].getkey() for subnetobj in subnetobjs]
-        subnetsetkey = SubNetSet.default_key()
-
-        keys = itertools.chain([subnetsetkey],subnetobjkeys,subnetmapobjkeys,lgnetmapkeys)
-
-        def subnetupdate(keys, values):
-            subnetobjlen = len(subnetobjs)
-            setobj = values[0]
-            lgnetmaps = values[1 + subnetobjlen * 2:]
-            lgnetmkeys = [nm.getkey() for nm in lgnetmaps]
-            lgnetmapdict = dict(zip(lgnetmkeys,lgnetmaps))
-
-            for index,(subnet,subnetmap) in enumerate(subnetobjs):
-                values[index + 1] = set_new(values[index + 1],subnet)
-                values[index + 1 + subnetobjlen] = set_new(values[index + 1 + subnetobjlen],subnetmap)
-
-                mk = LogicalNetworkMap.default_key(LogicalNetwork._getIndices(subnet.network.getkey())[1][0])
-                lm = lgnetmapdict.get(mk)
-                if lm:
-                    lm.subnets.dataset().add(subnet.create_weakreference())
-                else:
-                    raise ValueError("logicalnetwork " + subnet.network.getkey() + " not existed")
-
-                setobj.set.dataset().add(subnet.create_weakreference())
-
-            return keys,values
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',{"keys":keys,'updater':subnetupdate}):
-                yield m
-        except:
-            raise
-        else:
-            for m in self._dumpkeys(subnetobjkeys):
-                yield m
-
-    def _createsubnet(self,id,logicalnetwork,**kwargs):
-        subnetobj = SubNet.create_instance(id)
-        subnetobj.network = ReferenceObject(LogicalNetwork.default_key(logicalnetwork))
-        subnetmapobj = SubNetMap.create_instance(id)
-
-        for k,v in kwargs.items():
-            setattr(subnetobj,k,v)
-        return subnetobj,subnetmapobj
-
-    def updatesubnet(self,id,**kwargs):
+    async def updatesubnet(self,id: str, **kwargs: {"?cidr": cidr_type,
+                                                    "?gateway": ip_address_type,
+                                                    "?allocated_start": ip_address_type,
+                                                    "?allocated_end": ip_address_type,
+                                                    "?host_routes": [tuple_((cidr_nonstrict_type, ip_address_type))],
+                                                    "?isexternal": bool,
+                                                    "?pre_host_config": [{"?systemid": str,
+                                                                          "?bridge": str,
+                                                                          "?vhost": str,
+                                                                          "?cidr": cidr_type,
+                                                                          "?local_address": ip_address_type,
+                                                                          "?gateway": ip_address_type}],
+                                                    "?mtu": autoint,
+                                                    "?dns_nameservers": ([ip_address_type], None),
+                                                    "?domain_name": (str, None),
+                                                    "?ntp_servers": ([ip_address_type], None),
+                                                    "?lease_time": lease_time_type,
+                                                    "?extra_dhcp_options": dhcp_options_type}):
         """
         Update subnet attributes
         """
-        if not id:
-            raise ValueError("must special subnet id when updatesubnet")
         subnet = {"id":id}
         subnet.update(kwargs)
-
-        for m in self.updatesubnets([subnet]):
-            yield m
-
-    def updatesubnets(self,subnets):
+        return await self.updatesubnets([subnet])
+    
+    @checked
+    async def updatesubnets(self, subnets: [{"id": str,
+                                             "?cidr": cidr_type,
+                                             "?gateway": ip_address_type,
+                                             "?allocated_start": ip_address_type,
+                                             "?allocated_end": ip_address_type,
+                                             "?host_routes": [tuple_((cidr_nonstrict_type, ip_address_type))],
+                                             "?pre_host_config": [{"?systemid": str,
+                                                                   "?bridge": str,
+                                                                   "?vhost": str,
+                                                                   "?cidr": cidr_type,
+                                                                   "?local_address": ip_address_type,
+                                                                   "?gateway": ip_address_type}],
+                                             "?mtu": autoint,
+                                             "?dns_nameservers": ([ip_address_type], None),
+                                             "?domain_name": (str, None),
+                                             "?ntp_servers": ([ip_address_type], None),
+                                             "?lease_time": lease_time_type,
+                                             "?extra_dhcp_options": dhcp_options_type}]):
         """
         Update multiple subnets
         """
-        idset = set()
+        parameter_dict = OrderedDict()
         for subnet in subnets:
-            if 'cidr' in subnet:
-                raise ValueError("subnet can not update cidr")
-            if 'id' not in subnet:
-                raise ValueError("update subnet must special id")
-            else:
-                if subnet['id'] not in idset:
-                    idset.add(subnet['id'])
-                else:
-                    raise ValueError("id repeat error")
+            subnet = copy.deepcopy(subnet)
+            if 'logicalnetwork' in subnet:
+                raise ValueError("logical network cannot be changed")
             if "isexternal" in subnet:
-                raise ValueError("update an subnet to external is not allowed")
+                raise ValueError("isexternal cannot be changed")
+            if 'router' in subnet:
+                raise ValueError("Cannot directly update router; use virtual router APIs")
+            key = SubNet.default_key(subnet['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: " + subnet['id'])
+            if 'pre_host_config' in subnet:
+                for d in subnet['pre_host_config']:
+                    if 'systemid' not in d:
+                        d['systemid'] = "%"
+                    if 'bridge' not in d:
+                        d['bridge'] = '%'
+                    if 'vhost' not in d:
+                        d['vhost'] = ''
+                    if 'cidr' in d:
+                        d['cidr'] = format_network_cidr(d['cidr'], True)
+                        local_cidr, local_prefix = parse_ip4_network(d['cidr'])
+                        if 'local_address' in d:
+                            local = parse_ip4_address(d['local_address'])
+                            if not ip_in_network(local, local_cidr, local_prefix):
+                                raise ValueError(" %s not in cidr %s" % (d['local_address'], d['cidr']))
+                        if 'gateway' in d:
+                            gateway = parse_ip4_address(d['gateway'])
+                            if not ip_in_network(gateway, local_cidr, local_prefix):
+                                raise ValueError(" %s not in cidr %s" % (d['gateway'], d['cidr']))
+            parameter_dict[key] = subnet
 
         subnetkeys = [SubNet.default_key(sn['id']) for sn in subnets]
         subnetmapkeys = [SubNetMap.default_key(sn['id']) for sn in subnets]
 
         keys = itertools.chain(subnetkeys,subnetmapkeys)
-        def subnetupdate(keys, values):
-            snkeys = keys[0:len(subnets)]
-            subnetobj = values[0:len(subnets)]
-            subnetmapobj = values[len(subnets):]
-
-            subnetdict = dict(zip(snkeys,zip(subnetobj,subnetmapobj)))
-            for sn in subnets:
-                snkey = SubNet.default_key(sn['id'])
-                snet,smap = subnetdict.get(snkey)
-                if not snet or not smap:
-                    raise ValueError(" update object "+ sn['id'] + "not existed" )
-
-                # check ipaddress
-                if 'gateway' in sn:
+        
+        def walker(walk, write):
+            for key, parameters in parameter_dict.items():
+                with suppress(WalkKeyNotRetrieved):
+                    value = walk(key)
+                    if value is None:
+                        raise ValueError("Subnet " + parameters['id'] + " not exists")
+                    subnet_map = walk(SubNetMap._subnet.leftkey(key))
+                    for k, v in parameters.items():
+                        if k not in ('id', 'network', 'logicalnetwork'):
+                            setattr(value, k, v)
+                    # Check consistency
                     try:
-                        parse_ip4_address(sn['gateway'])
+                        check_ip_pool(gateway=getattr(value, 'gateway', None),
+                                      start=value.allocated_start,
+                                      end=value.allocated_end,
+                                      allocated=subnet_map.allocated_ips,
+                                      cidr=value.cidr)
                     except Exception:
-                        raise ValueError('invalid gateway ' + sn['gateway'])
-
-                if 'allocated_start' in sn:
-                    try:
-                        parse_ip4_address(sn['allocated_start'])
-                    except Exception:
-                        raise ValueError('invalid allocated start ' + sn['allocated_start'])
-
-                if 'allocated_end' in sn:
-                    try:
-                        parse_ip4_address(sn['allocated_end'])
-                    except Exception:
-                        raise ValueError('invalid allocated end ' + sn['allocated_end'])
-
-                if 'pre_host_config' in subnet:
-                    for d in subnet['pre_host_config']:
-                        if 'systemid' not in d:
-                            d['systemid'] = "%"
-                        if 'bridge' not in d:
-                            d['bridge'] = '%'
-                        if 'vhost' not in d:
-                            d['vhost'] = ''
-
-                        if 'local_address' in d:
-                            parse_ip4_address(d['local_address'])
-                        if 'gateway' in d:
-                            parse_ip4_address(d['gateway'])
-
-                        if 'cidr' in d:
-                            cidr, prefix = parse_ip4_network(d['cidr'])
+                        raise ValueError("New configurations conflicts with the old configuration or allocations in subnet "\
+                                        + parameters['id'])
+                    # Check pre_host_config
+                    if hasattr(value, 'pre_host_config'):
+                        cidr, prefix = parse_ip4_network(value.cidr)
+                        for d in value.pre_host_config:
+                            if 'cidr' in d:
+                                local_cidr, local_prefix = parse_ip4_network(d['cidr'])
+                                local_cidr_str = d['cidr']
+                            else:
+                                local_cidr, local_prefix = cidr, prefix
+                                local_cidr_str = value.cidr
                             if 'local_address' in d:
                                 local = parse_ip4_address(d['local_address'])
-                                if not ip_in_network(local, cidr, prefix):
-                                    raise ValueError(" %s not in cidr %s", d['local_address'], d["cidr"])
+                                if not ip_in_network(local, local_cidr, local_prefix):
+                                    raise ValueError(" %s not in cidr %s" % (d['local_address'], local_cidr_str))
                             if 'gateway' in d:
                                 gateway = parse_ip4_address(d['gateway'])
-                                if not ip_in_network(gateway, cidr, prefix):
-                                    raise ValueError(" %s not in cidr %s", d['gateway'], d["cidr"])
+                                if not ip_in_network(gateway, local_cidr, local_prefix):
+                                    raise ValueError(" %s not in cidr %s" % (d['gateway'], local_cidr_str))
+                    write(key, value)
+        await call_api(self.app_routine, 'objectdb', 'writewalk', {'keys':keys,'walker':walker})
+        return await self._dumpkeys(parameter_dict)
 
-                for k, v in sn.items():
-                    setattr(snet, k, v)
-
-                try:
-                    check_ip_pool(gateway=getattr(snet,'gateway',None),start=snet.allocated_start,end=snet.allocated_end,
-                                  allocated=smap.allocated_ips.keys(),cidr=snet.cidr)
-                except Exception:
-                    raise ValueError("ip pool conflict gateway " + getattr(snet,'gateway','None') + " start " +\
-                                     snet.allocated_start + " end " + snet.allocated_end + " cidr " + snet.cidr)
-            return snkeys,subnetobj
-        try:
-            for m in callAPI(self.app_routine,'objectdb','transact',{'keys':keys,'updater':subnetupdate}):
-                yield m
-        except:
-            raise
-        else:
-            for m in self._dumpkeys(subnetkeys):
-                yield m
-
-    def deletesubnet(self,id):
+    async def deletesubnet(self, id: str):
         """
         Delete subnet
         """
-        if not id:
-            raise ValueError("must special id")
-
         subnet = {"id":id}
 
-        for m in self.deletesubnets([subnet]):
-            yield m
+        return await self.deletesubnets([subnet])
 
-    def deletesubnets(self,subnets):
+    @checked
+    async def deletesubnets(self, subnets: [{"id": str}]):
         """
         Delete multiple subnets
         """
-        self._reqid += 1
-        reqid = ('viperflow',self._reqid)
-        maxtry = 1
-        idset = set()
+        parameter_dict = OrderedDict()
         for subnet in subnets:
-            if 'id' not in subnet:
-                raise ValueError("must special id")
-            if subnet["id"] not in idset:
-                idset.add(subnet["id"])
-            else:
-                raise ValueError("id repeat " + subnet["id"])
+            key = SubNet.default_key(subnet['id'])
+            if key in parameter_dict:
+                raise ValueError("Repeated ID: " + subnet['id'])
+            parameter_dict[key] = subnet
 
         subnetkeys = [SubNet.default_key(sn['id']) for sn in subnets]
+        subnetmapkeys = [SubNetMap.default_key(sn['id']) for sn in subnets]
 
-        for m in callAPI(self.app_routine, "objectdb", "mget", {'keys': subnetkeys, 'requestid': reqid}):
-            yield m
+        keys = itertools.chain(subnetkeys,subnetmapkeys,[SubNetSet.default_key()])
+        def walker(walk, write):
+            for key, parameters in parameter_dict.items():
+                with suppress(WalkKeyNotRetrieved):
+                    value = walk(key)
+                    if value is None:
+                        raise ValueError("Subnet " + parameters['id'] + " not exists")
+                    if hasattr(value, 'router'):
+                        raise ValueError("Subnet " + parameters['id'] + " is in router " + value.router.getkey())
+                    subnet_map = walk(SubNetMap._subnet.leftkey(key))
+                    if subnet_map.allocated_ips:
+                        raise ValueError("Subnet " + parameters['id'] + " has logical ports or router ports")
+                    if hasattr(subnet_map, 'routers') and subnet_map.routers.dataset():
+                        raise ValueError("Subnet " + parameters['id'] + " has router ports")
+                    with suppress(WalkKeyNotRetrieved):
+                        # Remove from logical network map
+                        lognet_map = walk(LogicalNetworkMap._network.leftkey(value.network))
+                        lognet_map.subnets.dataset().discard(value.create_weakreference())
+                        write(lognet_map.getkey(), lognet_map)
+                    with suppress(WalkKeyNotRetrieved):
+                        subnet_set = walk(SubNetSet.default_key())
+                        subnet_set.set.dataset().discard(value.create_weakreference())
+                        write(subnet_set.getkey(), subnet_set)
+                    write(key, None)
+                    write(subnet_map.getkey(), None)
+        await call_api(self.app_routine, "objectdb", "writewalk", {'keys': keys, 'walker': walker})
+        return {"status":'OK'}
 
-        fsubnetobjs = self.app_routine.retvalue
-
-        with watch_context(subnetkeys, fsubnetobjs, reqid, self.app_routine):
-            if None in fsubnetobjs:
-                raise ValueError(" subnet not existed " + SubNet._getIndices(subnetkeys[fsubnetobjs.index(None)])[1][0])
-
-            subnetdict = dict(zip(subnetkeys,fsubnetobjs))
-
-            while True:
-                newsubnets = []
-                for subnet in subnets:
-                    subnet = copy.deepcopy(subnet)
-                    subnetobj = subnetdict.get(SubNet.default_key(subnet['id']))
-                    subnet['logicalnetwork'] = subnetobj.network.id
-
-                    newsubnets.append(subnet)
-
-                subnetmapkeys = [SubNetMap.default_key(sn['id']) for sn in newsubnets]
-
-                lognetkeys = list(set([LogicalNetwork.default_key(sn['logicalnetwork']) for sn in newsubnets]))
-
-                lognetmapkeys = [LogicalNetworkMap.default_key(LogicalNetwork._getIndices(key)[1][0])
-                                 for key in lognetkeys]
-
-                keys = itertools.chain([SubNetSet.default_key()],subnetkeys,subnetmapkeys,lognetkeys,lognetmapkeys)
-
-                def subnetupdate(keys,values):
-                    subset = values[0]
-                    subnetlen = len(subnetkeys)
-                    lognetlen = len(lognetkeys)
-
-                    sk = keys[1:1 + subnetlen]
-                    subnetobjs = values[1:1 + subnetlen]
-
-                    smk = keys[1+subnetlen:1 + subnetlen + subnetlen]
-                    subnetmapobjs = values[1+subnetlen:1 + subnetlen + subnetlen]
-
-                    lgnetkeys = keys[1 + subnetlen * 2:1 + subnetlen *2 + lognetlen]
-                    lgnetobjs = values[1 + subnetlen * 2:1 + subnetlen *2 + lognetlen]
-
-                    lgnetmapkeys = keys[1 + subnetlen *2 + lognetlen:]
-                    lgnetmapobjs = values[1 + subnetlen *2 + lognetlen:]
-
-                    if [v.network.getkey() if v is not None else None for v in subnetobjs] !=\
-                            [v.network.getkey() for v in fsubnetobjs]:
-                        raise UpdateConflictException
-
-                    subnetsdict = dict(zip(sk,zip(subnetobjs,subnetmapobjs)))
-                    lgnetdict = dict(zip(lgnetkeys,zip(lgnetobjs,lgnetmapobjs)))
-
-                    for subnet in newsubnets:
-                        k = SubNet.default_key(subnet['id'])
-                        nk = LogicalNetwork.default_key(subnet['logicalnetwork'])
-
-                        snobj,snmobj = subnetsdict.get(k)
-                        if snmobj.allocated_ips:
-                            raise ValueError("there logicalport in " + k + " delete it before")
-
-                        if hasattr(snobj,"router"):
-                            raise ValueError("there router interface use subnet " + k + " delete it before")
-
-                        _,lgnetmap = lgnetdict.get(nk)
-                        lgnetmap.subnets.dataset().discard(snobj.create_weakreference())
-                        subset.set.dataset().discard(snobj.create_weakreference())
-
-                    return tuple(itertools.chain([keys[0]],sk,smk,lgnetmapkeys)),\
-                            tuple(itertools.chain([subset],[None]*subnetlen,[None]*subnetlen,lgnetmapobjs))
-
-                try:
-                    for m in callAPI(self.app_routine,'objectdb','transact',
-                                     {'keys':keys,'updater':subnetupdate}):
-                        yield m
-                except UpdateConflictException:
-                    maxtry -= 1
-                    if maxtry < 0:
-                        raise
-                    else:
-                        logger.info(" cause UpdateConflict Exception try once")
-                        continue
-                else:
-                    break
-            self.app_routine.retvalue = {"status":'OK'}
-
-    def listsubnets(self,id = None,logicalnetwork=None,**kwargs):
+    async def listsubnets(self,id = None,logicalnetwork=None,**kwargs):
         """
         Query subnets
         
@@ -2516,15 +1566,14 @@ class ViperFlow(Module):
         :return: A list of dictionaries each stands for a matched subnet.
         """
         if id:
-            # special id , find it ,, filter it
+            # specify id , find it ,, filter it
             subnet_key = SubNet.default_key(id)
 
-            for m in self._dumpone(subnet_key,kwargs):
-                yield m
+            return await self._dumpone(subnet_key,kwargs)
 
         else:
             if logicalnetwork:
-                # special logicalnetwork ,, find in logicalnetwork ,, filter it
+                # specify logicalnetwork ,, find in logicalnetwork ,, filter it
 
                 def walk_map(key,value,walk,save):
                     if value is None:
@@ -2532,11 +1581,8 @@ class ViperFlow(Module):
 
                     for weakobj in value.subnets.dataset():
                         subnet_key = weakobj.getkey()
-                        try:
+                        with suppress(WalkKeyNotRetrieved):
                             subnet_obj = walk(subnet_key)
-                        except KeyError:
-                            pass
-                        else:
                             if all(getattr(subnet_obj,k,None) == v for k,v in kwargs.items()):
                                 save(subnet_key)
 
@@ -2544,15 +1590,12 @@ class ViperFlow(Module):
 
                 self._reqid += 1
                 reqid = ("viperflow",self._reqid)
-
-                for m in callAPI(self.app_routine,"objectdb","walk",{'keys':[lgnetmap_key],
-                                        'walkerdict':{lgnetmap_key:walk_map},"requestid":reqid}):
-                    yield m
-
-                keys, values = self.app_routine.retvalue
-
-                with watch_context(keys,values,reqid,self.app_routine):
-                    self.app_routine.retvalue = [dump(r) for r in values]
+                with request_context(reqid, self.app_routine):
+                    _, values = await call_api(self.app_routine,"objectdb","walk",
+                                                {'keys':[lgnetmap_key],
+                                                 'walkerdict':{lgnetmap_key:walk_map},
+                                                 "requestid":reqid})
+                    return [dump(r) for r in values]
             else:
                 # find in all set ,, filter it
                 subnet_set_key = SubNetSet.default_key()
@@ -2574,18 +1617,15 @@ class ViperFlow(Module):
                         else:
                             if all(getattr(subnet_obj,k,None) == v for k,v in kwargs.items()):
                                 save(subnet_key)
-
-                for m in callAPI(self.app_routine,"objectdb","walk",{'keys':[subnet_set_key],
-                                    'walkerdict':{subnet_set_key:walk_set},'requestid':reqid}):
-                    yield m
-
-                keys,values = self.app_routine.retvalue
-
-                with watch_context(keys,values,reqid,self.app_routine):
-                    self.app_routine.retvalue = [dump(r) for r in values]
+                with request_context(reqid, self.app_routine):
+                    _, values = await call_api(self.app_routine,"objectdb","walk",
+                                              {'keys':[subnet_set_key],
+                                               'walkerdict':{subnet_set_key:walk_set},
+                                               'requestid':reqid})
+                    return [dump(r) for r in values]
 
     # the first run as routine going
-    def load(self,container):
+    async def load(self,container):
 
         # init callback set dataobject as an transaction
         # args [values] order as keys
@@ -2608,13 +1648,12 @@ class ViperFlow(Module):
         initdataobjectkeys = [PhysicalNetworkSet.default_key(),
                 PhysicalPortSet.default_key(),LogicalNetworkSet.default_key(),
                 LogicalPortSet.default_key(),SubNetSet.default_key()]
-        for m in callAPI(container,'objectdb','transact',
-                {'keys':initdataobjectkeys,'updater':init}):
-            yield m
+        await call_api(container,'objectdb','transact',
+                       {'keys':initdataobjectkeys,'updater':init})
 
         # call so main routine will be run
-        for m in Module.load(self,container):
-            yield m
+        return await Module.load(self,container)
+
 
 def check_ip_pool(gateway, start, end, allocated, cidr):
 
@@ -2626,11 +1665,12 @@ def check_ip_pool(gateway, start, end, allocated, cidr):
         assert ip_in_network(nstart,ncidr,prefix)
         assert ip_in_network(nend,ncidr,prefix)
         assert nstart <= nend
-
-        for ip in allocated:
+        for ip, target in allocated.items():
             nip = parse_ip4_address(ip)
-            assert ip != ngateway
-            assert nstart <= nip <= nend
+            assert ip_in_network(nip, ncidr, prefix)
+            if isinstance(target, WeakReferenceObject):
+                assert ip != ngateway
+                assert nstart <= nip <= nend
     else:
         assert ip_in_network(nstart,ncidr,prefix)
         assert ip_in_network(nend,ncidr,prefix)
@@ -2638,6 +1678,7 @@ def check_ip_pool(gateway, start, end, allocated, cidr):
 
         for ip in allocated:
             nip = parse_ip4_address(ip)
-            assert nstart <= nip <= nend
-
+            assert ip_in_network(nip, ncidr, prefix)
+            if isinstance(target, WeakReferenceObject):
+                assert nstart <= nip <= nend
 

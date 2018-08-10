@@ -149,6 +149,7 @@ class RedisDB(TcpServerBase):
                        api(self.updateall, self.apiroutine),
                        api(self.updateallwithtime, self.apiroutine),
                        api(self.listallkeys, self.apiroutine))
+
     def _client_class(self, config, protocol, vhost):
         db = getattr(config, 'db', None)
         def _create_client(url, protocol, scheduler = None, key = None, certificate = None, ca_certs = None, bindaddress = None):
@@ -162,70 +163,64 @@ class RedisDB(TcpServerBase):
             self._redis_clients[vhost] = c
             return c.make_connobj(self.apiroutine)
         return _create_client
+
     def getclient(self, vhost = ''):
         "Return a tuple of ``(redisclient, encoder, decoder)`` for specified vhost"
         return (self._redis_clients.get(vhost), self._encode, self._decode)
-    def get(self, key, timeout = None, vhost = ''):
+
+    async def get(self, key, timeout = None, vhost = ''):
         "Get value from key"
         c = self._redis_clients.get(vhost)
         if c is None:
             raise ValueError('vhost ' + repr(vhost) + ' is not defined')
         if timeout is not None:
             if timeout <= 0:
-                for m in c.batch_execute(self.apiroutine, ('MULTI',), 
-                                                        ('GET', key),
-                                                        ('DEL', key),
-                                                        ('EXEC',)):
-                    yield m
+                r = await c.batch_execute(self.apiroutine, ('MULTI',), 
+                                                            ('GET', key),
+                                                            ('DEL', key),
+                                                            ('EXEC',))
             else:
-                for m in c.batch_execute(self.apiroutine, ('MULTI',),
-                                                        ('GET', key),
-                                                        ('PEXPIRE', key, int(timeout * 1000)),
-                                                        ('EXEC',)):
-                    yield m
-            r = self.apiroutine.retvalue[3][0]
+                r = await c.batch_execute(self.apiroutine, ('MULTI',),
+                                                            ('GET', key),
+                                                            ('PEXPIRE', key, int(timeout * 1000)),
+                                                            ('EXEC',))
+            r = r[3][0]
             if isinstance(r, Exception):
                 raise r
-            self.apiroutine.retvalue = self._decode(r)
+            return self._decode(r)
         else:
-            for m in c.execute_command(self.apiroutine, 'GET', key):
-                yield m
-            self.apiroutine.retvalue = self._decode(self.apiroutine.retvalue)
-    def set(self, key, value, timeout = None, vhost = ''):
+            r = await c.execute_command(self.apiroutine, 'GET', key)
+            return self._decode(r)
+
+    async def set(self, key, value, timeout = None, vhost = ''):
         "Set value to key, with an optional timeout"
         c = self._redis_clients.get(vhost)
         if timeout is None:
-            for m in c.execute_command(self.apiroutine, 'SET', key, self._encode(value)):
-                yield m
+            await c.execute_command(self.apiroutine, 'SET', key, self._encode(value))
         elif timeout <= 0:
-            for m in c.execute_command(self.apiroutine, 'DEL', key):
-                yield m
+            await c.execute_command(self.apiroutine, 'DEL', key)
         else:
-            for m in c.execute_command(self.apiroutine, 'PSETEX', key, int(timeout * 1000), self._encode(value)):
-                yield m
-        self.apiroutine.retvalue = None
-    def delete(self, key, vhost = ''):
+            await c.execute_command(self.apiroutine, 'PSETEX', key, int(timeout * 1000), self._encode(value))
+
+    async def delete(self, key, vhost = ''):
         "Delete a key from the storage"
         c = self._redis_clients.get(vhost)
-        for m in c.execute_command(self.apiroutine, 'DEL', key):
-            yield m
-        self.apiroutine.retvalue = None
-    def _mget(self, keys, vhost = ''):
+        await c.execute_command(self.apiroutine, 'DEL', key)
+
+    async def _mget(self, keys, vhost = ''):
         if not keys:
-            self.apiroutine.retvalue = []
-            return
+            return []
         c = self._redis_clients.get(vhost)
-        for m in c.execute_command(self.apiroutine, 'MGET', *keys):
-            yield m
-    def mget(self, keys, vhost = ''):
+        return await c.execute_command(self.apiroutine, 'MGET', *keys)
+
+    async def mget(self, keys, vhost = ''):
         "Get multiple values from multiple keys"
-        for m in self._mget(keys, vhost):
-            yield m
-        self.apiroutine.retvalue = [self._decode(r) for r in self.apiroutine.retvalue]
-    def mgetwithcache(self, keys, vhost = '', cache = None):
+        result = await self._mget(keys, vhost)
+        return [self._decode(r) for r in result]
+
+    async def mgetwithcache(self, keys, vhost = '', cache = None):
         "Get multiple values, cached when possible"
-        for m in self._mget(keys, vhost):
-            yield m
+        result = await self._mget(keys, vhost)
         if cache is None:
             cache = KVCache()
         def _decode_with_cache(key, cached, new_data):
@@ -239,9 +234,11 @@ class RedisDB(TcpServerBase):
             else:
                 decode_value = self._decode(new_data)
                 return decode_value, (new_data, decode_value)
-        self.apiroutine.retvalue = ([cache.update(k, _decode_with_cache, r)
-                                    for k,r in izip(keys, self.apiroutine.retvalue)], cache)
-    def mset(self, kvpairs, timeout = None, vhost = ''):
+        return ([cache.update(k, _decode_with_cache, r)
+                 for k,r in izip(keys, result)],
+                cache)
+
+    async def mset(self, kvpairs, timeout = None, vhost = ''):
         "Set multiple values on multiple keys"
         if not kvpairs:
             return
@@ -250,23 +247,21 @@ class RedisDB(TcpServerBase):
         if hasattr(d, 'items'):
             d = d.items()
         if timeout is not None and timeout <= 0:
-            for m in c.execute_command(self.apiroutine, 'DEL', *[k for k,_ in d]):
-                yield m
+            await c.execute_command(self.apiroutine, 'DEL', *[k for k,_ in d])
         else:
             if timeout is None:
-                for m in c.execute_command(self.apiroutine, 'MSET',
+                await c.execute_command(self.apiroutine, 'MSET',
                                            *list(
                                                itertools.chain.from_iterable(
                                                    (k, self._encode(v)) for (k,v) in d
                                                 )
                                             )
-                                           ):
-                    yield m
+                                           )
             else:
                 # Use a transact
                 ptimeout = int(timeout * 1000)
                 
-                for m in c.batch_execute(self.apiroutine,
+                await c.batch_execute(self.apiroutine,
                                          *(
                                              (
                                                  ('MULTI',),
@@ -283,32 +278,24 @@ class RedisDB(TcpServerBase):
                                                   ('EXEC',),
                                               )
                                            )
-                                        ):
-                    yield m
-        self.apiroutine.retvalue = None
-    def _retry_write(self, process, vhost):
+                                        )
+
+    async def _retry_write(self, process, vhost):
         c = self._redis_clients.get(vhost)
         # Always try once first
         while True:
-            for m in c.get_connection(self.apiroutine):
-                yield m
-            newconn = self.apiroutine.retvalue
+            newconn = await c.get_connection(self.apiroutine)
             with newconn.context(self.apiroutine):
                 try:
-                    for m in process(newconn):
-                        yield m
+                    return await process(newconn)
                 except RedisConnectionDown:
                     continue
                 except RedisWriteConflictException:
                     break
-                else:
-                    return
         enterseq = self.enterseq
         enterlock = self.enterlock
         for i in range(0, self.maxretry):
-            for m in c.get_connection(self.apiroutine):
-                yield m
-            newconn = self.apiroutine.retvalue
+            newconn = await c.get_connection(self.apiroutine)
             with newconn.context(self.apiroutine):
                 if self._sequencial:
                     curr_time = time()
@@ -319,12 +306,9 @@ class RedisDB(TcpServerBase):
                 if self._sequencial:
                     # First make all the conflicted updates in this process retry in sequence
                     l = Lock(self, self.scheduler)
-                    for m in l.lock(self.apiroutine):
-                        yield m
-                    with l:
+                    async with l:
                         try:
-                            for m in process(newconn):
-                                yield m
+                            return await process(newconn)
                         except RedisConnectionDown:
                             continue
                         except RedisWriteConflictException:
@@ -338,37 +322,28 @@ class RedisDB(TcpServerBase):
                                     # If multiple VLCP processes tries to set the flag at the same time, some
                                     # will be blocked for a short time to leave time for the winner
                                     for i in range(0, 100):
-                                        for m in newconn.execute_command(self.apiroutine,
+                                        r = await newconn.execute_command(self.apiroutine,
                                                                          'SET', 'vlcp._reserved.redisdb.connwriteblock',
-                                                                         '1', 'PX', '100', 'NX'):
-                                            yield m
-                                        if self.apiroutine.retvalue is not None:
+                                                                         '1', 'PX', '100', 'NX')
+                                        if r is not None:
                                             break
                                         else:
-                                            with closing(self.apiroutine.waitWithTimeout(0.02)) as g:
-                                                for m in g:
-                                                    yield m
+                                            await self.apiroutine.wait_with_timeout(0.02)
                                 except Exception:
                                     self._logger.warning('Exception raised on waiting for a lock, will ignore and continue', exc_info = True)
-                                    with closing(self.apiroutine.waitWithTimeout(0.1)) as g:
-                                        for m in g:
-                                            yield m
-                        else:
-                            return
+                                    await self.apiroutine.wait_with_timeout(0.1)
                 else:
                     try:
-                        for m in process(newconn):
-                            yield m
+                        return await process(newconn)
                     except RedisConnectionDown:
                         continue
                     except RedisWriteConflictException:
                         if i > enterseq and not self._sequencial:
                             self._sequencial = True
                             self._sequencialsince = time()
-                    else:
-                        return
         raise RedisWriteConflictException('Transaction still fails after many retries')
-    def update(self, key, updater, timeout = None, vhost = ''):
+
+    async def update(self, key, updater, timeout = None, vhost = ''):
         '''
         Update in-place with a custom function
         
@@ -381,19 +356,16 @@ class RedisDB(TcpServerBase):
         
         :returns: the updated value, or None if deleted
         '''
-        def _process(newconn):
-            for m in newconn.execute_command(self.apiroutine, 'WATCH', key):
-                yield m
-            for m in newconn.execute_command(self.apiroutine, 'GET', key):
-                yield m
-            v = self._decode(self.apiroutine.retvalue)
+        async def _process(newconn):
+            r = await newconn.batch_execute(self.apiroutine, ('WATCH', key), ('GET', key),
+                                            raise_first_exception=True)
+            v = self._decode(r[1])
             try:
                 v = updater(key, v)
                 if v is not None:
                     ve = self._encode(v)
             except Exception as exc:
-                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                    yield m
+                await newconn.execute_command(self.apiroutine, 'UNWATCH')
                 raise exc
             if timeout is not None and timeout <= 0 or v is None:
                 set_command = ('DEL', key)
@@ -401,38 +373,30 @@ class RedisDB(TcpServerBase):
                 set_command = ('SET', key, ve)
             else:
                 set_command = ('PSETEX', key, int(timeout * 1000), ve)
-            for m in newconn.batch_execute(self.apiroutine, ('MULTI',),
-                                                            set_command,
-                                                            ('EXEC',)):
-                yield m
-            r = self.apiroutine.retvalue[2]
+            result = await newconn.batch_execute(self.apiroutine, ('MULTI',),
+                                                                  set_command,
+                                                                  ('EXEC',))
+            r = result[2]
             if r is not None:
                 # Succeeded
-                self.apiroutine.retvalue = v
-                return
+                return v
             else:
-                raise RedisWriteConflictException('Transaction still fails after many retries: key=' + repr(key))
-        with closing(self._retry_write(_process, vhost)) as g:
-            for m in g:
-                yield m
-    def mupdate(self, keys, updater, timeout = None, vhost = ''):
+                raise RedisWriteConflictException
+        return await self._retry_write(_process, vhost)
+
+    async def mupdate(self, keys, updater, timeout = None, vhost = ''):
         "Update multiple keys in-place with a custom function, see update. Either all success, or all fail."
         if not keys:
-            self.apiroutine.retvalue = []
-            return
-        def _process(newconn):
-            for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
-                yield m
-            for m in newconn.execute_command(self.apiroutine, 'MGET', *keys):
-                yield m
-            values = self.apiroutine.retvalue
+            return []
+        async def _process(newconn):
+            _, values = await newconn.batch_execute(self.apiroutine, ('WATCH', *keys), ('MGET', *keys),
+                                                    raise_first_exception=True)
             try:
                 values = [updater(k, self._decode(v)) for k,v in izip(keys,values)]
                 keys_deleted = [k for k,v in izip(keys,values) if v is None]
                 values_encoded = [(k,self._encode(v)) for k,v in izip(keys,values) if v is not None]
             except Exception as exc:
-                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                    yield m
+                await newconn.execute_command(self.apiroutine, 'UNWATCH')
                 raise exc
             if timeout is None:
                 set_commands_list = []
@@ -453,38 +417,30 @@ class RedisDB(TcpServerBase):
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
             if not set_commands:
-                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                    yield m
-                self.apiroutine.retvalue = values
-                return
-            for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
+                await newconn.execute_command(self.apiroutine, 'UNWATCH')
+                return values
+            result = await newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
-                                                            (('EXEC',),))):
-                yield m
-            r = self.apiroutine.retvalue[-1]
+                                                            (('EXEC',),)))
+            r = result[-1]
             if r is not None:
                 # Succeeded
-                self.apiroutine.retvalue = values
-                return
+                return values
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        with closing(self._retry_write(_process, vhost)) as g:
-            for m in g:
-                yield m
-    def updateall(self, keys, updater, timeout = None, vhost = ''):
+        return await self._retry_write(_process, vhost)
+
+    async def updateall(self, keys, updater, timeout = None, vhost = ''):
         """
         Update multiple keys in-place, with a function ``updater(keys, values)``
         which returns ``(updated_keys, updated_values)``.
         
         Either all success or all fail
         """
-        def _process(newconn):
+        async def _process(newconn):
             if keys:
-                for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
-                    yield m
-                for m in newconn.execute_command(self.apiroutine, 'MGET', *keys):
-                    yield m
-                values = self.apiroutine.retvalue
+                _, values = await newconn.batch_execute(self.apiroutine, ('WATCH', *keys), ('MGET', *keys),
+                                                        raise_first_exception=True)
             else:
                 values = []
             try:
@@ -493,8 +449,7 @@ class RedisDB(TcpServerBase):
                 values_encoded = [(k,self._encode(v)) for k,v in izip(new_keys, new_values) if v is not None]
             except Exception as exc:
                 if keys:
-                    for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                        yield m
+                    await newconn.execute_command(self.apiroutine, 'UNWATCH')
                 raise exc
             if timeout is None:
                 set_commands_list = []
@@ -518,25 +473,20 @@ class RedisDB(TcpServerBase):
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
             if not set_commands:
-                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                    yield m
-                self.apiroutine.retvalue = values
-                return
-            for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
+                await newconn.execute_command(self.apiroutine, 'UNWATCH')
+                return values
+            result = await newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
-                                                            (('EXEC',),))):
-                yield m
-            r = self.apiroutine.retvalue[-1]
+                                                            (('EXEC',),)))
+            r = result[-1]
             if r is not None:
                 # Succeeded
-                self.apiroutine.retvalue = (new_keys, new_values)
-                return
+                return (new_keys, new_values)
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        with closing(self._retry_write(_process, vhost)) as g:
-            for m in g:
-                yield m
-    def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
+        return await self._retry_write(_process, vhost)
+
+    async def updateallwithtime(self, keys, updater, timeout = None, vhost = ''):
         """
         Update multiple keys in-place, with a function ``updater(keys, values, timestamp)``
         which returns ``(updated_keys, updated_values)``.
@@ -545,19 +495,15 @@ class RedisDB(TcpServerBase):
         
         Timestamp is a integer standing for current time in microseconds.
         """
-        def _process(newconn):
+        async def _process(newconn):
             if keys:
-                for m in newconn.execute_command(self.apiroutine, 'WATCH', *keys):
-                    yield m
-                for m in newconn.batch_execute(self.apiroutine, ('MGET',) + tuple(keys),
-                                                                ('TIME',)):
-                    yield m
-                values, time_tuple = self.apiroutine.retvalue
+                _, values, time_tuple = await newconn.batch_execute(self.apiroutine, ('WATCH', *keys),
+                                                                                    ('MGET',) + tuple(keys),
+                                                                                    ('TIME',),
+                                                                    raise_first_exception=True)
             else:
-                for m in newconn.execute_command(self.apiroutine, 'TIME'):
-                    yield m
+                time_tuple = await newconn.execute_command(self.apiroutine, 'TIME')
                 values = []
-                time_tuple = self.apiroutine.retvalue
             server_time = int(time_tuple[0]) * 1000000 + int(time_tuple[1])
             try:
                 new_keys, new_values = updater(keys, [self._decode(v) for v in values], server_time)
@@ -565,8 +511,7 @@ class RedisDB(TcpServerBase):
                 values_encoded = [(k,self._encode(v)) for k,v in izip(new_keys, new_values) if v is not None]
             except Exception as exc:
                 if keys:
-                    for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                        yield m
+                    await newconn.execute_command(self.apiroutine, 'UNWATCH')
                 raise exc
             if timeout is None:
                 set_commands_list = []
@@ -590,31 +535,25 @@ class RedisDB(TcpServerBase):
                     set_commands_list.append(('DEL',) + tuple(keys_deleted))
                 set_commands = tuple(set_commands_list)
             if not set_commands:
-                for m in newconn.execute_command(self.apiroutine, 'UNWATCH'):
-                    yield m
-                self.apiroutine.retvalue = values
-                return
-            for m in newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
+                await newconn.execute_command(self.apiroutine, 'UNWATCH')
+                return values
+            result = await newconn.batch_execute(self.apiroutine, *((('MULTI',),) + \
                                                             set_commands + \
-                                                            (('EXEC',),))):
-                yield m
-            r = self.apiroutine.retvalue[-1]
+                                                            (('EXEC',),)))
+            r = result[-1]
             if r is not None:
                 # Succeeded
-                self.apiroutine.retvalue = (new_keys, new_values)
-                return
+                return (new_keys, new_values)
             else:
                 raise RedisWriteConflictException('Transaction still fails after many retries: keys=' + repr(keys))
-        with closing(self._retry_write(_process, vhost)) as g:
-            for m in g:
-                yield m
-    def listallkeys(self, vhost = ''):
+        return await self._retry_write(_process, vhost)
+
+    async def listallkeys(self, vhost = ''):
         '''
         Return all keys in the KVDB. For management purpose.
         '''
         c = self._redis_clients.get(vhost)
         if c is None:
             raise ValueError('vhost ' + repr(vhost) + ' is not defined')
-        for m in c.execute_command(self.apiroutine, 'KEYS', '*'):
-            yield m
+        return await c.execute_command(self.apiroutine, 'KEYS', '*')
 

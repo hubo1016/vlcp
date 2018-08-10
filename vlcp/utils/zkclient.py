@@ -10,7 +10,7 @@ from vlcp.protocol.zookeeper import ZooKeeper, ZooKeeperRetryException,\
     ZooKeeperSessionExpiredException
 from random import shuffle, random, randrange
 from vlcp.event.connection import Client
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 import logging
 import vlcp.utils.zookeeper as zk
 try:
@@ -102,8 +102,10 @@ class ZooKeeperClient(Configurable):
         self.ca_certs = None
         self._last_zxid = 0
         self._last_watch_zxid = 0
+
     def start(self, asyncstart = False):
         self._connmanage_routine = self._container.subroutine(self._connection_manage(), asyncstart)
+
     def reset(self):
         '''
         Discard current session and start a new one
@@ -111,11 +113,11 @@ class ZooKeeperClient(Configurable):
         self._connmanage_routine.close()
         self._shutdown = False
         self.start()
-    def shutdown(self):
+
+    async def shutdown(self):
         self._connmanage_routine.close()
-        if False:
-            yield
-    def _connection_manage(self):
+
+    async def _connection_manage(self):
         try:
             failed = 0
             self._last_zxid = last_zxid = 0
@@ -138,29 +140,26 @@ class ZooKeeperClient(Configurable):
                                                                       conn)
                 conn.start()
                 try:
-                    yield (conn_up, conn_nc)
-                    if self._container.matcher is conn_nc:
+                    _, m = await M_(conn_up, conn_nc)
+                    if m is conn_nc:
                         self._logger.warning('Connect to %r failed, try next server', self.currentserver)
                         if failed > 5:
                             # Wait for a small amount of time to prevent a busy loop
                             # Socket may be rejected, it may fail very quick
-                            with closing(self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0))) as g:
-                                for m in g:
-                                    yield m
+                            await self._container.wait_with_timeout(min((failed - 5) * 0.1, 1.0))
                         failed += 1
                         continue
                     try:
                         # Handshake
                         set_watches = []
                         if self.session_state == ZooKeeperSessionStateChanged.DISCONNECTED:
-                            for m in self._container.waitForSend(ZooKeeperRestoreWatches(self,
+                            await self._container.wait_for_send(ZooKeeperRestoreWatches(self,
                                                                                          self.session_id,
                                                                                          True,
-                                                                                         restore_watches = (set(), set(), set()))):
-                                yield m
-                            yield (ZooKeeperRestoreWatches.createMatcher(self),)
+                                                                                         restore_watches = (set(), set(), set())))
+                            ev = await ZooKeeperRestoreWatches.createMatcher(self)
                             data_watches, exists_watches, child_watches = \
-                                    self._container.event.restore_watches
+                                    ev.restore_watches
                             if data_watches or exists_watches or child_watches:
                                 restore_watch_zxid = last_watch_zxid
                                 if restore_watch_zxid > 1:
@@ -186,29 +185,33 @@ class ZooKeeperClient(Configurable):
                                         or current_set_watches.childWatches:
                                     set_watches.append(current_set_watches)
                         auth_list = list(self.auth_set)
-                        with closing(self._container.executeWithTimeout(10,
-                                    self.protocol.handshake(conn,
-                                        zk.ConnectRequest(lastZxidSeen = last_zxid,
-                                                          timeOut = int(self.sessiontimeout * 1000.0),
-                                                          sessionId = session_id,
-                                                          passwd = passwd,
-                                                          readOnly = self.readonly),
-                                         self._container,
-                                        [zk.AuthPacket(scheme = a[0], auth = a[1]) for a in auth_list] +
-                                        set_watches))) as g:
-                            for m in g:
-                                yield m
-                        if self._container.timeout:
+                        timeout, handshake_result = await self._container.execute_with_timeout(
+                                                        10,
+                                                        self.protocol.handshake(
+                                                            conn,
+                                                            zk.ConnectRequest(lastZxidSeen = last_zxid,
+                                                                              timeOut = int(self.sessiontimeout * 1000.0),
+                                                                              sessionId = session_id,
+                                                                              passwd = passwd,
+                                                                              readOnly = self.readonly),
+                                                             self._container,
+                                                            [zk.AuthPacket(scheme = a[0], auth = a[1]) for a in auth_list] +
+                                                            set_watches
+                                                        )
+                                                    )
+                        if timeout:
                             raise IOError
                     except ZooKeeperSessionExpiredException:
                         self._logger.warning('Session expired.')
                         # Session expired
                         self.session_state = ZooKeeperSessionStateChanged.EXPIRED
-                        for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
-                                    ZooKeeperSessionStateChanged.EXPIRED,
-                                    self,
-                                    session_id)):
-                            yield m
+                        await self._container.wait_for_send(
+                                        ZooKeeperSessionStateChanged(
+                                            ZooKeeperSessionStateChanged.EXPIRED,
+                                            self,
+                                            session_id
+                                        )
+                                    )
                         if self.restart_session:
                             failed = 0
                             last_zxid = 0
@@ -229,11 +232,13 @@ class ZooKeeperClient(Configurable):
                                 self._logger.warning('Session expired detected from client time.')
                                 # Session expired
                                 self.session_state = ZooKeeperSessionStateChanged.EXPIRED
-                                for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
-                                            ZooKeeperSessionStateChanged.EXPIRED,
-                                            self,
-                                            session_id)):
-                                    yield m
+                                await self._container.wait_for_send(
+                                                ZooKeeperSessionStateChanged(
+                                                    ZooKeeperSessionStateChanged.EXPIRED,
+                                                    self,
+                                                    session_id
+                                                )
+                                            )
                                 if self.restart_session:
                                     failed = 0
                                     last_zxid = 0
@@ -245,23 +250,23 @@ class ZooKeeperClient(Configurable):
                                     break                        
                             else:
                                 # Wait for a small amount of time to prevent a busy loop
-                                with closing(self._container.waitWithTimeout(min((failed - 5) * 0.1, 1.0))) as g:
-                                    for m in g:
-                                        yield m
+                                await self._container.wait_with_timeout(min((failed - 5) * 0.1, 1.0))
                         failed += 1
                     else:
                         failed = 0
-                        conn_resp, auth_resp = self._container.retvalue
+                        conn_resp, auth_resp = handshake_result
                         if conn_resp.timeOut <= 0:
                             # Session expired
                             # Currently should not happen because handshake() should raise an exception
                             self._logger.warning('Session expired detected from handshake packet')
                             self.session_state = ZooKeeperSessionStateChanged.EXPIRED
-                            for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
-                                        ZooKeeperSessionStateChanged.EXPIRED,
-                                        self,
-                                        session_id)):
-                                yield m
+                            await self._container.wait_for_send(
+                                        ZooKeeperSessionStateChanged(
+                                            ZooKeeperSessionStateChanged.EXPIRED,
+                                            self,
+                                            session_id
+                                        )
+                                    )
                             if self.restart_session:
                                 failed = 0
                                 last_zxid = 0
@@ -280,31 +285,34 @@ class ZooKeeperClient(Configurable):
                                 self._logger.warning('ZooKeeper authentication failed for following auth: %r',
                                                      [a for a,r in zip(auth_list, auth_resp) if r.err == zk.ZOO_ERR_AUTHFAILED])
                                 self.session_state = ZooKeeperSessionStateChanged.AUTHFAILED
-                                for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
+                                await self._container.wait_for_send(
+                                            ZooKeeperSessionStateChanged(
                                                 ZooKeeperSessionStateChanged.AUTHFAILED,
                                                 self,
                                                 session_id
-                                            )):
-                                    yield m
+                                            )
+                                        )
                                 # Not retrying
                                 break
                             else:
                                 self.session_readonly = getattr(conn_resp, 'readOnly', False)
                                 self.session_id = session_id
                                 if self.session_state == ZooKeeperSessionStateChanged.EXPIRED:
-                                    for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
+                                    await self._container.wait_for_send(
+                                            ZooKeeperSessionStateChanged(
                                                 ZooKeeperSessionStateChanged.CREATED,
                                                 self,
                                                 session_id
-                                            )):
-                                        yield m
+                                            )
+                                        )
                                 else:
-                                    for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
+                                    await self._container.wait_for_send(
+                                            ZooKeeperSessionStateChanged(
                                                 ZooKeeperSessionStateChanged.RECONNECTED,
                                                 self,
                                                 session_id
-                                            )):
-                                        yield m
+                                            )
+                                        )
                                 self.session_state = ZooKeeperSessionStateChanged.CREATED
                         if conn.connected:
                             conn_down = ZooKeeperConnectionStateEvent.createMatcher(ZooKeeperConnectionStateEvent.DOWN,
@@ -319,19 +327,16 @@ class ZooKeeperClient(Configurable):
                                 rebalancetime = self.rebalancetime
                                 if rebalancetime is not None:
                                     rebalancetime += random() * 60
-                                with closing(self._container.waitWithTimeout(rebalancetime, conn_down, auth_failed)) as g:
-                                    for m in g:
-                                        yield m
-                                if self._container.timeout:
+                                timeout, ev, m = await self._container.wait_with_timeout(rebalancetime, conn_down, auth_failed)
+                                if timeout:
                                     # Rebalance
                                     if conn.zookeeper_requests:
                                         # There are still requests not processed, wait longer
                                         for _ in range(0, 3):
                                             longer_time = random() * 10
-                                            with closing(self._container.waitWithTimeout(longer_time, conn_down, auth_failed)) as g:
-                                                for m in g:
-                                                    yield m
-                                            if not self._container.timeout:
+                                            timeout, ev, m = await self._container.wait_with_timeout(
+                                                                    longer_time, conn_down, auth_failed)
+                                            if not timeout:
                                                 # Connection is down, or auth failed
                                                 break
                                             if not conn.zookeeper_requests:
@@ -340,23 +345,24 @@ class ZooKeeperClient(Configurable):
                                             # There is still requests, skip for this time
                                             continue
                                     # Rebalance to a random server
-                                    if self._container.timeout:
+                                    if timeout:
                                         self.nextptr = randrange(len(self.serverlist))
                                 break
-                            if self._container.matcher is auth_failed:
+                            if m is auth_failed:
                                 self._logger.warning('ZooKeeper authentication failed, shutdown the connection')
                                 self.session_state = ZooKeeperSessionStateChanged.AUTHFAILED
-                                for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
+                                await self._container.wait_for_send(
+                                            ZooKeeperSessionStateChanged(
                                                 ZooKeeperSessionStateChanged.AUTHFAILED,
                                                 self,
                                                 session_id
-                                            )):
-                                    yield m
+                                            )
+                                        )
                                 # Not retrying
                                 break
                             else:
                                 # Connection is down, try other servers
-                                if not self._container.timeout:
+                                if not timeout:
                                     self._logger.warning('Connection lost to %r, try next server', self.currentserver)
                                 else:
                                     self._logger.info('Rebalance to next server')
@@ -364,12 +370,13 @@ class ZooKeeperClient(Configurable):
                                 self._last_watch_zxid = last_watch_zxid = conn.zookeeper_last_watch_zxid
                                 last_conn_time = time()
                                 self.session_state = ZooKeeperSessionStateChanged.DISCONNECTED
-                                for m in self._container.waitForSend(ZooKeeperSessionStateChanged(
+                                await self._container.wait_for_send(
+                                            ZooKeeperSessionStateChanged(
                                                 ZooKeeperSessionStateChanged.DISCONNECTED,
                                                 self,
                                                 session_id
-                                            )):
-                                    yield m                                    
+                                            )
+                                        )                                    
                 finally:
                     conn.subroutine(conn.shutdown(True), False)
                     self.current_connection = None
@@ -382,10 +389,13 @@ class ZooKeeperClient(Configurable):
                                                 self,
                                                 session_id
                                             ))
+
     def chroot_path(self, path):
         return self.chroot + path
+
     def unchroot_path(self, path):
         return path[len(self.chroot):]
+
     def _analyze(self, request):
         if request.type in (zk.ZOO_EXISTS_OP, zk.ZOO_GETDATA_OP, zk.ZOO_GETACL_OP, zk.ZOO_GETCHILDREN_OP,
                             zk.ZOO_SYNC_OP, zk.ZOO_PING_OP, zk.ZOO_GETCHILDREN2_OP, zk.ZOO_SETAUTH_OP):
@@ -410,7 +420,8 @@ class ZooKeeperClient(Configurable):
                 elif request.type == zk.ZOO_GETCHILDREN_OP or request.type == zk.ZOO_GETCHILDREN2_OP:
                     watch_type = zk.CHILD_EVENT_DEF
         return (request, can_retry, watch_type)
-    def watch_path(self, path, watch_type, container):
+
+    async def watch_path(self, path, watch_type, container = None):
         '''
         Watch the specified path as specified type
         '''
@@ -429,21 +440,20 @@ class ZooKeeperClient(Configurable):
         # If the watchers are restored, restore the matchers
         restore_matcher = ZooKeeperRestoreWatches.createMatcher(self, self.session_id, True)
         while True:
-            yield (session_state, auth_failed, restore_matcher) + watch_matchers
-            if container.matcher is session_state or container.matcher is auth_failed:
-                raise ZooKeeperSessionUnavailable(container.event.state)
-            elif container.matcher is restore_matcher:
-                ev = container.event
+            ev, m = await M_(session_state, auth_failed, restore_matcher, *watch_matchers)
+            if m is session_state or m is auth_failed:
+                raise ZooKeeperSessionUnavailable(ev.state)
+            elif m is restore_matcher:
                 ev.restore_watches[{zk.CHANGED_EVENT_DEF : 0,
                                    zk.CREATED_EVENT_DEF : 1,
                                    zk.CHILD_EVENT_DEF : 2}[watch_type]].add(path)
             else:
-                watcher_event = container.event.message
+                watcher_event = ev.message
                 if watcher_event.path:
                     watcher_event.path = self.unchroot_path(watcher_event.path)
-                container.retvalue = watcher_event
-                break
-    def requests(self, requests, container, timeout = None, session_lock = None, callback = None, priority = 0):
+                return watcher_event
+
+    async def requests(self, requests, container, timeout = None, session_lock = None, callback = None, priority = 0):
         '''
         similar to vlcp.protocol.zookeeper.ZooKeeper.requests, but:
            1. Returns an extra item *watchers*, which is a list of objects corresponding to each request.
@@ -505,36 +515,32 @@ class ZooKeeperClient(Configurable):
             return resp
         while has_time_left() and not lost_responses and retry_requests:
             if self.session_state != ZooKeeperSessionStateChanged.CREATED:
-                def wait_for_connect():
+                async def wait_for_connect():
                     state_change = ZooKeeperSessionStateChanged.createMatcher(None, self)
                     while True:
-                        yield (state_change,)
-                        if container.event.state in (ZooKeeperSessionStateChanged.CREATED, ZooKeeperSessionStateChanged.RECONNECTED):
+                        ev = await state_change
+                        if ev.state in (ZooKeeperSessionStateChanged.CREATED, ZooKeeperSessionStateChanged.RECONNECTED):
                             break
                         elif self._shutdown:
                             raise ZooKeeperSessionUnavailable(self.session_state)
-                        elif session_lock is not None and (container.event.sessionid != session_lock or \
-                                                           container.event.state == ZooKeeperSessionStateChanged.EXPIRED):
+                        elif session_lock is not None and (ev.sessionid != session_lock or \
+                                                           ev.state == ZooKeeperSessionStateChanged.EXPIRED):
                             raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.EXPIRED)
                 try:
-                    with closing(container.executeWithTimeout(left_time(), wait_for_connect())) as g:
-                        for m in g:
-                            yield m
+                    timeout_, _ = await container.execute_with_timeout(left_time(), wait_for_connect())
                 except ZooKeeperSessionUnavailable:
                     if len(retry_requests) == len(requests):
                         raise
                     else:
                         break
-                if container.timeout:
+                if timeout_:
                     if len(retry_requests) == len(requests):
                         raise ZooKeeperSessionUnavailable(ZooKeeperSessionStateChanged.DISCONNECTED)
                     else:
                         break
             # retry all the requests
-            for m in self.protocol.requests(self.current_connection, retry_requests, container,
-                                            requests_callback, priority=priority):
-                yield m
-            new_result, new_lost, new_retry = container.retvalue
+            new_result, new_lost, new_retry = await self.protocol.requests(self.current_connection, retry_requests, container,
+                                                                           requests_callback, priority=priority)
             # Save the results
             result.update((k,unchroot_response(v)) for k,v in zip(retry_requests, new_result) if v is not None)
             if new_lost:
@@ -553,10 +559,11 @@ class ZooKeeperClient(Configurable):
                     retry_requests = new_retry
                     break
             retry_requests = new_retry
-        container.retvalue = ([result.get(r, None) for r in requests],
-                              lost_responses,
-                              retry_requests,
-                              [watchers.get(r, None) for r in requests])
+        return ([result.get(r, None) for r in requests],
+                lost_responses,
+                retry_requests,
+                [watchers.get(r, None) for r in requests])
+
     def get_last_zxid(self):
         '''
         Return the latest zxid seen from servers
@@ -565,6 +572,7 @@ class ZooKeeperClient(Configurable):
             return self._last_zxid
         else:
             return getattr(self.current_connection, 'zookeeper_lastzxid', self._last_zxid)
+
     def get_last_watch_zxid(self):
         '''
         Return the latest zxid seen from servers

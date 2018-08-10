@@ -10,8 +10,7 @@ from .event import Event,withIndices
 from time import time, sleep
 from datetime import datetime
 from signal import signal, SIGTERM, SIGINT
-from logging import getLogger, WARNING
-from collections import deque
+from logging import getLogger
 from vlcp.utils.indexedheap import IndexedHeap
 
 import sys
@@ -110,7 +109,6 @@ class Scheduler(object):
             # test only
             self.polling = self.MockPolling()
         self.timers = IndexedHeap()
-        self._canceled_timers = []
         self.quitsignal = False
         self.quitting = False
         self.generatecontinue = False
@@ -148,7 +146,7 @@ class Scheduler(object):
                     self.queue.unblock(e)
                 if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
                     self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], True)
-            self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).union(matchers)
+            self.registerIndex.setdefault(runnable, set()).update(matchers)
     def unregister(self, matchers, runnable):
         '''
         Unregister an iterator(runnable) and stop waiting for events
@@ -161,7 +159,7 @@ class Scheduler(object):
             self.matchtree.remove(m, runnable)
             if m.indices[0] == PollEvent._classname0 and len(m.indices) >= 2:
                 self.polling.onmatch(m.indices[1], None if len(m.indices) <= 2 else m.indices[2], False)
-        self.registerIndex[runnable] =self.registerIndex.get(runnable, set()).difference(matchers)
+        self.registerIndex.setdefault(runnable, set()).difference_update(matchers)
     def unregisterall(self, runnable):
         '''
         Unregister all matches and detach the runnable. Automatically called when runnable returns StopIteration.
@@ -226,8 +224,9 @@ class Scheduler(object):
         
         :param timer: the timer handle
         '''
+        
         # Pending this cancel to main loop to make it thread-safe
-        self._canceled_timers.append(timer)
+        self.timers.remove(timer)
     def registerPolling(self, fd, options = POLLING_IN|POLLING_OUT, daemon = False):
         '''
         register a polling file descriptor
@@ -316,12 +315,6 @@ class Scheduler(object):
         try:
             if sendinit:
                 self.queue.append(SystemControlEvent(SystemControlEvent.INIT), True)
-            def processCancelTimers():
-                while self._canceled_timers:
-                    _timer_len = len(self._canceled_timers)
-                    for i in range(_timer_len):
-                        self.timers.remove(self._canceled_timers[i])
-                    del self._canceled_timers[:_timer_len]
             def processSyscall():
                 while self.syscallfunc is not None:
                     r = getattr(self, 'syscallrunnable', None)
@@ -373,6 +366,36 @@ class Scheduler(object):
                 else:
                     for e in emptys:
                         processEvent(e)
+
+            def processQueueEvent(event):
+                """
+                Optimized with queue events
+                """
+                if self.debugging:
+                    self.logger.debug('Processing event %s', repr(event))
+                is_valid = event.is_valid()
+                if is_valid is None:
+                    processEvent(event)
+                else:
+                    while event.is_valid():
+                        result = self.matchtree.matchfirstwithmatcher(event)
+                        if result is None:
+                            break
+                        r, m = result
+                        try:
+                            self.syscallfunc = None
+                            self.syscallrunnable = None
+                            if self.debugging:
+                                self.logger.debug('Send event to %r, matched with %r', r, m)
+                            r.send((event, m))
+                        except StopIteration:
+                            self.unregisterall(r)
+                        except QuitException:
+                            self.unregisterall(r)
+                        except Exception:
+                            self.logger.exception('processing event %s failed with exception', repr(event))
+                            self.unregisterall(r)
+                        processSyscall()
             
             def processYields():
                 while self._pending_runnables:
@@ -393,7 +416,7 @@ class Scheduler(object):
                     del self._pending_runnables[:i]
             canquit = False
             self.logger.info('Main loop started')
-            last_time = current_time = self.current_time = time()
+            current_time = self.current_time = time()
             processYields()
             quitMatcher = SystemControlEvent.createMatcher(type=SystemControlEvent.QUIT)
             while len(self.registerIndex) > len(self.daemons):
@@ -404,7 +427,6 @@ class Scheduler(object):
                         self.logger.debug('Routines still not quit: %r', list(self.registerIndex.keys()))
                 if self.quitsignal:
                     self.quit()
-                processCancelTimers()
                 if canquit and not self.queue.canPop() and not self.timers:
                     if self.quitting:
                         break
@@ -419,10 +441,10 @@ class Scheduler(object):
                         # The event might block, must process it first
                         processEvent(e, emptys)
                         for qe in qes:
-                            processEvent(qe)
+                            processQueueEvent(qe)
                     else:
                         for qe in qes:
-                            processEvent(qe)
+                            processQueueEvent(qe)
                         processEvent(e, emptys)
                     processYields()
                     if quitMatcher.isMatch(e):
@@ -442,13 +464,14 @@ class Scheduler(object):
                                 self.unregisterall(r)
                             processSyscall()
                         processYields()
+                    if self.quitsignal:
+                        self.quit()
                     processedEvents += 1
                 if len(self.registerIndex) <= len(self.daemons):
                     break
                 end_time = time()
                 if end_time - current_time > 1:
                     self.logger.warning("An iteration takes %r seconds to process", end_time - current_time)
-                processCancelTimers()
                 if self.generatecontinue or self.queue.canPop():
                     wait = 0
                 elif not self.timers:
@@ -462,7 +485,6 @@ class Scheduler(object):
                     self.queue.append(e, True)
                 current_time = self.current_time = time()
                 now = current_time + 0.1
-                processCancelTimers()
                 while self.timers and self.timers.topPriority() < now:
                     t = self.timers.top()
                     if t.interval is not None:

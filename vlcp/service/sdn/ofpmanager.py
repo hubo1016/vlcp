@@ -5,7 +5,7 @@ Created on 2016/2/19
 '''
 
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module, api, depend, callAPI, ModuleNotification
+from vlcp.server.module import Module, api, depend, call_api, ModuleNotification
 from vlcp.event.runnable import RoutineContainer
 from vlcp.service.connection import openflowserver
 from vlcp.protocol.openflow import OpenflowConnectionStateEvent
@@ -13,7 +13,7 @@ from vlcp.event.connection import ConnectionResetException, ResolveRequestEvent,
     ResolveResponseEvent
 import itertools
 import socket
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 from vlcp.event.core import QuitException, syscall_removequeue
 from contextlib import closing
 
@@ -75,6 +75,7 @@ class OpenflowManager(Module):
                        api(self.unacquiretable, self.apiroutine),
                        api(self.lastacquiredtables)
                        )
+
     def _add_connection(self, conn):
         vhost = conn.protocol.vhost
         conns = self.managed_conns.setdefault((vhost, conn.openflow_datapathid), [])
@@ -101,7 +102,8 @@ class OpenflowManager(Module):
         if self._lastacquire and conn.openflow_auxiliaryid == 0:
             self.apiroutine.subroutine(self._initialize_connection(conn))
         return remove
-    def _initialize_connection(self, conn):
+
+    async def _initialize_connection(self, conn):
         ofdef = conn.openflowdef
         flow_mod = ofdef.ofp_flow_mod(buffer_id = ofdef.OFP_NO_BUFFER,
                                                  out_port = ofdef.OFPP_ANY,
@@ -119,8 +121,7 @@ class OpenflowManager(Module):
                                             group_id = ofdef.OFPG_ALL
                                             )
             cmds.append(group_mod)
-        for m in conn.protocol.batch(cmds, conn, self.apiroutine):
-            yield m
+        await conn.protocol.batch(cmds, conn, self.apiroutine)
         if hasattr(ofdef, 'ofp_instruction_goto_table'):
             # Create default flows
             vhost = conn.protocol.vhost
@@ -138,31 +139,28 @@ class OpenflowManager(Module):
                           for _,t in pathtable.items()
                           for i in range(0, len(t) - 1)]
                 if cmds:
-                    for m in conn.protocol.batch(cmds, conn, self.apiroutine):
-                        yield m
-        for m in self.apiroutine.waitForSend(FlowInitialize(conn, conn.openflow_datapathid, conn.protocol.vhost)):
-            yield m
-    def _acquire_tables(self):
+                    await conn.protocol.batch(cmds, conn, self.apiroutine)
+        await self.apiroutine.wait_for_send(FlowInitialize(conn, conn.openflow_datapathid, conn.protocol.vhost))
+
+    async def _acquire_tables(self):
         try:
             while self._acquire_updated:
                 result = None
                 exception = None
                 # Delay the update so we are not updating table acquires for every module
-                for m in self.apiroutine.waitForSend(TableAcquireDelayEvent()):
-                    yield m
-                yield (TableAcquireDelayEvent.createMatcher(),)
+                await self.apiroutine.wait_for_send(TableAcquireDelayEvent())
+                await TableAcquireDelayEvent.createMatcher()
                 module_list = list(self.table_modules)
                 self._acquire_updated = False
                 try:
-                    for m in self.apiroutine.executeAll((callAPI(self.apiroutine, module, 'gettablerequest', {}) for module in module_list)):
-                        yield m
+                    requests = await self.apiroutine.execute_all(call_api(self.apiroutine, module, 'gettablerequest', {})
+                                                                 for module in module_list)
                 except QuitException:
                     raise
                 except Exception as exc:
                     self._logger.exception('Acquiring table failed')
                     exception = exc
                 else:
-                    requests = [r[0] for r in self.apiroutine.retvalue]
                     vhosts = set(vh for _, vhs in requests if vhs is not None for vh in vhs)
                     vhost_result = {}
                     # Requests should be list of (name, (ancester, ancester, ...), pathname)
@@ -218,44 +216,42 @@ class OpenflowManager(Module):
         finally:
             self._acquiring = False
         if exception:
-            for m in self.apiroutine.waitForSend(TableAcquireUpdate(exception = exception)):
-                yield m
+            await self.apiroutine.wait_for_send(TableAcquireUpdate(exception = exception))
         else:
             result = vhost_result
             if result != self._lastacquire:
                 self._lastacquire = result
                 self._reinitall()
-            for m in self.apiroutine.waitForSend(TableAcquireUpdate(result = result)):
-                yield m
-    def load(self, container):
+            await self.apiroutine.wait_for_send(TableAcquireUpdate(result = result))
+
+    async def load(self, container):
         self.scheduler.queue.addSubQueue(1, TableAcquireDelayEvent.createMatcher(), 'ofpmanager_tableacquiredelay')
-        for m in container.waitForSend(TableAcquireUpdate(result = None)):
-            yield m
-        for m in Module.load(self, container):
-            yield m
-    def unload(self, container, force=False):
-        for m in Module.unload(self, container, force=force):
-            yield m
-        for m in container.syscall(syscall_removequeue(self.scheduler.queue, 'ofpmanager_tableacquiredelay')):
-            yield m
+        await container.wait_for_send(TableAcquireUpdate(result = None))
+        return await Module.load(self, container)
+
+    async def unload(self, container, force=False):
+        await Module.unload(self, container, force=force)
+        await container.syscall(syscall_removequeue(self.scheduler.queue, 'ofpmanager_tableacquiredelay'))
+
     def _reinitall(self):
         for cl in self.managed_conns.values():
             for c in cl:
                 self.apiroutine.subroutine(self._initialize_connection(c))
-    def _manage_existing(self):
-        for m in callAPI(self.apiroutine, "openflowserver", "getconnections", {}):
-            yield m
+
+    async def _manage_existing(self):
+        result = await call_api(self.apiroutine, "openflowserver", "getconnections", {})
         vb = self.vhostbind
-        for c in self.apiroutine.retvalue:
+        for c in result:
             if vb is None or c.protocol.vhost in vb:
                 self._add_connection(c)
         self._synchronized = True
-        for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):
-            yield m
-    def _wait_for_sync(self):
+        await self.apiroutine.wait_for_send(ModuleNotification(self.getServiceName(), 'synchronized'))
+
+    async def _wait_for_sync(self):
         if not self._synchronized:
-            yield (ModuleNotification.createMatcher(self.getServiceName(), 'synchronized'),)
-    def _manage_conns(self):
+            await ModuleNotification.createMatcher(self.getServiceName(), 'synchronized')
+
+    async def _manage_conns(self):
         vb = self.vhostbind
         self.apiroutine.subroutine(self._manage_existing(), False)
         try:
@@ -268,49 +264,47 @@ class OpenflowManager(Module):
                 conn_up = OpenflowConnectionStateEvent.createMatcher(state = OpenflowConnectionStateEvent.CONNECTION_SETUP)
                 conn_down = OpenflowConnectionStateEvent.createMatcher(state = OpenflowConnectionStateEvent.CONNECTION_DOWN)
             while True:
-                yield (conn_up, conn_down)
-                if self.apiroutine.matcher is conn_up:
-                    e = self.apiroutine.event
-                    remove = self._add_connection(e.connection)
-                    self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'update', add = [e.connection], remove = remove))
+                ev, m = await M_(conn_up, conn_down)
+                if m is conn_up:
+                    remove = self._add_connection(ev.connection)
+                    self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'update', add = [ev.connection], remove = remove))
                 else:
-                    e = self.apiroutine.event
-                    conns = self.managed_conns.get((e.createby.vhost, e.datapathid))
+                    conns = self.managed_conns.get((ev.createby.vhost, ev.datapathid))
                     remove = []
                     if conns is not None:
                         try:
-                            conns.remove(e.connection)
+                            conns.remove(ev.connection)
                         except ValueError:
                             pass
                         else:
-                            remove.append(e.connection)
+                            remove.append(ev.connection)
                         
                         if not conns:
-                            del self.managed_conns[(e.createby.vhost, e.datapathid)]
+                            del self.managed_conns[(ev.createby.vhost, ev.datapathid)]
                         # Also delete from endpoint_conns
-                        ep = _get_endpoint(e.connection)
-                        econns = self.endpoint_conns.get((e.createby.vhost, ep))
+                        ep = _get_endpoint(ev.connection)
+                        econns = self.endpoint_conns.get((ev.createby.vhost, ep))
                         if econns is not None:
                             try:
-                                econns.remove(e.connection)
+                                econns.remove(ev.connection)
                             except ValueError:
                                 pass
                             if not econns:
-                                del self.endpoint_conns[(e.createby.vhost, ep)]
+                                del self.endpoint_conns[(ev.createby.vhost, ep)]
                     if remove:
                         self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'update', add = [], remove = remove))
         finally:
             self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'unsynchronized'))
-    def getconnections(self, datapathid, vhost = ''):
+
+    async def getconnections(self, datapathid, vhost = ''):
         "Return all connections of datapath"
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = list(self.managed_conns.get((vhost, datapathid), []))
-    def getconnection(self, datapathid, auxiliaryid = 0, vhost = ''):
+        await self._wait_for_sync()
+        return list(self.managed_conns.get((vhost, datapathid), []))
+
+    async def getconnection(self, datapathid, auxiliaryid = 0, vhost = ''):
         "Get current connection of datapath"
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = self._getconnection(datapathid, auxiliaryid, vhost)
+        await self._wait_for_sync()
+        return self._getconnection(datapathid, auxiliaryid, vhost)
     def _getconnection(self, datapathid, auxiliaryid = 0, vhost = ''):
         conns = self.managed_conns.get((vhost, datapathid))
         if conns is None:
@@ -320,71 +314,67 @@ class OpenflowManager(Module):
                 if c.openflow_auxiliaryid == auxiliaryid:
                     return c
             return None
-    def waitconnection(self, datapathid, auxiliaryid = 0, timeout = 30, vhost = ''):
+
+    async def waitconnection(self, datapathid, auxiliaryid = 0, timeout = 30, vhost = ''):
         "Wait for a datapath connection"
-        for m in self._wait_for_sync():
-            yield m
+        await self._wait_for_sync()
         c = self._getconnection(datapathid, auxiliaryid, vhost)
         if c is None:
-            with closing(self.apiroutine.waitWithTimeout(timeout, 
-                            OpenflowConnectionStateEvent.createMatcher(datapathid, auxiliaryid,
-                                    OpenflowConnectionStateEvent.CONNECTION_SETUP,
-                                    _ismatch = lambda x: x.createby.vhost == vhost))) as g:
-                for m in g:
-                    yield m
-            if self.apiroutine.timeout:
+            timeout_, ev, _ = await self.apiroutine.wait_with_timeout(
+                                                    timeout, 
+                                                    OpenflowConnectionStateEvent.createMatcher(datapathid, auxiliaryid,
+                                                            OpenflowConnectionStateEvent.CONNECTION_SETUP,
+                                                            _ismatch = lambda x: x.createby.vhost == vhost))
+            if timeout_:
                 raise ConnectionResetException('Datapath %016x is not connected' % datapathid)
-            self.apiroutine.retvalue = self.apiroutine.event.connection
+            return ev.connection
         else:
-            self.apiroutine.retvalue = c
-    def getdatapathids(self, vhost = ''):
+            return c
+
+    async def getdatapathids(self, vhost = ''):
         "Get All datapath IDs"
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = [k[1] for k in self.managed_conns.keys() if k[0] == vhost]
-    def getalldatapathids(self):
+        await self._wait_for_sync()
+        return [k[1] for k in self.managed_conns.keys() if k[0] == vhost]
+
+    async def getalldatapathids(self):
         "Get all datapath IDs from any vhost. Return ``(vhost, datapathid)`` pair."
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = list(self.managed_conns.keys())
-    def getallconnections(self, vhost = ''):
+        await self._wait_for_sync()
+        return list(self.managed_conns.keys())
+
+    async def getallconnections(self, vhost = ''):
         "Get all connections from vhost. If vhost is None, return all connections from any host"
-        for m in self._wait_for_sync():
-            yield m
+        await self._wait_for_sync()
         if vhost is None:
-            self.apiroutine.retvalue = list(itertools.chain(self.managed_conns.values()))
+            return list(itertools.chain(self.managed_conns.values()))
         else:
-            self.apiroutine.retvalue = list(itertools.chain(v for k,v in self.managed_conns.items() if k[0] == vhost))
-    def getconnectionsbyendpoint(self, endpoint, vhost = ''):
+            return list(itertools.chain(v for k,v in self.managed_conns.items() if k[0] == vhost))
+
+    async def getconnectionsbyendpoint(self, endpoint, vhost = ''):
         "Get connection by endpoint address (IP, IPv6 or UNIX socket address)"
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = self.endpoint_conns.get((vhost, endpoint))
-    def getconnectionsbyendpointname(self, name, vhost = '', timeout = 30):
+        await self._wait_for_sync()
+        return self.endpoint_conns.get((vhost, endpoint))
+
+    async def getconnectionsbyendpointname(self, name, vhost = '', timeout = 30):
         "Get connection by endpoint name (Domain name, IP or IPv6 address)"
         # Resolve the name
         if not name:
             endpoint = ''
-            for m in self.getconnectionbyendpoint(endpoint, vhost):
-                yield m
+            return await self.getconnectionbyendpoint(endpoint, vhost)
         else:
             request = (name, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG | socket.AI_V4MAPPED)
             # Resolve hostname
-            for m in self.apiroutine.waitForSend(ResolveRequestEvent(request)):
-                yield m
-            with closing(self.apiroutine.waitWithTimeout(timeout, ResolveResponseEvent.createMatcher(request))) as g:
-                for m in g:
-                    yield m
-            if self.apiroutine.timeout:
+            await self.apiroutine.wait_for_send(ResolveRequestEvent(request))
+            timeout_, ev, m = await self.apiroutine.wait_with_timeout(timeout, ResolveResponseEvent.createMatcher(request))
+            if timeout_:
                 # Resolve is only allowed through asynchronous resolver
                 #try:
                 #    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
                 #except:
                 raise IOError('Resolve hostname timeout: ' + name)
             else:
-                if hasattr(self.apiroutine.event, 'error'):
+                if hasattr(ev, 'error'):
                     raise IOError('Cannot resolve hostname: ' + name)
-                resp = self.apiroutine.event.response
+                resp = ev.response
                 for r in resp:
                     raddr = r[4]
                     if isinstance(raddr, tuple):
@@ -393,24 +383,26 @@ class OpenflowManager(Module):
                     else:
                         # Unix socket? This should not happen, but in case...
                         endpoint = raddr
-                    for m in self.getconnectionsbyendpoint(endpoint, vhost):
-                        yield m
-                    if self.apiroutine.retvalue is not None:
-                        break
-    def getendpoints(self, vhost = ''):
+                    r = await self.getconnectionsbyendpoint(endpoint, vhost)
+                    if r is not None:
+                        return r
+            return None
+
+    async def getendpoints(self, vhost = ''):
         "Get all endpoints for vhost"
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = [k[1] for k in self.endpoint_conns if k[0] == vhost]
-    def getallendpoints(self):
+        await self._wait_for_sync()
+        return [k[1] for k in self.endpoint_conns if k[0] == vhost]
+
+    async def getallendpoints(self):
         "Get all endpoints from any vhost. Return ``(vhost, endpoint)`` pairs."
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = list(self.endpoint_conns.keys())
+        await self._wait_for_sync()
+        return list(self.endpoint_conns.keys())
+
     def lastacquiredtables(self, vhost = ""):
         "Get acquired table IDs"
         return self._lastacquire.get(vhost)
-    def acquiretable(self, modulename):
+
+    async def acquiretable(self, modulename):
         "Start to acquire tables for a module on module loading."
         if not modulename in self.table_modules:
             self.table_modules.add(modulename)
@@ -418,10 +410,8 @@ class OpenflowManager(Module):
             if not self._acquiring:
                 self._acquiring = True
                 self.apiroutine.subroutine(self._acquire_tables())
-        self.apiroutine.retvalue = None
-        if False:
-            yield
-    def unacquiretable(self, modulename):
+
+    async def unacquiretable(self, modulename):
         "When module is unloaded, stop acquiring tables for this module."
         if modulename in self.table_modules:
             self.table_modules.remove(modulename)
@@ -429,6 +419,3 @@ class OpenflowManager(Module):
             if not self._acquiring:
                 self._acquiring = True
                 self.apiroutine.subroutine(self._acquire_tables())
-        self.apiroutine.retvalue = None
-        if False:
-            yield

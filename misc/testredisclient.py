@@ -10,91 +10,66 @@ from vlcp.event.runnable import RoutineContainer
 from vlcp.utils.redisclient import RedisClient
 from vlcp.server import main
 from time import time
+from vlcp.event.event import M_
 
 class MainRoutine(RoutineContainer):
     def __init__(self, client, scheduler=None, daemon=False):
         RoutineContainer.__init__(self, scheduler=scheduler, daemon=daemon)
         self.client = client
-    def main(self):
+
+    async def main(self):
         with self.client.context(self):
-            for m in self.client.execute_command(self, 'ping'):
-                yield m
-            print(self.retvalue)
-            for m in self.client.execute_command(self, 'set', 'abc', 'def'):
-                yield m
-            print(self.retvalue)
-            for m in self.client.execute_command(self, 'get', 'abc'):
-                yield m
-            print(self.retvalue)
-            def sub():
-                for m in self.waitWithTimeout(1):
-                    yield m
-                for m in self.client.execute_command(self, 'lpush', 'test', 'value'):
-                    yield m
+            print(await self.client.execute_command(self, 'ping'))
+            print(await self.client.execute_command(self, 'set', 'abc', 'def'))
+            print(await self.client.execute_command(self, 'get', 'abc'))
+            async def sub():
+                await self.wait_with_timeout(1)
+                return await self.client.execute_command(self, 'lpush', 'test', 'value')
             self.subroutine(sub(), True)
-            for m in self.client.execute_command(self, 'brpop', 'test', '0'):
-                yield m
-            print(self.retvalue)
-            for m in self.client.subscribe(self, 'skey'):
-                yield m
-            matchers = self.retvalue
-            def sub2():
-                for m in self.client.execute_command(self, 'publish', 'skey', 'svalue'):
-                    yield m
+            print(await self.client.execute_command(self, 'brpop', 'test', '0'))
+            matchers = await self.client.subscribe(self, 'skey')
+            async def sub2():
+                await self.client.execute_command(self, 'publish', 'skey', 'svalue')
             self.subroutine(sub2(), True)
-            yield matchers
-            print(self.event.message)
-            for m in self.client.get_connection(self):
-                yield m
-            newconn = self.retvalue
+            ev, m = await M_(*matchers)
+            print(ev.message)
+            newconn = await self.client.get_connection(self)
             with newconn.context(self):
-                for m in newconn.batch_execute(self, ('get','abc'),('set','abc','ghi'),('get','abc')):
-                    yield m
-                print(self.retvalue) 
-            for m in self.client.unsubscribe(self, 'skey'):
-                yield m
+                print(await newconn.batch_execute(self, ('get','abc'),('set','abc','ghi'),('get','abc'))) 
+            await self.client.unsubscribe(self, 'skey')
             t = time()
             for i in range(0, 10000):
-                for m in self.client.execute_command(self, 'set', 'abc', 'def'):
-                    yield m
+                await self.client.execute_command(self, 'set', 'abc', 'def')
             print(time() - t)
             bc = (('set', 'abc', 'def'),) * 100
             t = time()
             for i in range(0, 100):
-                for m in self.client.batch_execute(self, *bc):
-                    yield m
+                await self.client.batch_execute(self, *bc)
             print(time() - t)
             bc = (('set', 'abc', 'def'),) * 10000
             t = time()
-            for m in self.client.batch_execute(self, *bc):
-                yield m
+            await self.client.batch_execute(self, *bc)
             print(time() - t)
-            def sub3():
+            async def sub3():
                 for i in range(0, 100):
-                    for m in self.client.execute_command(self, 'set', 'abc', 'def'):
-                        yield m
+                    await self.client.execute_command(self, 'set', 'abc', 'def')
             subroutines = [sub3() for i in range(0,100)]
             t = time()
-            for m in self.executeAll(subroutines):
-                yield m
+            await self.execute_all(subroutines)
             print(time() - t)
             connections = []
             for i in range(0, 100):
-                for m in self.client.get_connection(self):
-                    yield m
-                connections.append(self.retvalue)
-            def sub4(c):
+                connections.append(await self.client.get_connection(self))
+            async def sub4(c):
                 for i in range(0, 100):
-                    for m in c.execute_command(self, 'set', 'abc', 'def'):
-                        yield m
+                    await c.execute_command(self, 'set', 'abc', 'def')
             subroutines = [sub4(c) for c in connections]
             t = time()
-            for m in self.executeAll(subroutines):
-                yield m
+            await self.execute_all(subroutines)
             print(time() - t)
             for c in connections:
-                for m in c.release(self):
-                    yield m
+                await c.release(self)
+
 
 class MainModule(Module):
     def __init__(self, server):

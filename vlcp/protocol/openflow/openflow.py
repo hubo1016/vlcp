@@ -15,6 +15,7 @@ import os
 from namedstruct import dump
 from contextlib import closing
 from vlcp.event.ratelimiter import RateLimiter
+from vlcp.event.event import M_
 
 
 @withIndices('datapathid', 'auxiliaryid', 'state', 'connection', 'connmark', 'createby')
@@ -65,7 +66,11 @@ class OpenflowErrorResultException(Exception):
     """
     OpenFlow returns error
     """
-    pass
+    def __init__(self, errormsg, prompt = 'An error message is returned: ', result = None):
+        if result is None:
+            result = errormsg
+        Exception.__init__(self, prompt + repr(dump(errormsg)))
+        self.result = result
 
 @defaultconfig
 class Openflow(Protocol):
@@ -107,7 +112,7 @@ class Openflow(Protocol):
         Protocol.__init__(self)
         if allowedVersions is not None:
             self.allowedversions = allowedVersions
-    def handler(self, connection):
+    async def handler(self, connection):
         try:
             # Create a hello message
             connmark = connection.connmark
@@ -125,18 +130,15 @@ class Openflow(Protocol):
             versionbitmap.bitmaps.append(thisBitmap)
             hello.elements.append(versionbitmap)
             write = self.formatrequest(hello, connection)
-            for m in connection.write(write, False):
-                yield m
+            await connection.write(write, False)
             # Wait for a hello
             hellomatcher = OpenflowPresetupMessageEvent.createMatcher(connection = connection)
-            with closing(connection.waitWithTimeout(self.hellotimeout, hellomatcher)) as g:
-                for m in g:
-                    yield m
-            if connection.timeout:
+            timeout, ev, _ = await connection.wait_with_timeout(self.hellotimeout, hellomatcher)
+            if timeout:
                 # Drop the connection
                 raise OpenflowProtocolException('Did not receive hello message before timeout')
             else:
-                msg = connection.event.message
+                msg = ev.message
                 if msg.header.type != common.OFPT_HELLO:
                     raise OpenflowProtocolException('The first packet on this connection is not OFPT_HELLO')
                 else:
@@ -169,11 +171,9 @@ class Openflow(Protocol):
                         else:
                             hellofail.data = ('Openflow version is not supported\x00' % (common.ofp_version.getName(helloversion, str(helloversion)),)).encode()
                         write = self.formatreply(hellofail, msg, connection)
-                        for m in connection.write(write):
-                            yield m
-                        for m in connection.reset(False, connmark):
-                            yield m
-                        raise GeneratorExit
+                        await connection.write(write)
+                        await connection.reset(False, connmark)
+                        return
                     else:
                         # Still we may receive a hello fail from the other side, we should expect that.
                         # The error message may come before feature request is sent.
@@ -187,19 +187,16 @@ class Openflow(Protocol):
                         featurereq.header.type = currdef.OFPT_FEATURES_REQUEST
                         write = self.formatrequest(featurereq, connection)
                         try:
-                            for m in connection.withException(connection.write(write, False), err_matcher):
-                                yield m
+                            await connection.with_exception(connection.write(write, False), err_matcher)
                             featurereply_matcher = OpenflowPresetupMessageEvent.createMatcher(connection = connection, type = currdef.OFPT_FEATURES_REPLY)
-                            with closing(connection.waitWithTimeout(self.featurerequesttimeout, featurereply_matcher, err_matcher)) as g:
-                                for m in g:
-                                    yield m
-                            if connection.timeout:
+                            timeout, ev, m = await connection.wait_with_timeout(self.featurerequesttimeout, featurereply_matcher, err_matcher)
+                            if timeout:
                                 raise OpenflowProtocolException('Remote switch did not response to feature request.')
-                            elif connection.matcher is err_matcher:
-                                self._logger.warning('Error while request feature: %r Connection = %r', connection.event.message, connection)
-                                raise OpenflowProtocolException('Error while request feature: %r' % (connection.event.message,))
+                            elif m is err_matcher:
+                                self._logger.warning('Error while request feature: %r Connection = %r', ev.message, connection)
+                                raise OpenflowProtocolException('Error while request feature: %r' % (ev.message,))
                             else:
-                                msg = connection.event.message
+                                msg = ev.message
                                 connection.openflow_featuresreply = msg
                                 connection.openflow_datapathid = msg.datapath_id
                                 connection.openflow_auxiliaryid = getattr(msg, 'auxiliary_id', 0)
@@ -207,27 +204,21 @@ class Openflow(Protocol):
                                 connection.openflow_n_buffers = msg.n_buffers
                                 connection.openflow_n_tables = msg.n_tables
                                 statechange = OpenflowConnectionStateEvent(connection.openflow_datapathid, connection.openflow_auxiliaryid, OpenflowConnectionStateEvent.CONNECTION_SETUP, connection, connection.connmark, self)
-                                for m in connection.waitForSend(statechange):
-                                    yield m
+                                await connection.wait_for_send(statechange)
                                 for msg in connection.openflow_msgbuffer:
                                     e = self._createevent(connection, msg)
                                     if e is not None:
-                                        for m in connection.waitForSend(e):
-                                            yield m
+                                        await connection.wait_for_send(e)
                         except RoutineException as exc:
                             self._logger.warning('Remote report hello fail: %r Connection = %r', common.dump(exc.arguments[1].message), connection)
-                            for m in connection.reset(True, connmark):
-                                yield m
-                            raise GeneratorExit
+                            await connection.reset(True, connmark)
+                            return
         except QuitException:
-            pass
-        except GeneratorExit:
             pass
         except:
             self._logger.exception('Unexpected exception on processing openflow protocols, Connection = %r', connection)
-            def _cleanup():
-                for m in connection.reset(True, connmark):
-                    yield m
+            async def _cleanup():
+                await connection.reset(True, connmark)
             connection.subroutine(_cleanup(), False)
             raise
     def formatrequest(self, request, connection, assignxid = True):
@@ -266,48 +257,52 @@ class Openflow(Protocol):
             return OpenflowConnectionStateEvent.createMatcher(connection.openflow_datapathid, connection.openflow_auxiliaryid, state, connection, connection.connmark)
         else:
             return OpenflowConnectionStateEvent.createMatcher(connection.openflow_datapathid, connection.openflow_auxiliaryid, state)
-    def querywithreply(self, request, connection, container, raiseonerror = True):
+    async def querywithreply(self, request, connection, container = None, raiseonerror = True):
         """
         Send an OpenFlow normal request, wait for the response of this request. The request must have
-        exactly one response. The reply is stored to `container.openflow_reply`
+        exactly one response.
         """
-        for m in connection.write(self.formatrequest(request, connection), False):
-            yield m
+        await connection.write(self.formatrequest(request, connection), False)
         reply = self.replymatcher(request, connection)
         conndown = self.statematcher(connection)
-        yield (reply, conndown)
-        if container.matcher is conndown:
+        ev, m = await M_(reply, conndown)
+        if m is conndown:
             raise OpenflowProtocolException('Connection is down before reply received')
-        container.openflow_reply = container.event.message
-        if container.event.iserror:
-            raise OpenflowErrorResultException('An error message is returned: ' + repr(dump(container.event.message)))
-    def querymultipart(self, request, connection, container, raiseonerror = True):
+        if ev.iserror:
+            raise OpenflowErrorResultException(ev.message)
+        else:
+            return ev.message
+
+    async def querymultipart(self, request, connection, container = None, raiseonerror = True):
         """
         Send a multipart request, wait for all the responses. Return a list of reply messages
-        by `container.openflow_reply`
         """
-        for m in connection.write(self.formatrequest(request, connection), False):
-            yield m
+        await connection.write(self.formatrequest(request, connection), False)
         reply = self.replymatcher(request, connection)
         conndown = self.statematcher(connection)
         messages = []
         while True:
-            yield (reply, conndown)
-            if container.matcher is conndown:
+            ev, m = await M_(reply, conndown)
+            if m is conndown:
                 raise OpenflowProtocolException('Connection is down before reply received')
-            msg = container.event.message
+            msg = ev.message
             messages.append(msg)
             if msg.header.type == common.OFPT_ERROR or not (msg.flags & common.OFPSF_REPLY_MORE):
                 if msg.header.type == common.OFPT_ERROR and raiseonerror:
-                    container.openflow_reply = messages
-                    raise OpenflowErrorResultException('An error message is returned: ' + repr(dump(msg)))
+                    raise OpenflowErrorResultException(msg, result=messages)
                 break
-        container.openflow_reply = messages
-    def batch(self, requests, connection, container, raiseonerror = True):
+        return messages
+
+    async def batch(self, requests, connection, container, raiseonerror = True):
         """
         Send multiple requests, return when all the requests are done. Requests can have no responses.
-        `container.openflow_reply` is the list of messages in receiving order. `container.openflow_replydict`
-        is the dictionary `{request:reply}`. The attributes are set even if an OpenflowErrorResultException is raised.
+        The attributes are set even if an OpenflowErrorResultException is raised.
+        
+        :return: (openflow_reply, openflow_replydict) in which `openflow_reply` is the list of messages in receiving order.
+                `openflow_replydict` is the dictionary `{request:reply}`.
+        
+        :raise OpenflowErrorResultException: when some replies are errors. `exc.result` returns
+                                             (openflow_reply, openflow_replydict)
         """
         for r in requests:
             self.assignxid(r, connection)
@@ -324,28 +319,26 @@ class Openflow(Protocol):
                 firsterror[0] = msg
             replydict.setdefault(matcher, []).append(msg)
             replymessages.append(msg)
-        def batchprocess():
+        async def batchprocess():
             for r in requests:
-                for m in connection._rate_limiter.limit():
-                    yield m
-                for m in connection.write(self.formatrequest(r, connection, False), False):
-                    yield m
+                await connection._rate_limiter.limit()
+                await connection.write(self.formatrequest(r, connection, False), False)
             barrier = connection.openflowdef.ofp_msg.new()
             barrier.header.type = connection.openflowdef.OFPT_BARRIER_REQUEST
-            for m in container.waitForSend(self.formatrequest(barrier, connection)):
-                yield m
+            await container.wait_for_send(self.formatrequest(barrier, connection))
             barrierreply = self.replymatcher(barrier, connection)
-            yield (barrierreply,)
-        for m in container.withCallback(batchprocess(), callback, conndown, *replymatchers.keys()):
-            yield m
-        container.openflow_reply = replymessages
-        container.openflow_replydict = dict((replymatchers[k],v) for k,v in replydict.items())
+            await barrierreply
+        await container.with_callback(batchprocess(), callback, conndown, *replymatchers.keys())
+        openflow_reply = replymessages
+        openflow_replydict = dict((replymatchers[k],v) for k,v in replydict.items())
         if firsterror[0] and raiseonerror:
-            raise OpenflowErrorResultException('One or more error message is returned from a batch process, the first is: '
-                                               + repr(dump(firsterror[0])))
-    def init(self, connection):
-        for m in Protocol.init(self, connection):
-            yield m
+            raise OpenflowErrorResultException(firsterror[0], 'One or more error message is returned from a batch process, the first is: ',
+                                               result=(openflow_reply, openflow_replydict))
+        else:
+            return (openflow_reply, openflow_replydict)
+
+    async def init(self, connection):
+        await Protocol.init(self, connection)
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, OpenflowPresetupMessageEvent.createMatcher(connection = connection), ('presetup', connection)))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
@@ -360,32 +353,25 @@ class Openflow(Protocol):
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.writepriority + 10, ConnectionWriteEvent.createMatcher(connection = connection, _ismatch = lambda x: hasattr(x, 'echoreply') and x.echoreply), ('echoreply', connection)))
         connection._rate_limiter = RateLimiter(200, connection)
-        for m in self.reconnect_init(connection):
-            yield m
-    def reconnect_init(self, connection):
+        await self.reconnect_init(connection)
+    async def reconnect_init(self, connection):
         connection.xid = ord(os.urandom(1)) + 1
         connection.openflowversion = 0
         connection.openflow_datapathid = None
         connection.openflow_msgbuffer = []
         connection.subroutine(self.handler(connection), asyncStart = False, name = 'handler')
-        if False:
-            yield
-    def closed(self, connection):
-        for m in Protocol.closed(self, connection):
-            yield m
+    async def closed(self, connection):
+        await Protocol.closed(self, connection)
         connection.handler.close()
         self._logger.info('Openflow connection is closed on %r', connection)
         if connection.openflow_datapathid is not None:
-            for m in connection.waitForSend(OpenflowConnectionStateEvent(connection.openflow_datapathid, connection.openflow_auxiliaryid, OpenflowConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
-                yield m
-    def error(self, connection):
-        for m in Protocol.error(self, connection):
-            yield m
+            await connection.wait_for_send(OpenflowConnectionStateEvent(connection.openflow_datapathid, connection.openflow_auxiliaryid, OpenflowConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self))
+    async def error(self, connection):
+        await Protocol.error(self, connection)
         connection.handler.close()
         self._logger.warning('Openflow connection is reset on %r', connection)
         if connection.openflow_datapathid is not None:
-            for m in connection.waitForSend(OpenflowConnectionStateEvent(connection.openflow_datapathid, connection.openflow_auxiliaryid, OpenflowConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
-                yield m
+            await connection.wait_for_send(OpenflowConnectionStateEvent(connection.openflow_datapathid, connection.openflow_auxiliaryid, OpenflowConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self))
     def _createevent(self, connection, msg):
         if msg.header.type == common.OFPT_ECHO_REQUEST:
             # Direct reply without enqueue
@@ -468,17 +454,14 @@ class Openflow(Protocol):
             # Remote write close
             events.append(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
         return (events, len(data) - start)
-    def keepalive(self, connection):
+    async def keepalive(self, connection):
         echo = common.ofp_echo()
         echo.header.version = connection.openflowversion
         try:
-            with closing(connection.executeWithTimeout(self.keepalivetimeout, self.querywithreply(echo, connection, connection))) as g:
-                for m in g:
-                    yield m
-            if connection.timeout:
-                for m in connection.reset(True):
-                    yield m
+            timeout, _ = await connection.execute_with_timeout(self.keepalivetimeout, self.querywithreply(echo, connection, connection))
+            if timeout:
+                self._logger.warning("Keepalive timeout on connection %r with exception, reset the connection", connection)
+                await connection.reset(True)
         except Exception:
-            for m in connection.reset(True):
-                yield m
-    
+            self._logger.warning("Keepalive failed on connection %r with exception, reset the connection", connection, exc_info=True)
+            await connection.reset(True)

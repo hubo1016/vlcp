@@ -26,37 +26,28 @@ class TcpTestProtocol(Protocol):
     _default_totalsend = 10
     def __init__(self, server = False):
         self.server = server
-    def init(self, connection):
-        for m in Protocol.init(self, connection):
-            yield m
+    async def init(self, connection):
+        await Protocol.init(self, connection)
         if not self.server:
             connection.subroutine(connection.executeWithTimeout(self.totalsend + 1.0, self._clientroutine(connection)), False, 'protocolroutine')
         else:
-            for m in connection.write(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True)):
-                yield m
-        for m in connection.waitForSend(TestConnectionEvent(TestConnectionEvent.UP, connection)):
-            yield m
-    def closed(self, connection):
-        for m in Protocol.closed(self, connection):
-            yield m
-        for m in connection.waitForSend(TestConnectionEvent(TestConnectionEvent.DOWN, connection)):
-            yield m
-    def error(self, connection):
-        for m in Protocol.closed(self, connection):
-            yield m
-        for m in connection.waitForSend(TestConnectionEvent(TestConnectionEvent.DOWN, connection)):
-            yield m
-    def _clientroutine(self, connection):
+            await connection.write(ConnectionWriteEvent(connection, connection.connmark, data = b'', EOF = True))
+        await connection.wait_for_send(TestConnectionEvent(TestConnectionEvent.UP, connection))
+    async def closed(self, connection):
+        await Protocol.closed(self, connection)
+        await connection.wait_for_send(TestConnectionEvent(TestConnectionEvent.DOWN, connection))
+    async def error(self, connection):
+        await Protocol.error(self, connection)
+        await connection.wait_for_send(TestConnectionEvent(TestConnectionEvent.DOWN, connection))
+    async def _clientroutine(self, connection):
         # Send Data Until Connection closed
         try:
             data = b'\x00' * self.buffersize
             while True:
                 we = ConnectionWriteEvent(connection, connection.connmark, data = data)
-                for m in connection.write(we, False):
-                    yield m
+                await connection.write(we, False)
         except Exception:
-            for m in connection.shutdown(True):
-                yield m
+            await connection.shutdown(True)
             raise
     def parse(self, connection, data, laststart):
         return ([], 0)
@@ -69,29 +60,29 @@ class Sampler(RoutineContainer):
         self.idg = 0
         self.interval = interval
         self.server = server
-    def main(self):
+    async def main(self):
         em = TestConnectionEvent.createMatcher()
         self.sampler = None
         while True:
-            yield (em,)
-            if self.event.state == TestConnectionEvent.UP:
+            ev = await em
+            if ev.state == TestConnectionEvent.UP:
                 if self.server:
-                    self.connections[self.event.connection] = self.event.connection.totalrecv
+                    self.connections[ev.connection] = ev.connection.totalrecv
                 else:
-                    self.connections[self.event.connection] = self.event.connection.totalsend
-                identifier = '[%3d]' % (self.event.connection.socket.fileno(),)
-                self.identifiers[self.event.connection] = identifier
-                print('%s Connected: %r' % (identifier, self.event.connection))
+                    self.connections[ev.connection] = ev.connection.totalsend
+                identifier = '[%3d]' % (ev.connection.socket.fileno(),)
+                self.identifiers[ev.connection] = identifier
+                print('%s Connected: %r' % (identifier, ev.connection))
                 if not self.sampler:
                     self.subroutine(self._sampleroutine(), True, 'sampler', True)
             else:
-                print('%s Disconnected' % (self.identifiers[self.event.connection]))
-                del self.connections[self.event.connection]
-                del self.identifiers[self.event.connection]
+                print('%s Disconnected' % (self.identifiers[ev.connection]))
+                del self.connections[ev.connection]
+                del self.identifiers[ev.connection]
                 if not self.connections:
                     self.terminate(self.sampler)
                     self.sampler = None
-    def _sampleroutine(self):
+    async def _sampleroutine(self):
         th = self.scheduler.setTimer(self.interval, self.interval)
         try:
             tm = TimerEvent.createMatcher(th)
@@ -99,7 +90,7 @@ class Sampler(RoutineContainer):
             t = 0
             interval = self.interval
             while True:
-                yield (tm,)
+                await tm
                 ct = time()
                 tc = 0
                 if self.connections:

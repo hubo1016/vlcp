@@ -1,7 +1,7 @@
 #! /usr/bin/python
 # --*-- utf-8 --*--
 
-from vlcp.utils.dataobject import DataObject,DataObjectSet
+from vlcp.utils.dataobject import DataObject,DataObjectSet, Relationship
 
 class PhysicalNetwork(DataObject):
     _prefix = 'viperflow.physicalnetwork'
@@ -10,13 +10,17 @@ class PhysicalNetwork(DataObject):
 class PhysicalNetworkMap(DataObject):
     _prefix = 'viperflow.physicalnetworkmap'
     _indices = ("id",)
-    
-    def __init__(self,prefix = None,deleted = False):
+    _network = None
+    def __init__(self, prefix = None, deleted = False):
         super(PhysicalNetworkMap,self).__init__(
                 prefix = prefix,deleted = deleted)
         self.logicnetworks = DataObjectSet()
         self.network_allocation = dict()
         self.ports = DataObjectSet()
+
+
+PhysicalNetworkMap._network = Relationship(PhysicalNetworkMap, PhysicalNetwork, ('id', 'id'))
+
 
 class PhysicalNetworkSet(DataObject):
     _prefix = 'viperflow.physicalnetworkset'
@@ -54,6 +58,10 @@ class LogicalNetworkMap(DataObject):
         self.ports = DataObjectSet()
         self.subnets = DataObjectSet()
 
+
+LogicalNetworkMap._network = Relationship(LogicalNetworkMap, LogicalNetwork, ('id', 'id'))
+
+
 class LogicalNetworkSet(DataObject):
     _prefix = 'viperflow.logicalnetworkset'
 
@@ -89,6 +97,11 @@ class SubNetMap(DataObject):
         super(SubNetMap, self).__init__(
                 prefix=prefix, deleted=deleted)
         self.allocated_ips = dict()
+        self.routers = DataObjectSet()
+        self.routerports = dict()
+
+
+SubNetMap._subnet = Relationship(SubNetMap, SubNet, ('id', 'id'))
 
 
 class SubNetSet(DataObject):
@@ -163,6 +176,9 @@ class VXLANEndpointSet(DataObject):
         self.endpointlist = []
 
 
+VXLANEndpointSet._network = Relationship(LogicalNetwork, VXLANEndpointSet, ('id', 'id'))
+
+
 LogicalNetwork._register_auto_remove('VXLANEndpointSet', lambda x: [VXLANEndpointSet.default_key(x.id)])
 
 
@@ -172,6 +188,10 @@ class LogicalPortVXLANInfo(DataObject):
     def __init__(self, prefix=None, deleted=False):
         super(LogicalPortVXLANInfo, self).__init__(prefix=prefix, deleted=deleted)
         self.endpoints = []
+
+
+LogicalPortVXLANInfo._port = Relationship(LogicalPortVXLANInfo, LogicalPort, ('id', 'id'))
+
 
 LogicalPort._register_auto_remove('LogicalPortVXLANInfo', lambda x: [LogicalPortVXLANInfo.default_key(x.id)])
 

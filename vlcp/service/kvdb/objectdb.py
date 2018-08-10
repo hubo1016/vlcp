@@ -6,18 +6,22 @@ Created on 2016/3/24
 from vlcp.config.config import defaultconfig
 import vlcp.service.kvdb.storage as storage
 import vlcp.service.kvdb.redisnotifier as redisnotifier
-from vlcp.server.module import depend, Module, callAPI, api
+from vlcp.server.module import depend, Module, call_api, api
 import vlcp.utils.dataobject as dataobj
 from vlcp.event.runnable import RoutineContainer
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 from time import time
 from copy import deepcopy
 from vlcp.event.core import QuitException, syscall_removequeue
 import itertools
 from vlcp.utils.dataobject import AlreadyExistsException, UniqueKeyReference,\
     MultiKeyReference, DataObjectSet, UniqueKeySet, WeakReferenceObject,\
-    MultiKeySet, ReferenceObject
+    MultiKeySet, ReferenceObject, request_context
 from contextlib import closing
+import functools
+import copy
+from vlcp.utils.exceptions import AsyncTransactionLockException, StaleResultException,\
+    TransactionRetryExceededException, TransactionTimeoutException, WalkKeyNotRetrieved
 
 try:
     from itertools import izip
@@ -51,13 +55,9 @@ def _str2(b):
         return str(b)
 
 
-class StaleResultException(Exception):
-    def __init__(self, result, desc = "Result is stale"):
-        Exception.__init__(desc)
-        self.result = result
-
 class _NeedMoreKeysException(Exception):
     pass
+
 
 @defaultconfig
 @depend(storage.KVStorage, redisnotifier.UpdateNotifier)
@@ -75,6 +75,7 @@ class ObjectDB(Module):
         Module.__init__(self, server)
         self._managed_objs = {}
         self._watches = {}
+        self._requestids = {}
         self._watchedkeys = set()
         self._requests = []
         self._transactno = 0
@@ -86,7 +87,7 @@ class ObjectDB(Module):
         self.apiroutine = RoutineContainer(self.scheduler)
         self.apiroutine.main = self._update
         self.routines.append(self.apiroutine)
-        self.createAPI(api(self.mget, self.apiroutine),
+        self.create_api(api(self.mget, self.apiroutine),
                        api(self.get, self.apiroutine),
                        api(self.mgetonce, self.apiroutine),
                        api(self.getonce, self.apiroutine),
@@ -97,23 +98,52 @@ class ObjectDB(Module):
                        api(self.unwatchall, self.apiroutine),
                        api(self.transact, self.apiroutine),
                        api(self.watchlist),
-                       api(self.walk, self.apiroutine)
+                       api(self.walk, self.apiroutine),
+                       api(self.gettimestamp, self.apiroutine),
+                       api(self.asynctransact, self.apiroutine),
+                       api(self.writewalk, self.apiroutine),
+                       api(self.asyncwritewalk, self.apiroutine)
                        )
-    def load(self, container):
+
+    def _set_watch(self, key, requestid):
+        self._watches.setdefault(key, set()).add(requestid)
+        self._requestids.setdefault(requestid, set()).add(key)
+
+    def _remove_watch(self, key, requestid):
+        s = self._watches.get(key)
+        if s:
+            s.discard(requestid)
+            if not s:
+                del self._watches[key]
+        s = self._requestids.get(requestid)
+        if s:
+            s.discard(key)
+            if not s:
+                del self._requestids[requestid]
+    
+    def _remove_all_watches(self, requestid):
+        s = self._requestids.get(requestid)
+        if s is not None:
+            for k in s:
+                s2 = self._watches.get(k)
+                if s2:
+                    s2.discard(requestid)
+                    if not s2:
+                        del self._watches[k]
+            del self._requestids[requestid]
+
+    async def load(self, container):
         self.scheduler.queue.addSubQueue(\
                 self.objectupdatepriority, dataobj.DataObjectUpdateEvent.createMatcher(), 'dataobjectupdate')
-        for m in callAPI(container, 'updatenotifier', 'createnotifier'):
-            yield m
-        self._notifier = container.retvalue
-        for m in Module.load(self, container):
-            yield m
+        self._notifier = await call_api(container, 'updatenotifier', 'createnotifier')
+        await Module.load(self, container)
         self.routines.append(self._notifier)
-    def unload(self, container, force=False):
-        for m in container.syscall(syscall_removequeue(self.scheduler.queue, 'dataobjectupdate')):
-            yield m
-        for m in Module.unload(self, container, force=force):
-            yield m
-    def _update(self):
+
+    async def unload(self, container, force=False):
+        await container.syscall(syscall_removequeue(self.scheduler.queue, 'dataobjectupdate'))
+        await Module.unload(self, container, force=force)
+
+    async def _update(self):
         timestamp = '%012x' % (int(time() * 1000),) + '-'
         notification_matcher = self._notifier.notification_matcher(False)
         def copywithkey(obj, key):
@@ -149,13 +179,14 @@ class ObjectDB(Module):
                         del self._update_version[_str(k)]
                     except KeyError:
                         pass
-        def updateinner():
+        async def updateinner():
             processing_requests = []
             # New managed keys
             retrieve_list = set()
             orig_retrieve_list = set()
             retrieveonce_list = set()
             orig_retrieveonce_list = set()
+            processing_request_ids = set()
             # Retrieved values are stored in update_result before merging into current storage
             update_result = {}
             # key => [(walker_func, (original_keys, rid)), ...]
@@ -204,7 +235,7 @@ class ObjectDB(Module):
                         for start_key, walker, (_, rid) in used_key_ref[k]:
                             finished_walkers.pop((start_key, walker, rid), None)
             
-            def updateloop():
+            async def updateloop():
                 while (retrieve_list or self._updatekeys or self._requests):
                     # default walker, default walker cached, customized walker, customized walker cached
                     _performance_counters = [0, 0, 0, 0]
@@ -226,33 +257,42 @@ class ObjectDB(Module):
                             if r[2] == 'unwatch':
                                 try:
                                     for k in r[0]:
-                                        s = self._watches.get(k)
-                                        if s:
-                                            s.discard(r[3])
-                                            if not s:
-                                                del self._watches[k]
+                                        self._remove_watch(k, r[3])
                                     # Do not need to wait
                                 except Exception as exc:
-                                    for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
-                                        yield m                                    
+                                    await self.apiroutine.wait_for_send(RetrieveReply(r[1], exception = exc))
                                 else:
-                                    for m in self.apiroutine.waitForSend(RetrieveReply(r[1], result = None)):
-                                        yield m
+                                    await self.apiroutine.wait_for_send(RetrieveReply(r[1], result = None))
+                            elif r[2] == 'unwatchall':
+                                if r[3] in processing_request_ids:
+                                    # unwatch a processing request
+                                    # pend this request until all requests are processed
+                                    processing_requests.append(r)
+                                else:
+                                    try:
+                                        self._remove_all_watches(r[3])
+                                    except Exception as exc:
+                                        await self.apiroutine.wait_for_send(RetrieveReply(r[1], exception = exc))
+                                    else:
+                                        await self.apiroutine.wait_for_send(RetrieveReply(r[1], result = None))
                             elif r[2] == 'watch':
                                 retrieve_list.update(r[0])
                                 orig_retrieve_list.update(r[0])
                                 for k in r[0]:
-                                    self._watches.setdefault(k, set()).add(r[3])
+                                    self._set_watch(k, r[3])
                                 processing_requests.append(r)
+                                processing_request_ids.add(r[3])
                             elif r[2] == 'get':
                                 retrieve_list.update(r[0])
                                 orig_retrieve_list.update(r[0])
                                 processing_requests.append(r)
+                                processing_request_ids.add(r[3])
                             elif r[2] == 'walk':
                                 retrieve_list.update(r[0])
                                 processing_requests.append(r)
                                 for k,v in r[3].items():
                                     walkers.setdefault(k, []).append((v, (r[0], r[1])))
+                                processing_request_ids.add(r[4])
                             else:
                                 retrieveonce_list.update(r[0])
                                 orig_retrieveonce_list.update(r[0])
@@ -265,8 +305,7 @@ class ObjectDB(Module):
                             for k in watch_keys:
                                 if k in update_result:
                                     self._update_version[k] = getversion(update_result[k])
-                            for m in self._notifier.add_listen(*watch_keys):
-                                yield m
+                            await self._notifier.add_listen(*watch_keys)
                             self._watchedkeys.update(watch_keys)
                     get_list_set = update_list.union(itertools.chain((k for k in retrieve_list
                                                      if k not in update_result and k not in self._managed_objs),
@@ -276,8 +315,12 @@ class ObjectDB(Module):
                     new_values = set()
                     if get_list:
                         try:
-                            for m in callAPI(self.apiroutine, 'kvstorage', 'mgetwithcache', {'keys': get_list, 'cache': self._cache}):
-                                yield m
+                            result, self._cache = await call_api(
+                                                            self.apiroutine,
+                                                            'kvstorage',
+                                                            'mgetwithcache',
+                                                            {'keys': get_list, 'cache': self._cache}
+                                                        )
                         except QuitException:
                             raise
                         except Exception:
@@ -293,7 +336,6 @@ class ObjectDB(Module):
                             revision_min.clear()
                             revision_max.clear()
                         else:
-                            result, self._cache = self.apiroutine.retvalue
                             self._stale = False
                             for k,v in izip(get_list, result):
                                 # Update revision information
@@ -340,7 +382,7 @@ class ObjectDB(Module):
                             if key not in self._watchedkeys:
                                 # This key is not retrieved, raise a KeyError, and record this key
                                 new_retrieve_keys.add(key)
-                                raise KeyError('Not retrieved')
+                                raise WalkKeyNotRetrieved(key)
                             elif self._stale:
                                 if key not in self._managed_objs:
                                     new_retrieve_keys.add(key)
@@ -349,7 +391,7 @@ class ObjectDB(Module):
                             elif key not in update_result and key not in self._managed_objs:
                                 # This key is not retrieved, raise a KeyError, and record this key
                                 new_retrieve_keys.add(key)
-                                raise KeyError('Not retrieved')
+                                raise WalkKeyNotRetrieved(key)
                             # Check revision
                             current_revision = (
                                 max(revision_min.get(key, -1), revision_range[0]),
@@ -360,7 +402,7 @@ class ObjectDB(Module):
                                 new_retrieve_keys.add(key)
                                 if strict:
                                     used_keys.add(key)
-                                    raise KeyError('Not retrieved')
+                                    raise WalkKeyNotRetrieved(key)
                             else:
                                 # update revision range
                                 revision_range[:] = current_revision
@@ -458,8 +500,7 @@ class ObjectDB(Module):
                                                 walkers[orig_k][:] = [(w0, r0) for w0,r0 in walkers[orig_k] if r0[1] != r[1]]
                                         processing_requests[:] = [r0 for r0 in processing_requests if r0[1] != r[1]]
                                         savelist.pop(r[1])
-                                        for m in self.apiroutine.waitForSend(RetrieveReply(r[1], exception = exc)):
-                                            yield m
+                                        await self.apiroutine.wait_for_send(RetrieveReply(r[1], exception = exc))
                                     else:
                                         savelist.setdefault(r[1], set()).update(_local_save_list)
                                         if new_retrieve_keys:
@@ -483,13 +524,11 @@ class ObjectDB(Module):
                     if self._stale:
                         watch_keys = tuple(k for k in retrieve_list if k not in self._watchedkeys)
                         if watch_keys:
-                            for m in self._notifier.add_listen(*watch_keys):
-                                yield m
+                            await self._notifier.add_listen(*watch_keys)
                             self._watchedkeys.update(watch_keys)
                         break
             while True:
-                for m in self.apiroutine.withCallback(updateloop(), onupdate, notification_matcher):
-                    yield m
+                await self.apiroutine.with_callback(updateloop(), onupdate, notification_matcher)
                 if self._loopCount >= 100 or self._stale:
                     break
                 # If some updated result is newer than the notification version, we should wait for the notification
@@ -501,13 +540,11 @@ class ObjectDB(Module):
                             should_wait = True
                             break
                 if should_wait:
-                    with closing(self.apiroutine.waitWithTimeout(0.2, notification_matcher)) as g:
-                        for m in g:
-                            yield m
-                    if self.apiroutine.timeout:
+                    timeout, ev, m = await self.apiroutine.wait_with_timeout(0.2, notification_matcher)
+                    if timeout:
                         break
                     else:
-                        onupdate(self.apiroutine.event, self.apiroutine.matcher)
+                        onupdate(ev, m)
                 else:
                     break
             # Update result
@@ -548,12 +585,13 @@ class ObjectDB(Module):
             allkeys = tuple(k for k,_,_ in update_objs)
             send_events.extend((dataobj.DataObjectUpdateEvent(k, transactid, t, object = v, allkeys = allkeys) for k,v,t in update_objs))
             # Process requests
+            unwatchall = []
             for r in processing_requests:
                 if r[2] == 'get':
                     objs = [self._managed_objs.get(k) for k in r[0]]
                     for k,v in zip(r[0], objs):
                         if v is not None:
-                            self._watches.setdefault(k, set()).add(r[3])
+                            self._set_watch(k, r[3])
                     result = [o.create_reference() if o is not None and hasattr(o, 'create_reference') else o
                               for o in objs]
                 elif r[2] == 'watch':
@@ -563,23 +601,27 @@ class ObjectDB(Module):
                 elif r[2] == 'walk':
                     saved_keys = list(savelist.get(r[1], []))
                     for k in saved_keys:
-                        self._watches.setdefault(k, set()).add(r[4])
+                        self._set_watch(k, r[4])
                     objs = [self._managed_objs.get(k) for k in saved_keys]
                     result = (saved_keys,
                               [o.create_reference() if hasattr(o, 'create_reference') else o
                                if o is not None else dataobj.ReferenceObject(k)
                                for k,o in zip(saved_keys, objs)])
+                elif r[2] == 'unwatchall':
+                    # Remove watches after all results are processed
+                    unwatchall.append(r[3])
+                    result = None
                 else:
                     result = [copywithkey(update_result.get(k, self._managed_objs.get(k)), k) for k in r[0]]
                 send_events.append(RetrieveReply(r[1], result = result, stale = self._stale))
-            def output_result():
+            for requestid in unwatchall:
+                self._remove_all_watches(requestid)
+            async def output_result():
                 for e in send_events:
-                    for m in self.apiroutine.waitForSend(e):
-                        yield m
-            for m in self.apiroutine.withCallback(output_result(), onupdate, notification_matcher):
-                yield m
+                    await self.apiroutine.wait_for_send(e)
+            await self.apiroutine.with_callback(output_result(), onupdate, notification_matcher)
             self._pending_gc += 1
-        def _gc():
+        async def _gc():
             # Use DFS to remove unwatched objects
             mark_set = set()
             def dfs(k):
@@ -595,8 +637,7 @@ class ObjectDB(Module):
             remove_keys = self._watchedkeys.difference(mark_set)
             if remove_keys:
                 self._watchedkeys.difference_update(remove_keys)
-                for m in self._notifier.remove_listen(*tuple(remove_keys)):
-                    yield m
+                await self._notifier.remove_listen(*tuple(remove_keys))
                 for k in remove_keys:
                     if k in self._managed_objs:
                         del self._managed_objs[k]
@@ -608,114 +649,114 @@ class ObjectDB(Module):
         while True:
             if not self._updatekeys and not self._requests:
                 if self._pending_gc >= 10:
-                    for m in self.apiroutine.withCallback(_gc(), onupdate, notification_matcher):
-                        yield m
-                    continue                    
+                    await self.apiroutine.with_callback(_gc(), onupdate, notification_matcher)
+                    continue
                 elif self._pending_gc:
-                    with closing(self.apiroutine.waitWithTimeout(1, notification_matcher, request_matcher)) as g:
-                        for m in g:
-                            yield m
-                    if self.apiroutine.timeout:
-                        for m in self.apiroutine.withCallback(_gc(), onupdate, notification_matcher):
-                            yield m
+                    timeout, ev, m = await self.apiroutine.wait_with_timeout(1, notification_matcher, request_matcher)
+                    if timeout:
+                        await self.apiroutine.with_callback(_gc(), onupdate, notification_matcher)
                         continue
                 else:
-                    yield (notification_matcher, request_matcher)
-                if self.apiroutine.matcher is notification_matcher:
-                    onupdate(self.apiroutine.event, self.apiroutine.matcher)
-            for m in updateinner():
-                yield m
-    def mget(self, keys, requestid, nostale = False):
+                    ev, m = await M_(notification_matcher, request_matcher)
+                if m is notification_matcher:
+                    onupdate(ev, m)
+            await updateinner()
+
+    async def mget(self, keys, requestid, nostale = False):
         "Get multiple objects and manage them. Return references to the objects."
         keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
         self._requests.append((keys, rid, 'get', requestid))
         if notify:
-            for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
-                yield m
-        yield (RetrieveReply.createMatcher(rid),)
-        if hasattr(self.apiroutine.event, 'exception'):
-            raise self.apiroutine.event.exception
-        if nostale and self.apiroutine.event.stale:
-            raise StaleResultException(self.apiroutine.event.result)
-        self.apiroutine.retvalue = self.apiroutine.event.result
-    def get(self, key, requestid, nostale = False):
+            await self.apiroutine.wait_for_send(RetrieveRequestSend())
+        ev = await RetrieveReply.createMatcher(rid)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
+        if nostale and ev.stale:
+            raise StaleResultException(ev.result)
+        return ev.result
+
+    async def get(self, key, requestid, nostale = False):
         """
         Get an object from specified key, and manage the object.
         Return a reference to the object or None if not exists.
         """
-        for m in self.mget([key], requestid, nostale):
-            yield m
-        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def mgetonce(self, keys, nostale = False):
+        r = await self.mget([key], requestid, nostale)
+        return r[0]
+
+    async def mgetonce(self, keys, nostale = False):
         "Get multiple objects, return copies of them. Referenced objects are not retrieved."
         keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
         self._requests.append((keys, rid, 'getonce'))
         if notify:
-            for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
-                yield m
-        yield (RetrieveReply.createMatcher(rid),)
-        if hasattr(self.apiroutine.event, 'exception'):
-            raise self.apiroutine.event.exception
-        if nostale and self.apiroutine.event.stale:
-            raise StaleResultException(self.apiroutine.event.result)
-        self.apiroutine.retvalue = self.apiroutine.event.result
-    def getonce(self, key, nostale = False):
+            await self.apiroutine.wait_for_send(RetrieveRequestSend())
+        ev = await RetrieveReply.createMatcher(rid)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
+        if nostale and ev.stale:
+            raise StaleResultException(ev.result)
+        return ev.result
+
+    async def getonce(self, key, nostale = False):
         "Get a object without manage it. Return a copy of the object, or None if not exists. Referenced objects are not retrieved."
-        for m in self.mgetonce([key], nostale):
-            yield m
-        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def watch(self, key, requestid, nostale = False):
+        r = await self.mgetonce([key], nostale)
+        return r[0]
+
+    async def watch(self, key, requestid, nostale = False):
         """
         Try to find an object and return a reference. Use ``reference.isdeleted()`` to test
         whether the object exists.
         Use ``reference.wait(container)`` to wait for the object to be existed.
         """
-        for m in self.mwatch([key], requestid, nostale):
-            yield m
-        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def mwatch(self, keys, requestid, nostale = False):
+        r = await self.mwatch([key], requestid, nostale)
+        return r[0]
+
+    async def mwatch(self, keys, requestid, nostale = False):
         "Try to return all the references, see ``watch()``"
         keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
-        self._requests.append(keys, rid, 'watch', requestid)
+        self._requests.append((keys, rid, 'watch', requestid))
         if notify:
-            for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
-                yield m
-        yield (RetrieveReply.createMatcher(rid),)
-        if hasattr(self.apiroutine.event, 'exception'):
-            raise self.apiroutine.event.exception
-        if nostale and self.apiroutine.event.stale:
-            raise StaleResultException(self.apiroutine.event.result)
-        self.apiroutine.retvalue = self.apiroutine.event.result
-    def unwatch(self, key, requestid):
+            await self.apiroutine.wait_for_send(RetrieveRequestSend())
+        ev = await RetrieveReply.createMatcher(rid)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
+        if nostale and ev.stale:
+            raise StaleResultException(ev.result)
+        return ev.result
+
+    async def unwatch(self, key, requestid):
         "Cancel management of a key"
-        for m in self.munwatch([key], requestid):
-            yield m
-        self.apiroutine.retvalue = None
-    def unwatchall(self, requestid):
+        await self.munwatch([key], requestid)
+
+    async def unwatchall(self, requestid):
         "Cancel management for all keys that are managed by requestid"
-        keys = [k for k,v in self._watches.items() if requestid in v]
-        for m in self.munwatch(keys, requestid):
-            yield m
-    def munwatch(self, keys, requestid):
+        notify = not self._requests
+        rid = object()
+        self._requests.append(((), rid, 'unwatchall', requestid))
+        if notify:
+            await self.apiroutine.wait_for_send(RetrieveRequestSend())
+        ev = await RetrieveReply.createMatcher(rid)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
+
+    async def munwatch(self, keys, requestid):
         "Cancel management of keys"
         keys = tuple(_str2(k) for k in keys)
         notify = not self._requests
         rid = object()
         self._requests.append((keys, rid, 'unwatch', requestid))
         if notify:
-            for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
-                yield m
-        yield (RetrieveReply.createMatcher(rid),)
-        if hasattr(self.apiroutine.event, 'exception'):
-            raise self.apiroutine.event.exception
-        self.apiroutine.retvalue = None
-    def transact(self, keys, updater, withtime = False):
+            await self.apiroutine.wait_for_send(RetrieveRequestSend())
+        ev = await RetrieveReply.createMatcher(rid)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
+
+    async def transact(self, keys, updater, withtime = False, maxtime = 60):
         """
         Try to update keys in a transact, with an ``updater(keys, values)``,
         which returns ``(updated_keys, updated_values)``.
@@ -930,16 +971,24 @@ class ObjectDB(Module):
                     new_version.append((timestamp, 1))
             updated_ref[1] = new_version
             return (updated_keys, updated_values)
+        start_time = self.apiroutine.scheduler.current_time
+        retry_times = 1
         while True:
             try:
-                for m in callAPI(self.apiroutine, 'kvstorage', 'updateallwithtime',
+                await call_api(self.apiroutine, 'kvstorage', 'updateallwithtime',
                                  {'keys': keys + tuple(auto_remove_keys) + \
                                          tuple(extra_keys) + tuple(extra_key_set),
-                                         'updater': object_updater}):
-                    yield m
+                                         'updater': object_updater})
             except _NeedMoreKeysException:
-                pass
+                if maxtime is not None and\
+                    self.apiroutine.scheduler.current_time - start_time > maxtime:
+                    raise TransactionTimeoutException
+                retry_times += 1
+            except Exception:
+                self._logger.debug("Transaction %r interrupted in %r retries", updater, retry_times)
+                raise
             else:
+                self._logger.debug("Transaction %r done in %r retries", updater, retry_times)                
                 break
         # Short cut update notification
         update_keys = self._watchedkeys.intersection(updated_ref[0])
@@ -951,17 +1000,33 @@ class ObjectDB(Module):
                 oldv = self._update_version.get(k, (0, -1))
                 if oldv < v:
                     self._update_version[k] = v
-        for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
-            yield m
-        for m in self._notifier.publish(updated_ref[0], updated_ref[1]):
-            yield m
+        if not self._requests:
+            # Fake notification
+            await self.apiroutine.wait_for_send(RetrieveRequestSend())
+        await self._notifier.publish(updated_ref[0], updated_ref[1])
+    
+    async def gettimestamp(self):
+        """
+        Get a timestamp from database server
+        """
+        _timestamp = None
+        def _updater(keys, values, timestamp):
+            nonlocal _timestamp
+            _timestamp = timestamp
+            return ((), ())
+        await call_api(self.apiroutine, 'kvstorage', 'updateallwithtime',
+                                 {'keys': (),
+                                  'updater': _updater})
+        return _timestamp
+
     def watchlist(self, requestid = None):
         """
         Return a dictionary whose keys are database keys, and values are lists of request ids.
         Optionally filtered by request id
         """
         return dict((k,list(v)) for k,v in self._watches.items() if requestid is None or requestid in v)
-    def walk(self, keys, walkerdict, requestid, nostale = False):
+
+    async def walk(self, keys, walkerdict, requestid, nostale = False):
         """
         Recursively retrieve keys with customized functions.
         walkerdict is a dictionary ``key->walker(key, obj, walk, save)``.
@@ -971,12 +1036,204 @@ class ObjectDB(Module):
         rid = object()
         self._requests.append((keys, rid, 'walk', dict(walkerdict), requestid))
         if notify:
-            for m in self.apiroutine.waitForSend(RetrieveRequestSend()):
-                yield m
-        yield (RetrieveReply.createMatcher(rid),)
-        if hasattr(self.apiroutine.event, 'exception'):
-            raise self.apiroutine.event.exception
-        if nostale and self.apiroutine.event.stale:
-            raise StaleResultException(self.apiroutine.event.result)
-        self.apiroutine.retvalue = self.apiroutine.event.result
+            await self.apiroutine.wait_for_send(RetrieveRequestSend())
+        ev = await RetrieveReply.createMatcher(rid)
+        if hasattr(ev, 'exception'):
+            raise ev.exception
+        if nostale and ev.stale:
+            raise StaleResultException(ev.result)
+        return ev.result
+    
+    async def asynctransact(self, asyncupdater, withtime = False,
+                            maxretry = None, maxtime=60):
+        """
+        Read-Write transaction with asynchronous operations.
         
+        First, the `asyncupdater` is called with `asyncupdater(last_info, container)`.
+        `last_info` is the info from last `AsyncTransactionLockException`.
+        When `asyncupdater` is called for the first time, last_info = None.
+        
+        The async updater should be an async function, and return
+        `(updater, keys)`. The `updater` should
+        be a valid updater function used in `transaction` API. `keys` will
+        be the keys used in the transaction.
+        
+        The async updater can return None to terminate the transaction
+        without exception.
+        
+        After the call, a transaction is automatically started with the
+        return values of `asyncupdater`.
+        
+        `updater` can raise `AsyncTransactionLockException` to restart
+        the transaction from `asyncupdater`.
+        
+        :param asyncupdater: An async updater `asyncupdater(last_info, container)`
+                             which returns `(updater, keys)`
+        
+        :param withtime: Whether the returned updater need a timestamp
+        
+        :param maxretry: Limit the max retried times
+        
+        :param maxtime: Limit the execution time. The transaction is abandoned
+                        if still not completed after `maxtime` seconds. 
+        """
+        start_time = self.apiroutine.scheduler.current_time
+        def timeleft():
+            if maxtime is None:
+                return None
+            else:
+                time_left = maxtime + start_time - \
+                                self.apiroutine.scheduler.current_time
+                if time_left <= 0:
+                    raise TransactionTimeoutException
+                else:
+                    return time_left
+        retry_times = 0
+        last_info = None
+        while True:
+            timeout, r = \
+                    await self.apiroutine.execute_with_timeout(
+                            timeleft(),
+                            asyncupdater(last_info, self.apiroutine)
+                        )
+            if timeout:
+                raise TransactionTimeoutException
+            if r is None:
+                return
+            updater, keys = r
+            try:
+                await self.transact(keys, updater, withtime, timeleft())
+            except AsyncTransactionLockException as e:
+                retry_times += 1
+                if maxretry is not None and retry_times > maxretry:
+                    raise TransactionRetryExceededException
+                # Check time left
+                timeleft()
+                last_info = e.info
+            except Exception:
+                self._logger.debug("Async transaction %r interrupted in %r retries", asyncupdater, retry_times + 1)
+                raise
+            else:
+                self._logger.debug("Async transaction %r done in %r retries", asyncupdater, retry_times + 1)
+                break
+    
+    async def writewalk(self, keys, walker, withtime = False, maxtime = 60):
+        """
+        A read-write transaction with walkers
+        
+        :param keys: initial keys used in walk. Provide keys already known to
+                     be necessary to optimize the transaction.
+
+        :param walker: A walker should be `walker(walk, write)`,
+                           where `walk` is a function `walk(key)->value`
+                           to get a value from the database, and
+                           `write` is a function `write(key, value)`
+                           to save value to the database.
+                           
+                           A value can be write to a database any times.
+                           A `walk` called after `write` is guaranteed
+                           to retrieve the previously written value.
+
+        :param withtime: if withtime=True, an extra timestamp parameter is given to
+                         walkers, so walker should be
+                         `walker(walk, write, timestamp)`
+        
+        :param maxtime: max execution time of this transaction
+        """
+        @functools.wraps(walker)
+        async def _asyncwalker(last_info, container):
+            return (keys, walker)
+        return await self.asyncwritewalk(_asyncwalker, withtime, maxtime)
+
+    async def asyncwritewalk(self, asyncwalker, withtime = False, maxtime = 60):
+        """
+        A read-write transaction with walker factory
+        
+        :param asyncwalker: an async function called as `asyncwalker(last_info, container)`
+                            and returns (keys, walker), which
+                            are the same as parameters of `writewalk`
+        
+                            :param keys: initial keys used in walk
+                            
+                            :param walker: A walker should be `walker(walk, write)`,
+                                               where `walk` is a function `walk(key)->value`
+                                               to get a value from the database, and
+                                               `write` is a function `write(key, value)`
+                                               to save value to the database.
+                                               
+                                               A value can be write to a database any times.
+                                               A `walk` called after `write` is guaranteed
+                                               to retrieve the previously written value.
+                                               
+                                               raise AsyncTransactionLockException in walkers
+                                               to restart the transaction
+        
+        :param withtime: if withtime=True, an extra timestamp parameter is given to
+                         walkers, so walkers should be
+                         `walker(key, value, walk, write, timestamp)`
+        
+        :param maxtime: max execution time of this transaction
+        """
+        @functools.wraps(asyncwalker)
+        async def _asyncupdater(last_info, container):
+            if last_info is not None:
+                from_walker, real_info = last_info
+                if not from_walker:
+                    keys, orig_keys, walker = real_info
+                else:
+                    r = await asyncwalker(real_info, container)
+                    if r is None:
+                        return None
+                    keys, walker = r
+                    orig_keys = keys
+            else:
+                r = await asyncwalker(None, container)
+                if r is None:
+                    return None
+                keys, walker = r
+                orig_keys = keys
+            @functools.wraps(walker)
+            def _updater(keys, values, timestamp):
+                _stored_objs = dict(zip(keys, values))
+                if self.debuggingupdater:
+                    _stored_old_values = {k: v.jsonencode()
+                                          for k,v in zip(keys, values)
+                                          if hasattr(v, 'jsonencode')}
+                # Keys written by walkers
+                _walker_write_dict = {}
+                _lost_keys = set()
+                _used_keys = set()
+                def _walk(key):
+                    if key not in _stored_objs:
+                        _lost_keys.add(key)
+                        raise WalkKeyNotRetrieved(key)
+                    else:
+                        if key not in _walker_write_dict:
+                            _used_keys.add(key)
+                        return _stored_objs[key]
+                def _write(key, value):
+                    _walker_write_dict[key] = value
+                    _stored_objs[key] = value
+                try:
+                    if withtime:
+                        walker(_walk, _write, timestamp)
+                    else:
+                        walker(_walk, _write)
+                except AsyncTransactionLockException as e:
+                    raise AsyncTransactionLockException((True, e.info))
+                if _lost_keys:
+                    _lost_keys.update(_used_keys)
+                    _lost_keys.update(orig_keys)
+                    raise AsyncTransactionLockException((False, (_lost_keys, orig_keys, walker)))
+                if self.debuggingupdater:
+                    # Check if there are changes not written
+                    for k, v in _stored_old_values.items():
+                        if k not in _walker_write_dict:
+                            v2 = _stored_objs[k]
+                            assert hasattr(v2, 'jsonencode') and v2.jsonencode() == v
+                if _walker_write_dict:
+                    return tuple(zip(*_walker_write_dict.items()))
+                else:
+                    return (), ()
+            return (_updater, keys)
+        return await self.asynctransact(_asyncupdater, True, maxtime=maxtime)

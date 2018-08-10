@@ -18,41 +18,37 @@ import logging
 of_proto = Openflow((common.OFP10_VERSION,))
 
 class MainRoutine(RoutineContainer):
-    def main(self):
+    async def main(self):
         connected = OpenflowConnectionStateEvent.createMatcher()
-        yield (connected,)
-        pprint(common.dump(self.event.connection.openflow_featuresreply))
-        connection = self.event.connection
+        ev = await connected
+        pprint(common.dump(ev.connection.openflow_featuresreply, tostr=True))
+        connection = ev.connection
         currdef = connection.openflowdef
-        for m in of_proto.batch((currdef.nx_set_flow_format.new(format=currdef.NXFF_NXM),), connection, self):
-            yield m
-        for msg in self.openflow_reply:
-            pprint(common.dump(msg))
-        for m in of_proto.querymultipart(currdef.ofp_stats_request.new(
-                type = currdef.OFPST_DESC), connection, self):
-            yield m
-        for msg in self.openflow_reply:
-            pprint(common.dump(msg))
+        openflow_reply, _ = await of_proto.batch((currdef.nx_set_flow_format.new(format=currdef.NXFF_NXM),), connection, self)
+        for msg in openflow_reply:
+            pprint(common.dump(msg, tostr=True))
+        openflow_reply = await of_proto.querymultipart(
+                                    currdef.ofp_stats_request.new(
+                                                type = currdef.OFPST_DESC
+                                    ), connection, self)
+        for msg in openflow_reply:
+            pprint(common.dump(msg, tostr=True))
         req = currdef.ofp_flow_stats_request.new(
                 table_id = currdef.OFPTT_ALL,
                 out_port = currdef.OFPP_NONE,
                 match = currdef.ofp_match.new(wildcards=currdef.OFPFW_ALL))
-        for m in of_proto.querymultipart(req, connection, self):
-            yield m
-        for msg in self.openflow_reply:
-            pprint(common.dump(msg, dumpextra = True, typeinfo = common.DUMPTYPE_FLAT))
+        openflow_reply = await of_proto.querymultipart(req, connection, self)
+        for msg in openflow_reply:
+            pprint(common.dump(msg, dumpextra = True, typeinfo = common.DUMPTYPE_FLAT, tostr=True))
         req = currdef.nx_flow_stats_request.new(table_id = currdef.OFPTT_ALL, out_port = currdef.OFPP_NONE)
-        for m in of_proto.querymultipart(req, connection, self):
-            yield m
-        for msg in self.openflow_reply:
-            pprint(common.dump(msg, dumpextra = True, typeinfo = common.DUMPTYPE_FLAT))
+        openflow_reply = await of_proto.querymultipart(req, connection, self)
+        for msg in openflow_reply:
+            pprint(common.dump(msg, dumpextra = True, typeinfo = common.DUMPTYPE_FLAT, tostr=True))
         req = currdef.ofp_msg.new()
         req.header.type = currdef.OFPT_GET_CONFIG_REQUEST
-        for m in of_proto.querywithreply(req, connection, self):
-            yield m
-        pprint(common.dump(self.openflow_reply))
-        for m in mgt_conn.shutdown(False):
-            yield m
+        openflow_reply = await of_proto.querywithreply(req, connection, self)
+        pprint(common.dump(openflow_reply, tostr=True))
+        await mgt_conn.shutdown(False)
 
 if __name__ == '__main__':
     logging.basicConfig()

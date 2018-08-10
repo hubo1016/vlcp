@@ -83,20 +83,18 @@ class TcpServerBase(Module):
                 # Patch init() and final()
                 def patch(prococol):
                     orig_init = prococol.init
-                    def init(conn):
-                        for m in orig_init(conn):
-                            yield m
+                    async def init(conn):
+                        await orig_init(conn)
                         self.managed_connections.add(conn)
                     prococol.init = init
                 
                     orig_final = prococol.final
-                    def final(conn):
+                    async def final(conn):
                         try:
                             self.managed_connections.remove(conn)
                         except Exception:
                             pass
-                        for m in orig_final(conn):
-                            yield m
+                        await orig_final(conn)
                     prococol.final = final
                 patch(defaultProtocol)
             defaultProtocol.vhost = vhostname
@@ -131,12 +129,12 @@ class TcpServerBase(Module):
                        api(self.startlisten, self.apiroutine),
                        api(self.updateconfig, self.apiroutine),
                        api(self.getconnections))
-    def unload(self, container, force=False):
+    async def unload(self, container, force=False):
         if self.connmanage:
             self.connections.extend(self.managed_connections)
             self.managed_connections.clear()
-        for m in Module.unload(self, container, force=force):
-            yield m
+        await Module.unload(self, container, force=force)
+
     def getservers(self, vhost = None):
         '''
         Return current servers
@@ -148,7 +146,8 @@ class TcpServerBase(Module):
             return [s for s in self.connections if s.protocol.vhost == vhost]
         else:
             return list(self.connections)
-    def stoplisten(self, vhost = None):
+
+    async def stoplisten(self, vhost = None):
         '''
         Stop listen on current servers
         
@@ -157,10 +156,10 @@ class TcpServerBase(Module):
         '''
         servers = self.getservers(vhost)
         for s in servers:
-            for m in s.stoplisten():
-                yield m
-        self.apiroutine.retvalue = len(servers)
-    def startlisten(self, vhost = None):
+            await s.stoplisten()
+        return len(servers)
+
+    async def startlisten(self, vhost = None):
         '''
         Start listen on current servers
         
@@ -169,20 +168,19 @@ class TcpServerBase(Module):
         '''
         servers = self.getservers(vhost)
         for s in servers:
-            for m in s.startlisten():
-                yield m
-        self.apiroutine.retvalue = len(servers)
-    def updateconfig(self):
+            await s.startlisten()
+        return len(servers)
+
+    async def updateconfig(self):
         "Reload configurations, remove non-exist servers, add new servers, and leave others unchanged"
         exists = {}
         for s in self.connections:
             exists[(s.protocol.vhost, s.rawurl)] = s
         self._createServers(self, '', exists = exists)
         for _,v in exists.items():
-            for m in v.shutdown():
-                yield m
+            await v.shutdown()
             self.connections.remove(v)
-        self.apiroutine.retvalue = None
+
     def getconnections(self, vhost = None):
         "Return accepted connections, optionally filtered by vhost"
         if vhost is None:

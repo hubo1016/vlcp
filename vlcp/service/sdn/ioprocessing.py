@@ -4,11 +4,11 @@ Created on 2016/4/13
 :author: hubo
 '''
 from vlcp.service.sdn.flowbase import FlowBase
-from vlcp.server.module import depend, ModuleNotification, callAPI
+from vlcp.server.module import depend, ModuleNotification, call_api
 import vlcp.service.sdn.ofpportmanager as ofpportmanager
 import vlcp.service.sdn.ovsdbportmanager as ovsdbportmanager
 import vlcp.service.kvdb.objectdb as objectdb
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 from vlcp.event.runnable import RoutineContainer, RoutineException
 from vlcp.config.config import defaultconfig
 from vlcp.service.sdn.ofpmanager import FlowInitialize
@@ -19,7 +19,8 @@ from vlcp.utils.flowupdater import FlowUpdater
 
 import itertools
 from functools import partial
-from contextlib import closing
+from contextlib import closing, suppress
+from vlcp.utils.exceptions import WalkKeyNotRetrieved
 
 @withIndices('datapathid', 'vhost', 'connection', 'logicalportchanged', 'physicalportchanged',
                                                     'logicalnetworkchanged', 'physicalnetworkchanged')
@@ -84,7 +85,11 @@ class IOFlowUpdater(FlowUpdater):
         self._original_initialkeys = []
         self._append_initialkeys = []
         self._parent = parent
-    def update_ports(self, ports, ovsdb_ports):
+
+    async def update_ports(self, ports, ovsdb_ports):
+        """
+        Called from main module to update port information
+        """
         new_port_names = dict((p['name'], _to32bitport(p['ofport'])) for p in ovsdb_ports)
         new_port_ids = dict((p['id'], _to32bitport(p['ofport'])) for p in ovsdb_ports if p['id'])
         if new_port_names == self._portnames and new_port_ids == self._portids:
@@ -106,8 +111,7 @@ class IOFlowUpdater(FlowUpdater):
         ))
         self._portnames = new_port_names
         self._portids = new_port_ids
-        for m in self.restart_walk():
-            yield m
+        await self.restart_walk()
 
     def _logicalport_walker(self, key, value, walk, save, _portids):
         _, (id,) = LogicalPort._getIndices(key)
@@ -116,59 +120,30 @@ class IOFlowUpdater(FlowUpdater):
         save(key)
         if value is None:
             return
-        try:
+        with suppress(WalkKeyNotRetrieved):
             lognet = walk(value.network.getkey())
-        except KeyError:
-            pass
-        else:
             save(lognet.getkey())
-            try:
-                phynet = walk(lognet.physicalnetwork.getkey())
-            except KeyError:
-                pass
-            else:
-                save(phynet.getkey())
+            phynet = walk(lognet.physicalnetwork.getkey())
+            save(phynet.getkey())
         if hasattr(value,"subnet"):
-            try:
+            with suppress(WalkKeyNotRetrieved):
                 subnet = walk(value.subnet.getkey())
-            except KeyError:
-                pass
-            else:
                 save(subnet.getkey())
                 if hasattr(subnet,"router"):
-                    try:
-                        routerport = walk(subnet.router.getkey())
-                    except KeyError:
-                        pass
-                    else:
-                        save(routerport.getkey())
-                        if hasattr(routerport,"router"):
-                            try:
-                                router = walk(routerport.router.getkey())
-                            except KeyError:
-                                pass
-                            else:
-                                save(router.getkey())
-                                if router.interfaces.dataset():
-                                    for weakobj in router.interfaces.dataset():
-                                        try:
-                                            weakrouterport = walk(weakobj.getkey())
-                                        except KeyError:
-                                            pass
-                                        else:
-                                            save(weakrouterport.getkey())
-                                            try:
-                                                s = walk(weakrouterport.subnet.getkey())
-                                            except KeyError:
-                                                pass
-                                            else:
-                                                save(s.getkey())
-                                                try:
-                                                    lgnet = walk(s.network.getkey())
-                                                except KeyError:
-                                                    pass
-                                                else:
-                                                    save(lgnet.getkey())
+                    routerport = walk(subnet.router.getkey())
+                    save(routerport.getkey())
+                    if hasattr(routerport,"router"):
+                        router = walk(routerport.router.getkey())
+                        save(router.getkey())
+                        if router.interfaces.dataset():
+                            for weakobj in router.interfaces.dataset():
+                                with suppress(WalkKeyNotRetrieved):
+                                    weakrouterport = walk(weakobj.getkey())
+                                    save(weakrouterport.getkey())
+                                    s = walk(weakrouterport.subnet.getkey())
+                                    save(s.getkey())
+                                    lgnet = walk(s.network.getkey())
+                                    save(lgnet.getkey())
     def _physicalport_walker(self, key, value, walk, save, _portnames):
         save(key)
         if value is None:
@@ -190,32 +165,18 @@ class IOFlowUpdater(FlowUpdater):
                         namedict[name] = (ind_key, p)
             phyports = [v[1] for v in namedict.values()]
             for p in phyports:
-                try:
+                with suppress(WalkKeyNotRetrieved):
                     phyp = walk(p.getkey())
-                except KeyError:
-                    pass
-                else:
                     save(phyp.getkey())
-                    try:
-                        phynet = walk(phyp.physicalnetwork.getkey())
-                    except KeyError:
-                        pass
-                    else:
-                        save(phynet.getkey())
-                        if self._parent.enable_router_forward:
-                            try:
-                                phynetmap = walk(PhysicalNetworkMap.default_key(phynet.id))
-                            except KeyError:
-                                pass
-                            else:
-                                save(phynetmap.getkey())
-                                for weak_lgnet in  phynetmap.logicnetworks.dataset():
-                                    try:
-                                        lgnet = walk(weak_lgnet.getkey())
-                                    except KeyError:
-                                        pass
-                                    else:
-                                        save(lgnet.getkey())
+                    phynet = walk(phyp.physicalnetwork.getkey())
+                    save(phynet.getkey())
+                    if self._parent.enable_router_forward:
+                        phynetmap = walk(PhysicalNetworkMap.default_key(phynet.id))
+                        save(phynetmap.getkey())
+                        for weak_lgnet in  phynetmap.logicnetworks.dataset():
+                            with suppress(WalkKeyNotRetrieved):
+                                lgnet = walk(weak_lgnet.getkey())
+                                save(lgnet.getkey())
 
     def reset_initialkeys(self,keys,values):
 
@@ -228,7 +189,7 @@ class IOFlowUpdater(FlowUpdater):
         self._append_initialkeys = subnetkeys + routerportkeys + portkeys
         self._initialkeys = tuple(itertools.chain(self._original_initialkeys, self._append_initialkeys))
 
-    def walkcomplete(self, keys, values):
+    async def walkcomplete(self, keys, values):
         conn = self._connection
         dpid = conn.openflow_datapathid
         vhost = conn.protocol.vhost
@@ -252,18 +213,18 @@ class IOFlowUpdater(FlowUpdater):
                 setattr(self, name, objkeys)
                 updated_data[cls] = True
         if updated_data:
-            for m in self.waitForSend(DataObjectChanged(dpid, vhost, conn, LogicalPort in updated_data,
+            await self.wait_for_send(DataObjectChanged(dpid, vhost, conn, LogicalPort in updated_data,
                                                                             PhysicalPort in updated_data,
                                                                             LogicalNetwork in updated_data,
                                                                             PhysicalNetwork in updated_data,
                                                                             current = (current_data.get(LogicalPort),
                                                                                        current_data.get(PhysicalPort),
                                                                                        current_data.get(LogicalNetwork),
-                                                                                       current_data.get(PhysicalNetwork)))):
-                yield m
+                                                                                       current_data.get(PhysicalNetwork))))
         self._currentportids = _currentportids
         self._currentportnames = _currentportnames
-    def updateflow(self, connection, addvalues, removevalues, updatedvalues):
+
+    async def updateflow(self, connection, addvalues, removevalues, updatedvalues):
         # We must do these in order, each with a batch:
         # 1. Remove flows
         # 2. Remove groups
@@ -332,23 +293,21 @@ class IOFlowUpdater(FlowUpdater):
                                 if lognet in addvalues or lognet in group_updates or p in addvalues or p in updatedvalues:
                                     pid = _portnames.get(p.name)
                                     if pid is not None:
-                                        def subr(lognet, p, netid, pid):
+                                        async def subr(lognet, p, netid, pid):
                                             try:
-                                                for m in callAPI(self, 'public', 'createioflowparts', {'connection': connection,
+                                                r = await call_api(self, 'public', 'createioflowparts', {'connection': connection,
                                                                                                        'logicalnetwork': lognet,
                                                                                                        'physicalport': p,
                                                                                                        'logicalnetworkid': netid,
-                                                                                                       'physicalportid': pid}):
-                                                    yield m
+                                                                                                       'physicalportid': pid})
                                             except Exception:
                                                 self._parent._logger.warning("Create flow parts failed for %r and %r", lognet, p, exc_info = True)
-                                                self.retvalue = None
+                                                return None
                                             else:
-                                                self.retvalue = ((lognet, p), self.retvalue)
+                                                return ((lognet, p), r)
                                         allapis.append(subr(lognet, p, netid, pid))
-            for m in self.executeAll(allapis):
-                yield m
-            flowparts = dict(r[0] for r in self.retvalue if r[0] is not None)
+            flowparts_result = await self.execute_all(allapis)
+            flowparts = dict(r for r in flowparts_result if r is not None)
             if connection.protocol.disablenxext:
                 # Nicira extension is disabled, use metadata instead
                 # 64-bit metadata is used as:
@@ -532,8 +491,7 @@ class IOFlowUpdater(FlowUpdater):
                                                                                          ofport
                                                                                          )])
                                                                ))
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
             del cmds[:]
             for obj in removevalues:
                 if obj.isinstance(LogicalNetwork):
@@ -543,8 +501,7 @@ class IOFlowUpdater(FlowUpdater):
                                                         type = ofdef.OFPGT_ALL,
                                                         group_id = groupid
                                                         ))
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
             del cmds[:]
             disablechaining = connection.protocol.disablechaining
             created_groups = {}
@@ -589,8 +546,7 @@ class IOFlowUpdater(FlowUpdater):
                                                     group_id = groupid,
                                                     buckets = create_buckets(obj, groupid)
                                                     ))
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
             del cmds[:]
             # There are 5 kinds of flows:
             # 1. in_port = (Logical Port)
@@ -898,8 +854,7 @@ class IOFlowUpdater(FlowUpdater):
                                                instructions = [ofdef.ofp_instruction_actions(actions = actions)]
                                                ))                
             # Ignore logical network update
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
         except Exception:
             self._parent._logger.warning("Update flow for connection %r failed with exception", connection, exc_info = True)
             # We don't want the whole flow update stops, so ignore the exception and continue
@@ -924,23 +879,24 @@ class IOProcessing(FlowBase):
         self._flowupdaters = {}
         self._portchanging = set()
         self._portchanged = set()
-    def _main(self):
+
+    async def _main(self):
         flow_init = FlowInitialize.createMatcher(_ismatch = lambda x: self.vhostbind is None or x.vhost in self.vhostbind)
         port_change = ModuleNotification.createMatcher("openflowportmanager", "update", _ismatch = lambda x: self.vhostbind is None or x.vhost in self.vhostbind)
         while True:
-            yield (flow_init, port_change)
-            e = self.apiroutine.event
+            e, m = await M_(flow_init, port_change)
             c = e.connection
-            if self.apiroutine.matcher is flow_init:
-                self.apiroutine.subroutine(self._init_conn(self.apiroutine.event.connection))
+            if m is flow_init:
+                self.apiroutine.subroutine(self._init_conn(c))
             else:
-                if self.apiroutine.event.reason == 'disconnected':
+                if e.reason == 'disconnected':
                     self.apiroutine.subroutine(self._remove_conn(c))
                 else:
                     self.apiroutine.subroutine(self._portchange(c))
-    def _init_conn(self, conn):
+
+    async def _init_conn(self, conn):
         # Default drop
-        for m in conn.protocol.batch((conn.openflowdef.ofp_flow_mod(table_id = self._gettableindex("ingress", conn.protocol.vhost),
+        await conn.protocol.batch((conn.openflowdef.ofp_flow_mod(table_id = self._gettableindex("ingress", conn.protocol.vhost),
                                                            command = conn.openflowdef.OFPFC_ADD,
                                                            priority = 0,
                                                            buffer_id = conn.openflowdef.OFP_NO_BUFFER,
@@ -957,29 +913,26 @@ class IOProcessing(FlowBase):
                                                            instructions = [conn.openflowdef.ofp_instruction_actions(
                                                                             type = conn.openflowdef.OFPIT_CLEAR_ACTIONS
                                                                             )]
-                                                           )), conn, self.apiroutine):
-            yield m
+                                                           )), conn, self.apiroutine)
         if conn in self._flowupdaters:
             self._flowupdaters[conn].close()
         datapath_id = conn.openflow_datapathid
         ovsdb_vhost = self.vhostmap.get(conn.protocol.vhost, "")
-        for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitbridgeinfo', {'datapathid': datapath_id,
-                                                                            'vhost': ovsdb_vhost}):
-            yield m
-        bridgename, systemid, _ = self.apiroutine.retvalue            
+        bridgename, systemid, _ = await call_api(self.apiroutine, 'ovsdbmanager', 'waitbridgeinfo',
+                                                 {'datapathid': datapath_id,
+                                                  'vhost': ovsdb_vhost})
         new_updater = IOFlowUpdater(conn, systemid, bridgename, self)
         self._flowupdaters[conn] = new_updater
         new_updater.start()
-        for m in self._portchange(conn):
-            yield m
-    def _remove_conn(self, conn):
+        await self._portchange(conn)
+
+    async def _remove_conn(self, conn):
         # Do not need to modify flows
         if conn in self._flowupdaters:
             self._flowupdaters[conn].close()
             del self._flowupdaters[conn]
-        if False:
-            yield
-    def _portchange(self, conn):
+
+    async def _portchange(self, conn):
         # Do not re-enter
         if conn in self._portchanging:
             self._portchanged.add(conn)
@@ -993,44 +946,39 @@ class IOProcessing(FlowBase):
                     break
                 datapath_id = conn.openflow_datapathid
                 ovsdb_vhost = self.vhostmap.get(conn.protocol.vhost, "")
-                for m in callAPI(self.apiroutine, 'openflowportmanager', 'getports', {'datapathid': datapath_id,
-                                                                                      'vhost': conn.protocol.vhost}):
-                    yield m
-                ports = self.apiroutine.retvalue
+                ports = await call_api(self.apiroutine, 'openflowportmanager', 'getports', {'datapathid': datapath_id,
+                                                                                            'vhost': conn.protocol.vhost})
                 if conn in self._portchanged:
                     continue
                 if not conn.connected:
                     self._portchanged.discard(conn)
                     return
-                def ovsdb_info():
+                async def ovsdb_info():
                     resync = 0
                     while True:
                         try:
                             if conn in self._portchanged:
-                                self.apiroutine.retvalue = None
-                                return
-                            for m in self.apiroutine.executeAll([callAPI(self.apiroutine, 'ovsdbportmanager', 'waitportbyno', {'datapathid': datapath_id,
-                                                                                                   'vhost': ovsdb_vhost,
-                                                                                                   'portno': p.port_no,
-                                                                                                   'timeout': 5 + 5 * min(resync, 5)
-                                                                                                   })
-                                                                 for p in ports]):
-                                yield m
-                        except StopIteration:
-                            break
+                                return None
+                            ovsdb_ports = await self.apiroutine.execute_all([call_api(self.apiroutine, 'ovsdbportmanager', 'waitportbyno',
+                                                                                    {'datapathid': datapath_id,
+                                                                                     'vhost': ovsdb_vhost,
+                                                                                     'portno': p.port_no,
+                                                                                     'timeout': 5 + 5 * min(resync, 5)
+                                                                                    })
+                                                                        for p in ports])
                         except Exception:
-                            self._logger.warning('Cannot retrieve port info from OVSDB for datapathid %016x, vhost = %r', datapath_id, ovsdb_vhost, exc_info = True)
-                            for m in callAPI(self.apiroutine, 'ovsdbmanager', 'getconnection', {'datapathid': datapath_id,
-                                                                                                'vhost': ovsdb_vhost}):
-                                yield m
-                            if self.apiroutine.retvalue is None:
+                            self._logger.warning('Cannot retrieve port info from OVSDB for datapathid %016x, vhost = %r',
+                                                 datapath_id, ovsdb_vhost, exc_info = True)
+                            result = await call_api(self.apiroutine, 'ovsdbmanager', 'getconnection',
+                                                                    {'datapathid': datapath_id,
+                                                                     'vhost': ovsdb_vhost})
+                            if result is None:
                                 self._logger.warning("OVSDB connection may not be ready for datapathid %016x, vhost = %r", datapath_id, ovsdb_vhost)
                                 trytimes = 0
                                 while True:
                                     try:
-                                        for m in callAPI(self.apiroutine, 'ovsdbmanager', 'waitconnection', {'datapathid': datapath_id,
-                                                                                                             'vhost': ovsdb_vhost}):
-                                            yield m
+                                        await call_api(self.apiroutine, 'ovsdbmanager', 'waitconnection', {'datapathid': datapath_id,
+                                                                                                             'vhost': ovsdb_vhost})
                                     except Exception:
                                         trytimes += 1
                                         if trytimes > 10:
@@ -1041,36 +989,30 @@ class IOProcessing(FlowBase):
                             else:
                                 self._logger.warning('OpenFlow ports may not be synchronized. Try resync...')
                                 # Connection is up but ports are not synchronized, try resync
-                                for m in self.apiroutine.executeAll([callAPI(self.apiroutine, 'openflowportmanager', 'resync',
+                                await self.apiroutine.execute_all([call_api(self.apiroutine, 'openflowportmanager', 'resync',
                                                                              {'datapathid': datapath_id,
                                                                               'vhost': conn.protocol.vhost}),
-                                                                     callAPI(self.apiroutine, 'ovsdbportmanager', 'resync',
+                                                                   call_api(self.apiroutine, 'ovsdbportmanager', 'resync',
                                                                              {'datapathid': datapath_id,
-                                                                              'vhost': ovsdb_vhost})]):
-                                    yield m
+                                                                              'vhost': ovsdb_vhost})])
                                 # Do not resync too often
-                                with closing(self.apiroutine.waitWithTimeout(0.1)) as g:
-                                    for m in g:
-                                        yield m
+                                await self.apiroutine.wait_with_timeout(0.1)
                                 resync += 1
                         else:
                             break
-                    self.apiroutine.retvalue = [r[0] for r in self.apiroutine.retvalue]
+                    return ovsdb_ports
                 conn_down = conn.protocol.statematcher(conn)
                 try:
-                    for m in self.apiroutine.withException(ovsdb_info(), conn_down):
-                        yield m
+                    ovsdb_ports = await self.apiroutine.with_exception(ovsdb_info(), conn_down)
                 except RoutineException:
                     self._portchanged.discard(conn)
                     return
                 if conn in self._portchanged:
                     continue
-                ovsdb_ports = self.apiroutine.retvalue
                 flow_updater = self._flowupdaters.get(conn)
                 if flow_updater is None:
                     break
-                for m in flow_updater.update_ports(ports, ovsdb_ports):
-                    yield m
+                await flow_updater.update_ports(ports, ovsdb_ports)
                 if conn not in self._portchanged:
                     break
         finally:

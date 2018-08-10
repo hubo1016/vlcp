@@ -4,7 +4,7 @@ Created on 2015/6/9
 :author: hubo
 '''
 import unittest
-from vlcp.event.event import Event,EventMatcher,withIndices
+from vlcp.event.event import Event,EventMatcher,withIndices, Diff_
 from vlcp.event.matchtree import MatchTree, EventTree
 from vlcp.event.pqueue import CBQueue
 
@@ -547,8 +547,8 @@ class Test(unittest.TestCase):
         self.assertTrue(ans4.isMatch(ws[0]))
         (ws, es) = self.queue.clear()
         self.assertEqual(len(ws), 1)
-        self.assertTrue(ans.isMatch(ws[0]))
-        self.assertTrue(ans2.isMatch(ws[0]))
+        self.assertFalse(ans.isMatch(ws[0]))
+        self.assertFalse(ans2.isMatch(ws[0]))
         self.assertTrue(ans3.isMatch(ws[0]))
         self.assertTrue(ans4.isMatch(ws[0]))
     def testAutoClassQueueWithoutMainLimit(self):
@@ -602,12 +602,30 @@ class Test(unittest.TestCase):
         self.assertFalse(ans3.isMatch(ws[0]))
         self.assertFalse(ans4.isMatch(ws[0]))
         (ws, es) = self.queue.clear()
-        self.assertEqual(len(ws), 1)
-        self.assertTrue(ans.isMatch(ws[0]))
-        self.assertTrue(ans2.isMatch(ws[0]))
-        self.assertTrue(ans3.isMatch(ws[0]))
-        self.assertTrue(ans4.isMatch(ws[0]))
-
+        self.assertEqual(len(ws), 2)
+        self.assertFalse(any(ans.isMatch(w) for w in ws))
+        self.assertFalse(any(ans2.isMatch(w) for w in ws))
+        self.assertTrue(any(ans3.isMatch(w) for w in ws))
+        self.assertTrue(any(ans4.isMatch(w) for w in ws))
+    
+    def testDiff(self):
+        def _test_diff(d1, d2, expected_add, expected_remove):
+            add, remove = d1.two_way_difference(d2)
+            self.assertSetEqual(set(add), set(expected_add))
+            self.assertSetEqual(set(remove), set(expected_remove))
+        # Use non-iterable base to test fast diff
+        o = object()
+        d1 = Diff_(o, (1,2), (3,4,5))
+        _test_diff(d1, Diff_(o, (1,2), (3,)),
+                   (), (4,5))
+        _test_diff(d1, Diff_(o, (1,), ()),
+                   (2,), (3,4,5))
+        _test_diff(d1, Diff_(d1, (6,), (1,)),
+                   (1,), (6,))
+        _test_diff(Diff_(d1, (6,), (1,)), d1,
+                   (6,), (1,))
+        _test_diff(Diff_((3,4,5), (1,2), (3,4,5)), (1,), (2,), ())
+        
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testEvent']
     unittest.main()

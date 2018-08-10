@@ -6,14 +6,14 @@ Created on 2016/2/23
 
 
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module, api, depend, callAPI, ModuleNotification
+from vlcp.server.module import Module, api, depend, call_api, ModuleNotification
 from vlcp.event.runnable import RoutineContainer
 from vlcp.service.sdn import ofpmanager
 import vlcp.protocol.openflow.defs.openflow13 as of13
 from vlcp.event.connection import ConnectionResetException
 from vlcp.protocol.openflow.openflow import OpenflowProtocolException,\
     OpenflowAsyncMessageEvent
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 from contextlib import closing
 
 def _bytes(s):
@@ -48,7 +48,8 @@ class OpenflowPortManager(Module):
                        api(self.resync, self.apiroutine)
                        )
         self._synchronized = False
-    def _get_ports(self, connection, protocol, onup = False, update = True):
+
+    async def _get_ports(self, connection, protocol, onup = False, update = True):
         ofdef = connection.openflowdef
         dpid = connection.openflow_datapathid
         vhost = connection.protocol.vhost
@@ -56,10 +57,10 @@ class OpenflowPortManager(Module):
         try:
             if hasattr(ofdef, 'ofp_multipart_request'):
                 # Openflow 1.3, use ofp_multipart_request to get ports
-                for m in protocol.querymultipart(ofdef.ofp_multipart_request(type=ofdef.OFPMP_PORT_DESC), connection, self.apiroutine):
-                    yield m
+                openflow_reply = await protocol.querymultipart(ofdef.ofp_multipart_request(type=ofdef.OFPMP_PORT_DESC),
+                                                               connection, self.apiroutine)
                 ports = self.managed_ports.setdefault((vhost, dpid), {})
-                for msg in self.apiroutine.openflow_reply:
+                for msg in openflow_reply:
                     for p in msg.ports:
                         add.append(p)
                         ports[p.port_no] = p
@@ -71,50 +72,46 @@ class OpenflowPortManager(Module):
                 else:
                     request = ofdef.ofp_msg()
                     request.header.type = ofdef.OFPT_FEATURES_REQUEST
-                    for m in protocol.querywithreply(request):
-                        yield m
-                    reply = self.apiroutine.retvalue
+                    reply = await protocol.querywithreply(request)
                 ports = self.managed_ports.setdefault((vhost, dpid), {})
                 for p in reply.ports:
                     add.append(p)
                     ports[p.port_no] = p
             if update:
-                for m in self.apiroutine.waitForSend(OpenflowPortSynchronized(connection)):
-                    yield m
+                await self.apiroutine.wait_for_send(OpenflowPortSynchronized(connection))
                 self._logger.info("Openflow port synchronized on connection %r", connection)
-                for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'update',
+                await self.apiroutine.wait_for_send(ModuleNotification(self.getServiceName(), 'update',
                                                                          datapathid = connection.openflow_datapathid,
                                                                          connection = connection,
                                                                          vhost = protocol.vhost,
                                                                          add = add, remove = [],
-                                                                         reason = 'connected')):
-                    yield m
+                                                                         reason = 'connected'))
         except ConnectionResetException:
             pass
         except OpenflowProtocolException:
             pass
-    def _get_existing_ports(self):
-        for m in callAPI(self.apiroutine, 'openflowmanager', 'getallconnections', {'vhost':None}):
-            yield m
-        with closing(self.apiroutine.executeAll([self._get_ports(c, c.protocol, False, False) for c in self.apiroutine.retvalue if c.openflow_auxiliaryid == 0])) as g:
-            for m in g:
-                yield m
+
+    async def _get_existing_ports(self):
+        r =  await call_api(self.apiroutine, 'openflowmanager', 'getallconnections', {'vhost':None})
+        await self.apiroutine.execute_all([self._get_ports(c, c.protocol, False, False)
+                                           for c in r
+                                           if c.openflow_auxiliaryid == 0])
         self._synchronized = True
         self._logger.info("Openflow ports synchronized")
-        for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'synchronized')):
-            yield m
-    def _wait_for_sync(self):
+        await self.apiroutine.wait_for_send(ModuleNotification(self.getServiceName(), 'synchronized'))
+
+    async def _wait_for_sync(self):
         if not self._synchronized:
-            yield (ModuleNotification.createMatcher(self.getServiceName(), 'synchronized'),)
-    def _manage_ports(self):
+            await ModuleNotification.createMatcher(self.getServiceName(), 'synchronized')
+
+    async def _manage_ports(self):
         try:
             self.apiroutine.subroutine(self._get_existing_ports())
             conn_update = ModuleNotification.createMatcher('openflowmanager', 'update')
             port_status = OpenflowAsyncMessageEvent.createMatcher(of13.OFPT_PORT_STATUS, None, 0)
             while True:
-                yield (conn_update, port_status)
-                if self.apiroutine.matcher is port_status:
-                    e = self.apiroutine.event
+                e, m_ = await M_(conn_update, port_status)
+                if m_ is port_status:
                     m = e.message
                     c = e.connection
                     if (c.protocol.vhost, c.openflow_datapathid) in self.managed_ports:
@@ -156,7 +153,6 @@ class OpenflowPortManager(Module):
                                                                              reason = 'add'))
                             self.managed_ports[(c.protocol.vhost, c.openflow_datapathid)][m.desc.port_no] = m.desc
                 else:
-                    e = self.apiroutine.event
                     for c in e.remove:
                         if c.openflow_auxiliaryid == 0 and (c.protocol.vhost, c.openflow_datapathid) in self.managed_ports:
                             self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'update',
@@ -171,67 +167,69 @@ class OpenflowPortManager(Module):
                             self.apiroutine.subroutine(self._get_ports(c, c.protocol, True, True))
         finally:
             self.scheduler.emergesend(ModuleNotification(self.getServiceName(), 'unsynchronized'))
-    def getports(self, datapathid, vhost = ''):
+
+    async def getports(self, datapathid, vhost = ''):
         "Return all ports of a specifed datapath"
-        for m in self._wait_for_sync():
-            yield m
+        await self._wait_for_sync()
         r = self.managed_ports.get((vhost, datapathid))
         if r is None:
-            self.apiroutine.retvalue = None
+            return None
         else:
-            self.apiroutine.retvalue = list(r.values())
-    def getallports(self, vhost = None):
+            return list(r.values())
+
+    async def getallports(self, vhost = None):
         "Return all ``(datapathid, port, vhost)`` tuples, optionally filterd by vhost"
-        for m in self._wait_for_sync():
-            yield m
+        await self._wait_for_sync()
         if vhost is None:
-            self.apiroutine.retvalue = [(dpid, p, vh) for (vh, dpid),v in self.managed_ports.items() for p in v.values()]
+            return [(dpid, p, vh) for (vh, dpid),v in self.managed_ports.items() for p in v.values()]
         else:
-            self.apiroutine.retvalue = [(dpid, p, vh) for (vh, dpid),v in self.managed_ports.items() if vh == vhost for p in v.values()]
-    def getportbyno(self, datapathid, portno, vhost = ''):
+            return [(dpid, p, vh) for (vh, dpid),v in self.managed_ports.items() if vh == vhost for p in v.values()]
+
+    async def getportbyno(self, datapathid, portno, vhost = ''):
         "Return port with specified OpenFlow portno"
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = self._getportbyno(datapathid, portno, vhost)
+        await self._wait_for_sync()
+        return self._getportbyno(datapathid, portno, vhost)
+
     def _getportbyno(self, datapathid, portno, vhost = ''):
         ports = self.managed_ports.get((vhost, datapathid))
         if ports is None:
             return None
         else:
             return ports.get(portno)
-    def waitportbyno(self, datapathid, portno, timeout = 30, vhost = ''):
+
+    async def waitportbyno(self, datapathid, portno, timeout = 30, vhost = ''):
         """
         Wait for the specified OpenFlow portno to appear, or until timeout.
         """
-        for m in self._wait_for_sync():
-            yield m
-        def waitinner():
+        await self._wait_for_sync()
+        async def waitinner():
             ports = self.managed_ports.get((vhost, datapathid))
             if ports is None:
-                for m in callAPI(self.apiroutine, 'openflowmanager', 'waitconnection', {'datapathid': datapathid, 'vhost':vhost, 'timeout': timeout}):
-                    yield m
-                c = self.apiroutine.retvalue
+                c = await call_api(self.apiroutine, 'openflowmanager', 'waitconnection',
+                                   {'datapathid': datapathid, 'vhost':vhost, 'timeout': timeout})
                 ports = self.managed_ports.get((vhost, datapathid))
                 if ports is None:
-                    yield (OpenflowPortSynchronized.createMatcher(c),)
+                    await OpenflowPortSynchronized.createMatcher(c)
                 ports = self.managed_ports.get((vhost, datapathid))
                 if ports is None:
                     raise ConnectionResetException('Datapath %016x is not connected' % datapathid)
             if portno not in ports:
-                yield (OpenflowAsyncMessageEvent.createMatcher(of13.OFPT_PORT_STATUS, datapathid, 0, _ismatch = lambda x: x.message.desc.port_no == portno),)
-                self.apiroutine.retvalue = self.apiroutine.event.message.desc
+                ev = await OpenflowAsyncMessageEvent.createMatcher(of13.OFPT_PORT_STATUS, datapathid, 0,
+                                                                   _ismatch = lambda x: x.message.desc.port_no == portno)
+                return ev.message.desc
             else:
-                self.apiroutine.retvalue = ports[portno]
-        with closing(self.apiroutine.executeWithTimeout(timeout, waitinner())) as g:
-            for m in g:
-                yield m
-        if self.apiroutine.timeout:
+                return ports[portno]
+        timeout_, result = await self.apiroutine.execute_with_timeout(timeout, waitinner())
+        if timeout_:
             raise OpenflowPortNotAppearException('Port %d does not appear on datapath %016x' % (portno, datapathid))
-    def getportbyname(self, datapathid, name, vhost = ''):
+        else:
+            return result
+
+    async def getportbyname(self, datapathid, name, vhost = ''):
         "Return port with specified port name"
-        for m in self._wait_for_sync():
-            yield m
-        self.apiroutine.retvalue = self._getportbyname(datapathid, name, vhost)
+        await self._wait_for_sync()
+        return self._getportbyname(datapathid, name, vhost)
+
     def _getportbyname(self, datapathid, name, vhost = ''):
         if not isinstance(name, bytes):
             name = _bytes(name)
@@ -243,38 +241,38 @@ class OpenflowPortManager(Module):
                 if p.name == name:
                     return p
             return None
-    def waitportbyname(self, datapathid, name, timeout = 30, vhost = ''):
+
+    async def waitportbyname(self, datapathid, name, timeout = 30, vhost = ''):
         """
         Wait for a port with the specified port name to appear, or until timeout
         """
-        for m in self._wait_for_sync():
-            yield m
+        await self._wait_for_sync()
         if not isinstance(name, bytes):
             name = _bytes(name)
-        def waitinner():
+        async def waitinner():
             ports = self.managed_ports.get((vhost, datapathid))
             if ports is None:
-                for m in callAPI(self.apiroutine, 'openflowmanager', 'waitconnection', {'datapathid': datapathid, 'vhost':vhost, 'timeout': timeout}):
-                    yield m
-                c = self.apiroutine.retvalue
+                c = await call_api(self.apiroutine, 'openflowmanager', 'waitconnection',
+                                   {'datapathid': datapathid, 'vhost':vhost, 'timeout': timeout})
                 ports = self.managed_ports.get((vhost, datapathid))
                 if ports is None:
-                    yield (OpenflowPortSynchronized.createMatcher(c),)
+                    await OpenflowPortSynchronized.createMatcher(c)
                 ports = self.managed_ports.get((vhost, datapathid))
                 if ports is None:
                     raise ConnectionResetException('Datapath %016x is not connected' % datapathid)
             for p in ports.values():
                 if p.name == name:
-                    self.apiroutine.retvalue = p
-                    return
-            yield (OpenflowAsyncMessageEvent.createMatcher(of13.OFPT_PORT_STATUS, datapathid, 0, _ismatch = lambda x: x.message.desc.name == name),)
-            self.apiroutine.retvalue = self.apiroutine.event.message.desc
-        with closing(self.apiroutine.executeWithTimeout(timeout, waitinner())) as g:
-            for m in g:
-                yield m
-        if self.apiroutine.timeout:
+                    return p
+            ev = await OpenflowAsyncMessageEvent.createMatcher(of13.OFPT_PORT_STATUS, datapathid, 0,
+                                                               _ismatch = lambda x: x.message.desc.name == name)
+            return ev.message.desc
+        timeout_, result = await self.apiroutine.execute_with_timeout(timeout, waitinner())
+        if timeout_:
             raise OpenflowPortNotAppearException('Port %r does not appear on datapath %016x' % (name, datapathid))
-    def resync(self, datapathid, vhost = ''):
+        else:
+            return result
+
+    async def resync(self, datapathid, vhost = ''):
         '''
         Resync with current ports
         '''
@@ -282,7 +280,6 @@ class OpenflowPortManager(Module):
         # We must deal with this and recover from it
         # Save current manged_ports
         if (vhost, datapathid) not in self.managed_ports:
-            self.apiroutine.retvalue = None
             return
         else:
             last_ports = set(self.managed_ports[(vhost, datapathid)].keys())
@@ -290,30 +287,26 @@ class OpenflowPortManager(Module):
         remove = set()
         ports = {}
         for _ in range(0, 10):
-            for m in callAPI(self.apiroutine, 'openflowmanager', 'getconnection', {'datapathid': datapathid, 'vhost':vhost}):
-                yield m
-            c = self.apiroutine.retvalue
+            c = await call_api(self.apiroutine, 'openflowmanager', 'getconnection',
+                               {'datapathid': datapathid, 'vhost':vhost})
             if c is None:
                 # Disconnected, will automatically resync when reconnected
-                self.apiroutine.retvalue = None
                 return
             ofdef = c.openflowdef
             protocol = c.protocol
             try:
                 if hasattr(ofdef, 'ofp_multipart_request'):
                     # Openflow 1.3, use ofp_multipart_request to get ports
-                    for m in protocol.querymultipart(ofdef.ofp_multipart_request(type=ofdef.OFPMP_PORT_DESC), c, self.apiroutine):
-                        yield m
-                    for msg in self.apiroutine.openflow_reply:
+                    result = await protocol.querymultipart(ofdef.ofp_multipart_request(type=ofdef.OFPMP_PORT_DESC),
+                                                           c, self.apiroutine)
+                    for msg in result:
                         for p in msg.ports:
                             ports[p.port_no] = p
                 else:
                     # Openflow 1.0, use features_request
                     request = ofdef.ofp_msg()
                     request.header.type = ofdef.OFPT_FEATURES_REQUEST
-                    for m in protocol.querywithreply(request):
-                        yield m
-                    reply = self.apiroutine.retvalue
+                    reply = await protocol.querywithreply(request)
                     for p in reply.ports:
                         ports[p.port_no] = p
             except ConnectionResetException:
@@ -322,7 +315,6 @@ class OpenflowPortManager(Module):
                 break
             else:
                 if (vhost, datapathid) not in self.managed_ports:
-                    self.apiroutine.retvalue = None
                     return
                 current_ports = set(self.managed_ports[(vhost, datapathid)])
                 # If a port is already removed
@@ -364,11 +356,9 @@ class OpenflowPortManager(Module):
                 pass
             else:
                 remove_ports.append(oldport)
-        for m in self.apiroutine.waitForSend(ModuleNotification(self.getServiceName(), 'update',
+        await self.apiroutine.wait_for_send(ModuleNotification(self.getServiceName(), 'update',
                                                                  datapathid = datapathid,
                                                                  connection = c,
                                                                  vhost = vhost,
                                                                  add = add_ports, remove = remove_ports,
-                                                                 reason = 'resync')):
-            yield m
-        self.apiroutine.retvalue = None
+                                                                 reason = 'resync'))

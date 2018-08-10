@@ -23,9 +23,12 @@ The interface is similar to asyncio, but:
   to ensure that a result is always set after exit the with scope. If the result is not set,
   it is set to None; if an exception is raised, it is set with set_exception.
 
+Since v2.0, you can directly use `await future` to wait for the result
+
 '''
 from vlcp.event.event import withIndices, Event
 from contextlib import contextmanager
+from vlcp.event.runnable import GeneratorExit_
 
 @withIndices('futureobj')
 class FutureEvent(Event):
@@ -58,23 +61,23 @@ class Future(object):
                 raise self._exception
             else:
                 return r
-    def wait(self, container):
+    async def wait(self, container = None):
         '''
-        :param container: container of current routine
+        :param container: DEPRECATED container of current routine
         
-        :return: The result, or raise the exception from set_exception. The result is returned to container.retvalue.
+        :return: The result, or raise the exception from set_exception.
         '''
         if hasattr(self, '_result'):
             if hasattr(self, '_exception'):
                 raise self._exception
             else:
-                container.retvalue = self._result
+                return self._result
         else:
-            yield (FutureEvent.createMatcher(self),)
-            if hasattr(container.event, 'exception'):
-                raise container.event.exception
+            ev = await FutureEvent.createMatcher(self)
+            if hasattr(ev, 'exception'):
+                raise ev.exception
             else:
-                container.retvalue = container.event.result
+                return ev.result
     def set_result(self, result):
         '''
         Set the result to Future object, wake up all the waiters
@@ -110,6 +113,9 @@ class Future(object):
         else:
             if not self.done():
                 self.set_result(defaultresult)
+    
+    def __await__(self):
+        return self.wait().__await__()
 
 
 class FutureCancelledException(Exception):
@@ -124,20 +130,19 @@ class RoutineFuture(Future):
         '''
         Start the subprocess
         
-        :param subprocess: a generator process, which returns the result to container.retvalue on exit
+        :param subprocess: a generator process, which returns the result to future on exit
         
         :param container: the routine container to run the subprocess with
         '''
         Future.__init__(self, container.scheduler)
-        def _subroutine():
+        async def _subroutine():
             with self.ensure_result(True):
                 try:
-                    for m in subprocess:
-                        yield m
-                except GeneratorExit:
+                    r = await subprocess
+                except GeneratorExit_:
                     raise FutureCancelledException('close is called before result returns')
                 else:
-                    self.set_result(container.retvalue)
+                    self.set_result(r)
         self._routine = container.subroutine(_subroutine())
     def close(self):
         '''
@@ -145,8 +150,18 @@ class RoutineFuture(Future):
         '''
         if not self.done():
             self._routine.close()
+
     def cancel(self):
         '''
         Same as close()
         '''
         self.close()
+    
+    async def wait_and_close(self):
+        """
+        wait for result; always close no matter success or failed
+        """
+        try:
+            return await self.wait()
+        finally:
+            self.close()

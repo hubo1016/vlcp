@@ -18,9 +18,9 @@ class AutoLoad(Module):
     _default_autoloadpackages = ('vlcp.service.sdn.plugins',)
     def __init__(self, server):
         Module.__init__(self, server)
-    def load(self, container):
-        for m in Module.load(self, container):
-            yield m
+
+    async def load(self, container):
+        await Module.load(self, container)
         loadmodules = []
         for p in self.autoloadpackages:
             try:
@@ -39,12 +39,8 @@ class AutoLoad(Module):
             except Exception:
                 self._logger.warning('Autoload package %r failed', p, exc_info = True)
         if loadmodules:
-            for m in container.executeAll([self.server.moduleloader.loadmodule(m) for m in loadmodules],
-                                          self.server.moduleloader, ()):
-                yield m
-        for m in self.changestate(ModuleLoadStateChanged.SUCCEEDED, container):
-            yield m
-    def unload(self, container, force=False):
-        for m in Module.unload(self, container, force=force):
-            yield m
-    
+            await container.execute_all([self.server.moduleloader.loadmodule(m) for m in loadmodules])
+        await self.changestate(ModuleLoadStateChanged.SUCCEEDED, container)
+
+    async def unload(self, container, force=False):
+        await Module.unload(self, container, force=force)

@@ -11,6 +11,7 @@ import logging
 import os
 import json
 import re
+from vlcp.event.event import M_
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class JsonRPCConnectionStateEvent(Event):
@@ -52,8 +53,13 @@ class JsonFormatException(Exception):
 class JsonRPCProtocolException(Exception):
     pass
 
+
 class JsonRPCErrorResultException(Exception):
-    pass
+    def __init__(self, error, result = None):
+        Exception.__init__(self, str(error))
+        self.error = error
+        self.result = result
+
 
 @defaultconfig
 class JsonRPC(Protocol):
@@ -81,9 +87,8 @@ class JsonRPC(Protocol):
         Constructor
         '''
         Protocol.__init__(self)
-    def init(self, connection):
-        for m in Protocol.init(self, connection):
-            yield m
+    async def init(self, connection):
+        await Protocol.init(self, connection)
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority + 2, JsonRPCRequestEvent.createMatcher(connection = connection), ('request', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
@@ -92,33 +97,29 @@ class JsonRPC(Protocol):
                 self.messagepriority + 1, JsonRPCResponseEvent.createMatcher(connection = connection), ('response', connection), self.messagequeuesize))
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.messagepriority, JsonRPCNotificationEvent.createMatcher(connection = connection), ('notification', connection), self.messagequeuesize))
-        for m in self._extra_queues(connection):
-            yield  m
-        for m in self.reconnect_init(connection):
-            yield m
-    def _extra_queues(self, connection):
-        if False:
-            yield
-    def reconnect_init(self, connection):
+        await self._extra_queues(connection)
+        await self.reconnect_init(connection)
+
+    async def _extra_queues(self, connection):
+        pass
+
+    async def reconnect_init(self, connection):
         connection.xid = ord(os.urandom(1)) + 1
         connection.jsonrpc_parserlevel = 0
         connection.jsonrpc_parserstate = 'begin'
-        for m in connection.waitForSend(JsonRPCConnectionStateEvent(JsonRPCConnectionStateEvent.CONNECTION_UP, connection, connection.connmark, self)):
-            yield m
-    def closed(self, connection):
-        for m in Protocol.closed(self, connection):
-            yield m
+        await connection.wait_for_send(JsonRPCConnectionStateEvent(JsonRPCConnectionStateEvent.CONNECTION_UP, connection, connection.connmark, self))
+
+    async def closed(self, connection):
+        await Protocol.closed(self, connection)
         connection.scheduler.ignore(JsonRPCRequestEvent.createMatcher(connection = connection))
         self._logger.info('JSON-RPC connection is closed on %r', connection)
-        for m in connection.waitForSend(JsonRPCConnectionStateEvent(JsonRPCConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
-            yield m
-    def error(self, connection):
-        for m in Protocol.error(self, connection):
-            yield m
+        await connection.wait_for_send(JsonRPCConnectionStateEvent(JsonRPCConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self))
+
+    async def error(self, connection):
+        await Protocol.error(self, connection)
         connection.scheduler.ignore(JsonRPCRequestEvent.createMatcher(connection = connection))
         self._logger.warning('JSON-RPC connection is reset on %r', connection)
-        for m in connection.waitForSend(JsonRPCConnectionStateEvent(JsonRPCConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self)):
-            yield m
+        await connection.wait_for_send(JsonRPCConnectionStateEvent(JsonRPCConnectionStateEvent.CONNECTION_DOWN, connection, connection.connmark, self))
     _BEGIN_PATTERN = re.compile(br'\s*')
     _OBJECT_PATTERN = re.compile(br'[^"{}]*')
     _STRING_PATTERN = re.compile(br'[^"^\\]*')
@@ -173,34 +174,40 @@ class JsonRPC(Protocol):
             return JsonRPCConnectionStateEvent.createMatcher(state, connection, connection.connmark)
         else:
             return JsonRPCConnectionStateEvent.createMatcher(state, connection)
-    def querywithreply(self, method, params, connection, container, raiseonerror = True):
+
+    async def querywithreply(self, method, params, connection, container = None, raiseonerror = True):
         """
-        Send a JSON-RPC request and wait for the reply. The reply result is stored at
-        `container.jsonrpc_result` and the reply error is stored at `container.jsonrpc_error`.
+        Send a JSON-RPC request and wait for the reply.
+        
+        :return: (result, error) tuple
         """
         (c, rid) = self.formatrequest(method, params, connection)
-        for m in connection.write(c, False):
-            yield m
+        await connection.write(c, False)
         reply = self.replymatcher(rid, connection)
         conndown = self.statematcher(connection)
-        yield (reply, conndown)
-        if container.matcher is conndown:
+        ev, m = await M_(reply, conndown)
+        if m is conndown:
             raise JsonRPCProtocolException('Connection is down before reply received')
-        container.jsonrpc_result = container.event.result
-        container.jsonrpc_error = container.event.error
-        if raiseonerror and container.event.error:
-            raise JsonRPCErrorResultException(str(container.event.error))
-    def waitfornotify(self, method, connection, container):
+        result = ev.result
+        error = ev.error
+        if raiseonerror and error:
+            raise JsonRPCErrorResultException(error, result)
+        else:
+            return (result, error)
+
+    async def waitfornotify(self, method, connection, container):
         """
         Wait for next notification
+        
+        :return: (method, params) from the notification
         """
         notify = self.notificationmatcher(method, connection)
         conndown = self.statematcher(connection)
-        yield (notify, conndown)
-        if container.matcher is conndown:
+        ev, m = await M_(notify, conndown)
+        if m is conndown:
             raise JsonRPCProtocolException('Connection is down before notification received')
-        container.jsonrpc_notifymethod = container.event.method
-        container.jsonrpc_notifyparams = container.event.params
+        return (ev.method, ev.params)
+
     def parse(self, connection, data, laststart):
         jsonstart = 0
         start = laststart

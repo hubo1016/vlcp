@@ -6,8 +6,9 @@ Created on 2015/6/16
 from __future__ import print_function, absolute_import, division
 import sys
 from .core import QuitException, TimerEvent, SystemControlEvent
-from .event import Event, withIndices
-from contextlib import closing
+from .event import Event, withIndices, M_, Diff_
+import asyncio
+
 
 class EventHandler(object):
     '''
@@ -90,6 +91,40 @@ class EventHandler(object):
     def quitHandler(self, scheduler):
         raise StopIteration
 
+
+class GeneratorExit_(BaseException):
+    """
+    Bypass PyPy3 bug
+    """
+    pass
+
+
+def _close_generator(g):
+    """
+    PyPy 3 generator has a bug that calling `close` caused
+    memory leak. Before it is fixed, use `throw` instead
+    """
+    if isinstance(g, generatorwrapper):
+        g.close()
+    elif _get_frame(g) is not None:
+        try:
+            g.throw(GeneratorExit_)
+        except (StopIteration, GeneratorExit_):
+            return
+        else:
+            raise RuntimeError("coroutine ignored GeneratorExit")
+
+
+def _await(coroutine):
+    """
+    Return a generator
+    """
+    if hasattr(coroutine, '__await__'):
+        return coroutine.__await__()
+    else:
+        return coroutine
+
+
 @withIndices('type', 'routine')
 class RoutineControlEvent(Event):
     DELEGATE_FINISHED = 'delegatefinished'
@@ -98,56 +133,71 @@ class IllegalMatchersException(Exception):
     pass
 
 
+def _get_frame(obj):
+    if hasattr(obj, 'cr_frame'):
+        return obj.cr_frame
+    else:
+        return obj.gi_frame
+
+
 class generatorwrapper(object):
     '''
     Default __repr__ of a generator is not readable, use a wrapper to improve the readability
     '''
-    def __init__(self, run, name = 'iterator', classname = 'routine'):
+    __slots__ = ('run', 'name', 'classname', '_iter')
+    def __init__(self, run, name = 'coroutine', classname = 'routine'):
         self.run = run
         self.name = name
         self.classname = classname
+        if hasattr(run, '__await__'):
+            self._iter = run.__await__()
+        else:
+            self._iter = run
     def __iter__(self):
-        return self.run
+        return self._iter
+    __await__ = __iter__
     def next(self):
         try:
-            return next(self.run)
+            return next(self._iter)
         except StopIteration:
             raise StopIteration
     def __next__(self):
         try:
-            return next(self.run)
+            return next(self._iter)
         except StopIteration:
             raise StopIteration
     def send(self, arg):
         try:
-            return self.run.send(arg)
+            return self._iter.send(arg)
         except StopIteration:
             raise StopIteration
     def throw(self, typ, val = None, tb = None):
         try:
-            return self.run.throw(typ, val, tb)
+            return self._iter.throw(typ, val, tb)
         except StopIteration:
             raise StopIteration
     def __repr__(self, *args, **kwargs):
         try:
-            iterator = self.run.gi_frame.f_locals[self.name]
+            iterator = _get_frame(self.run).f_locals[self.name]
             try:
                 return '<%s %r of %r at 0x%016X>' % (self.classname, iterator,
-                                                       iterator.gi_frame.f_locals['self'],
+                                                       _get_frame(iterator).f_locals['self'],
                                                        id(iterator))
             except Exception:
                 return '<%s %r at 0x%016X>' % (self.classname, iterator, id(iterator))
         except Exception:
             return repr(self.run)
     def close(self):
-        return self.run.close()
+        return _close_generator(self.run)
 
-def Routine(iterator, scheduler, asyncStart = True, container = None, manualStart = False, daemon = False):
+
+def Routine(coroutine, scheduler, asyncStart = True, container = None, manualStart = False, daemon = False):
     """
     This wraps a normal generator to become a VLCP routine. Usually you do not need to call this yourself;
     `container.start` and `container.subroutine` calls this automatically.
     """
     def run():
+        iterator = _await(coroutine)
         iterself = yield
         if manualStart:
             yield
@@ -176,12 +226,12 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                 try:
                     iterator.throw(IllegalMatchersException(matchers))
                 except StopIteration:
-                    return
+                    pass
                 raise
             while True:
                 try:
                     etup = yield
-                except GeneratorExit:
+                except GeneratorExit_:
                     raise
                 except:
                     #scheduler.unregister(matchers, iterself)
@@ -192,13 +242,10 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                     try:
                         matchers = iterator.throw(t,v)
                     except StopIteration:
-                        pass
+                        return
                 else:
                     #scheduler.unregister(matchers, iterself)
                     lmatchers = matchers
-                    if container is not None:
-                        container.event = etup[0]
-                        container.matcher = etup[1]
                     if container is not None:
                         container.currentroutine = iterself
                     try:
@@ -213,8 +260,13 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                     except StopIteration:
                         return
                 try:
-                    scheduler.unregister(set(lmatchers).difference(matchers), iterself)
-                    scheduler.register(set(matchers).difference(lmatchers), iterself)
+                    if hasattr(matchers, 'two_way_difference'):
+                        reg, unreg = matchers.two_way_difference(lmatchers)
+                    else:
+                        reg = set(matchers).difference(lmatchers)
+                        unreg = set(lmatchers).difference(matchers)
+                    scheduler.register(reg, iterself)
+                    scheduler.unregister(unreg, iterself)
                 except Exception:
                     try:
                         iterator.throw(IllegalMatchersException(matchers))
@@ -228,7 +280,7 @@ def Routine(iterator, scheduler, asyncStart = True, container = None, manualStar
                 container.currentroutine = iterself
             else:
                 lastcurrentroutine = None
-            iterator.close()
+            _close_generator(coroutine)
             if container is not None:
                 container.currentroutine = lastcurrentroutine
             scheduler.unregisterall(iterself)
@@ -262,19 +314,6 @@ class RoutineContainer(object):
     used to pass important information like events, matchers and return values to the routine.
     
     Several attributes are commonly used:
-    
-    event
-        When a routine returns from `yield`, `container.event` is set to the matched event object
-        
-    matcher
-        When a routine returns from `yeild`, `container.event` is set to the matched event matcher
-    
-    timeout
-        `waitWithTimeout`, `executeWithTimeout` uses this attribute to indicate whether the wait process
-        exceeds the time limit
-        
-    retvalue
-        many coroutine methods use this attribute to return a value
         
     currentroutine
         Always set to the executing routine - which is the wrapped routine object of the routine itself
@@ -283,6 +322,9 @@ class RoutineContainer(object):
         Set to the main routine `container.main` (started by `container.start`)
         
     """
+    
+    _container_cache = {}
+    
     def __init__(self, scheduler = None, daemon = False):
         """
         Create the routine container.
@@ -326,7 +368,8 @@ class RoutineContainer(object):
         """
         Start extra routines in this container.
         
-        :param iterator: A generator object i.e the return value of a generator method `my_routine()`
+        :param iterator: A generator object i.e the return value of a generator method `my_routine()`,
+                         or a coroutine
         
         :param asyncStart: if False, start the routine in foreground. By default, the routine
                            starts in background, which means it is not executed until the current caller
@@ -365,105 +408,169 @@ class RoutineContainer(object):
         Same as `terminate()`
         """
         self.terminate()
-    def waitForSend(self, event):
+    
+    async def wait_for_send(self, event, *, until=None):
         '''
         Send an event to the main event queue. Can call without delegate.
+        
+        :param until: if the callback returns True, stop sending and return
+        
+        :return: the last True value the callback returns, or None
         '''
-        waiter = self.scheduler.send(event)
-        while waiter:
-            yield (waiter,)
+        while True:
+            if until:
+                r = until()
+                if r:
+                    return r
             waiter = self.scheduler.send(event)
-    def waitWithTimeout(self, timeout, *matchers):
+            if waiter is None:
+                break
+            await waiter
+    waitForSend = wait_for_send
+    
+    async def wait_with_timeout(self, timeout, *matchers):
         """
-        Wait for multiple event matchers, or until timeout. If time limit exceeds, `container.timeout` is
-        set to True; otherwise it is set to False, and `event` `matcher` attributes are set.
-        You should check the `timeout` attribute before accessing `event` or `matcher` attribute.
+        Wait for multiple event matchers, or until timeout.
         
         :param timeout: a timeout value
         
         :param \*matchers: event matchers
+        
+        :return: (is_timeout, event, matcher). When is_timeout = True, event = matcher = None.
         """
         if timeout is None:
-            yield matchers
-            self.timeout = False
+            ev, m = await M_(*matchers)
+            return False, ev, m
         else:
             th = self.scheduler.setTimer(timeout)
             try:
                 tm = TimerEvent.createMatcher(th)
-                yield tuple(matchers) + (tm,)
-                if self.matcher is tm:
-                    self.timeout = True
+                ev, m = await M_(*(tuple(matchers) + (tm,)))
+                if m is tm:
+                    return True, None, None
                 else:
-                    self.timeout = False
+                    return False, ev, m
             finally:
                 self.scheduler.cancelTimer(th)
-    def executeWithTimeout(self, timeout, subprocess):
+    
+    waitWithTimeout = wait_with_timeout
+    
+    async def execute_with_timeout(self, timeout, subprocess):
         """
         Execute a subprocess with timeout. If time limit exceeds, the subprocess is terminated,
-        and `container.timeout` is set to True; otherwise the `container.timeout` is set to False.
+        and `is_timeout` is set to True; otherwise the `is_timeout` is set to False.
         
-        You can uses `executeWithTimeout` with other help functions to create time limit for them::
+        You can uses `execute_with_timeout` with other help functions to create time limit for them::
         
-            for m in container.executeWithTimeout(10, container.executeAll([routine1(), routine2()])):
-                yield m
+            timeout, result = await container.execute_with_timeout(10, container.execute_all([routine1(), routine2()]))
+        
+        :return: (is_timeout, result) When is_timeout = True, result = None
         """
         if timeout is None:
-            for m in subprocess:
-                yield m
-            self.timeout = False
+            return (False, await subprocess)
         else:
             th = self.scheduler.setTimer(timeout)
             try:
                 tm = TimerEvent.createMatcher(th)
                 try:
-                    for m in self.withException(subprocess, tm):
-                        yield m
-                    self.timeout = False
+                    r = await self.with_exception(subprocess, tm)
                 except RoutineException as exc:
                     if exc.matcher is tm:
-                        self.timeout = True
+                        return True, None
                     else:
                         raise
+                else:
+                    return False, r
             finally:
                 self.scheduler.cancelTimer(th)
-                subprocess.close()
-    def doEvents(self):
+    
+    executeWithTimeout = execute_with_timeout
+    
+    async def do_events(self):
         '''
         Suspend this routine until the next polling. This can be used to give CPU time for other routines and
         socket processings in long calculating procedures. Can call without delegate.
         '''
         self.scheduler.wantContinue()
-        cm = SystemControlEvent.createMatcher(SystemControlEvent.CONTINUE)
-        yield (cm,)
-    def withException(self, subprocess, *matchers):
+        await SystemControlEvent.createMatcher(SystemControlEvent.CONTINUE)
+    
+    doEvents = do_events
+    
+    async def with_exception(self, subprocess, *matchers):
         """
         Monitoring event matchers while executing a subprocess. If events are matched before the subprocess ends,
         the subprocess is terminated and a RoutineException is raised.
         """
-        try:
-            for m in subprocess:
-                yield tuple(m) + tuple(matchers)
-                if self.matcher in matchers:
-                    raise RoutineException(self.matcher, self.event)
-        finally:
-            subprocess.close()
-    def withCallback(self, subprocess, callback, *matchers):
+        def _callback(event, matcher):
+            raise RoutineException(matcher, event)
+        return await self.with_callback(subprocess, _callback, *matchers)
+    
+    withException = with_exception 
+    
+    @asyncio.coroutine
+    def with_callback(self, subprocess, callback, *matchers, intercept_callback = None):
         """
         Monitoring event matchers while executing a subprocess. `callback(event, matcher)` is called each time
         an event is matched by any event matchers. If the callback raises an exception, the subprocess is terminated.
+        
+        :param intercept_callback: a callback called before a event is delegated to the inner subprocess
         """
+        it_ = _await(subprocess)
+        if not matchers and not intercept_callback:
+            return (yield from it_)
         try:
-            for m in subprocess:
-                while True:
-                    yield tuple(m) + tuple(matchers)
-                    if self.matcher in matchers:
-                        callback(self.event, self.matcher)
-                    else:
-                        break
+            try:
+                m = next(it_)
+            except StopIteration as e:
+                return e.value
+            while True:
+                if m is None:
+                    try:
+                        yield
+                    except GeneratorExit_:
+                        raise
+                    except:
+                        t,v,tr = sys.exc_info()  # @UnusedVariable
+                        try:
+                            m = it_.throw(t,v)
+                        except StopIteration as e:
+                            return e.value
+                    else:                        
+                        try:
+                            m = next(it_)
+                        except StopIteration as e:
+                            return e.value
+                else:
+                    while True:
+                        try:
+                            ev, matcher = yield m + tuple(matchers)
+                        except GeneratorExit_:
+                            # subprocess is closed in `finally` clause
+                            raise
+                        except:
+                            # delegate this exception inside
+                            t,v,tr = sys.exc_info()  # @UnusedVariable
+                            try:
+                                m = it_.throw(t,v)
+                            except StopIteration as e:
+                                return e.value
+                        else:
+                            if matcher in matchers:
+                                callback(ev, matcher)
+                            else:
+                                if intercept_callback:
+                                    intercept_callback(ev, matcher)
+                                break
+                    try:
+                        m = it_.send((ev, matcher))
+                    except StopIteration as e:
+                        return e.value
         finally:
-            subprocess.close()
-                
-    def waitForEmpty(self, queue):
+            _close_generator(subprocess)
+    
+    withCallback = with_callback
+    
+    async def wait_for_empty(self, queue):
         '''
         Wait for a queue to be empty. Can call without delegate
         '''
@@ -472,85 +579,102 @@ class RoutineContainer(object):
             if m is None:
                 break
             else:
-                yield (m,)
-    def waitForAll(self, *matchers):
+                await m
+    
+    waitForEmpty = wait_for_empty 
+    
+    async def wait_for_all(self, *matchers, eventlist = None, eventdict = None, callback = None):
         """
         Wait until each matcher matches an event. When this coroutine method returns,
-        `container.eventlist` is set to the list of events in the arriving order (may not
-        be the same as the matchers); `container.eventdict` is set to a dictionary
+        `eventlist` is set to the list of events in the arriving order (may not
+        be the same as the matchers); `eventdict` is set to a dictionary
         `{matcher1: event1, matcher2: event2, ...}`
+        
+        :param eventlist: use external event list, so when an exception occurs
+                          (e.g. routine close), you can retrieve the result
+                          from the passed-in list
+        
+        :param eventdict: use external event dict
+        
+        :param callback: if not None, the callback should be a callable callback(event, matcher)
+                         which is called each time an event is received
+        
+        :return: (eventlist, eventdict)
         """
-        eventdict = {}
-        eventlist = []
-        self.scheduler.register(matchers, self.currentroutine)
-        try:
-            ms = len(matchers)
-            while ms:
-                yield ()
-                self.scheduler.unregister((self.matcher,), self.currentroutine)
-                ms -= 1
-                eventlist.append(self.event)
-                eventdict[self.matcher] = self.event
-            self.eventlist = eventlist
-            self.eventdict = eventdict
-        except:
-            self.scheduler.unregister(matchers, self.currentroutine)
-            raise
-    def waitForAllToProcess(self, *matchers):
+        if eventdict is None:
+            eventdict = {}
+        if eventlist is None:
+            eventlist = []
+        ms = len(matchers)
+        last_matchers = Diff_(matchers)
+        while ms:
+            ev, m = await last_matchers
+            ms -= 1
+            if callback:
+                callback(ev, m)
+            eventlist.append(ev)
+            eventdict[m] = ev
+            last_matchers = Diff_(last_matchers, remove=(m,))
+        return eventlist, eventdict
+    
+    waitForAll = wait_for_all
+    
+    async def wait_for_all_to_process(self, *matchers, eventlist = None, eventdict = None,
+                                            callback = None):
         """
         Similar to `waitForAll`, but set `canignore=True` for these events. This ensures
         blocking events are processed correctly.
         """
-        eventdict = {}
-        eventlist = []
-        self.scheduler.register(matchers, self.currentroutine)
-        try:
-            ms = len(matchers)
-            while ms:
-                yield ()
-                self.event.canignore = True
-                self.scheduler.unregister((self.matcher,), self.currentroutine)
-                ms -= 1
-                eventlist.append(self.event)
-                eventdict[self.matcher] = self.event
-            self.eventlist = eventlist
-            self.eventdict = eventdict
-        except:
-            self.scheduler.unregister(matchers, self.currentroutine)
-            raise
-    def waitForAllEmpty(self, *queues):
+        def _callback(event, matcher):
+            event.canignore = True
+            if callback:
+                callback(event, matcher)
+        return await self.wait_for_all(*matchers, eventlist=eventlist,
+                                       eventdict=eventdict, callback=_callback)
+
+    waitForAllToProcess = wait_for_all_to_process
+    
+    async def wait_for_all_empty(self, *queues):
         """
         Wait for multiple queues to be empty at the same time.
+
+        Require delegate when calling from coroutines running in other containers
         """
         matchers = [m for m in (q.waitForEmpty() for q in queues) if m is not None]
         while matchers:
-            for m in self.waitForAll(*matchers):
-                yield m
+            await self.wait_for_all(*matchers)
             matchers = [m for m in (q.waitForEmpty() for q in queues) if m is not None]
+    
+    waitForAllEmpty = wait_for_all_empty
+    
+    @asyncio.coroutine
     def syscall_noreturn(self, func):
         '''
         Call a syscall method. A syscall method is executed outside of any routines, directly
         in the scheduler loop, which gives it chances to directly operate the event loop.
         See :py:method::`vlcp.event.core.Scheduler.syscall`.
-        
-        Can call without delegate.
         '''
         matcher = self.scheduler.syscall(func)
         while not matcher:
             yield
             matcher = self.scheduler.syscall(func)
-        yield (matcher,)
-    def syscall(self, func, ignoreException = False):
+        ev, _ = yield (matcher,)
+        return ev
+    
+    async def syscall(self, func, ignoreException = False):
         """
-        Call a syscall method and retrieve its return value from `container.retvalue`
+        Call a syscall method and retrieve its return value
         """
-        for m in self.syscall_noreturn(func):
-            yield m
-        if hasattr(self.event, 'exception'):
-            raise self.event.exception[1]
+        ev = await self.syscall_noreturn(func)
+        if hasattr(ev, 'exception'):
+            if ignoreException:
+                return
+            else:
+                raise ev.exception[1]
         else:
-            self.retvalue = self.event.retvalue
-    def delegate(self, subprocess, forceclose = False):
+            return ev.retvalue
+        
+    async def delegate(self, subprocess, forceclose = False):
         '''
         Run a subprocess without container support
         
@@ -559,90 +683,116 @@ class RoutineContainer(object):
         
         With delegate, you can call a subprocess in any container (or without a container)::
         
-            for m in c.delegate(c.someprocess()):
-                yield m
-                
-        Use `delegateOther` if you need to retrieve the return value.
+            r = await c.delegate(c.someprocess())
+        
+        :return: original return value
         '''
-        def delegateroutine():
-            try:
-                for m in subprocess:
-                    yield m
-            except:
-                typ, val, tb = sys.exc_info()
-                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine)
-                self.scheduler.emergesend(e)
-                raise
-            else:
-                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine)
-                for m in self.waitForSend(e):
-                    yield m
-        r = self.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
-        finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
-        # As long as we do not use self.event to read the event, we are safe to receive them from other containers
+        finish, r = self.begin_delegate(subprocess)
+        return await self.end_delegate(finish, r, forceclose)
+    
+    async def end_delegate(self, delegate_matcher, routine = None, forceclose = False):
+        """
+        Retrieve a begin_delegate result. Must be called immediately after begin_delegate
+        before any other `await`, or the result might be lost.
+        
+        Do not use this method without thinking. Always use `RoutineFuture` when possible.
+        """
         try:
-            yield (finish,)
+            ev = await delegate_matcher
+            if hasattr(ev, 'exception'):
+                raise ev.exception
+            else:
+                return ev.result
         finally:
-            if forceclose:
-                r.close()
-    def beginDelegateOther(self, subprocess, container, retnames = ('retvalue',)):
+            if forceclose and routine:
+                routine.close()
+
+    def begin_delegate(self, subprocess):
         '''
-        Start the delegate routine, but do not wait for result, instead returns a matcher in self.retvalue.
+        Start the delegate routine, but do not wait for result, instead returns a (matcher, routine) tuple.
         Useful for advanced delegates (e.g. delegate multiple subprocesses in the same time).
         This is NOT a coroutine method.
         
-        :param subprocess: a subroutine
+        WARNING: this is not a safe way for asynchronous executing and get the result. Use `RoutineFuture` instead.
         
-        :param container: container in which to start the routine
-        
-        :param retnames: get return values from keys
+        :param subprocess: a coroutine
         
         :returns: (matcher, routine) where matcher is a event matcher to get the delegate result, routine is the created routine
         '''
-        def delegateroutine():
+        async def delegateroutine():
             try:
-                for m in subprocess:
-                    yield m
+                r = await subprocess
             except:
-                typ, val, tb = sys.exc_info()
+                _, val, _ = sys.exc_info()
+                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine,
+                                        exception=val)
+                self.scheduler.emergesend(e)
+                raise
+            else:
+                e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, self.currentroutine,
+                                        result = r)
+                await self.wait_for_send(e)
+        r = self.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
+        finish = RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r)
+        return finish, r
+    
+    def begin_delegate_other(self, subprocess, container, retnames = ('',)):
+        '''
+        DEPRECATED Start the delegate routine, but do not wait for result, instead returns a (matcher routine) tuple.
+        Useful for advanced delegates (e.g. delegate multiple subprocesses in the same time).
+        This is NOT a coroutine method.
+        
+        :param subprocess: a coroutine
+        
+        :param container: container in which to start the routine
+        
+        :param retnames: get return values from keys. '' for the return value (for compatibility with earlier versions)
+        
+        :returns: (matcher, routine) where matcher is a event matcher to get the delegate result, routine is the created routine
+        '''
+        async def delegateroutine():
+            try:
+                r = await subprocess
+            except:
+                _, val, _ = sys.exc_info()
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine, exception = val)
                 container.scheduler.emergesend(e)
                 raise
             else:
                 e = RoutineControlEvent(RoutineControlEvent.DELEGATE_FINISHED, container.currentroutine,
-                                        result = tuple(getattr(container, n, None) for n in retnames))
-                for m in container.waitForSend(e):
-                    yield m
+                                        result = tuple(r if n == '' else getattr(container, n, None)
+                                                       for n in retnames))
+                await container.waitForSend(e)
         r = container.subroutine(generatorwrapper(delegateroutine(), 'subprocess', 'delegate'), True)
         return (RoutineControlEvent.createMatcher(RoutineControlEvent.DELEGATE_FINISHED, r), r)
-    def delegateOther(self, subprocess, container, retnames = ('retvalue',), forceclose = False):
+    
+    beginDelegateOther = begin_delegate_other
+    
+    async def delegate_other(self, subprocess, container, retnames = ('',), forceclose = False):
         '''
-        Another format of delegate allows delegate a subprocess in another container, and get some returning values
+        DEPRECATED Another format of delegate allows delegate a subprocess in another container, and get some returning values
         the subprocess is actually running in 'container'. ::
         
-            for m in self.delegateOther(c.method(), c):
-                yield m
-            ret = self.retvalue
+            ret = await self.delegate_other(c.method(), c)
+        
+        :return: a tuple for retnames values
+        
         '''
         finish, r = self.beginDelegateOther(subprocess, container, retnames)
-        try:
-            yield (finish,)
-            if hasattr(self.event, 'exception'):
-                raise self.event.exception
-            for n, v in zip(retnames, self.event.result):
-                setattr(self, n, v)
-        finally:
-            if forceclose:
-                r.close()
-    def executeAll(self, subprocesses, container = None, retnames = ('retvalue',), forceclose = True):
+        return await self.end_delegate(finish, r, forceclose)
+
+    delegateOther = delegate_other
+    
+    async def execute_all_with_names(self, subprocesses, container = None, retnames = ('',), forceclose = True):
         '''
-        Execute all subprocesses and get the return values. Return values are in self.retvalue.
+        DEPRECATED Execute all subprocesses and get the return values.
         
-        :param subprocesses: sequence of subroutines (generators)
+        :param subprocesses: sequence of subroutines (coroutines)
         
         :param container: if specified, run subprocesses in another container.
         
-        :param retnames: get return value from container.(name) for each name in retnames.
+        :param retnames: DEPRECATED get return value from container.(name) for each name in retnames.
+                         '' for return value (to be compatible with earlier versions)
         
         :param forceclose: force close the routines on exit, so all the subprocesses are terminated
                            on timeout if used with executeWithTimeout
@@ -651,31 +801,25 @@ class RoutineContainer(object):
                   `[('retvalue1',),('retvalue2',),...]`
         '''
         if not subprocesses:
-            self.retvalue = []
-            return
+            return []
         subprocesses = list(subprocesses)
         if len(subprocesses) == 1 and (container is None or container is self) and forceclose:
             # Directly run the process to improve performance
-            with closing(subprocesses[0]) as sp:
-                for m in sp:
-                    yield m
-            self.retvalue = [tuple(getattr(self, n, None) for n in retnames)]
-            return
+            return [await subprocesses[0]]
         if container is None:
             container = self
-        delegates = [self.beginDelegateOther(p, container, retnames) for p in subprocesses]
+        delegates = [self.begin_delegate_other(p, container, retnames) for p in subprocesses]
         matchers = [d[0] for d in delegates]
         try:
-            for m in self.waitForAll(*matchers):
-                yield m
-            events = [self.eventdict[m] for m in matchers]
+            _, eventdict = await self.wait_for_all(*matchers)
+            events = [eventdict[m] for m in matchers]
             exceptions = [e.exception for e in events if hasattr(e, 'exception')]
             if exceptions:
                 if len(exceptions) == 1:
                     raise exceptions[0]
                 else:
                     raise MultipleException(exceptions)
-            self.retvalue = [e.result for e in events]
+            return [e.result for e in events]
         finally:
             if forceclose:
                 for d in delegates:
@@ -683,3 +827,61 @@ class RoutineContainer(object):
                         container.terminate(d[1])
                     except Exception:
                         pass
+    
+    executeAll = execute_all_with_names
+    
+    async def execute_all(self, subprocesses, forceclose=True):
+        '''
+        Execute all subprocesses and get the return values.
+        
+        :param subprocesses: sequence of subroutines (coroutines)
+        
+        :param forceclose: force close the routines on exit, so all the subprocesses are terminated
+                           on timeout if used with executeWithTimeout
+        
+        :returns: a list of return values for each subprocess
+        '''
+        if not subprocesses:
+            return []
+        subprocesses = list(subprocesses)
+        if len(subprocesses) == 1 and forceclose:
+            return [await subprocesses[0]]
+        delegates = [self.begin_delegate(p) for p in subprocesses]
+        matchers = [d[0] for d in delegates]
+        try:
+            _, eventdict = await self.wait_for_all(*matchers)
+            events = [eventdict[m] for m in matchers]
+            exceptions = [e.exception for e in events if hasattr(e, 'exception')]
+            if exceptions:
+                if len(exceptions) == 1:
+                    raise exceptions[0]
+                else:
+                    raise MultipleException(exceptions)
+            return [e.result for e in events]
+        finally:
+            if forceclose:
+                for d in delegates:
+                    try:
+                        d[1].close()
+                    except Exception:
+                        pass
+    
+    @classmethod
+    def get_container(cls, scheduler):
+        """
+        Create temporary instance for helper functions
+        """
+        if scheduler in cls._container_cache:
+            return cls._container_cache[scheduler]
+        else:
+            c = cls(scheduler)
+            cls._container_cache[scheduler] = c
+            return c
+    
+    @classmethod
+    def destroy_container_cache(cls, scheduler):
+        """
+        Remove cached container
+        """
+        if scheduler in cls._container_cache:
+            del cls._container_cache[scheduler]

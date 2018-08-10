@@ -4,9 +4,9 @@ Created on 2016/3/31
 :author: hubo
 '''
 from __future__ import print_function, absolute_import, division
-from vlcp.utils.dataobject import DataObject, DataObjectSet, updater, DataObjectUpdateEvent, watch_context,\
-    multiwaitif, dump, set_new, ReferenceObject
-from vlcp.server.module import depend, Module, callAPI, ModuleLoadStateChanged,\
+from vlcp.utils.dataobject import DataObject, DataObjectSet, updater, DataObjectUpdateEvent,\
+    multiwaitif, dump, set_new, ReferenceObject, request_context, Relationship
+from vlcp.server.module import depend, Module, call_api, ModuleLoadStateChanged,\
     api
 import vlcp.service.kvdb.objectdb as objectdb
 from vlcp.config.config import defaultconfig
@@ -14,6 +14,7 @@ from vlcp.event.runnable import RoutineContainer, RoutineException
 from uuid import uuid1
 from vlcp.server import main
 import logging
+from functools import partial
 
 class PhysicalNetwork(DataObject):
     _prefix = 'vlcptest.physicalnetwork'
@@ -32,12 +33,20 @@ class PhysicalNetworkMap(DataObject):
         self.network_allocation = dict()
         self.ports = DataObjectSet()
 
+
+PhysicalNetworkMap._network = Relationship(PhysicalNetworkMap, PhysicalNetwork, ('id', 'id'))
+
+
 class LogicalNetworkMap(DataObject):
     _prefix = 'vlcptest.logicalnetworkmap'
     _indices = ('id',)
     def __init__(self, prefix=None, deleted=False):
         DataObject.__init__(self, prefix=prefix, deleted=deleted)
         self.ports = DataObjectSet()
+
+
+LogicalNetworkMap._network = Relationship(LogicalNetworkMap, LogicalNetwork, ('id', 'id'))
+
 
 class PhysicalPort(DataObject):
     _prefix = 'vlcptest.physicalport'
@@ -79,28 +88,27 @@ class TestObjectDB(Module):
                        api(self.createlogicalports, self.apiroutine),
                        api(self.getlogicalnetworks, self.apiroutine))
         self._logger.setLevel(logging.DEBUG)
-    def _monitor(self):
+
+    async def _monitor(self):
         update_event = DataObjectUpdateEvent.createMatcher()
         while True:
-            yield (update_event,)
-            self._logger.info('Database update: %r', self.apiroutine.event)
-    def _dumpkeys(self, keys):
+            ev = await update_event
+            self._logger.info('Database update: %r', ev)
+
+    async def _dumpkeys(self, keys):
         self._reqid += 1
         reqid = ('testobjectdb', self._reqid)
-        for m in callAPI(self.apiroutine, 'objectdb', 'mget', {'keys': keys, 'requestid': reqid}):
-            yield m
-        retobjs = self.apiroutine.retvalue
-        with watch_context(keys, retobjs, reqid, self.apiroutine):
-            self.apiroutine.retvalue = [dump(v) for v in retobjs]
-    def _updateport(self, key):
+        with request_context(reqid, self.apiroutine):
+            retobjs = await call_api(self.apiroutine, 'objectdb', 'mget', {'keys': keys, 'requestid': reqid})
+            return [dump(v) for v in retobjs]
+
+    async def _updateport(self, key):
         unload_matcher = ModuleLoadStateChanged.createMatcher(self.target, ModuleLoadStateChanged.UNLOADING)
-        def updateinner():
+        async def updateinner():
             self._reqid += 1
             reqid = ('testobjectdb', self._reqid)
-            for m in callAPI(self.apiroutine, 'objectdb', 'get', {'key': key, 'requestid': reqid}):
-                yield m
-            portobj = self.apiroutine.retvalue
-            with watch_context([key], [portobj], reqid, self.apiroutine):
+            with request_context(reqid, self.apiroutine):
+                portobj = await call_api(self.apiroutine, 'objectdb', 'get', {'key': key, 'requestid': reqid})
                 if portobj is not None:
                     @updater
                     def write_status(portobj):
@@ -113,50 +121,44 @@ class TestObjectDB(Module):
                         else:
                             raise ValueError('Already managed')
                     try:
-                        for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys': [portobj.getkey()], 'updater': write_status}):
-                            yield m
+                        await call_api(self.apiroutine, 'objectdb', 'transact', {'keys': [portobj.getkey()], 'updater': write_status})
                     except ValueError:
                         pass
                     else:
-                        for m in portobj.waitif(self.apiroutine, lambda x: x.isdeleted() or hasattr(x, 'owner')):
-                            yield m
+                        await portobj.waitif(self.apiroutine, lambda x: x.isdeleted() or hasattr(x, 'owner'))
                         self._logger.info('Port managed: %r', dump(portobj))
                         while True:
-                            for m in portobj.waitif(self.apiroutine, lambda x: True, True):
-                                yield m
+                            await portobj.waitif(self.apiroutine, lambda x: True, True)
                             if portobj.isdeleted():
                                 self._logger.info('Port deleted: %r', dump(portobj))
                                 break
                             else:
                                 self._logger.info('Port updated: %r', dump(portobj))
         try:
-            for m in self.apiroutine.withException(updateinner(), unload_matcher):
-                yield m
+            await self.apiroutine.withException(updateinner(), unload_matcher)
         except RoutineException:
             pass
-    def _waitforchange(self, key):
-        for m in callAPI(self.apiroutine, 'objectdb', 'watch', {'key': key, 'requestid': 'testobjectdb'}):
-            yield m
-        setobj = self.apiroutine.retvalue
-        with watch_context([key], [setobj], 'testobjectdb', self.apiroutine):
-            for m in setobj.wait(self.apiroutine):
-                yield m
+
+    async def _waitforchange(self, key):
+        with request_context('testobjectdb', self.apiroutine):
+            setobj = await call_api(self.apiroutine, 'objectdb', 'watch', {'key': key, 'requestid': 'testobjectdb'})
+            await setobj.wait(self.apiroutine)
             oldset = set()
             while True:
                 for weakref in setobj.set.dataset().difference(oldset):
                     self.apiroutine.subroutine(self._updateport(weakref.getkey()))
                 oldset = set(setobj.set.dataset())
-                for m in setobj.waitif(self.apiroutine, lambda x: not x.isdeleted(), True):
-                    yield m
-    def _main(self):
+                await setobj.waitif(self.apiroutine, lambda x: not x.isdeleted(), True)
+
+    async def _main(self):
         routines = []
         routines.append(self._monitor())
         keys = [LogicalPortSet.default_key(), PhysicalPortSet.default_key()]
         for k in keys:
             routines.append(self._waitforchange(k))
-        for m in self.apiroutine.executeAll(routines, retnames = ()):
-            yield m
-    def load(self, container):
+        await self.apiroutine.execute_all(routines)
+
+    async def load(self, container):
         @updater
         def initialize(phynetset, lognetset, logportset, phyportset):
             if phynetset is None:
@@ -172,15 +174,14 @@ class TestObjectDB(Module):
                 phyportset = PhysicalPortSet()
                 phyportset.set = DataObjectSet()
             return [phynetset, lognetset, logportset, phyportset]
-        for m in callAPI(container, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key(),
+        await call_api(container, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key(),
                                                                    LogicalNetworkSet.default_key(),
                                                                    LogicalPortSet.default_key(),
                                                                    PhysicalPortSet.default_key()],
-                                                             'updater': initialize}):
-            yield m
-        for m in Module.load(self, container):
-            yield m
-    def createphysicalnetwork(self, type = 'vlan', id = None, **kwargs):
+                                                             'updater': initialize})
+        await Module.load(self, container)
+
+    async def createphysicalnetwork(self, type = 'vlan', id = None, **kwargs):
         new_network, new_map = self._createphysicalnetwork(type, id, **kwargs)
         @updater
         def create_phy(physet, phynet, phymap):
@@ -188,14 +189,12 @@ class TestObjectDB(Module):
             phymap = set_new(phymap, new_map)
             physet.set.dataset().add(phynet.create_weakreference())
             return [physet, phynet, phymap]
-        for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key(),
+        await call_api(self.apiroutine, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key(),
                                                                            new_network.getkey(),
-                                                                           new_map.getkey()],'updater':create_phy}):
-            yield m
-        for m in self._dumpkeys([new_network.getkey()]):
-            yield m
-        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
-    def createphysicalnetworks(self, networks):
+                                                                           new_map.getkey()],'updater':create_phy})
+        return (await self._dumpkeys([new_network.getkey()]))[0]
+
+    async def createphysicalnetworks(self, networks):
         new_networks = [self._createphysicalnetwork(**n) for n in networks]
         @updater
         def create_phys(physet, *phynets):
@@ -206,10 +205,9 @@ class TestObjectDB(Module):
                 physet.set.dataset().add(new_networks[i][0].create_weakreference())
             return [physet] + return_nets
         keys = [sn.getkey() for n in new_networks for sn in n]
-        for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key()] + keys,'updater':create_phys}):
-            yield m
-        for m in self._dumpkeys([n[0].getkey() for n in new_networks]):
-            yield m
+        await call_api(self.apiroutine, 'objectdb', 'transact', {'keys':[PhysicalNetworkSet.default_key()] + keys,'updater':create_phys})
+        return await self._dumpkeys([n[0].getkey() for n in new_networks])
+
     def _createlogicalnetwork(self, physicalnetwork, id = None, **kwargs):
         if not id:
             id = str(uuid1())
@@ -220,7 +218,8 @@ class TestObjectDB(Module):
         new_networkmap = LogicalNetworkMap.create_instance(id)
         new_networkmap.network = new_network.create_reference()
         return new_network,new_networkmap
-    def createlogicalnetworks(self, networks):
+
+    async def createlogicalnetworks(self, networks):
         new_networks = [self._createlogicalnetwork(**n) for n in networks]
         physical_networks = list(set(n[0].physicalnetwork.getkey() for n in new_networks))
         physical_maps = [PhysicalNetworkMap.default_key(PhysicalNetwork._getIndices(k)[1][0]) for k in physical_networks]
@@ -274,20 +273,18 @@ class TestObjectDB(Module):
                     phymap.networks.dataset().add(n.create_weakreference())
                 logset.set.dataset().add(n.create_weakreference())
             return [logset] + return_nets + phy_maps
-        for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys': [LogicalNetworkSet.default_key()] +\
+        await call_api(self.apiroutine, 'objectdb', 'transact', {'keys': [LogicalNetworkSet.default_key()] +\
                                                                             [sn.getkey() for n in new_networks for sn in n] +\
                                                                             physical_maps +\
                                                                             physical_networks,
-                                                                   'updater': create_logs}):
-            yield m
-        for m in self._dumpkeys([n[0].getkey() for n in new_networks]):
-            yield m
-    def createlogicalnetwork(self, physicalnetwork, id = None, **kwargs):
+                                                                   'updater': create_logs})
+        return await self._dumpkeys([n[0].getkey() for n in new_networks])
+
+    async def createlogicalnetwork(self, physicalnetwork, id = None, **kwargs):
         n = {'physicalnetwork':physicalnetwork, 'id':id}
         n.update(kwargs)
-        for m in self.createlogicalnetworks([n]):
-            yield m
-        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
+        return (await self.createlogicalnetworks([n]))[0]
+
     def _createphysicalnetwork(self, type = 'vlan', id = None, **kwargs):
         if not id:
             id = str(uuid1())
@@ -315,53 +312,70 @@ class TestObjectDB(Module):
         new_networkmap = PhysicalNetworkMap.create_instance(id)
         new_networkmap.network = new_network.create_reference()
         return (new_network, new_networkmap)
-    def createphysicalport(self, physicalnetwork, name, systemid = '%', bridge = '%', **kwargs):
+
+    async def createphysicalport(self, physicalnetwork, name, systemid = '%', bridge = '%', **kwargs):
         p = {'physicalnetwork':physicalnetwork, 'name':name, 'systemid':systemid,'bridge':bridge}
         p.update(kwargs)
-        for m in self.createphysicalports([p]):
-            yield m
-        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
+        return (await self.createphysicalports([p]))[0]
+
     def _createphysicalport(self, physicalnetwork, name, systemid = '%', bridge = '%', **kwargs):
         new_port = PhysicalPort.create_instance(systemid, bridge, name)
         new_port.physicalnetwork = ReferenceObject(PhysicalNetwork.default_key(physicalnetwork))
         for k,v in kwargs.items():
             setattr(new_port, k, v)
         return new_port
-    def createphysicalports(self, ports):
+
+    async def createphysicalports(self, ports):
         new_ports = [self._createphysicalport(**p) for p in ports]
         physical_networks = list(set([p.physicalnetwork.getkey() for p in new_ports]))
         physical_maps = [PhysicalNetworkMap.default_key(*PhysicalNetwork._getIndices(k)[1]) for k in physical_networks]
-        @updater
-        def create_ports(portset, *objs):
-            old_ports = objs[:len(new_ports)]
-            phymaps = list(objs[len(new_ports):len(new_ports) + len(physical_networks)])
-            phynets = list(objs[len(new_ports) + len(physical_networks):])
-            phydict = dict(zip(physical_networks, zip(phynets, phymaps)))
-            return_ports = [None] * len(new_ports)
-            for i in range(0, len(new_ports)):
-                return_ports[i] = set_new(old_ports[i], new_ports[i])
-            for p in return_ports:
-                phynet, phymap = phydict[p.physicalnetwork.getkey()]
-                if phynet is None:
-                    _, (phyid,) = PhysicalNetwork._getIndices(p.physicalnetwork.getkey())
-                    raise ValueError('Physical network %r does not exist' % (phyid,))
-                phymap.ports.dataset().add(p.create_weakreference())
-            portset.set.dataset().add(p.create_weakreference())
-            return [portset] + return_ports + phymaps
-        for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys': [PhysicalPortSet.default_key()] +\
+        def _walker(walk, write):
+            for p, port in zip(new_ports, ports):
+                key = p.getkey()
+                try:
+                    value = walk(key)
+                except KeyError:
+                    pass
+                else:
+                    new_port = self._createphysicalport(**port)
+                    value = set_new(value, new_port)
+                    try:
+                        phynet = walk(new_port.physicalnetwork.getkey())
+                    except KeyError:
+                        pass
+                    else:
+                        if phynet is None:
+                            _, (phyid,) = PhysicalNetwork._getIndices(p.physicalnetwork.getkey())
+                            raise ValueError('Physical network %r does not exist' % (phyid,))
+                    write(key, value)
+                    try:
+                        phymap = walk(PhysicalNetworkMap._network.leftkey(new_port.physicalnetwork))
+                    except KeyError:
+                        pass
+                    else:
+                        if phymap is not None:
+                            phymap.ports.dataset().add(value.create_weakreference())
+                            write(phymap.getkey(), phymap)
+                    try:
+                        portset = walk(PhysicalPortSet.default_key())
+                    except KeyError:
+                        pass
+                    else:
+                        portset.set.dataset().add(value.create_weakreference())
+                        write(portset.getkey(), portset)
+        
+        await call_api(self.apiroutine, 'objectdb', 'writewalk', {'keys': set([PhysicalPortSet.default_key()] +\
                                                                             [p.getkey() for p in new_ports] +\
                                                                             physical_maps +\
-                                                                            physical_networks,
-                                                                   'updater': create_ports}):
-            yield m
-        for m in self._dumpkeys([p.getkey() for p in new_ports]):
-            yield m
-    def createlogicalport(self, logicalnetwork, id = None, **kwargs):
+                                                                            physical_networks),
+                                                                   'walker': _walker})
+        return await self._dumpkeys([p.getkey() for p in new_ports])
+
+    async def createlogicalport(self, logicalnetwork, id = None, **kwargs):
         p = {'logicalnetwork':logicalnetwork, 'id':id}
         p.update(kwargs)
-        for m in self.createlogicalports([p]):
-            yield m
-        self.apiroutine.retvalue = self.apiroutine.retvalue[0]
+        return (await self.createlogicalports([p]))[0]
+
     def _createlogicalport(self, logicalnetwork, id = None, **kwargs):
         if not id:
             id = str(uuid1())
@@ -370,36 +384,53 @@ class TestObjectDB(Module):
         for k,v in kwargs.items():
             setattr(new_port, k, v)
         return new_port
-    def createlogicalports(self, ports):
+
+    async def createlogicalports(self, ports):
         new_ports = [self._createlogicalport(**p) for p in ports]
-        logical_networks = list(set([p.logicalnetwork.getkey() for p in new_ports]))
-        logical_maps = [LogicalNetworkMap.default_key(*LogicalNetwork._getIndices(k)[1]) for k in logical_networks]
-        @updater
-        def create_ports(portset, *objs):
-            old_ports = objs[:len(new_ports)]
-            logmaps = list(objs[len(new_ports):len(new_ports) + len(logical_networks)])
-            lognets = list(objs[len(new_ports) + len(logical_networks):])
-            logdict = dict(zip(logical_networks, zip(lognets, logmaps)))
-            return_ports = [None] * len(new_ports)
-            for i in range(0, len(new_ports)):
-                return_ports[i] = set_new(old_ports[i], new_ports[i])
-            for p in return_ports:
-                lognet, logmap = logdict[p.logicalnetwork.getkey()]
-                if lognet is None:
-                    _, (logid,) = LogicalNetwork._getIndices(p.logicalnetwork.getkey())
-                    raise ValueError('Logical network %r does not exist' % (logid,))
-                logmap.ports.dataset().add(p.create_weakreference())
-            portset.set.dataset().add(p.create_weakreference())
-            return [portset] + return_ports + logmaps
-        for m in callAPI(self.apiroutine, 'objectdb', 'transact', {'keys': [LogicalPortSet.default_key()] +\
-                                                                            [p.getkey() for p in new_ports] +\
-                                                                            logical_maps +\
-                                                                            logical_networks,
-                                                                   'updater': create_ports}):
-            yield m
-        for m in self._dumpkeys([p.getkey() for p in new_ports]):
-            yield m
-    def getlogicalnetworks(self, id = None, physicalnetwork = None, **kwargs):
+        def _walker(walk, write):
+            for p in new_ports:
+                key = p.getkey()
+                try:
+                    value = walk(key)
+                except KeyError:
+                    pass
+                else:
+                    value = set_new(value, p)
+                    try:
+                        lognet = walk(value.logicalnetwork.getkey())
+                    except KeyError:
+                        pass
+                    else:
+                        if lognet is None:
+                            _, (logid,) = LogicalNetwork._getIndices(value.logicalnetwork.getkey())
+                            raise ValueError("Logical network %r does not exist" % (logid,))
+                    try:
+                        logmap = walk(LogicalNetworkMap._network.leftkey(value.logicalnetwork))
+                    except KeyError:
+                        pass
+                    else:
+                        if logmap is not None:
+                            logmap.ports.dataset().add(value.create_weakreference())
+                            write(key, value)
+                            write(logmap.getkey(), logmap)
+                    try:
+                        portset = walk(LogicalPortSet.default_key())
+                    except KeyError:
+                        pass
+                    else:
+                        portset.set.dataset().add(value.create_weakreference())
+                        write(portset.getkey(), portset)
+        keys = set()
+        keys.update(p.getkey() for p in new_ports)
+        keys.update(p.logicalnetwork.getkey() for p in new_ports)
+        keys.update(LogicalNetworkMap._network.leftkey(p.logicalnetwork)
+                    for p in new_ports)
+        keys.add(LogicalPortSet.default_key())
+        await call_api(self.apiroutine, 'objectdb', 'writewalk', {'keys': keys,
+                                                                  'walker': _walker})
+        return await self._dumpkeys([p.getkey() for p in new_ports])
+
+    async def getlogicalnetworks(self, id = None, physicalnetwork = None, **kwargs):
         def set_walker(key, set, walk, save):
             if set is None:
                 return
@@ -424,44 +455,35 @@ class TestObjectDB(Module):
         if id is not None:
             self._reqid += 1
             reqid = ('testobjectdb', self._reqid)
-            for m in callAPI(self.apiroutine, 'objectdb', 'get', {'key' : LogicalNetwork.default_key(id), 'requestid': reqid}):
-                yield m
-            result = self.apiroutine.retvalue
-            with watch_context([LogicalNetwork.default_key(id)], [result], reqid, self.apiroutine):
+            with request_context(reqid, self.apiroutine):
+                result = await call_api(self.apiroutine, 'objectdb', 'get', {'key' : LogicalNetwork.default_key(id), 'requestid': reqid})
                 if result is None:
-                    self.apiroutine.retvalue = []
-                    return
+                    return []
                 if physicalnetwork is not None and physicalnetwork != result.physicalnetwork.id:
-                    self.apiroutine.retvalue = []
-                    return
+                    return []
                 for k,v in kwargs.items():
                     if getattr(result, k, None) != v:
-                        self.apiroutine.retvalue = []
-                        return
-                self.apiroutine.retvalue = [dump(result)]
+                        return []
+                return [dump(result)]
         elif physicalnetwork is not None:
             self._reqid += 1
             reqid = ('testobjectdb', self._reqid)
             pm_key = PhysicalNetworkMap.default_key(physicalnetwork)
-            for m in callAPI(self.apiroutine, 'objectdb', 'walk', {'keys': [pm_key],
-                                                                   'walkerdict': {pm_key: walker_func(lambda x: x.networks)},
-                                                                   'requestid': reqid}):
-                yield m
-            keys, result = self.apiroutine.retvalue
-            with watch_context(keys, result, reqid, self.apiroutine):
-                self.apiroutine.retvalue = [dump(r) for r in result]
+            with request_context(reqid, self.apiroutine):
+                keys, result = await call_api(self.apiroutine, 'objectdb', 'walk', {'keys': [pm_key],
+                                                                           'walkerdict': {pm_key: walker_func(lambda x: x.networks)},
+                                                                           'requestid': reqid})
+                return [dump(r) for r in result]
         else:
             self._reqid += 1
             reqid = ('testobjectdb', self._reqid)
             ns_key = LogicalNetworkSet.default_key()
-            for m in callAPI(self.apiroutine, 'objectdb', 'walk', {'keys': [ns_key],
+            with request_context(reqid, self.apiroutine):
+                keys, result = await call_api(self.apiroutine, 'objectdb', 'walk', {'keys': [ns_key],
                                                                    'walkerdict': {ns_key: walker_func(lambda x: x.set)},
-                                                                   'requestid': reqid}):
-                yield m
-            keys, result = self.apiroutine.retvalue
-            with watch_context(keys, result, reqid, self.apiroutine):
-                self.apiroutine.retvalue = [dump(r) for r in result]
-    
+                                                                   'requestid': reqid})
+                return [dump(r) for r in result]
+
 if __name__ == '__main__':
     main("/etc/vlcp.conf", ("__main__.TestObjectDB", "vlcp.service.manage.webapi.WebAPI"))
     

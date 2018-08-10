@@ -6,9 +6,9 @@ Created on 2015/12/29
 from __future__ import print_function
 from vlcp.utils.connector import async_processor, async_to_async, Connector,\
     generator_to_async
-from vlcp.event.event import withIndices, Event
+from vlcp.event.event import withIndices, Event, M_
 from vlcp.config import defaultconfig
-from vlcp.server.module import Module, api, callAPI
+from vlcp.server.module import Module, call_api
 import functools
 import threading
 import signal
@@ -23,16 +23,11 @@ import os
 import socket
 import re
 from vlcp.event.core import InterruptedBySignalException
-try:
-    from Queue import Queue, PriorityQueue
-except Exception:
-    from queue import Queue, PriorityQueue
+from queue import Queue, PriorityQueue
 import traceback
 import sys
-try:
-    import thread
-except Exception:
-    import _thread as thread
+import _thread as thread
+
 
 def console_help():
     print(Console._full_help)
@@ -125,7 +120,7 @@ subroutine(routine)
  - create a new routine in container.
 
 execute(routine)
- - execute the routine in container, and return container.retvalue
+ - execute the routine in container, and return the return value
  
 breakpoint()
  - stop running and wait for resume().
@@ -167,41 +162,39 @@ console_help()
     _default_certificate = None
     # If SSL is configured, specify the CA file
     _default_ca_certs = None
-    def _service_routine(self):
+    async def _service_routine(self):
         self.apiroutine.subroutine(self._intercept_main())
         csc = ConsoleServiceCall.createMatcher()
         while True:
-            yield (csc,)
-            self.apiroutine.subroutine(self.apiroutine.event.routine, True)
-    def _service_call_routine(self, waiter, call):
+            ev = await csc
+            self.apiroutine.subroutine(ev.routine, True)
+    async def _service_call_routine(self, waiter, call):
         try:
-            for m in self.apiroutine.withException(call, ConsoleServiceCancel.createMatcher(waiter)):
-                yield  m
+            r = await self.apiroutine.with_exception(call, ConsoleServiceCancel.createMatcher(waiter))
         except RoutineException:
             pass
         except Exception as exc:
             waiter.raise_exception(exc)
         else:
-            waiter.send_result(self.apiroutine.retvalue)
-    def _intercept_main(self):
+            waiter.send_result(r)
+    async def _intercept_main(self):
         cr = self.apiroutine.currentroutine
         self.sendEventQueue = Queue()
         _console_connect_event = threading.Event()
         _console_connect_event.clear()
-        for m in self.apiroutine.waitForSend(ConsoleEvent('initproxy')):
-            yield m
+        await self.apiroutine.wait_for_send(ConsoleEvent('initproxy'))
         if not self.startinconsole:
             p = Protocol()
             p.persist = True
             p.createqueue = False
-            def init(connection):
+            async def init(connection):
                 sock = connection.socket
                 self.telnet_socket = sock
                 self.scheduler.unregisterPolling(connection.socket)
                 connection.socket = None
                 connection.connected = False
                 _console_connect_event.set()
-                yield (SocketInjectDone.createMatcher(sock),)
+                await SocketInjectDone.createMatcher(sock)
             p.init = init
             p.reconnect_init = init
             Client(self.telnetconsole, p, self.scheduler, self.key, self.certificate, self.ca_certs).start()
@@ -243,8 +236,8 @@ console_help()
                         orig_stdout = sys.stdout
                         orig_stderr = sys.stderr
                         try:
-                            pstdin = os.fdopen(pstdin_r, 'rU', 0)
-                            pstdout = os.fdopen(pstdout_w, 'w', 0)
+                            pstdin = os.fdopen(pstdin_r, 'rU')
+                            pstdout = os.fdopen(pstdout_w, 'w')
                             sys.stdin = pstdin
                             sys.stdout = pstdout
                             sys.stderr = pstdout
@@ -287,10 +280,9 @@ console_help()
                     print('Wait for scheduler end, this may take some time...')
                 t.join()
         # Cannot inject the event loop from yield_()
-        for m in self.apiroutine.doEvents():
-            yield m
-        for m in self.apiroutine.syscall(syscall_threaded_main, True):
-            yield m
+        await self.apiroutine.do_events()
+        await self.apiroutine.syscall(syscall_threaded_main, True)
+
     def _telnet_server_writer(self, queue, sock):
         lastseq = -1
         while True:
@@ -304,6 +296,7 @@ console_help()
                     break
             if t == 0:
                 lastseq = seq
+
     def _telnet_server_writer2(self, pstdout_r, queue, lock, orig_stdout):
         while True:
             data = os.read(pstdout_r, 1024)
@@ -318,6 +311,7 @@ console_help()
             finally:
                 lock.release()
             queue.put((2, seq, data))
+
     def _telnet_server(self, pstdin_w, pstdout_r, sock, orig_stdout):
         queue = PriorityQueue()
         inputbuffer = b''
@@ -428,24 +422,19 @@ console_help()
                 return f
             @_service
             def callapi(modulename, functionname, **kwargs):
-                return callAPI(self.apiroutine, modulename, functionname, kwargs)
+                return call_api(self.apiroutine, modulename, functionname, kwargs)
             @_service
-            def sendevent(event, emerge = False):
+            async def sendevent(event, emerge = False):
                 if emerge:
                     self.apiroutine.scheduler.emergesend(event)
                 else:
-                    for m in self.apiroutine.waitForSend(event):
-                        yield m
-                self.apiroutine.retvalue = None
+                    await self.apiroutine.wait_for_send(event)
             @_service
-            def subroutine(routine):
-                self.apiroutine.retvalue = self.apiroutine.subroutine(routine)
-                if False:
-                    yield
+            async def subroutine(routine):
+                return self.apiroutine.subroutine(routine)
             @_service
-            def syscall(syscall_func):
-                for m in self.apiroutine.syscall(syscall_func):
-                    yield m
+            async def syscall(syscall_func):
+                return self.apiroutine.syscall(syscall_func)
             def breakpoint():
                 in_thread = threading.current_thread().ident
                 if in_thread == _current_thread:
@@ -461,18 +450,14 @@ console_help()
                     else:
                         print('Resume from breakpoint.')
             @_async
-            def _breakpoint():
+            async def _breakpoint():
                 breakpoint()
-                if False:
-                    yield
             def resume():
                 _enter_pdb[0] = False
                 _breakpoint_event.set()
             @_async
-            def restore_console():
+            async def restore_console():
                 self._restore_console_event.set()
-                if False:
-                    yield
             self.restore_console = restore_console
             def debug():
                 _enter_pdb[0] = True
@@ -482,7 +467,7 @@ console_help()
                 self._restore_console_event.wait()
             _capture_breakpoint = breakpoint
             def capture(matchers, blocking = False, breakpoint = False, captureonce = False, callback = None):
-                def _capture_service(waiter):
+                async def _capture_service(waiter):
                     if blocking:
                         csm = ConsoleServiceCancel.createMatcher(waiter)
                     else:
@@ -490,19 +475,19 @@ console_help()
                     firsttime = True
                     while firsttime or not captureonce:
                         if blocking:
-                            yield tuple(matchers) + (csm,)
+                            ev, m = await M_(*(tuple(matchers) + (csm,)))
                         else:
-                            yield matchers
-                        if blocking and self.apiroutine.matcher is csm:
+                            ev, m = await M_(*matchers)
+                        if blocking and m is csm:
                             # Cancelled
                             return
-                        print('Event Captured: Capture %r with %r' % (self.apiroutine.event, self.apiroutine.matcher))
+                        print('Event Captured: Capture %r with %r' % (ev, m))
                         if firsttime and blocking:
-                            waiter.send_result((self.apiroutine.event, self.apiroutine.matcher, self.apiroutine.currentroutine))
+                            waiter.send_result((ev, m, self.apiroutine.currentroutine))
                         firsttime = False
                         if callback:
                             try:
-                                callback(self.apiroutine.event, self.apiroutine.matcher)
+                                callback(ev, m)
                             except Exception:
                                 print('Exception while running callback:')
                                 traceback.print_exc()
@@ -545,7 +530,6 @@ console_help()
 
 if __name__ == '__main__':
     from vlcp.server import main
-    import sys
     manager['module.console.startinconsole'] = True
     modules = list(sys.argv[1:]) + ['__main__.Console']
     main(None, modules)

@@ -21,6 +21,9 @@ from vlcp.utils.ethernet import ethernet_l2
 import vlcp.service.sdn.ioprocessing as iop
 import itertools
 from vlcp.utils.dataobject import ReferenceObject
+from vlcp.utils.exceptions import WalkKeyNotRetrieved
+from contextlib import suppress
+from vlcp.event.event import M_
 
 
 class ARPUpdater(FlowUpdater):
@@ -34,49 +37,49 @@ class ARPUpdater(FlowUpdater):
         self._lastphyportinfo = {}
         self._lastlognetinfo = {}
         self._last_arps = set()
-    def main(self):
+
+    async def main(self):
         try:
             if self._connection.protocol.disablenxext:
+                self._logger.warning("ARP responder disabled on connection %r because Nicira extension is not enabled", self._connection)
                 return
             self.subroutine(self._update_handler(), True, '_update_handler_routine')
-            for m in FlowUpdater.main(self):
-                yield m
+            await FlowUpdater.main(self)
         finally:
             if hasattr(self, '_update_handler_routine'):
                 self._update_handler_routine.close()
-    def _update_handler(self):
+
+    async def _update_handler(self):
         dataobjectchanged = iop.DataObjectChanged.createMatcher(None, None, self._connection)
         while True:
-            yield (dataobjectchanged,)
-            self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
+            ev = await dataobjectchanged
+            self._lastlogports, self._lastphyports, self._lastlognets, _ = ev.current
             self._update_walk()
             self.updateobjects((p for p,_ in self._lastlogports))
+
     def _walk_logport(self, key, value, walk, save):
         if value is not None:
             save(key)
+
     def _walk_phyport(self, key, value, walk, save):
         if value is not None:
             save(key)
+
     def _walk_lognet(self, key, value, walk, save):
         save(key)
         if value is None:
             return
         if self._parent.prepush:
             # Acquire all logical ports
-            try:
+            with suppress(WalkKeyNotRetrieved):
                 netmap = walk(LogicalNetworkMap.default_key(value.id))
-            except KeyError:
-                pass
-            else:
                 save(netmap.getkey())
                 for logport in netmap.ports.dataset():
-                    try:
+                    with suppress(WalkKeyNotRetrieved):
                         p = walk(logport.getkey())
-                    except KeyError:
-                        pass
-                    else:
                         #if p is not None and hasattr(p, 'mac_address') and hasattr(p, 'ip_address'):
                         save(logport.getkey())
+
     def _update_walk(self):
         logport_keys = [p.getkey() for p,_ in self._lastlogports]
         phyport_keys = [p.getkey() for p,_ in self._lastphyports]
@@ -90,7 +93,8 @@ class ARPUpdater(FlowUpdater):
                                                 ((p, self._walk_logport) for p in logport_keys),
                                                 ((p, self._walk_phyport) for p in phyport_keys)))
         self.subroutine(self.restart_walk(), False)
-    def updateflow(self, connection, addvalues, removevalues, updatedvalues):
+
+    async def updateflow(self, connection, addvalues, removevalues, updatedvalues):
         try:
             allobjs = set(o for o in self._savedresult if o is not None and not o.isdeleted())
             lastlogportinfo = self._lastlogportinfo
@@ -250,8 +254,7 @@ class ARPUpdater(FlowUpdater):
                                                                                           ]
                                                                         )
                                                                ))
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
             del cmds[:]
             # Create flows
             def _create_flow(ip, mac, nid, islocal, broadcast):
@@ -373,8 +376,7 @@ class ARPUpdater(FlowUpdater):
                         if islocal:
                             if port in currentlognetinfo:
                                 cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast))
-            for m in self.execute_commands(connection, cmds):
-                yield m
+            await self.execute_commands(connection, cmds)
         except Exception:
             self._logger.warning("Unexpected exception in ARPUpdater. Will ignore and continue.", exc_info = True)
 
@@ -405,6 +407,7 @@ class ARPResponder(FlowBase):
         self._extra_arps = {}
         self.createAPI(api(self.createproxyarp),
                        api(self.removeproxyarp))
+
     def createproxyarp(self, connection, arpentries):
         '''
         Create ARP respond flow for specified ARP entries, each is a tuple
@@ -416,6 +419,7 @@ class ARPResponder(FlowBase):
         arp_list.extend(arpentries)
         if connection in self._flowupdaters:
             self._flowupdaters[connection].updateobjects([ReferenceObject(LogicalNetwork.default_key(nid)) for _, _, nid, _ in arpentries])
+
     def removeproxyarp(self, connection, arpentries):
         '''
         Remove specified ARP entries.
@@ -428,19 +432,21 @@ class ARPResponder(FlowBase):
                 pass
         if connection in self._flowupdaters:
             self._flowupdaters[connection].updateobjects([ReferenceObject(LogicalNetwork.default_key(nid)) for _, _, nid, _ in arpentries])
-    def _main(self):
+
+    async def _main(self):
         flow_init = FlowInitialize.createMatcher(_ismatch = lambda x: self.vhostbind is None or x.vhost in self.vhostbind)
         conn_down = OpenflowConnectionStateEvent.createMatcher(state = OpenflowConnectionStateEvent.CONNECTION_DOWN,
                                                                _ismatch = lambda x: self.vhostbind is None or x.createby.vhost in self.vhostbind)
         while True:
-            yield (flow_init, conn_down)
-            if self.apiroutine.matcher is flow_init:
-                c = self.apiroutine.event.connection
-                self.apiroutine.subroutine(self._init_conn(self.apiroutine.event.connection))
+            ev, m = await M_(flow_init, conn_down)
+            if m is flow_init:
+                c = ev.connection
+                self.apiroutine.subroutine(self._init_conn(c))
             else:
-                c = self.apiroutine.event.connection
+                c = ev.connection
                 self.apiroutine.subroutine(self._remove_conn(c))
-    def _init_conn(self, conn):
+
+    async def _init_conn(self, conn):
         # Default
         if conn in self._flowupdaters:
             arpupdater = self._flowupdaters.pop(conn)
@@ -452,7 +458,7 @@ class ARPResponder(FlowBase):
         if self.disableothers:
             ofdef = conn.openflowdef
             arptable = self._gettableindex('arp', conn.protocol.vhost)
-            for m in conn.protocol.batch((ofdef.ofp_flow_mod(table_id = arptable,
+            await conn.protocol.batch((ofdef.ofp_flow_mod(table_id = arptable,
                                                              command = ofdef.OFPFC_ADD,
                                                              priority = 1,
                                                              buffer_id = ofdef.OFP_NO_BUFFER,
@@ -472,11 +478,9 @@ class ARPResponder(FlowBase):
                                                                 ),
                                                              instructions = [ofdef.ofp_instruction_actions(type = ofdef.OFPIT_CLEAR_ACTIONS)]
                                                              ),
-                                          ), conn, self.apiroutine):
-                yield m
-    def _remove_conn(self, conn):
+                                          ), conn, self.apiroutine)
+
+    async def _remove_conn(self, conn):
         # Do not need to modify flows
         if conn in self._flowupdaters:
             self._flowupdaters.pop(conn).close()
-        if False:
-            yield

@@ -10,7 +10,7 @@ from logging import getLogger
 from socket import SOL_SOCKET, SO_ERROR
 from ssl import PROTOCOL_SSLv23
 import errno
-from contextlib import closing
+
 
 @defaultconfig
 class Protocol(Configurable):
@@ -30,8 +30,10 @@ class Protocol(Configurable):
     # Message event queue size for each connection
     _default_messagequeuesize = 10
     # Enable keep-alive for this protocol: send protocol specified keep-alive packages when
-    # the connection idles to detect the connection liveness
+    # no data is read from the connection to detect the connection liveness
     _default_keepalivetime = None
+    # Send protocol specified keep-alive packages when no data is written to the connection
+    _default_writekeepalivetime = None
     # Use SO_REUSEPORT socket option for the connections, so that multiple processes can bind to
     # the same port; can be used to create load-balanced services
     _default_reuseport = False
@@ -77,7 +79,7 @@ class Protocol(Configurable):
         :returns: (bytes, EOF)
         '''
         return (event.data, getattr(event, 'EOF', False))
-    def init(self, connection):
+    async def init(self, connection):
         '''
         routine for connection initialization
         '''
@@ -88,40 +90,39 @@ class Protocol(Configurable):
                 connection.createdqueues.append(connection.queue)
         except IndexError:
             pass
-        if False:
-            yield
-    def _clearwritequeue(self, connection):
+
+    async def _clearwritequeue(self, connection):
         if hasattr(connection, 'queue'):
-            for m in connection.syscall(syscall_clearqueue(connection.queue)):
-                yield m
-    def error(self, connection):
+            await connection.syscall(syscall_clearqueue(connection.queue))
+
+    async def error(self, connection):
         '''
         routine for connection error
         '''
         err = connection.socket.getsockopt(SOL_SOCKET, SO_ERROR)
         self._logger.warning('Connection error status: %d(%s)', err, errno.errorcode.get(err, 'Not found'))
-        for m in self._clearwritequeue(connection):
-            yield m
-    def closed(self, connection):
+        connection.scheduler.ignore(ConnectionWriteEvent.createMatcher(connection = connection))
+        await self._clearwritequeue(connection)
+
+    async def closed(self, connection):
         '''
         routine for connection closed
         '''
         connection.scheduler.ignore(ConnectionWriteEvent.createMatcher(connection = connection))
-        for m in self._clearwritequeue(connection):
-            yield m
-    def notconnected(self, connection):
+        await self._clearwritequeue(connection)
+
+    async def notconnected(self, connection):
         '''
         routine for connect failed and not retrying
         '''
         self._logger.warning('Connect failed and not retrying for url: %s', connection.rawurl)
-        if False:
-            yield
-    def reconnect_init(self, connection):
+
+    async def reconnect_init(self, connection):
         '''
         routine for reconnect
         '''
-        if False:
-            yield
+        pass
+
     def accept(self, server, newaddr, newsocket):
         '''
         server accept
@@ -129,37 +130,36 @@ class Protocol(Configurable):
         '''
         self._logger.debug('Connection accepted from ' + repr(newaddr))
         return self
-    def final(self, connection):
+
+    async def final(self, connection):
         '''
         routine for a connection finally ends: all connections are closed and not retrying
         '''
         if hasattr(connection, 'createdqueues') and connection.createdqueues:
-            with closing(connection.executeWithTimeout(self.cleanuptimeout, connection.waitForAllEmpty(*connection.createdqueues))) as g:
-                for m in g:
-                    yield m
-            if connection.timeout:
+            timeout, _ = await connection.execute_with_timeout(
+                                            self.cleanuptimeout,
+                                            connection.wait_for_all_empty(*connection.createdqueues))
+            if timeout:
                 self._logger.warning('Events are still not processed after timeout, Protocol = %r, Connection = %r', self, connection)
             for q in connection.createdqueues:
-                for m in connection.syscall(syscall_clearremovequeue(connection.scheduler.queue, q)):
-                    yield m
+                await connection.syscall(syscall_clearremovequeue(connection.scheduler.queue, q))
             del connection.createdqueues[:]
-    def beforelisten(self, tcpserver, newsocket):
+
+    async def beforelisten(self, tcpserver, newsocket):
         '''
         routine before a socket entering listen mode
         '''
-        if False:
-            yield
+        pass
 
-    def serverfinal(self, tcpserver):
+    async def serverfinal(self, tcpserver):
         '''
         routine for a tcpserver finally shutdown or not connected
         '''
-        if False:
-            yield
-    def keepalive(self, connection):
+        pass
+    
+    async def keepalive(self, connection):
         '''
         routine executed when there has been a long time since last data arrival.
         Check if the connection is down.
         '''
-        if False:
-            yield
+        pass

@@ -8,7 +8,7 @@ from vlcp.protocol.http import Http, HttpResponseEvent, HttpConnectionStateEvent
     HttpConnectionClosedException, HttpProtocolException, HttpResponseEndEvent
 from email.message import Message
 from vlcp.event.stream import MemoryStream
-from vlcp.event.event import Event, withIndices
+from vlcp.event.event import Event, withIndices, M_
 from vlcp.event.connection import Client
 from vlcp.event.core import TimerEvent
 from vlcp.config.config import Configurable
@@ -124,11 +124,13 @@ def match_hostname(cert, hostname):
         raise CertificateException("no appropriate commonName or "
             "subjectAltName fields were found")
 
+
 def _str(s, encoding = 'ascii'):
     if not isinstance(s, str):
         return s.decode(encoding)
     else:
         return s
+
 
 def _bytes(s, encoding = 'ascii'):
     if isinstance(s, bytes):
@@ -136,19 +138,24 @@ def _bytes(s, encoding = 'ascii'):
     else:
         return s.encode(encoding)
 
+
 class WebException(IOError):
     pass
+
 
 class CertificateException(IOError):
     pass
 
+
 class ManualRedirectRequired(IOError):
     def __init__(self, msg, response, request, kwargs):
-        IOError.__init__(msg)
+        IOError.__init__(self, msg)
         self.response = response
         self.location = response.get_header('Location')
         self.request = request
         self.kwargs = kwargs
+
+
 class Request(object):
     def __init__(self, url, data = None, method = None, headers = {}, origin_req_host = None, unverifiable = False,
                  rawurl = False):
@@ -309,20 +316,25 @@ class Response(object):
         if self.stream:
             self.stream.close(self.scheduler)
             self.stream = None
-    def shutdown(self):
+    async def shutdown(self):
         "Force stop the output stream, if there are more data to download, shutdown the connection"
         if self.stream:
             if not self.stream.dataeof and not self.stream.dataerror:
                 self.stream.close(self.scheduler)
-                for m in self.connection.shutdown():
-                    yield m
+                await self.connection.shutdown()
             else:
                 self.stream.close(self.scheduler)
             self.stream = None
-                
+
     def __del__(self):
         self.close()
-        
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exctype, excvalue, traceback):
+        self.close()
+        return False
 
 @withIndices('host', 'path', 'https')
 class WebClientRequestDoneEvent(Event):
@@ -365,7 +377,7 @@ class WebClient(Configurable):
         else:
             self.cookiejar = cookiejar
         self._tasks = []
-    def open(self, container, request, ignorewebexception = False, timeout = None, datagen = None, cafile = None, key = None, certificate = None,
+    async def open(self, container, request, ignorewebexception = False, timeout = None, datagen = None, cafile = None, key = None, certificate = None,
              followredirect = True, autodecompress = False, allowcookies = None):
         '''
         Open http request with a Request object
@@ -392,13 +404,6 @@ class WebClient(Configurable):
         :param autodecompress: if True, automatically detect Content-Encoding header and decode the body
         :param allowcookies: override default settings to disable the cookies
         '''
-        with closing(container.delegateOther(self._open(container, request, ignorewebexception, timeout, datagen, cafile, key, certificate,
-                                                    followredirect, autodecompress, allowcookies),
-                                             container)) as g:
-            for m in g:
-                yield m
-    def _open(self, container, request, ignorewebexception = False, timeout = None, datagen = None, cafile = None, key = None, certificate = None,
-             followredirect = True, autodecompress = False, allowcookies = None):
         if cafile is None:
             cafile = self.cafile
         if allowcookies is None:
@@ -410,10 +415,8 @@ class WebClient(Configurable):
                 request.add_header('Accept-Encoding', 'gzip, deflate')
         while True:
             # Find or create a connection
-            for m in self._getconnection(container, request.host, request.path, request.get_type() == 'https',
-                                                forcecreate, cafile, key, certificate, timeout):
-                yield m
-            (conn, created) = container.retvalue
+            conn, created = await self._getconnection(container, request.host, request.path, request.get_type() == 'https',
+                                                      forcecreate, cafile, key, certificate, timeout)
             # Send request on conn and wait for reply
             try:
                 if allowcookies:
@@ -426,16 +429,21 @@ class WebClient(Configurable):
                     datagen_routine = container.subroutine(datagen)
                 else:
                     datagen_routine = None
-                with closing(container.executeWithTimeout(timeout, self._protocol.requestwithresponse(container, conn, _bytes(request.host), _bytes(request.path), _bytes(request.method),
-                                                   [(_bytes(k), _bytes(v)) for k,v in request.header_items()], stream))) as g:
-                    for m in g:
-                        yield m
-                if container.timeout:
+                timeout_, result = await container.execute_with_timeout(
+                                                timeout,
+                                                self._protocol.request_with_response(
+                                                        container,
+                                                        conn,
+                                                        _bytes(request.host),
+                                                        _bytes(request.path),
+                                                        _bytes(request.method),
+                                                        [(_bytes(k), _bytes(v)) for k,v in request.header_items()], stream))
+                if timeout_:
                     if datagen_routine:
                         container.terminate(datagen_routine)
                     container.subroutine(self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True), False)
                     raise WebException('HTTP request timeout')
-                finalresp = container.http_finalresponse
+                finalresp, _ = result
                 resp = Response(request.get_full_url(), finalresp, container.scheduler)
                 if allowcookies:
                     self.cookiejar.extract_cookies(resp, request)
@@ -448,14 +456,12 @@ class WebClient(Configurable):
                                 resp.stream.getEncoderList().append(encoders.gzip_decoder())
                             elif ce.lower() == 'deflate':
                                 resp.stream.getEncoderList().append(encoders.deflate_decoder())
-                        for m in resp.stream.read(container, 4096):
-                            yield m
+                        data = await resp.stream.read(container, 4096)
                         exc.response = resp
-                        exc.body = container.data
+                        exc.body = data
                         if datagen_routine:
                             container.terminate(datagen_routine)
-                        for m in resp.shutdown():
-                            yield m
+                        await resp.shutdown()
                         container.subroutine(self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True), False)
                         raise exc
                     finally:
@@ -475,13 +481,12 @@ class WebClient(Configurable):
                                 resp.stream.getEncoderList().append(encoders.gzip_decoder())
                             elif ce.lower() == 'deflate':
                                 resp.stream.getEncoderList().append(encoders.deflate_decoder())
-                        container.retvalue = resp
+                        return resp
                     except:
                         resp.close()
                         raise
             except HttpConnectionClosedException:
-                for m in self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', False):
-                    yield m
+                await self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', False)
                 if not created:
                     # Retry on a newly created connection
                     forcecreate = True
@@ -491,29 +496,24 @@ class WebClient(Configurable):
                         container.terminate(datagen_routine)
                     raise
             except Exception as exc:
-                for m in self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True):
-                    yield m
+                await self._releaseconnection(conn, request.host, request.path, request.get_type() == 'https', True)
                 raise exc
             break
-    def _releaseconnection(self, connection, host, path, https = False, forceclose = False, respevent = None):
+    async def _releaseconnection(self, connection, host, path, https = False, forceclose = False, respevent = None):
         if not host:
             raise ValueError
         if forceclose:
-            for m in connection.shutdown(True):
-                yield m
+            await connection.shutdown(True)
         if not forceclose and connection.connected and respevent:
-            def releaseconn():
-                for m in self._protocol.waitForResponseEnd(connection, connection, respevent.connmark, respevent.xid):
-                    yield m
-                keepalive = connection.retvalue
+            async def releaseconn():
+                keepalive = await self._protocol.wait_for_response_end(connection, connection, respevent.connmark, respevent.xid)
                 conns = self._connmap[host]
                 conns[2] -= 1
                 if keepalive:
                     connection.setdaemon(True)
                     conns[1 if https else 0].append(connection)
                 else:
-                    for m in connection.shutdown():
-                        yield m
+                    await connection.shutdown()
             connection.subroutine(releaseconn(), False)
         else:
             conns = self._connmap[host]
@@ -521,20 +521,19 @@ class WebClient(Configurable):
         if self.sameurllimit:
             self._requesting.remove((host, path, https))
         if (host, path, https) in self._pathwaiting or host in self._hostwaiting:
-            for m in connection.waitForSend(WebClientRequestDoneEvent(host, path, https)):
-                yield m
+            await connection.wait_for_send(WebClientRequestDoneEvent(host, path, https))
             if (host, path, https) in self._pathwaiting:
                 self._pathwaiting.remove((host, path, https))
             if host in self._hostwaiting:
                 self._hostwaiting.remove(host)
-    def _getconnection(self, container, host, path, https = False, forcecreate = False, cafile = None, key = None, certificate = None,
+    async def _getconnection(self, container, host, path, https = False, forcecreate = False, cafile = None, key = None, certificate = None,
                        timeout = None):
         if not host:
             raise ValueError
         matcher = WebClientRequestDoneEvent.createMatcher(host, path, https)
         while self.sameurllimit and (host, path, https) in self._requesting:
             self._pathwaiting.add((host, path, https))
-            yield (matcher,)
+            await matcher
         # Lock the path
         if self.sameurllimit:
             self._requesting.add((host, path, https))
@@ -547,28 +546,25 @@ class WebClient(Configurable):
             # There are free connections, reuse them
             conn = myset.pop()
             conn.setdaemon(False)
-            container.retvalue = (conn, False)
             conns[2] += 1
-            return
+            return (conn, False)
         matcher = WebClientRequestDoneEvent.createMatcher(host)
         while self.samehostlimit and len(conns[0]) + len(conns[1]) + conns[2] >= self.samehostlimit:
             if myset:
                 # Close a old connection
                 conn = myset.pop()
-                for m in conn.shutdown():
-                    yield m
+                await conn.shutdown()
             else:
                 # Wait for free connections
                 self._hostwaiting.add(host)
-                yield (matcher,)
+                await matcher
                 conns = self._connmap.setdefault(host, [[],[], 0])
                 myset = conns[1 if https else 0]
                 if not forcecreate and myset:
                     conn = myset.pop()
                     conn.setdaemon(False)
-                    container.retvalue = (conn, False)
                     conns[2] += 1
-                    return
+                    return (conn, False)
         # Create new connection
         conns[2] += 1
         conn = Client(urlunsplit(('ssl' if https else 'tcp', host, '/', '', '')), self._protocol, container.scheduler,
@@ -578,11 +574,10 @@ class WebClient(Configurable):
         conn.start()
         connected = self._protocol.statematcher(conn, HttpConnectionStateEvent.CLIENT_CONNECTED, False)
         notconnected = self._protocol.statematcher(conn, HttpConnectionStateEvent.CLIENT_NOTCONNECTED, False)
-        yield (connected, notconnected)
-        if container.matcher is notconnected:
+        _, m = await M_(connected, notconnected)
+        if m is notconnected:
             conns[2] -= 1
-            for m in conn.shutdown(True):
-                yield m
+            await conn.shutdown(True)
             raise IOError('Failed to connect to %r' % (conn.rawurl,))
         if https and cafile and self.verifyhost:
             try:
@@ -590,14 +585,13 @@ class WebClient(Configurable):
                 hostcheck = re.sub(r':\d+$', '', host)
                 if host == conn.socket.remoteaddr[0]:
                     # IP Address is currently now allowed
-                    for m in conn.shutdown(True):
-                        yield m
+                    await conn.shutdown(True)
                     raise CertificateException('Cannot verify host with IP address')
                 match_hostname(conn.socket.getpeercert(False), hostcheck)
             except:
                 conns[2] -= 1
                 raise
-        container.retvalue = (conn, True)
+        return (conn, True)
     def cleanup(self, host = None):
         "Cleaning disconnected connections"
         if host is not None:
@@ -622,39 +616,37 @@ class WebClient(Configurable):
         '''
         if interval is None:
             interval = self.cleanupinterval
-        def task():
+        async def task():
             th = container.scheduler.setTimer(interval, interval)
             tm = TimerEvent.createMatcher(th)
             try:
                 while True:
-                    yield (tm,)
+                    await tm
                     self.cleanup()
             finally:
                 container.scheduler.cancelTimer(th)
         t = container.subroutine(task(), False, daemon = True)
         self._tasks.append(t)
         return t
-    def shutdown(self):
+    async def shutdown(self):
         "Shutdown free connections to release resources"
         for c0, c1, _ in list(self._connmap.values()):
             c0bak = list(c0)
             del c0[:]
             for c in c0bak:
                 if c.connected:
-                    for m in c.shutdown():
-                        yield m
+                    await c.shutdown()
             c1bak = list(c1)
             del c1[:]
             for c in c1bak:
                 if c.connected:
-                    for m in c.shutdown():
-                        yield m
+                    await c.shutdown()
     def endtask(self):
         for t in self._tasks:
             t.close()
         del self._tasks[:]
                 
-    def urlopen(self, container, url, data = None, method = None, headers = {}, rawurl = False, *args, **kwargs):
+    async def urlopen(self, container, url, data = None, method = None, headers = {}, rawurl = False, *args, **kwargs):
         '''
         Similar to urllib2.urlopen, but:
         1. is a routine
@@ -670,13 +662,13 @@ class WebClient(Configurable):
         
         :param rawurl: if True, assume the url is already url-encoded, do not encode it again.
         '''
-        return self.open(container, Request(url, data, method, headers, rawurl=rawurl), *args, **kwargs)
-    def manualredirect(self, container, exc, data, datagen = None):
+        return await self.open(container, Request(url, data, method, headers, rawurl=rawurl), *args, **kwargs)
+    async def manualredirect(self, container, exc, data, datagen = None):
         "If data is a stream, it cannot be used again on redirect. Catch the ManualRedirectException and call a manual redirect with a new stream."
         request = exc.request
         request.data = data
-        return self.open(container, request, datagen = datagen, **exc.kwargs)
-    def urlgetcontent(self, container, url, data = None, method = None, headers = {}, tostr = False,  encoding = None, rawurl = False, *args, **kwargs):
+        return await self.open(container, request, datagen = datagen, **exc.kwargs)
+    async def urlgetcontent(self, container, url, data = None, method = None, headers = {}, tostr = False,  encoding = None, rawurl = False, *args, **kwargs):
         '''
         In Python2, bytes = str, so tostr and encoding has no effect.
         In Python3, bytes are decoded into unicode str with encoding.
@@ -686,20 +678,16 @@ class WebClient(Configurable):
         :param rawurl: if True, assume the url is already url-encoded, do not encode it again.
         '''
         req = Request(url, data, method, headers, rawurl = rawurl)
-        for m in self.open(container, req, *args, **kwargs):
-            yield m
-        resp = container.retvalue
-        encoding = 'utf-8'
-        if encoding is None:
-            m = Message()
-            m.add_header('Content-Type', resp.get_header('Content-Type', 'text/html'))
-            encoding = m.get_content_charset('utf-8')
-        if not resp.stream:
-            content = b''
-        else:
-            for m in resp.stream.read(container):
-                yield m
-            content = container.data
-        if tostr:
-            content = _str(content, encoding)
-        container.retvalue = content
+        with (await self.open(container, req, *args, **kwargs)) as resp:
+            encoding = 'utf-8'
+            if encoding is None:
+                m = Message()
+                m.add_header('Content-Type', resp.get_header('Content-Type', 'text/html'))
+                encoding = m.get_content_charset('utf-8')
+            if not resp.stream:
+                content = b''
+            else:
+                content = await resp.stream.read(container)
+            if tostr:
+                content = _str(content, encoding)
+            return content

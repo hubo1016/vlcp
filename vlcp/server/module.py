@@ -4,7 +4,7 @@ Created on 2015/9/30/
 :author: hubo
 '''
 from vlcp.config import Configurable, defaultconfig
-from vlcp.event import Event, withIndices
+from vlcp.event import Event, withIndices, M_
 import logging
 from vlcp.event.runnable import RoutineContainer, EventHandler
 import sys
@@ -13,16 +13,11 @@ import functools
 import copy
 from vlcp.config.config import manager
 from vlcp.event.core import QuitException
-from inspect import cleandoc
-from contextlib import closing
-
-try:
-    reload
-except Exception:
-    try:
-        from importlib import reload
-    except Exception:
-        from imp import reload
+from inspect import cleandoc, getfullargspec
+from vlcp.event.event import Diff_
+from vlcp.utils.exceptions import ModuleAPICallTimeoutException,\
+        APIRejectedException
+from importlib import reload
 
 
 def depend(*args):
@@ -60,8 +55,6 @@ class ModuleAPICall(Event):
 class ModuleAPIReply(Event):
     pass
 
-class ModuleAPICallTimeoutException(Exception):
-    pass
 
 @withIndices('module', 'state', 'instance')
 class ModuleLoadStateChanged(Event):
@@ -74,31 +67,47 @@ class ModuleLoadStateChanged(Event):
     UNLOADED = 'unloaded'
 
 def create_discover_info(func):
-    code = func.__code__
-    if code.co_flags & 0x08:
-        haskwargs = True
-    else:
-        haskwargs = False
-    # Remove argument env
-    arguments = code.co_varnames[0:code.co_argcount]
-    if hasattr(func, '__self__') and func.__self__:
-        # First argument is self, remove an extra argument
-        arguments=arguments[1:]
-    # Optional arguments
-    if hasattr(func, '__defaults__') and func.__defaults__:
-        requires = arguments[:-len(func.__defaults__)]
-        optionals = arguments[-len(func.__defaults__):]
-    else:
-        requires = arguments[:]
-        optionals = []
-    return {'description': cleandoc(func.__doc__) if func.__doc__ is not None else '',
+    realf = func
+    while hasattr(realf, '__wrapped__'):
+        realf = realf.__wrapped__
+    argspec = getfullargspec(realf)
+    kwargs = argspec.varkw
+    arguments = []
+    default_value = {}
+    if argspec.args:
+        args = list(argspec.args)
+        if argspec.defaults:
+            default_value.update(zip(args[-len(argspec.defaults):], argspec.defaults))
+        if hasattr(func, '__self__') and func.__self__:
+            # First argument is self, remove an extra argument
+            args = args[1:]
+        arguments.extend(args)
+    if argspec.kwonlyargs:
+        arguments.extend(argspec.kwonlyargs)
+        if argspec.kwonlydefaults:
+            default_value.update(argspec.kwonlydefaults)
+    def _create_parameter_definition(name):
+        d = {"name": name}
+        if name in default_value:
+            d['optional'] = True
+            d['default'] = default_value[name]
+        else:
+            d['optional'] = False
+        if name in argspec.annotations:
+            d['type'] = argspec.annotations[name]
+        return d
+    info =  {'description': cleandoc(func.__doc__) if func.__doc__ is not None else '',
             'parameters':
-                [{'name':n,'optional':False} for n in requires]
-                + [{'name':optionals[i],'optional':True,'default':func.__defaults__[i]}
-                   for i in range(0,len(optionals))],
-            'extraparameters': haskwargs
-                }
-    
+                [_create_parameter_definition(n)
+                 for n in arguments],
+            'extraparameters': bool(kwargs)
+            }
+    if kwargs and kwargs in argspec.annotations:
+        info['extraparameters_type'] = argspec.annotations[kwargs]
+    if 'return' in argspec.annotations:
+        info['return_type'] = argspec.annotations
+    return info
+
 
 def api(func, container = None, criteria = None):
     '''
@@ -165,27 +174,22 @@ class ModuleAPIHandler(RoutineContainer):
         else:
             matcher = ModuleAPICall.createMatcher(target = self.servicename, name = name, **extra_params)
         if container is not None:
-            def wrapper(event):
+            async def wrapper(event):
                 try:
-                    for m in handler(event.name, event.params):
-                        yield m
-                    for m in container.waitForSend(self.createReply(event.handle, container.retvalue)):
-                        yield m
+                    r = await handler(event.name, event.params)
+                    await container.wait_for_send(self.createReply(event.handle, r))
                 except Exception as val:
-                    for m in container.waitForSend(self.createExceptionReply(event.handle, val)):
-                        yield m
+                    await container.wait_for_send(self.createExceptionReply(event.handle, val))
             def event_handler(event, scheduler):
                 event.canignore = True
                 container.subroutine(wrapper(event), False)
         else:
-            def wrapper(event):
+            async def wrapper(event):
                 try:
                     result = handler(event.name, event.params)
-                    for m in self.waitForSend(self.createReply(event.handle, result)):
-                        yield m
+                    await self.wait_for_send(self.createReply(event.handle, result))
                 except Exception as val:
-                    for m in self.waitForSend(self.createExceptionReply(event.handle, val)):
-                        yield m
+                    await self.wait_for_send(self.createExceptionReply(event.handle, val))
             def event_handler(event, scheduler):
                 event.canignore = True
                 self.subroutine(wrapper(event), False)
@@ -243,7 +247,7 @@ class ModuleAPIHandler(RoutineContainer):
         else:
             return dict((k,v.get('description', '')) for k,v in self.discoverinfo.items())
     def reject(self, name, args):
-        raise ValueError('%r is not defined in module %r' % (name, self.servicename))
+        raise APIRejectedException('%r is not defined in module %r' % (name, self.servicename))
     def start(self, asyncStart=False):
         if self.apidefs:
             self.registerAPIs(self.apidefs)
@@ -281,9 +285,12 @@ class Module(Configurable):
         self.target = type(self)
         self._logger = logging.getLogger(type(self).__module__ + '.' + type(self).__name__)
     @classmethod
-    def getFullPath(cls):
+    def get_full_path(cls):
         return cls.__module__ + '.' + cls.__name__
-    def createAPI(self, *apidefs):
+    
+    getFullPath = get_full_path
+    
+    def create_api(self, *apidefs):
         """
         Create API definitions on this module. This creates a ModuleAPIHandler and register
         these `apidefs` to it.
@@ -294,11 +301,17 @@ class Module(Configurable):
             self.appendAPI(*apidefs)
         self.apiHandler = ModuleAPIHandler(self, apidefs)
         self.routines.append(self.apiHandler)
-    def appendAPI(self, *apidefs):
+    
+    createAPI = create_api
+    
+    def append_api(self, *apidefs):
         t = list(self.apiHandler.apidefs)
         t.extend(apidefs)
         self.apiHandler.apidefs = t
-    def getServiceName(self):
+    
+    appendAPI = append_api
+    
+    def get_service_name(self):
         """
         Return the targetname (or servicename) for this module
         """
@@ -306,7 +319,10 @@ class Module(Configurable):
             return self.servicename
         else:
             return self.target.__name__.lower()
-    def load(self, container):
+    
+    getServiceName = get_service_name
+    
+    async def load(self, container):
         '''
         Load module
         '''
@@ -317,29 +333,24 @@ class Module(Configurable):
             for c in self.connections:
                 c.start()
             try:
-                for m in self.changestate(ModuleLoadStateChanged.LOADED, container):
-                    yield m
+                await self.changestate(ModuleLoadStateChanged.LOADED, container)
                 if self.autosuccess:
-                    for m in self.changestate(ModuleLoadStateChanged.SUCCEEDED, container):
-                        yield m
+                    await self.changestate(ModuleLoadStateChanged.SUCCEEDED, container)
             except ValueError:
                 pass
         except Exception:
-            def _cleanup():
-                for m in self.changestate(ModuleLoadStateChanged.FAILED, container):
-                    yield m
+            async def _cleanup():
+                await self.changestate(ModuleLoadStateChanged.FAILED, container)
             container.subroutine(_cleanup(), False)
             raise
-    def unload(self, container, force = False):
+    async def unload(self, container, force = False):
         '''
         Unload module
         '''
-        for m in self.changestate(ModuleLoadStateChanged.UNLOADING, container):
-            yield m
+        await self.changestate(ModuleLoadStateChanged.UNLOADING, container)
         for c in self.connections:
             try:
-                for m in c.shutdown():
-                    yield m
+                await c.shutdown()
             except Exception:
                 self._logger.warning('Except when shutting down connection %r', c, exc_info = True)
         if self.forcestop or force:
@@ -348,8 +359,7 @@ class Module(Configurable):
                     r.close()
                 except Exception:
                     self._logger.warning('Except when unloading module', exc_info = True)
-        for m in self.changestate(ModuleLoadStateChanged.UNLOADED, container):
-            yield m
+        await self.changestate(ModuleLoadStateChanged.UNLOADED, container)
         if hasattr(self.target, '_instance') and self.target._instance is self:
             del self.target._instance
     _changeMap = set(((ModuleLoadStateChanged.NOTLOADED, ModuleLoadStateChanged.LOADING),
@@ -361,7 +371,7 @@ class Module(Configurable):
                  (ModuleLoadStateChanged.SUCCEEDED, ModuleLoadStateChanged.UNLOADING),
                  (ModuleLoadStateChanged.FAILED, ModuleLoadStateChanged.UNLOADING),
                  (ModuleLoadStateChanged.UNLOADING, ModuleLoadStateChanged.UNLOADED)))
-    def changestate(self, state, container):
+    async def changestate(self, state, container):
         """
         Change the current load state.
         """
@@ -370,8 +380,7 @@ class Module(Configurable):
                 raise ValueError('Cannot change state from %r to %r' % (self.state, state))
             self.state = state
             self._logger.debug('Module state changed to %r', state)
-            for m in container.waitForSend(ModuleLoadStateChanged(self.target, state, self)):
-                yield m
+            await container.wait_for_send(ModuleLoadStateChanged(self.target, state, self))
 
 
 class ModuleLoadException(Exception):
@@ -440,15 +449,13 @@ class _ProxyModule(Module):
         '''
         Module.__init__(self, server)        
         self.proxyhandler = EventHandler(self.scheduler)
-    def load(self, container):
+    async def load(self, container):
         self._targetname = self._proxytarget._instance.getServiceName()
         self.proxyhandler.registerHandler(ModuleAPICall.createMatcher(None, self.getServiceName()), self._proxyhandler)
-        for m in Module.load(self, container):
-            yield m
-    def unload(self, container, force=False):
+        await Module.load(self, container)
+    async def unload(self, container, force=False):
         self.proxyhandler.close()
-        for m in Module.unload(self, container, force=force):
-            yield m
+        await Module.unload(self, container, force=force)
     def _proxyhandler(self, event, scheduler):
         event.canignore = True
         scheduler.emergesend(ModuleAPICall(event.handle, self._targetname, event.name, params = event.params))        
@@ -472,30 +479,30 @@ class ModuleLoader(RoutineContainer):
         self.server = server
         RoutineContainer.__init__(self, scheduler=server.scheduler, daemon=True)
         self.activeModules = {}
-    def main(self):
+    async def main(self):
         try:
             # Reject unmatched public API
             public_api = ModuleAPICall.createMatcher(target = "public")
             while True:
-                yield (public_api,)
-                if not self.event.canignore:
-                    self.event.canignore = True
-                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(self.event.handle, ValueError("public API is not processed")))
+                ev = await public_api
+                if not ev.canignore:
+                    ev.canignore = True
+                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(ev.handle, APIRejectedException("public API is not processed")))
         except QuitException:
             c = ModuleAPICall.createMatcher()
             while True:
-                yield (c,)
-                if not self.event.canignore:
-                    self.event.canignore = True
-                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(self.event.handle, QuitException()))
+                ev = await c
+                if not ev.canignore:
+                    ev.canignore = True
+                    self.scheduler.emergesend(ModuleAPIHandler.createExceptionReply(ev.handle, QuitException()))
     def _removeDepend(self, module, depend):
         depend._instance.dependedBy.remove(module)
         if not depend._instance.dependedBy and depend._instance.service:
             # Automatically unload a service which is not used
             self.subroutine(self.unloadmodule(depend), False)
-    def loadmodule(self, module):
+    async def loadmodule(self, module):
         '''
-        Load a module class. Need delegate to call from other containers.
+        Load a module class
         '''
         self._logger.debug('Try to load module %r', module)
         if hasattr(module, '_instance'):
@@ -503,7 +510,7 @@ class ModuleLoader(RoutineContainer):
             if module._instance.state == ModuleLoadStateChanged.UNLOADING or module._instance.state == ModuleLoadStateChanged.UNLOADED:
                 # Wait for unload
                 um = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.UNLOADED)
-                yield (um,)
+                await um
             elif module._instance.state == ModuleLoadStateChanged.SUCCEEDED:
                 pass
             elif module._instance.state == ModuleLoadStateChanged.FAILED:
@@ -512,8 +519,8 @@ class ModuleLoader(RoutineContainer):
                 # Wait for succeeded or failed
                 sm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.SUCCEEDED)
                 fm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.FAILED)
-                yield (sm, fm)
-                if self.matcher is sm:
+                _, m = await M_(sm, fm)
+                if m is sm:
                     pass
                 else:
                     raise ModuleLoadException('Module load failed for %r' % (module,))
@@ -539,47 +546,39 @@ class ModuleLoader(RoutineContainer):
                     self.subroutine(self.loadmodule(d), False)
                 sms = [ModuleLoadStateChanged.createMatcher(d, ModuleLoadStateChanged.SUCCEEDED) for d in preloads]
                 fms = [ModuleLoadStateChanged.createMatcher(d, ModuleLoadStateChanged.FAILED) for d in preloads]
-                ms = sms + fms
-                while sms:
-                    yield ms
-                    if self.matcher in fms:
-                        raise ModuleLoadException('Cannot load module %r, it depends on %r, which is in failed state.' % (module, self.event.module))
-                    else:
-                        sms.remove(self.matcher)
-                        ms.remove(self.matcher)
+                def _callback(event, matcher):
+                    raise ModuleLoadException('Cannot load module %r, it depends on %r, which is in failed state.' % (module, event.module))
+                await self.with_callback(self.wait_for_all(*sms), _callback, *fms)
             except:
                 for d in module.depends:
                     if hasattr(d, '_instance') and module in d._instance.dependedBy:
                         self._removeDepend(module, d)
                 self._logger.warning('Loading module %r stopped', module, exc_info=True)
                 # Not loaded, send a message to notify that parents can not 
-                def _msg():
-                    for m in self.waitForSend(ModuleLoadStateChanged(module, ModuleLoadStateChanged.UNLOADED, inst)):
-                        yield m
+                async def _msg():
+                    await self.wait_for_send(ModuleLoadStateChanged(module, ModuleLoadStateChanged.UNLOADED, inst))
                 self.subroutine(_msg(), False)
                 del module._instance
                 raise
             for d in preloads:
                 d._instance.dependedBy.add(module)
             self.activeModules[inst.getServiceName()] = module
-            for m in module._instance.changestate(ModuleLoadStateChanged.LOADING, self):
-                yield m
-            for m in module._instance.load(self):
-                yield m
+            await module._instance.changestate(ModuleLoadStateChanged.LOADING, self)
+            await module._instance.load(self)
             if module._instance.state == ModuleLoadStateChanged.LOADED or module._instance.state == ModuleLoadStateChanged.LOADING:
                 sm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.SUCCEEDED)
                 fm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.FAILED)
-                yield (sm, fm)
-                if self.matcher is sm:
+                _, m = await M_(sm, fm)
+                if m is sm:
                     pass
                 else:
                     raise ModuleLoadException('Module load failed for %r' % (module,))
             self._logger.info('Loading module %r completed, module state is %r', module, module._instance.state)
             if module._instance.state == ModuleLoadStateChanged.FAILED:
                 raise ModuleLoadException('Module load failed for %r' % (module,))
-    def unloadmodule(self, module, ignoreDependencies = False):
+    async def unloadmodule(self, module, ignoreDependencies = False):
         '''
-        Unload a module class. Need delegate to call from other containers.
+        Unload a module class
         '''
         self._logger.debug('Try to unload module %r', module)
         if hasattr(module, '_instance'):
@@ -590,34 +589,30 @@ class ModuleLoader(RoutineContainer):
                 # Wait for succeeded or failed
                 sm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.SUCCEEDED)
                 fm = ModuleLoadStateChanged.createMatcher(module._instance.target, ModuleLoadStateChanged.FAILED)
-                yield (sm, fm)
+                await M_(sm, fm)
             elif inst.state == ModuleLoadStateChanged.UNLOADING or inst.state == ModuleLoadStateChanged.UNLOADED:
                 um = ModuleLoadStateChanged.createMatcher(module, ModuleLoadStateChanged.UNLOADED)
-                yield (um,)
+                await um
         if hasattr(module, '_instance') and (module._instance.state == ModuleLoadStateChanged.SUCCEEDED or
                                              module._instance.state == ModuleLoadStateChanged.FAILED):
             self._logger.info('Unloading module %r', module)
             inst = module._instance
             # Change state to unloading to prevent more dependencies
-            for m in inst.changestate(ModuleLoadStateChanged.UNLOADING, self):
-                yield m
+            await inst.changestate(ModuleLoadStateChanged.UNLOADING, self)
             if not ignoreDependencies:
                 deps = [d for d in inst.dependedBy if hasattr(d, '_instance') and d._instance.state != ModuleLoadStateChanged.UNLOADED]
                 ums = [ModuleLoadStateChanged.createMatcher(d, ModuleLoadStateChanged.UNLOADED) for d in deps]
                 for d in deps:
                     self.subroutine(self.unloadmodule(d), False)
-                while ums:
-                    yield ums
-                    ums.remove(self.matcher)
-            for m in inst.unload(self):
-                yield m
+                await self.wait_for_all(*ums)
+            await inst.unload(self)
             del self.activeModules[inst.getServiceName()]
             self._logger.info('Module %r is unloaded', module)
             if not ignoreDependencies:
                 for d in module.depends:
                     if hasattr(d, '_instance') and module in d._instance.dependedBy:
                         self._removeDepend(module, d)
-    def loadByPath(self, path):
+    async def load_by_path(self, path):
         """
         Load a module by full path. If there are dependencies, they are also loaded.
         """
@@ -629,9 +624,11 @@ class ModuleLoader(RoutineContainer):
             raise ModuleLoadException('Cannot load module ' + repr(path) + ': ' + str(exc))
         if module is None:
             raise ModuleLoadException('Cannot find module: ' + repr(path))
-        for m in self.loadmodule(module):
-            yield m
-    def unloadByPath(self, path):
+        return await self.loadmodule(module)
+    
+    loadByPath = load_by_path
+    
+    async def unload_by_path(self, path):
         """
         Unload a module by full path. Dependencies are automatically unloaded if they are marked to be
         services.
@@ -639,9 +636,11 @@ class ModuleLoader(RoutineContainer):
         p, module = findModule(path, False)
         if module is None:
             raise ModuleLoadException('Cannot find module: ' + repr(path))
-        for m in self.unloadmodule(module):
-            yield m
-    def reloadModules(self, pathlist):
+        return await self.unloadmodule(module)
+    
+    unloadByPath = unload_by_path
+    
+    async def reload_modules(self, pathlist):
         """
         Reload modules with a full path in the pathlist
         """
@@ -656,9 +655,7 @@ class ModuleLoader(RoutineContainer):
         for m in loadedModules:
             # Only unload the module itself, not its dependencies, since we will restart the module soon enough
             self.subroutine(self.unloadmodule(m, True), False)
-        while ums:
-            yield tuple(ums)
-            ums.remove(self.matcher)
+        await self.wait_for_all(*ums)
         # Group modules by package
         grouped = {}
         for path in pathlist:
@@ -725,7 +722,10 @@ class ModuleLoader(RoutineContainer):
             self.subroutine(self.loadmodule(m))
         if failures:
             raise ModuleLoadException('Following errors occurred during reloading, check log for more details:\n' + '\n'.join(failures))
-    def getModuleByName(self, targetname):
+    
+    reloadModules = reload_modules
+    
+    def get_module_by_name(self, targetname):
         """
         Return the module instance for a target name.
         """
@@ -736,10 +736,22 @@ class ModuleLoader(RoutineContainer):
         else:
             target = self.activeModules[targetname]
         return target
+    
+    getModuleByName = get_module_by_name
 
-def callAPI(container, targetname, name, params = {}, timeout = 120.0):
+
+async def send_api(container, targetname, name, params = {}):
     """
-    Call module API `targetname/name` with parameters. The return value is stored at `container.retvalue`.
+    Send API and discard the result
+    """
+    handle = object()
+    apiEvent = ModuleAPICall(handle, targetname, name, params = params)
+    await container.wait_for_send(apiEvent)    
+
+
+async def call_api(container, targetname, name, params = {}, timeout = 120.0):
+    """
+    Call module API `targetname/name` with parameters.
     
     :param targetname: module targetname. Usually the lower-cased name of the module class, or 'public' for
                        public APIs.
@@ -749,50 +761,58 @@ def callAPI(container, targetname, name, params = {}, timeout = 120.0):
     :param params: module API parameters, should be a dictionary of `{parameter: value}`
     
     :param timeout: raise an exception if the API call is not returned for a long time
+    
+    :return: API return value
     """
     handle = object()
     apiEvent = ModuleAPICall(handle, targetname, name, params = params)
-    for m in container.waitForSend(apiEvent):
-        yield m
+    await container.wait_for_send(apiEvent)
     replyMatcher = ModuleAPIReply.createMatcher(handle)
-    with closing(container.waitWithTimeout(timeout, replyMatcher)) as g:
-        for m in g:
-            yield m
-    if container.timeout:
+    timeout_, ev, m = await container.wait_with_timeout(timeout, replyMatcher)
+    if timeout_:
         # Ignore the Event
         apiEvent.canignore = True
         container.scheduler.ignore(ModuleAPICall.createMatcher(handle))
         raise ModuleAPICallTimeoutException('API call timeout')
     else:
-        container.retvalue = getAPIResult(container.event)
+        return get_api_result(ev)
 
-def batchCallAPI(container, apis, timeout = 120.0):
+callAPI = call_api
+
+async def batch_call_api(container, apis, timeout = 120.0):
+    """
+    DEPRECATED - use execute_all instead
+    """
     apiHandles = [(object(), api) for api in apis]
     apiEvents = [ModuleAPICall(handle, targetname, name, params = params)
                  for handle, (targetname, name, params) in apiHandles]
-    apiMatchers = [ModuleAPIReply.createMatcher(handle) for handle, _ in apiHandles]
-    def process():
+    apiMatchers = tuple(ModuleAPIReply.createMatcher(handle) for handle, _ in apiHandles)
+    async def process():
         for e in apiEvents:
-            for m in container.waitForSend(e):
-                yield m
+            await container.wait_for_send(e)
     container.subroutine(process(), False)
     eventdict = {}
-    def process2():
-        while apiMatchers:
-            yield tuple(apiMatchers)
-            apiMatchers.remove(container.matcher)
-            eventdict[container.event.handle] = container.event
-    with closing(container.executeWithTimeout(timeout, process2())) as g:
-        for m in g:
-            yield m
+    async def process2():
+        ms = len(apiMatchers)
+        matchers = Diff_(apiMatchers)
+        while ms:
+            ev, m = await matchers
+            matchers = Diff_(matchers, remove=(m,))
+            eventdict[ev.handle] = ev
+    await container.execute_with_timeout(timeout, process2())
     for e in apiEvents:
         if e.handle not in eventdict:
             e.canignore = True
             container.scheduler.ignore(ModuleAPICall.createMatcher(e.handle))
-    container.retvalue = [eventdict.get(handle, None) for handle, _ in apiHandles]
+    return [eventdict.get(handle, None) for handle, _ in apiHandles]
 
 
-def getAPIResult(event):
+batchCallAPI = batch_call_api 
+
+
+def get_api_result(event):
     if hasattr(event, 'exception'):
         raise event.exception
     return event.result
+
+getAPIResult = get_api_result

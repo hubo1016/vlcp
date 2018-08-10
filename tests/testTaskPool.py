@@ -28,56 +28,54 @@ class Test(unittest.TestCase):
 
     def testTask(self):
         result = []
-        def routine():
+        async def routine():
             def t():
                 return 1
-            for m in self.taskpool.runTask(self.container, t):
-                yield m
-            result.append(self.container.retvalue)
+            result.append(await self.taskpool.run_task(self.container, t))
         self.container.subroutine(routine())
         self.server.serve()
         self.assertEqual(result, [1])
     def testGenTask(self):
         result = []
-        def routine():
+        result2 = []
+        async def routine():
             def t():
                 for i in range(0,10):
                     yield (TaskTestEvent(result = i, eof = False),)
                 yield (TaskTestEvent(eof = True),)
-            for m in self.taskpool.runGenTask(self.container, t):
-                yield m
-        def routine2():
+                return 1
+            result2.append(await self.taskpool.run_gen_task(self.container, t))
+        async def routine2():
             tte = TaskTestEvent.createMatcher()
             while True:
-                yield (tte,)
-                if self.container.event.eof:
+                ev = await tte
+                if ev.eof:
                     break
                 else:
-                    result.append(self.container.event.result)
+                    result.append(ev.result)
         self.container.subroutine(routine())
         self.container.subroutine(routine2())
         self.server.serve()
         self.assertEqual(result, [0,1,2,3,4,5,6,7,8,9])
+        self.assertEqual(result2, [1])
     def testAsyncTask(self):
         result = []
         result2 = []
-        def routine():
+        async def routine():
             def t(sender):
                 for i in range(0,10):
                     sender((TaskTestEvent(result = i, eof = False),))
                 sender((TaskTestEvent(eof = True),))
                 return 1
-            for m in self.taskpool.runAsyncTask(self.container, t):
-                yield m
-            result2.append(self.container.retvalue)
-        def routine2():
+            result2.append(await self.taskpool.run_async_task(self.container, t))
+        async def routine2():
             tte = TaskTestEvent.createMatcher()
             while True:
-                yield (tte,)
-                if self.container.event.eof:
+                ev = await tte
+                if ev.eof:
                     break
                 else:
-                    result.append(self.container.event.result)
+                    result.append(ev.result)
         self.container.subroutine(routine())
         self.container.subroutine(routine2())
         self.server.serve()

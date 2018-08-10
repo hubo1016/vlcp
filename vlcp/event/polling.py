@@ -8,7 +8,6 @@ import select
 from vlcp.event import PollEvent, SystemControlLowPriorityEvent
 import errno
 import time
-import sys
 from vlcp.event.core import InterruptedBySignalException
 
 if hasattr(select, 'epoll'):
@@ -119,8 +118,8 @@ class SelectPolling(object):
         '''
         Constructor
         '''
-        self.readfiles = set()
-        self.writefiles = set()
+        self.readfiles = {}
+        self.writefiles = {}
         self.errorfiles = set()
         self.daemons = set()
         self.socketCounter = 0
@@ -178,7 +177,8 @@ class SelectPolling(object):
             if wait is None:
                 events = select.select(self.readfiles, self.writefiles, self.errorfiles)
             elif not self.readfiles and not self.writefiles and not self.errorfiles:
-                time.sleep(wait)
+                if wait > 0:
+                    time.sleep(wait)
             else:
                 events = select.select(self.readfiles, self.writefiles, self.errorfiles, wait)
             self.shouldraise = False
@@ -203,11 +203,17 @@ class SelectPolling(object):
     def onmatch(self, fileno, category, add):
         if add:
             if category is None or category == PollEvent.READ_READY:
-                self.readfiles.add(fileno)
+                self.readfiles[fileno] = self.readfiles.get(fileno, 0) + 1
             if category is None or category == PollEvent.WRITE_READY:
-                self.writefiles.add(fileno)
+                self.writefiles[fileno] = self.writefiles.get(fileno, 0) + 1
         else:
             if category is None or category == PollEvent.READ_READY:
-                self.readfiles.discard(fileno)
+                if fileno in self.readfiles:
+                    self.readfiles[fileno] -= 1
+                    if self.readfiles[fileno] <= 0:
+                        del self.readfiles[fileno]
             if category is None or category == PollEvent.WRITE_READY:
-                self.writefiles.discard(fileno)            
+                if fileno in self.writefiles:
+                    self.writefiles[fileno] -= 1
+                    if self.writefiles[fileno] <= 0:
+                        del self.writefiles[fileno]

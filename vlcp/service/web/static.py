@@ -300,13 +300,12 @@ class Static(Module):
                                            memorycachelimit, contenttype, rewriteonly, extraheaders,
                                            errorpage, contentdisposition, mimestrict, xaccelredirect,
                                            xsendfile, xlighttpdsendfile, xaccelredirect_root):
-        def handler(env):
+        async def handler(env):
             currenttime = time()
             if rewriteonly:
                 if not env.rewritefrom:
-                    for m in env.error(404):
-                        yield m
-                    env.exit()
+                    await env.error(404)
+                    return
             if not errorpage and checkreferer:
                 try:
                     referer = env.headerdict.get(b'referer')
@@ -316,19 +315,17 @@ class Static(Module):
                         referer_host = urlsplit(referer).netloc
                     if not ((refererallowlocal and referer_host == env.host) or
                         referer_host in refererallows):
-                        for m in env.error(403, showerror = False):
-                            yield m
-                        env.exit()
+                        await env.error(403, showerror = False)
+                        return
                 except Exception:
-                    for m in env.error(403, showerror = False):
-                        yield m
-                    env.exit()
+                    await env.error(403, showerror = False)
+                    return
             localpath = env.path_match.expand(expand)
             realpath = env.getrealpath(relativeroot, localpath)
             filename = os.path.basename(realpath)
             if xsendfile or xlighttpdsendfile or xaccelredirect:
                 # Apache send a local file
-                env.startResponse(200)
+                env.start_response(200)
                 if contenttype:
                     env.header('Content-Type', contenttype)
                 else:
@@ -350,15 +347,13 @@ class Static(Module):
                     env.header(b'X-Accel-Redirect', urljoin(xaccelredirect_root, self.dispatcher.expand(env.path_match, expand)))
                 if xlighttpdsendfile:
                     env.header(b'X-LIGHTTPD-send-file', realpath)
-                env.exit()
+                return
                 
             use_gzip = False
             if gzip:
                 if realpath.endswith('.gz'):
                     # GZIP files are preserved for gzip encoding
-                    for m in env.error(403, showerror = False):
-                        yield m
-                    env.exit()
+                    await env.error(403, showerror = False)
                 encodings = _parseacceptencodings(env)
                 if b'gzip' in encodings or b'x-gzip' in encodings:
                     use_gzip = True
@@ -371,28 +366,28 @@ class Static(Module):
                     # Cache is valid
                     if use_etag:
                         if _checketag(env, cv[3]):
-                            env.startResponse(304, cv[1])
-                            env.exit()
+                            env.start_response(304, cv[1])
+                            return
                     size = len(cv[0])
                     rng = None
                     if not errorpage and allowrange:
                         rng = _checkrange(env, cv[3], size)
                     if rng is not None:
-                        env.startResponse(206, cv[1])
+                        env.start_response(206, cv[1])
                         _generaterange(env, rng, size)
                         env.output(MemoryStream(cv[0][rng[0]:rng[1]]), use_gzip)
                     else:
                         if errorpage:
                             m = statusname.match(filename)
                             if m:
-                                env.startResponse(int(m.group()), cv[1])
+                                env.start_response(int(m.group()), cv[1])
                             else:
                                 # Show 200-OK is better than 500
-                                env.startResponse(200, cv[1])
+                                env.start_response(200, cv[1])
                         else:
-                            env.startResponse(200, cv[1])
+                            env.start_response(200, cv[1])
                         env.output(MemoryStream(cv[0]), use_gzip)
-                    env.exit()
+                    return
             # Test file
             if use_gzip:
                 try:
@@ -407,9 +402,8 @@ class Static(Module):
                             raise ValueError('Not regular file')
                         use_gzip = False
                     except Exception:
-                        for m in env.error(404, showerror = False):
-                            yield m
-                        env.exit()
+                        await env.error(404, showerror = False)
+                        return
             else:
                 try:
                     stat_info = os.stat(realpath)
@@ -417,9 +411,8 @@ class Static(Module):
                         raise ValueError('Not regular file')
                     use_gzip = False
                 except Exception:
-                    for m in env.error(404, showerror = False):
-                        yield m
-                    env.exit()
+                    await env.error(404, showerror = False)
+                    return
             newetag = _createetag(stat_info)
             # Second memory cache test
             if memorycache:
@@ -429,29 +422,29 @@ class Static(Module):
                     # Cache is valid
                     if use_etag:
                         if _checketag(env, cv[3]):
-                            env.startResponse(304, cv[1])
-                            env.exit()
+                            env.start_response(304, cv[1])
+                            return
                     self._cache[(realpath, use_gzip)] = (cv[0], cv[1], currenttime, newetag)
                     size = len(cv[0])
                     rng = None
                     if not errorpage and allowrange:
                         rng = _checkrange(env, cv[3], size)
                     if rng is not None:
-                        env.startResponse(206, cv[1])
+                        env.start_response(206, cv[1])
                         _generaterange(env, rng, size)
                         env.output(MemoryStream(cv[0][rng[0]:rng[1]]), use_gzip)
                     else:
                         if errorpage:
                             m = statusname.match(filename)
                             if m:
-                                env.startResponse(int(m.group()), cv[1])
+                                env.start_response(int(m.group()), cv[1])
                             else:
                                 # Show 200-OK is better than 500
-                                env.startResponse(200, cv[1])
+                                env.start_response(200, cv[1])
                         else:
-                            env.startResponse(200, cv[1])
+                            env.start_response(200, cv[1])
                         env.output(MemoryStream(cv[0]), use_gzip)
-                    env.exit()
+                    return
                 elif cv:
                     # Cache is invalid, remove it to prevent another hit
                     del self._cache[(realpath, use_gzip)]
@@ -484,8 +477,8 @@ class Static(Module):
                 env.sent_headers.extend(extraheaders)
             if use_etag:
                 if _checketag(env, newetag):
-                    env.startResponse(304, clearheaders = False)
-                    env.exit()
+                    env.start_response(304, clearheaders = False)
+                    return
             if memorycache and stat_info.st_size <= memorycachelimit:
                 # Cache
                 cache = True
@@ -501,26 +494,26 @@ class Static(Module):
                     if not errorpage and allowrange:
                         rng = _checkrange(env, newetag, size)
                     if rng is not None:
-                        env.startResponse(206, clearheaders = False)
+                        env.start_response(206, clearheaders = False)
                         _generaterange(env, rng, size)
                         env.output(MemoryStream(data[rng[0]:rng[1]]), use_gzip)
                     else:
                         if errorpage:
                             m = statusname.match(filename)
                             if m:
-                                env.startResponse(int(m.group()), clearheaders = False)
+                                env.start_response(int(m.group()), clearheaders = False)
                             else:
                                 # Show 200-OK is better than 500
-                                env.startResponse(200, clearheaders = False)
+                                env.start_response(200, clearheaders = False)
                         else:
-                            env.startResponse(200, clearheaders = False)
+                            env.start_response(200, clearheaders = False)
                         env.output(MemoryStream(data), use_gzip)
-                    env.exit()
+                    return
             size = stat_info.st_size
             if not errorpage and allowrange:
                 rng = _checkrange(env, newetag, size)
             if rng is not None:
-                env.startResponse(206, clearheaders = False)
+                env.start_response(206, clearheaders = False)
                 _generaterange(env, rng, size)
                 fobj = open(realpath, 'rb')
                 try:
@@ -534,12 +527,12 @@ class Static(Module):
                 if errorpage:
                     m = statusname.match(filename)
                     if m:
-                        env.startResponse(int(m.group()), clearheaders = False)
+                        env.start_response(int(m.group()), clearheaders = False)
                     else:
                         # Show 200-OK is better than 500
-                        env.startResponse(200, clearheaders = False)
+                        env.start_response(200, clearheaders = False)
                 else:
-                    env.startResponse(200, clearheaders = False)
+                    env.start_response(200, clearheaders = False)
                 env.output(FileStream(open(realpath, 'rb'), isunicode = False), use_gzip)
         return handler
     _configurations = ['checkreferer', 'refererallowlocal', 'refererallows',

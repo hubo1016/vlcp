@@ -6,7 +6,7 @@ Created on 2015/8/18
 
 from vlcp.config import defaultconfig
 from vlcp.protocol import Protocol
-from vlcp.event import Event, withIndices, Stream, ConnectionControlEvent, ConnectionWriteEvent, CBQueue, PollEvent
+from vlcp.event import Event, withIndices, Stream, ConnectionControlEvent, ConnectionWriteEvent
 from vlcp.event.core import syscall_clearremovequeue, PollEvent
 from collections import deque
 import logging
@@ -14,7 +14,7 @@ import re
 import time
 from vlcp.event.stream import MemoryStream, StreamDataEvent
 import zlib
-from contextlib import closing
+from vlcp.event.event import M_
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class HttpConnectionStateEvent(Event):
@@ -68,10 +68,6 @@ class HttpTrailersReceived(Event):
     """
     pass
 
-try:
-    _long = long
-except Exception:
-    _long = int
 
 class HttpProtocolException(Exception):
     """
@@ -155,21 +151,34 @@ standard_status = {
     510: 'Not Extended',
     511: 'Network Authentication Required'
 }
-weekdayname = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+standard_status_cache = {k: (str(k) + " " + v).encode('ascii') for k, v in standard_status.items()}
+
+weekdayname = [b'Mon', b'Tue', b'Wed', b'Thu', b'Fri', b'Sat', b'Sun']
 monthname = [None,
-             'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+             b'Jan', b'Feb', b'Mar', b'Apr', b'May', b'Jun',
+             b'Jul', b'Aug', b'Sep', b'Oct', b'Nov', b'Dec']
 # From BaseHTTPServer library
+
+_last_date_time_string = (None, None)
+
 def date_time_string(timestamp=None):
     """Return the current date and time formatted for a message header."""
+    global _last_date_time_string
+    _last_timestamp, _last_str = _last_date_time_string
     if timestamp is None:
         timestamp = time.time()
-    year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
-    s = "%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
-            weekdayname[wd],
-            day, monthname[month], year,
-            hh, mm, ss)
-    return s
+    _curr_timestamp = int(timestamp)
+    if _curr_timestamp == _last_timestamp:
+        return _last_str
+    else:
+        year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
+        s = b"%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
+                weekdayname[wd],
+                day, monthname[month], year,
+                hh, mm, ss)
+        _last_date_time_string = (_curr_timestamp, s)
+        return s
 
 # From cgi library
 def escape_b(s, quote=True):
@@ -203,12 +212,14 @@ def displayHeader(headername):
     return b'-'.join(p.capitalize() for p in headername.split(b'-'))
 
 def _createstatus(status):
-    if isinstance(status, int) or isinstance(status, _long):
-        status = str(status) + ' ' + standard_status.get(status, 'User-defined')
-    if not isinstance(status, bytes):
+    if isinstance(status, int):
+        if status in standard_status_cache:
+            return standard_status_cache[status]
+        else:
+            status = (str(status) + ' ' + standard_status.get(status, 'User-defined')).encode('ascii')
+    elif not isinstance(status, bytes):
         status = status.encode('ascii')
     return status
-
 
 @defaultconfig
 class Http(Protocol):
@@ -282,6 +293,7 @@ class Http(Protocol):
         self.connectionpersource = {}
         if defaultversion is not None:
             self.defaultversion = defaultversion
+
     def createmessagequeue(self, scheduler):
         if 'httprequest' not in scheduler.queue:
             #scheduler.queue.addSubQueue(self.messagepriority, HttpRequestEvent.createMatcher(), 'httprequest', None, None, CBQueue.AutoClassQueue.initHelper('connection', 100, subqueuelimit = self.pipelinelimit * 2 if self.pipelinelimit is not None else None))
@@ -293,17 +305,17 @@ class Http(Protocol):
             #scheduler.queue.addSubQueue(self.messagepriority, HttpTrailersReceived.createMatcher(), 'httptrailer', None, None, CBQueue.AutoClassQueue.initHelper('stream', 100, subqueuelimit = None))
             scheduler.queue.addSubQueue(self.messagepriority, HttpTrailersReceived.createMatcher(), 'httptrailer', None, None)
             scheduler.queue.addSubQueue(self.writepriority, HttpStateChange.createMatcher(), 'httpstatechange')
-    def init(self, connection):
-        for m in Protocol.init(self, connection):
-            yield m
+
+    async def init(self, connection):
+        await Protocol.init(self, connection)
         self.createmessagequeue(connection.scheduler)
-        for m in self.reconnect_init(connection):
-            yield m
-    def _request_sender(self, connection):
+        await self.reconnect_init(connection)
+
+    async def _request_sender(self, connection):
         try:
             connmark = connection.connmark
-            nextOutput = HttpStateChange.createMatcher(connection, 
-                                                      connmark, 
+            nextOutput = HttpStateChange.createMatcher(connection,
+                                                      connmark,
                                                       HttpStateChange.NEXTOUTPUT)
             def requesterror(msg, method, path):
                 self._logger.error('Illegal HTTP request: %s, connection = %r, request = %r', msg, connection, method + b' ' + path + b' HTTP/' + connection.http_localversion.encode('ascii'))
@@ -311,7 +323,7 @@ class Http(Protocol):
             writeclose = False
             while not writeclose:
                 if not connection.http_requestbuffer:
-                    yield (nextOutput,)
+                    await nextOutput
                 else:
                     # (host, path, method, headers, stream)
                     host, path, method, headers, output, keepalive = connection.http_requestbuffer.popleft()
@@ -344,11 +356,10 @@ class Http(Protocol):
                                     transfer = b'chunked'
                         # Output headline and headers
                         buffer = []
-                        def write():
-                            for m in connection.write(ConnectionWriteEvent(connection,
+                        async def write():
+                            await connection.write(ConnectionWriteEvent(connection,
                                                                            connmark,
-                                                                           data = b''.join(buffer))):
-                                yield m
+                                                                           data = b''.join(buffer)))
                             del buffer[:]
                         buffer.append(method + b' ' + path + b' HTTP/' +
                                       connection.http_localversion.encode('ascii') + b'\r\n')
@@ -361,37 +372,33 @@ class Http(Protocol):
                         if expect:
                             buffer.append(b'Expect: 100-continue\r\n')
                         buffer.append(b'\r\n')
-                        for m in write():
-                            yield m
+                        await write()
                         if expect:
-                            def waitForContinue():
+                            async def waitForContinue():
                                 expect100 = self.responsematcher(connection, xid)
                                 while True:
-                                    yield (expect100,)
-                                    if connection.event.isfinal:
+                                    ev = await expect100
+                                    if ev.isfinal:
                                         break
-                                    elif connection.event.statuscode == 100:
+                                    elif ev.statuscode == 100:
                                         break
-                            with closing(connection.executeWithTimeout(self.expecttimeout, waitForContinue())) as g:
-                                for m in g:
-                                    yield m
-                            if not connection.timeout:
+                                return ev
+                            timeout, ev = await connection.execute_with_timeout(self.expecttimeout, waitForContinue())
+                            if not timeout:
                                 # There is a response
-                                if connection.event.isfinal:
+                                if ev.isfinal:
                                     # We have already received a response, do not send the body
-                                    for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                       connmark,
-                                                                                       data = b'',
-                                                                                       EOF = True)):
-                                        yield m
+                                    await connection.write(ConnectionWriteEvent(connection,
+                                                                                   connmark,
+                                                                                   data = b'',
+                                                                                   EOF = True))
                                     writeclose = True
                                     break
                         # Send data
                         if output is not None:
                             while True:
                                 try:
-                                    for m in output.prepareRead(connection):
-                                        yield m
+                                    await output.prepareRead(connection)
                                     data = output.readonce()
                                 except EOFError:
                                     if transfer_chunked:
@@ -403,22 +410,19 @@ class Http(Protocol):
                                                 buffer.append(k + b': ' + v + b'\r\n')
                                         buffer.append(b'\r\n')
                                         if buffer:
-                                            for m in write():
-                                                yield m
+                                            await write()
                                         if not keepalive:
-                                            for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                           connmark,
-                                                                                           data = b'',
-                                                                                           EOF = True)):
-                                                yield m
+                                            await connection.write(ConnectionWriteEvent(connection,
+                                                                                       connmark,
+                                                                                       data = b'',
+                                                                                       EOF = True))
                                             writeclose = True
                                             break 
                                     elif content_length is None:
-                                        for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                           connmark,
-                                                                                           data = b'',
-                                                                                           EOF = True)):
-                                            yield m
+                                        await connection.write(ConnectionWriteEvent(connection,
+                                                                                   connmark,
+                                                                                   data = b'',
+                                                                                   EOF = True))
                                         writeclose = True
                                         break
                                     elif content_length > 0:
@@ -430,17 +434,15 @@ class Http(Protocol):
                                             buffer.append(hex(len(data))[2:].encode('ascii') + b'\r\n')
                                             buffer.append(data)
                                             buffer.append(b'\r\n')
-                                            for m in write():
-                                                yield m
+                                            await write()
                                     else:
                                         if content_length is not None:
                                             if len(data) > content_length:
                                                 data = data[0:content_length]
                                                 
-                                        for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                       connmark,
-                                                                                       data = data)):
-                                            yield m
+                                        await connection.write(ConnectionWriteEvent(connection,
+                                                                                   connmark,
+                                                                                   data = data))
                                         if content_length is not None:
                                             content_length -= len(data)
                                             if content_length <= 0:
@@ -449,12 +451,12 @@ class Http(Protocol):
                         if output is not None:
                             output.close(connection.scheduler)
         except:
-            def _cleanup():
-                for m in connection.reset(True, connmark):
-                    yield m
+            async def _cleanup():
+                await connection.reset(True, connmark)
             connection.subroutine(_cleanup(), False)
-            raise            
-    def _response_sender(self, connection):
+            raise
+
+    async def _response_sender(self, connection):
         try:
             connmark = connection.connmark
             nextInput = HttpStateChange.createMatcher(connection, 
@@ -467,32 +469,24 @@ class Http(Protocol):
             while True:
                 if writeclose:
                     if connection.http_remoteversion >= '1.1':
-                        with closing(connection.waitWithTimeout(self.closetimeout)) as g:
-                            for m in g:
-                                yield m
-                    for m in connection.shutdown(False, connmark):
-                        yield m
+                        await connection.wait_with_timeout(self.closetimeout)
+                    await connection.shutdown(False, connmark)
                     break
                 elif connection.xid == connection.http_responsexid and connection.http_idle:
                     if connection.http_keepalive:
                         # Wait for new requests
-                        with closing(connection.waitWithTimeout(self.idletimeout, nextInput)) as g:
-                            for m in g:
-                                yield m
+                        timeout, _, _ = await connection.wait_with_timeout(self.idletimeout, nextInput)
                     else:
                         if connection.http_remoteversion >= '1.1':
-                            with closing(connection.waitWithTimeout(self.closetimeout)) as g:
-                                for m in g:
-                                    yield m
+                            timeout, _, _ = await connection.wait_with_timeout(self.closetimeout)
                         else:
-                            connection.timeout = True
-                    if connection.timeout:
-                        for m in connection.shutdown(False, connmark):
-                            yield m
+                            timeout = True
+                    if timeout:
+                        await connection.shutdown(False, connmark)
                         break
                 elif not connection.http_responsexid in connection.http_responsebuffer or\
                         not connection.http_responsebuffer[connection.http_responsexid]:
-                    yield (nextOutput,)
+                    await nextOutput
                 else:
                     resp = connection.http_responsebuffer[connection.http_responsexid].pop(0)
                     # find out how we should use the output stream
@@ -561,16 +555,14 @@ class Http(Protocol):
                             # More requests
                             while connection.http_requestbuffer and connection.xid - len(connection.http_requestbuffer) < connection.http_responsexid + self.pipelinelimit:
                                 r = connection.http_requestbuffer.popleft()
-                                for m in connection.waitForSend(r):
-                                    yield m
+                                await connection.wait_for_send(r)
                                 
                         # Output headline and headers
                         buffer = []
-                        def write():
-                            for m in connection.write(ConnectionWriteEvent(connection,
-                                                                           connmark,
-                                                                           data = b''.join(buffer))):
-                                yield m
+                        async def write():
+                            await connection.write(ConnectionWriteEvent(connection,
+                                                                       connmark,
+                                                                       data = b''.join(buffer)))
                             del buffer[:]
                         buffer.append(b'HTTP/' + connection.http_localversion.encode('ascii') + b' '
                                       + resp.status + b'\r\n')
@@ -579,14 +571,12 @@ class Http(Protocol):
                         for k,v in resp.headers:
                             buffer.append(k + b': ' + v + b'\r\n')
                         buffer.append(b'\r\n')
-                        for m in write():
-                            yield m
+                        await write()
                         # Send data
                         if output is not None:
                             while True:
                                 try:
-                                    for m in output.prepareRead(connection):
-                                        yield m
+                                    await output.prepareRead(connection)
                                     data = output.readonce()
                                 except EOFError:
                                     if transfer_chunked:
@@ -604,14 +594,12 @@ class Http(Protocol):
                                             for k,v in resp.trailers:
                                                 buffer.append(k + b': ' + v + b'\r\n')
                                         buffer.append(b'\r\n')
-                                        for m in write():
-                                            yield m
+                                        await write()
                                     elif content_length is None or content_length > 0:
-                                        for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                           connmark,
-                                                                                           data = b'',
-                                                                                           EOF = True)):
-                                            yield m
+                                        await connection.write(ConnectionWriteEvent(connection,
+                                                                                   connmark,
+                                                                                   data = b'',
+                                                                                   EOF = True))
                                         writeclose = True
                                         #if content_length is not None:
                                         #    raise
@@ -624,16 +612,14 @@ class Http(Protocol):
                                             buffer.append(hex(len(data))[2:].encode('ascii') + b'\r\n')
                                             buffer.append(data)
                                             buffer.append(b'\r\n')
-                                            for m in write():
-                                                yield m
+                                            await write()
                                     else:
                                         if content_length is not None:
                                             if len(data) > content_length:
                                                 data = data[0:content_length]
-                                        for m in connection.write(ConnectionWriteEvent(connection,
-                                                                                       connmark,
-                                                                                       data = data)):
-                                            yield m
+                                        await connection.write(ConnectionWriteEvent(connection,
+                                                                                   connmark,
+                                                                                   data = data))
                                         if content_length is not None:
                                             content_length -= len(data)
                                             if content_length <= 0:
@@ -642,12 +628,12 @@ class Http(Protocol):
                         if output is not None:
                             output.close(connection.scheduler)
         except:
-            def _cleanup():
-                for m in connection.reset(True, connmark):
-                    yield m
+            async def _cleanup():
+                await connection.reset(True, connmark)
             connection.subroutine(_cleanup(), False)
             raise
-    def reconnect_init(self, connection):
+
+    async def reconnect_init(self, connection):
         connection.xid = 0
         connection.http_responsexid = 0
         connection.http_parsestage = 'headline'
@@ -669,12 +655,11 @@ class Http(Protocol):
         state = HttpConnectionStateEvent(HttpConnectionStateEvent.SERVER_CONNECTED if self.server
                                          else HttpConnectionStateEvent.CLIENT_CONNECTED,
                                          connection, connection.connmark, self)
-        for m in connection.waitForSend(state):
-            yield m
-    def _clearresponse(self, connection):
+        await connection.wait_for_send(state)
+
+    async def _clearresponse(self, connection):
         if connection.http_currentstream is not None:
-            for m in connection.http_currentstream.error(connection, ignoreexception = True):
-                yield m
+            await connection.http_currentstream.error(connection, ignoreexception = True)
             connection.http_currentstream = None
         for i in range(connection.http_responsexid, connection.xid + 1):
             if i in connection.http_responsebuffer:
@@ -682,41 +667,38 @@ class Http(Protocol):
                     if r.outputstream is not None:
                         r.outputstream.close(connection.scheduler)
         connection.http_responsebuffer.clear()
-    def closed(self, connection):
+
+    async def closed(self, connection):
         connection.http_sender.close()
         connection.http_sender = None
-        for m in Protocol.closed(self, connection):
-            yield m
+        await Protocol.closed(self, connection)
         connection.scheduler.ignore(HttpRequestEvent.createMatcher(None, None, None, connection))
-        for m in connection.waitForSend(HttpConnectionStateEvent(HttpConnectionStateEvent.SERVER_CLOSE if self.server
-                                                                 else HttpConnectionStateEvent.CLIENT_CLOSE, connection, connection.connmark, self)):
-            yield m
-        for m in self._clearresponse(connection):
-            yield m
+        await connection.wait_for_send(HttpConnectionStateEvent(HttpConnectionStateEvent.SERVER_CLOSE if self.server
+                                                                 else HttpConnectionStateEvent.CLIENT_CLOSE, connection, connection.connmark, self))
+        await self._clearresponse(connection)
         connection.http_reqteinfo = None
         connection.http_requestbuffer = None
         connection.http_parsestage = 'end'
-    def error(self, connection):
+
+    async def error(self, connection):
         connection.http_sender.close()
-        for m in Protocol.error(self, connection):
-            yield m
+        await Protocol.error(self, connection)
         connection.scheduler.ignore(HttpRequestEvent.createMatcher(None, None, None, connection))
         if self.debugging:
             self._logger.debug('Http connection is reset on %r', connection)
-        for m in connection.waitForSend(HttpConnectionStateEvent(HttpConnectionStateEvent.SERVER_CLOSE if self.server
-                                                                 else HttpConnectionStateEvent.CLIENT_CLOSE, connection, connection.connmark, self)):
-            yield m
-        for m in self._clearresponse(connection):
-            yield m
+        await connection.wait_for_send(HttpConnectionStateEvent(HttpConnectionStateEvent.SERVER_CLOSE if self.server
+                                                                 else HttpConnectionStateEvent.CLIENT_CLOSE, connection, connection.connmark, self))
+        await self._clearresponse(connection)
         connection.http_reqteinfo = None
         connection.http_requestbuffer = None
+
     def _createResponseheaders(self, connection, xid, headers, status):
         defaultheaders = self.defaultresponseheaders
         if not connection.http_keepalive and xid == connection.xid - 1 and status[0] != b'1'[0]:
             newheaders = [(b'Connection', b'Close')]
         else:
             newheaders = [(b'Connection', b'Keep-Alive')]
-        newheaders.append((b'Date', date_time_string().encode('ascii')))
+        newheaders.append((b'Date', date_time_string(connection.scheduler.current_time)))
         existingHeaders = set(normalizeHeader(k) for k,_ in headers)
         existingHeaders.add(b'date')
         existingHeaders.add(b'connection')
@@ -726,23 +708,34 @@ class Http(Protocol):
         newheaders.extend((k,v) for k,v in headers if normalizeHeader(k) not in (b'connection', \
                           b'date', b'transfer-encoding'))
         return newheaders
+
     class _HttpResponse(object):
         def __init__(self, status, headers, outputstream, trailers = None):
             self.status = status
             self.headers = headers
             self.outputstream = outputstream
             self.trailers = trailers
-    def createResponse(self, connection, xid, status, headers, outputstream):
+    
+    def create_response(self, connection, xid, status, headers, outputstream):
         status = _createstatus(status)
         headers = self._createResponseheaders(connection, xid, headers, status)
         return self._HttpResponse(status, headers, outputstream)
-    def createErrorResponse(self, connection, xid, status):
+    
+    createResponse = create_response
+    
+    def create_error_response(self, connection, xid, status):
         status = _createstatus(status)
         content = b'<h1>' + escape_b(status) + b'</h1>'
         content_length = len(content)
-        return self.createResponse(connection, xid, status, [(b'Content-Length', str(content_length).encode('ascii'))], MemoryStream(content))
-    def createContinueResponse(self, connection, xid):
-        return self.createResponse(connection, xid, b'100 Continue', [], None)
+        return self.wait_for_send(connection, xid, status, [(b'Content-Length', str(content_length).encode('ascii'))], MemoryStream(content))
+    
+    createErrorResponse = create_error_response
+    
+    def create_continue_response(self, connection, xid):
+        return self.wait_for_send(connection, xid, b'100 Continue', [], None)
+    
+    createContinueResponse = create_continue_response
+    
     class _HttpContinueStream(Stream):
         '''
         Send a 100-continue before reading data
@@ -753,17 +746,16 @@ class Http(Protocol):
             self.http_protocol = protocol
             self.http_connection = connection
             self.http_xid = xid
-        def prepareRead(self, container):
+        async def prepareRead(self, container = None):
             if not self.http_continue:
                 self.http_continue = True
-                event = self.http_protocol.responseTo(self.http_connection, self.http_xid, 
-                                              self.http_protocol.createContinueResponse(self.http_connection, self.http_xid))
+                event = self.http_protocol.response_to(self.http_connection, self.http_xid, 
+                                              self.http_protocol.create_continue_response(self.http_connection, self.http_xid))
                 if event is not None:
-                    for m in container.waitForSend(event):
-                        yield m
-            for m in Stream.prepareRead(self, container):
-                yield m
-    def responseTo(self, connection, xid, response):
+                    await self.http_connection.wait_for_send(event)
+            await Stream.prepareRead(self, container)
+
+    def response_to(self, connection, xid, response):
         '''
         Return an event if notify is necessary
         '''
@@ -789,17 +781,23 @@ class Http(Protocol):
             if xid == connection.http_responsexid:
                 return HttpStateChange(connection, connection.connmark, HttpStateChange.NEXTOUTPUT)
         return None
-    def startResponse(self, connection, xid, status, headers, outputstream, disabledeflate = False):
+    
+    responseTo = response_to
+    
+    def start_response(self, connection, xid, status, headers, outputstream, disabledeflate = False):
         """
         Start to response to a request with the specified xid on the connection, with status code
         and headers. The output stream is used to output the response body.
         """
-        resp = self.createResponse(connection, xid, status, headers, outputstream)
+        resp = self.create_response(connection, xid, status, headers, outputstream)
         resp.disabledeflate = disabledeflate
-        event = self.responseTo(connection, xid, resp)
+        event = self.response_to(connection, xid, resp)
         if event is not None:
             connection.scheduler.emergesend(event)
         return resp
+    
+    startResponse = start_response
+    
     def _createrequestheaders(self, connection, host, method, headers, stream = None, keepalive = True):
         defaultheaders = self.defaultrequestheaders
         existingHeaders = set(normalizeHeader(k) for k,_ in headers)
@@ -839,7 +837,8 @@ class Http(Protocol):
                 newheaders.append((k, v))
         newheaders.extend((k,v) for k,v in headers if normalizeHeader(k) not in (b'connection', b'transfer-encoding', b'host', b'expect'))
         return newheaders
-    def sendRequest(self, connection, host, path = b'/', method = b'GET', headers = [], stream = None, keepalive = True):
+
+    def send_request(self, connection, host, path = b'/', method = b'GET', headers = [], stream = None, keepalive = True):
         '''
         If you do not provide a content-length header, the stream will be transfer-encoded with chunked, and it is not
         always acceptable by servers.
@@ -857,36 +856,46 @@ class Http(Protocol):
         if notify:
             connection.scheduler.emergesend(HttpStateChange(connection, connection.connmark, HttpStateChange.NEXTOUTPUT))
         return connection.xid + len(connection.http_requestbuffer) - 1
+    
+    sendRequest = send_request
+    
     def responsematcher(self, connection, xid, isfinal = None, iserror = None):
         """
         Create an event matcher to match the response
         """
         return HttpResponseEvent.createMatcher(connection, connection.connmark, xid, isfinal, iserror)
+
     def statematcher(self, connection, state = HttpConnectionStateEvent.CLIENT_CLOSE, currentconn = True):
         """
         Create an event matcher to match the connection state
         """
         return HttpConnectionStateEvent.createMatcher(state, connection, connection.connmark if currentconn else None)
-    def requestwithresponse(self, container, connection, host, path = b'/', method = b'GET', headers = [], stream = None, keepalive = True):
+
+    async def request_with_response(self, container, connection, host, path = b'/', method = b'GET', headers = [], stream = None, keepalive = True):
         """
         Send a HTTP request, and wait for the response. The last (usually wanted) response is stored in
-        `container.http_finalresponse`. There may be multiple responses (1xx) for this request, they are
-        stored in `container.http_responses`
+        `http_finalresponse`. There may be multiple responses (1xx) for this request, they are
+        stored in `http_responses`
+        
+        :return: (http_finalresponse, http_responses)
         """
-        xid = self.sendRequest(connection, host, path, method, headers, stream, keepalive)
+        xid = self.send_request(connection, host, path, method, headers, stream, keepalive)
         resp = self.responsematcher(connection, xid)
         stat = self.statematcher(connection)
         resps = []
         while True:
-            yield (resp, stat)
-            if container.matcher is stat:
+            ev, m = await M_(resp, stat)
+            if m is stat:
                 raise HttpConnectionClosedException('Connection closed before response received')
-            r = container.event
+            r = ev
             resps.append(r)
             if r.isfinal:
-                container.http_finalresponse = r
+                http_finalresponse = r
                 break
-        container.http_responses = resps
+        return (http_finalresponse, resps)
+    
+    requestwithresponse = request_with_response
+    
     def parse(self, connection, data, laststart):
         events = []
         if hasattr(data, 'tobytes'):
@@ -940,7 +949,7 @@ class Http(Protocol):
                 events.append(ConnectionControlEvent(connection, ConnectionControlEvent.RESET, True, connection.connmark))
             else:
                 connection.http_keepalive = False
-                event = self.responseTo(connection, connection.xid,
+                event = self.response_to(connection, connection.xid,
                             self.createErrorResponse(connection, connection.xid, code))
                 if connection.xid == connection.http_responsexid:
                     events.append(HttpStateChange(connection, connection.connmark, HttpStateChange.NEXTINPUT))
@@ -1480,43 +1489,42 @@ class Http(Protocol):
                 httpfail()
         connection.http_parsestage = stage
         return (events, end - start)
-    def beforelisten(self, tcpserver, newsock):
+    async def beforelisten(self, tcpserver, newsock):
         try:
             tcpserver.scheduler.queue['read'].addSubQueue(5, PollEvent.createMatcher(newsock.fileno(), PollEvent.READ_READY), tcpserver)
         except Exception:
             pass
-        if False:
-            yield
 
-    def serverfinal(self, tcpserver):
+    async def serverfinal(self, tcpserver):
         try:
-            for m in tcpserver.syscall(syscall_clearremovequeue(tcpserver.scheduler.queue['read'], tcpserver)):
-                yield m
-        except:
+            await tcpserver.syscall(syscall_clearremovequeue(tcpserver.scheduler.queue['read'], tcpserver))
+        except Exception:
             pass
-    def notconnected(self, connection):
-        for m in connection.waitForSend(HttpConnectionStateEvent(HttpConnectionStateEvent.CLIENT_NOTCONNECTED,
+
+    async def notconnected(self, connection):
+        await connection.wait_for_send(HttpConnectionStateEvent(HttpConnectionStateEvent.CLIENT_NOTCONNECTED,
                                                                  connection,
                                                                  connection.connmark,
-                                                                 self)):
-            yield m
-    def final(self, connection):
+                                                                 self))
+    async def final(self, connection):
         if hasattr(connection, 'http_sender') and connection.http_sender:
             connection.http_sender.close()
-        for m in Protocol.final(self, connection):
-            yield m
-    def waitForResponseEnd(self, container, connection, connmark, xid):
+        await Protocol.final(self, connection)
+
+    async def wait_for_response_end(self, container, connection, connmark, xid):
         if not connection.connected or connection.connmark != connmark:
-            container.retvalue = False
+            return False
         elif connection.http_responsexid > xid + 1:
-            container.retvalue = True
+            return True
         elif connection.http_responsexid == xid + 1 and connection.http_parsestage in ('end', 'headline', 'headers'):
-            container.retvalue = connection.http_parsestage != 'end'
+            return connection.http_parsestage != 'end'
         else:
             re = HttpResponseEndEvent.createMatcher(connection, connmark, xid)
             rc = self.statematcher(connection)
-            yield (re, rc)
-            if container.matcher is re:
-                container.retvalue = container.event.keepalive
+            ev, m = await M_(re, rc)
+            if m is re:
+                return ev.keepalive
             else:
-                container.retvalue = False
+                return False
+    
+    waitForResponseEnd = wait_for_response_end

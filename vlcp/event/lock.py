@@ -9,6 +9,7 @@ Other send request is blocked by the queue.
 from vlcp.event.event import Event, withIndices
 from vlcp.event.pqueue import CBQueue
 from vlcp.event.core import syscall_removequeue
+from vlcp.event.runnable import RoutineContainer
 
 @withIndices('context', 'key', 'locker')
 class LockEvent(Event):
@@ -25,9 +26,13 @@ class Lock(object):
     An lock object. Normal usage::
         
         my_lock = Lock(lock_obj, container.scheduler)
-        for m in my_lock.lock(container):
-            yield m
+        await my_lock.lock(container)
         with my_lock:
+            ...
+    
+    Or use async with::
+    
+        async with my_lock:
             ...
     """
     def __init__(self, key, scheduler, context = 'default'):
@@ -46,15 +51,16 @@ class Lock(object):
         self.scheduler = scheduler
         self.locked = False
         self.lockroutine = None
-    def lock(self, container):
+    async def lock(self, container = None):
         "Wait for lock acquire"
+        if container is None:
+            container = RoutineContainer.get_container(self.scheduler)
         if self.locked:
             pass
         elif self.lockroutine:
-            yield (LockedEvent.createMatcher(self),)
+            await LockedEvent.createMatcher(self)
         else:
-            for m in container.waitForSend(LockEvent(self.context, self.key, self)):
-                yield m
+            await container.wait_for_send(LockEvent(self.context, self.key, self))
             self.locked = True
     def trylock(self):
         "Try to acquire lock and return True; if cannot acquire the lock at this moment, return False."
@@ -68,11 +74,9 @@ class Lock(object):
         else:
             self.locked = True
             return True
-    def _lockroutine(self, container):
-        for m in self.lock(container):
-            yield m
-        for m in container.waitForSend(LockedEvent(self, self.context, self.key)):
-            yield m
+    async def _lockroutine(self, container):
+        await self.lock(container)
+        await container.wait_for_send(LockedEvent(self, self.context, self.key))
     def beginlock(self, container):
         "Start to acquire lock in another routine. Call trylock or lock later to acquire the lock. Call unlock to cancel the lock routine"
         if self.locked:
@@ -98,7 +102,14 @@ class Lock(object):
     def __exit__(self, exctype, excvalue, traceback):
         self.unlock()
         return False
-        
+    
+    async def __aenter__(self):
+        await self.lock()
+        return self
+    
+    async def __aexit__(self, exctype, excvalue, traceback):
+        self.unlock()
+        return False
 
 class Semaphore(object):
     """
@@ -133,11 +144,12 @@ class Semaphore(object):
         """
         self.queue = self.scheduler.queue.addSubQueue(self.priority, LockEvent.createMatcher(self.context, self.key),
                                          maxdefault = self.size, defaultQueueClass = CBQueue.AutoClassQueue.initHelper('locker', subqueuelimit = 1))
-    def destroy(self, container):
+    async def destroy(self, container = None):
         """
         Destroy the created subqueue to change the behavior back to Lock
         """
+        if container is None:
+            container = RoutineContainer(self.scheduler)
         if self.queue is not None:
-            for m in container.syscall_noreturn(syscall_removequeue(self.scheduler.queue, self.queue)):
-                yield m
+            await container.syscall_noreturn(syscall_removequeue(self.scheduler.queue, self.queue))
             self.queue = None

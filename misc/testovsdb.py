@@ -11,26 +11,25 @@ import logging
 
 jsonrpc = JsonRPC()
 
+
 class MainRoutine(RoutineContainer):
-    def main(self):
+    async def main(self):
         connected = JsonRPCConnectionStateEvent.createMatcher(state = JsonRPCConnectionStateEvent.CONNECTION_UP)
-        yield (connected,)
-        connection = self.event.connection
-        for m in jsonrpc.querywithreply('list_dbs', [], connection, self):
-            yield m
-        if self.jsonrpc_error:
-            pprint(self.jsonrpc_error)
+        ev = await connected
+        connection = ev.connection
+        result, error = await jsonrpc.querywithreply('list_dbs', [], connection, self)
+        if error:
+            pprint(error)
         else:
-            pprint(self.jsonrpc_result)
-        dbname = self.jsonrpc_result[0]
-        for m in jsonrpc.querywithreply('get_schema', [dbname], connection, self):
-            yield m
-        if self.jsonrpc_error:
-            pprint(self.jsonrpc_error)
+            pprint(result)
+        dbname = result[0]
+        result, error = await jsonrpc.querywithreply('get_schema', [dbname], connection, self)
+        if error:
+            pprint(error)
         else:
-            pprint(self.jsonrpc_result)
-        for m in connection.shutdown():
-            yield m
+            pprint(result)
+        await connection.shutdown()
+
 
 if __name__ == '__main__':
     logging.basicConfig()

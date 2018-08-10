@@ -8,7 +8,7 @@ Refactoring from vxlancast module, to share the logic with hardware-vtep
 from vlcp.utils.networkmodel import VXLANEndpointSet, LogicalNetworkMap,\
     LogicalPort, LogicalPortVXLANInfo
 import itertools
-from vlcp.server.module import callAPI
+from vlcp.server.module import call_api
 from vlcp.utils.ethernet import ip4_addr
 
 
@@ -58,7 +58,7 @@ def lognet_vxlan_walker(prepush = True):
                                 save(portinfokey)                            
     return _walk_lognet
 
-def update_vxlaninfo(container, network_ip_dict, created_ports, removed_ports,
+async def update_vxlaninfo(container, network_ip_dict, created_ports, removed_ports,
                 ovsdb_vhost, system_id, bridge,
                 allowedmigrationtime, refreshinterval):
     '''
@@ -141,12 +141,12 @@ def update_vxlaninfo(container, network_ip_dict, created_ports, removed_ports,
         written_values_list = tuple(written_values.items())
         return (tuple(itertools.chain(keys[:len(network_list)], (k for k,_ in written_values_list))),
                 tuple(itertools.chain(values[:len(network_list)], (v for _,v in written_values_list))))
-    for m in callAPI(container, 'objectdb', 'transact', {'keys': tuple(vxlanendpoint_list + [LogicalPort.default_key(p) for p in all_tun_ports2] +
+    return await call_api(container, 'objectdb', 'transact', {'keys': tuple(vxlanendpoint_list + [LogicalPort.default_key(p) for p in all_tun_ports2] +
                                                                   [LogicalPortVXLANInfo.default_key(p) for p in all_tun_ports2]),
                                                     'updater': update_vxlanendpoints,
                                                     'withtime': True
-                                                    }):
-        yield m
+                                                    })
+
 
 def _get_ip(ip):
     try:

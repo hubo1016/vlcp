@@ -9,6 +9,7 @@ from vlcp.protocol.jsonrpc import JsonRPC, JsonRPCRequestEvent,\
     JsonRPCNotificationEvent
 from vlcp.event.connection import ConnectionResetException, ConnectionWriteEvent
 from contextlib import closing
+from vlcp.event.event import M_
 
 @defaultconfig
 class OVSDB(JsonRPC):
@@ -23,41 +24,35 @@ class OVSDB(JsonRPC):
     # Disconnect when reply is not received for "echo" requests
     _default_keepalivetimeout = 3
     _default_tcp_nodelay = True
-    def _respond_echo(self, connection):
+    async def _respond_echo(self, connection):
         try:
             request_matcher = JsonRPCRequestEvent.createMatcher('echo', connection)
             connstate = self.statematcher(connection)
             while True:
-                yield (request_matcher, connstate)
-                if connection.matcher is request_matcher:
-                    connection.event.canignore = True
-                    reply = self.formatreply(connection.event.params, connection.event.id, connection)
+                ev, m = await M_(request_matcher, connstate)
+                if m is request_matcher:
+                    ev.canignore = True
+                    reply = self.formatreply(ev.params, ev.id, connection)
                     reply.echoreply = True
-                    for m in connection.write(reply, False):
-                        yield m
+                    await connection.write(reply, False)
                 else:
                     break
         except ConnectionResetException:
             pass
         
-    def _extra_queues(self, connection):
+    async def _extra_queues(self, connection):
         connection.createdqueues.append(connection.scheduler.queue.addSubQueue(\
                 self.writepriority + 10, ConnectionWriteEvent.createMatcher(connection = connection, _ismatch = lambda x: hasattr(x, 'echoreply') and x.echoreply), ('echoreply', connection)))
-        if False:
-            yield
         
-    def reconnect_init(self, connection):
-        for m in JsonRPC.reconnect_init(self, connection):
-            yield m
+    async def reconnect_init(self, connection):
+        await JsonRPC.reconnect_init(self, connection)
         connection.subroutine(self._respond_echo(connection))
-    def keepalive(self, connection):
+
+    async def keepalive(self, connection):
         try:
-            with closing(connection.executeWithTimeout(self.keepalivetimeout, self.querywithreply('echo', [], connection, connection))) as g:
-                for m in g:
-                    yield m
-            if connection.timeout:
-                for m in connection.reset(True):
-                    yield m
+            timeout, _ = await connection.execute_with_timeout(self.keepalivetimeout,
+                                                               self.querywithreply('echo', [], connection, connection))
+            if timeout:
+                await connection.reset(True)
         except Exception:
-            for m in connection.reset(True):
-                yield m
+            await connection.reset(True)

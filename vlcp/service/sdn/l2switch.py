@@ -19,6 +19,9 @@ from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent,\
 from vlcp.utils.ethernet import ethernet_l2
 import vlcp.service.sdn.ioprocessing as iop
 import itertools
+from vlcp.utils.exceptions import WalkKeyNotRetrieved
+from contextlib import suppress
+from vlcp.event.event import M_
 
 class L2FlowUpdater(FlowUpdater):
 
@@ -31,36 +34,37 @@ class L2FlowUpdater(FlowUpdater):
         self._lastlogportinfo = {}
         self._lastphyportinfo = {}
         self._lastlognetinfo = {}
-    def main(self):
+
+    async def main(self):
         try:
             self.subroutine(self._update_handler_prepush(), name = '_update_handler_routine')
-            for m in FlowUpdater.main(self):
-                yield m
+            await FlowUpdater.main(self)
         finally:
             self._update_handler_routine.close()
+
     def _walk_logport(self, key, value, walk, save):
         save(key)
         if value is None:
             return
-        try:
+        with suppress(WalkKeyNotRetrieved):
             net = walk(value.network.getkey())
-        except KeyError:
-            pass
-        else:
             save(net.getkey())
+
     def _walk_phyport(self, key, value, walk, save):
         save(key)
-    def _update_handler_prepush(self):
+
+    async def _update_handler_prepush(self):
         dataobjectchanged = iop.DataObjectChanged.createMatcher(None, None, self._connection)
         while True:
-            yield (dataobjectchanged,)
-            self._lastlogports, self._lastphyports, self._lastlognets, _ = self.event.current
+            ev = await dataobjectchanged
+            self._lastlogports, self._lastphyports, self._lastlognets, _ = ev.current
             self._initialkeys = [p.getkey() for p,_ in self._lastlogports] + \
                                 [p.getkey() for p,_ in self._lastphyports]
             self._walkerdict = dict(itertools.chain(((p.getkey(), self._walk_logport) for p,_ in self._lastlogports),
                                                     ((p.getkey(), self._walk_phyport) for p,_ in self._lastphyports)))
             self.subroutine(self.restart_walk(), False)
-    def updateflow(self, conn, addvalues, removevalues, updatedvalues):
+
+    async def updateflow(self, conn, addvalues, removevalues, updatedvalues):
         ofdef = conn.openflowdef
         vhost = conn.protocol.vhost
         l2out = self._parent._gettableindex('l2output', vhost)
@@ -300,8 +304,7 @@ class L2FlowUpdater(FlowUpdater):
                     if mac:
                         cmds.extend(_delete_flows(network_id, mac))
 
-            for m in self.execute_commands(conn, cmds):
-                yield m
+            await self.execute_commands(conn, cmds)
 
             del cmds[:]
 
@@ -330,8 +333,7 @@ class L2FlowUpdater(FlowUpdater):
                     if mac:
                         cmds.extend(_create_flows(network_id, mac, port_id))
 
-            for m in self.execute_commands(conn,cmds):
-                yield m
+            await self.execute_commands(conn,cmds)
 
         except Exception:
             self._parent._logger.warning("Update l2switch flow for connection %r failed with exception", conn, exc_info = True)
@@ -362,19 +364,21 @@ class L2Switch(FlowBase):
         self.apiroutine.main = self._main
         self.routines.append(self.apiroutine)
         self._flowupdaters = {}
-    def _main(self):
+
+    async def _main(self):
         flow_init = FlowInitialize.createMatcher(_ismatch = lambda x: self.vhostbind is None or x.vhost in self.vhostbind)
         conn_down = OpenflowConnectionStateEvent.createMatcher(state = OpenflowConnectionStateEvent.CONNECTION_DOWN,
                                                                _ismatch = lambda x: self.vhostbind is None or x.createby.vhost in self.vhostbind)
         while True:
-            yield (flow_init, conn_down)
-            if self.apiroutine.matcher is flow_init:
-                c = self.apiroutine.event.connection
-                self.apiroutine.subroutine(self._init_conn(self.apiroutine.event.connection))
+            ev, m = await M_(flow_init, conn_down)
+            if m is flow_init:
+                c = ev.connection
+                self.apiroutine.subroutine(self._init_conn(c))
             else:
-                c = self.apiroutine.event.connection
+                c = ev.connection
                 self.apiroutine.subroutine(self._remove_conn(c))
-    def _init_conn(self, conn):
+
+    async def _init_conn(self, conn):
         # Default
         ofdef = conn.openflowdef
         vhost = conn.protocol.vhost
@@ -396,7 +400,7 @@ class L2Switch(FlowBase):
         if self.learning:
             if self.nxlearn and not conn.protocol.disablenxext:
                 # Use nx_action_learn
-                for m in conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
+                await conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
@@ -486,11 +490,10 @@ class L2Switch(FlowBase):
                                                                                     type = ofdef.OFPIT_APPLY_ACTIONS
                                                                                     ),
                                                                                    ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
-                                                                   )), conn, self.apiroutine):
-                    yield m
+                                                                   )), conn, self.apiroutine)
             else:
                 # Use PACKET_IN
-                for m in conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
+                await conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
@@ -555,21 +558,20 @@ class L2Switch(FlowBase):
                                                                             ),
                                                                    instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
                                                                    )
-                                              ), conn, self.apiroutine):
-                    yield m                    
-                def learning_packet_handler():
+                                              ), conn, self.apiroutine)
+                async def learning_packet_handler():
                     packetin = OpenflowAsyncMessageEvent.createMatcher(ofdef.OFPT_PACKET_IN, None, None, l2, 1, conn, conn.connmark)
                     conndown = conn.protocol.statematcher(conn)
                     while True:
-                        yield (packetin, conndown)
-                        if conn.matcher is conndown:
+                        ev, m = await M_(packetin, conndown)
+                        if m is conndown:
                             break
                         else:
-                            msg = conn.event.message
+                            msg = ev.message
                             try:
                                 p = ethernet_l2.create(msg.data)
                             except Exception:
-                                self._logger.warning('Invalid packet received: %r', conn.event.message.data, exc_info = True)
+                                self._logger.warning('Invalid packet received: %r', ev.message.data, exc_info = True)
                             else:
                                 dl_src = p.dl_src
                                 in_port = ofdef.get_oxm(msg.match.oxm_fields, ofdef.OXM_OF_IN_PORT)
@@ -672,7 +674,7 @@ class L2Switch(FlowBase):
                 conn.subroutine(learning_packet_handler(), name = '_l2switch_learning_routine')
         else:
             # Disable learning
-            for m in conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
+            await conn.protocol.batch((ofdef.ofp_flow_mod(table_id = l2,
                                                                    command = ofdef.OFPFC_ADD,
                                                                    priority = ofdef.OFP_DEFAULT_PRIORITY,
                                                                    buffer_id = ofdef.OFP_NO_BUFFER,
@@ -740,12 +742,10 @@ class L2Switch(FlowBase):
                                                                match = ofdef.ofp_match_oxm(),
                                                                instructions = [ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
                                                                ),
-                                          ), conn, self.apiroutine):
-                yield m
-    def _remove_conn(self, conn):
+                                          ), conn, self.apiroutine)
+
+    async def _remove_conn(self, conn):
         # Do not need to modify flows
         if conn in self._flowupdaters:
             self._flowupdaters[conn].close()
             del self._flowupdaters[conn]
-        if False:
-            yield

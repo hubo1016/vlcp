@@ -5,75 +5,28 @@ Created on 2015/6/19
 '''
 from __future__ import print_function, absolute_import, division 
 from .runnable import RoutineContainer, RoutineException
-from .core import PollEvent, POLLING_ERR, POLLING_IN, POLLING_HUP
-from .event import Event, withIndices
+from .core import PollEvent, POLLING_ERR, POLLING_IN
+from .event import Event, withIndices, M_
 from vlcp.utils import ContextAdapter
 from ctypes import create_string_buffer, c_char, Array as _Array, memmove as _memmove
 import socket
 import errno
 import sys
 import ssl
-import multiprocessing
-import threading
 import logging
-import itertools
-import signal
 from vlcp.event.core import POLLING_OUT
-import traceback
-from contextlib import closing
 import os
 
-if sys.version_info[0] >= 3:
-    from urllib.parse import urlsplit
-    from queue import Full, Queue, Empty
-else:
-    from urlparse import urlsplit
-    from Queue import Full, Queue, Empty
+from urllib.parse import urlsplit
 
-try:
-    _memoryview = memoryview
-except Exception:
-    class memoryview(object):              # Fake a memoryview interface
-        def __init__(self, buf):
-            self._buffer = buf
-        def __getitem__(self, s):
-            if isinstance(s, slice) and isinstance(self._buffer, _Array):
-                start, stop, step = s.indices(len(self._buffer))
-                if step != 1:
-                    raise ValueError('memoryview does not support slicing with step')
-                return (c_char * (stop - start)).from_buffer(self._buffer, start)
-            else:
-                return self._buffer[s]
-        def __setitem__(self, s, value):
-            if isinstance(s, slice) and isinstance(self._buffer, _Array):
-                start, stop, step = s.indices(len(self._buffer))
-                if step != 1:
-                    raise ValueError('memoryview does not support slicing with step')
-                if len(value) != stop - start:
-                    raise ValueError('assignment length not match')
-                _memmove((c_char * (stop - start)).from_buffer(self._buffer, start), value, stop - start)
-            else:
-                self._buffer[s] = value
-        def __len__(self):
-            return len(self._buffer)
-        def tobytes(self):
-            return self._buffer[:]
+_create_buffer = bytearray
+def _extend_buffer(source, size):
+    _new_buffer = _create_buffer(size)
+    _new_buffer[0:len(source)] = source
+    return _new_buffer
+def _buffer(data, view, start, length):
+    return view[start:start+length]
 
-if sys.version_info[0] >= 3:
-    _create_buffer = bytearray
-    def _extend_buffer(source, size):
-        _new_buffer = _create_buffer(size)
-        _new_buffer[0:len(source)] = source
-        return _new_buffer
-    def _buffer(data, view, start, length):
-        return view[start:start+length]
-else:
-    _create_buffer = create_string_buffer
-    def _extend_buffer(source, size):
-        return create_string_buffer(source.raw, size)
-    # re does not accept memoryview
-    def _buffer(data, view, start, length):
-        return buffer(data, start, length)
 
 @withIndices('connection', 'type', 'force', 'connmark')
 class ConnectionControlEvent(Event):
@@ -90,6 +43,7 @@ class ConnectionWriteEvent(Event):
     Event used to send data to a connection
     """
     canignore = False
+    EOF = False
     def canignorenow(self):
         return not self.connection.connected or self.connection.connmark != self.connmark
 
@@ -114,6 +68,7 @@ class Connection(RoutineContainer):
         self.persist = getattr(protocol, 'persist', False)
         self.need_reconnect = self.persist
         self.keepalivetime = getattr(protocol, 'keepalivetime', None)
+        self.writekeepalivetime = getattr(protocol, 'writekeepalivetime', None)
         self.logContext = {'connection': self, 'protocol':protocol, 'socket':None if self.socket is None else self.socket.fileno()}
         self.logger = ContextAdapter(Connection.logger, {'context':self.logContext}) 
         # Counters
@@ -135,7 +90,7 @@ class Connection(RoutineContainer):
             if hasattr(self, 'mainroutine'):
                 self.scheduler.setDaemon(self.mainroutine, daemon, True)
             self.daemon = daemon
-    def _read_main(self):
+    async def _read_main(self):
         try:
             canread_matcher = PollEvent.createMatcher(self.socket.fileno(), PollEvent.READ_READY)
             canwrite_matcher = PollEvent.createMatcher(self.socket.fileno(), PollEvent.WRITE_READY)
@@ -151,26 +106,27 @@ class Connection(RoutineContainer):
             firstTime = True
             wantWrite = False
             eofExit = False
+            def _process_conn_event(event, matcher):
+                nonlocal exitLoop
+                if event.type == ConnectionControlEvent.RECONNECT:
+                    self.need_reconnect = True
+                elif event.type == ConnectionControlEvent.SHUTDOWN:
+                    self.need_reconnect = False
+                else:
+                    self.need_reconnect = self.persist
+                exitLoop = True
             while not exitLoop:
                 if not firstTime:
                     if wantWrite:
-                        yield (canwrite_matcher, connection_control)
+                        ev, m = await M_(canwrite_matcher, connection_control)
                     else:
-                        with closing(self.waitWithTimeout(keepalivetime, canread_matcher, connection_control)) as g:
-                            for m in g:
-                                yield m
-                        if self.timeout:
+                        timeout, ev, m = await self.wait_with_timeout(keepalivetime, canread_matcher, connection_control)
+                        if timeout:
                             self.subroutine(self.protocol.keepalive(self))
                             continue
                     wantWrite = False
-                    if self.matcher is connection_control:
-                        if self.event.type == ConnectionControlEvent.RECONNECT:
-                            self.need_reconnect = True
-                        elif self.event.type == ConnectionControlEvent.SHUTDOWN:
-                            self.need_reconnect = False
-                        else:
-                            self.need_reconnect = self.persist
-                        exitLoop = True
+                    if m is connection_control:
+                        _process_conn_event(ev, m)
                 else:
                     firstTime = False
                 parsed = True
@@ -215,38 +171,14 @@ class Connection(RoutineContainer):
                         newPos = keep
                         parsed = True
                         for e in events:
-                            for m in self.waitForSend(e):
-                                while True:
-                                    yield m + (connection_control,)
-                                    if self.matcher is connection_control:
-                                        if self.event.type == ConnectionControlEvent.RECONNECT:
-                                            self.need_reconnect = True
-                                        elif self.event.type == ConnectionControlEvent.SHUTDOWN:
-                                            self.need_reconnect = False
-                                        else:
-                                            self.need_reconnect = self.persist
-                                        exitLoop = True
-                                    else:
-                                        break
+                            await self.with_callback(self.wait_for_send(e), _process_conn_event, connection_control)
                         currPos = newPos
                         lastPos = newPos
                         if currPos >= len(buf):
                             buffer2 = _extend_buffer(buf, len(buf) * 2)
                             buf = buffer2
                             view = memoryview(buf)
-                        for m in self.doEvents():
-                            while True:
-                                yield m + (connection_control,)
-                                if self.matcher is connection_control:
-                                    if self.event.type == ConnectionControlEvent.RECONNECT:
-                                        self.need_reconnect = True
-                                    elif self.event.type == ConnectionControlEvent.SHUTDOWN:
-                                        self.need_reconnect = False
-                                    else:
-                                        self.need_reconnect = self.persist
-                                    exitLoop = True
-                                else:
-                                    break
+                        await self.with_callback(self.do_events(), _process_conn_event, connection_control)
                 if not parsed:
                     (events, keep) = self.protocol.parse(self, _buffer(buf, view, 0, currPos), lastPos)
                     view[0:keep] = view[currPos-keep:currPos]
@@ -255,19 +187,17 @@ class Connection(RoutineContainer):
                     lastPos = newPos
                     parsed = True
                     for e in events:
-                        for m in self.waitForSend(e):
-                            yield m
+                        await self.with_callback(self.wait_for_send(e), _process_conn_event, connection_control)
                 if eofExit:
                     # An extra parse for socket shutdown, can be determined by lastPos == len(data)
                     (events, keep) = self.protocol.parse(self, _buffer(buf, view, 0, currPos), lastPos)
                     for e in events:
-                        for m in self.waitForSend(e):
-                            yield m                    
+                        await self.wait_for_send(e)
         finally:
             self.readstop = True
             if self.writestop and self.connected:
                 self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.HANGUP, True, self.connmark))
-    def _write_main(self):
+    async def _write_main(self):
         try:
             self.writestop = False
             canread_matcher = PollEvent.createMatcher(self.socket.fileno(), PollEvent.READ_READY)
@@ -276,31 +206,38 @@ class Connection(RoutineContainer):
             write_matcher = ConnectionWriteEvent.createMatcher(self, self.connmark)
             queue_empty = None
             exitLoop = False
-            while not exitLoop:
-                if queue_empty is not None:
-                    yield (write_matcher, queue_empty)
+            writekeepalivetime = self.writekeepalivetime
+            def _process_conn_event(event, matcher):
+                nonlocal exitLoop, queue_empty
+                if event.type == ConnectionControlEvent.RECONNECT:
+                    self.need_reconnect = True
+                elif event.type == ConnectionControlEvent.SHUTDOWN:
+                    self.need_reconnect = False
                 else:
-                    yield (write_matcher, connection_control)
-                if self.matcher is connection_control:
-                    if self.event.type == ConnectionControlEvent.RECONNECT:
-                        self.need_reconnect = True
-                    elif self.event.type == ConnectionControlEvent.SHUTDOWN:
-                        self.need_reconnect = False
-                    else:
-                        self.need_reconnect = self.persist
-                    if hasattr(self, 'queue'):
-                        queue_empty = self.queue.waitForEmpty()
-                        if queue_empty is None:
-                            exitLoop = True
-                    else:
-                        exitLoop = True
-                elif self.matcher is queue_empty:
+                    self.need_reconnect = self.persist
+                if hasattr(self, 'queue'):
                     queue_empty = self.queue.waitForEmpty()
                     if queue_empty is None:
                         exitLoop = True
                 else:
-                    self.event.canignore = True
-                    msg, isEOF = self.protocol.serialize(self, self.event)
+                    exitLoop = True                
+            while not exitLoop:
+                if queue_empty is not None:
+                    ev, m = await M_(write_matcher, queue_empty)
+                else:
+                    timeout, ev, m = await self.wait_with_timeout(writekeepalivetime, write_matcher, connection_control)
+                    if timeout:
+                        self.subroutine(self.protocol.keepalive(self))
+                        continue
+                if m is connection_control:
+                    _process_conn_event(ev, m)
+                elif m is queue_empty:
+                    queue_empty = self.queue.waitForEmpty()
+                    if queue_empty is None:
+                        exitLoop = True
+                else:
+                    ev.canignore = True
+                    msg, isEOF = self.protocol.serialize(self, ev)
                     msg = memoryview(msg)
                     totalLen = len(msg)
                     currPos = 0
@@ -333,22 +270,11 @@ class Connection(RoutineContainer):
                                 raise
                         if wouldblock:
                             if wantRead:
-                                yield (canread_matcher, connection_control)
+                                ev, m = await M_(canread_matcher, connection_control)
                             else:
-                                yield (canwrite_matcher, connection_control)
-                            if self.matcher is connection_control:
-                                if self.event.type == ConnectionControlEvent.RECONNECT:
-                                    self.need_reconnect = True
-                                elif self.event.type == ConnectionControlEvent.SHUTDOWN:
-                                    self.need_reconnect = False
-                                else:
-                                    self.need_reconnect = self.persist
-                                if hasattr(self, 'queue'):
-                                    queue_empty = self.queue.waitForEmpty()
-                                    if queue_empty is None:
-                                        exitLoop = True
-                                else:
-                                    exitLoop = True
+                                ev, m = await M_(canwrite_matcher, connection_control)
+                            if m is connection_control:
+                                _process_conn_event(ev, m)
                     if isEOF:
                         try:
                             self.socket.shutdown(socket.SHUT_WR)
@@ -360,10 +286,8 @@ class Connection(RoutineContainer):
             self.writestop = True
             if self.readstop and self.connected:
                 self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.HANGUP, True, self.connmark))
-    def _reconnect(self):
+    async def _reconnect(self):
         self.connected = False
-        if False:
-            yield
     def _close(self):
         if hasattr(self, 'readroutine'):
             self.readroutine.close()
@@ -374,7 +298,7 @@ class Connection(RoutineContainer):
             self.socket.close()
             self.socket = None
         self.connected = False
-    def main(self):
+    async def main(self):
         try:
             try:
                 self.localaddr = self.socket.getsockname()
@@ -386,8 +310,7 @@ class Connection(RoutineContainer):
                 pass
             self.connmark = 0
             self.connected = True
-            for m in self.protocol.init(self):
-                yield m
+            await self.protocol.init(self)
             connection_control = ConnectionControlEvent.createMatcher(self, None, True, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
             while self.connected or self.need_reconnect:
                 if self.connected:
@@ -398,11 +321,11 @@ class Connection(RoutineContainer):
                     self.subroutine(self._read_main(), True, 'readroutine', self.daemon)
                     self.subroutine(self._write_main(), True, 'writeroutine', self.daemon)
                     err_match = PollEvent.createMatcher(self.socket.fileno(), PollEvent.ERROR)
-                    yield (err_match, connection_control)
-                    if self.matcher is connection_control and self.event.type is not ConnectionControlEvent.HANGUP:
-                        if self.event.type == ConnectionControlEvent.SHUTDOWN:
+                    ev, m = await M_(err_match, connection_control)
+                    if m is connection_control and ev.type is not ConnectionControlEvent.HANGUP:
+                        if ev.type == ConnectionControlEvent.SHUTDOWN:
                             self.need_reconnect = False
-                        elif self.event.type == ConnectionControlEvent.RECONNECT:
+                        elif ev.type == ConnectionControlEvent.RECONNECT:
                             self.need_reconnect = True
                         else:
                             self.need_reconnect = self.persist
@@ -412,16 +335,13 @@ class Connection(RoutineContainer):
                     self.connected = False
                     self.readroutine.close()
                     self.writeroutine.close()
-                    if self.matcher is err_match and (self.event.detail & POLLING_ERR):
-                        for m in self.protocol.error(self):
-                            yield m
+                    if m is err_match and (ev.detail & POLLING_ERR):
+                        await self.protocol.error(self)
                     else:
-                        for m in self.protocol.closed(self):
-                            yield m
+                        await self.protocol.closed(self)
                 if self.need_reconnect:
                     self.logger.debug('Try reconnecting')
-                    for m in self._reconnect():
-                        yield m
+                    await self._reconnect()
                     if self.connected:
                         try:
                             self.localaddr = self.socket.getsockname()
@@ -432,64 +352,58 @@ class Connection(RoutineContainer):
                         except Exception:
                             pass
                         self.connmark += 1
-                        for m in self.protocol.reconnect_init(self):
-                            yield m
+                        await self.protocol.reconnect_init(self)
                     else:
                         break
         finally:
             need_close = self.connected
             self._close()
             self.subroutine(self._final(need_close), False)
-    def _final(self, need_close = False):
+    async def _final(self, need_close = False):
         if need_close:
             self.logger.debug('System is quitting, close connection, call protocol.closed()')
-            for m in self.protocol.closed(self):
-                yield m
-        for m in self.protocol.final(self):
-            yield m
-    def shutdown(self, force = False, connmark = -1):
+            await self.protocol.closed(self)
+        await self.protocol.final(self)
+    async def shutdown(self, force = False, connmark = -1):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
         self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.SHUTDOWN, force, connmark))
-        if False:
-            yield
-    def reconnect(self, force = True, connmark = None):
+    async def reconnect(self, force = True, connmark = None):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
         self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.RECONNECT, force, connmark))
-        if False:
-            yield
-    def reset(self, force = True, connmark = None):
+    async def reset(self, force = True, connmark = None):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
         self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.RESET, force, connmark))
-        if False:
-            yield
-    def write(self, event, ignoreException = True):
+    async def write(self, event, ignoreException = True):
         '''
         Can call without delegate
         '''
         connmark = self.connmark
         if self.connected:
-            for m in self.waitForSend(event):
-                yield m
+            def _until():
                 if not self.connected or self.connmark != connmark:
-                    if not ignoreException:
-                        raise ConnectionResetException
-                    else:
-                        return
+                    return True
+            r = await self.wait_for_send(event, until=_until)
+            if r:
+                if ignoreException:
+                    return
+                else:
+                    raise
         else:
             if not ignoreException:
                 raise ConnectionResetException
+
     def __repr__(self, *args, **kwargs):
         baserepr = RoutineContainer.__repr__(self, *args, **kwargs)
         return baserepr + '(%r -> %r)' % (getattr(self, 'localaddr', None), getattr(self, 'remoteaddr', None))
@@ -598,7 +512,7 @@ class Client(Connection):
                 nextSeq = nextSeq + 30
             else:
                 nextSeq = 300
-    def create_socket(self):
+    async def create_socket(self):
         if self.socket is not None:
             self.scheduler.unregisterPolling(self.socket)
             self.socket.close()
@@ -606,21 +520,18 @@ class Client(Connection):
         if not self.unix and self.hostname:
             request = (self.hostname, None if self.passive else self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG)
             # Resolve hostname
-            for m in self.waitForSend(ResolveRequestEvent(request)):
-                yield m
-            with closing(self.waitWithTimeout(self.connect_timeout, ResolveResponseEvent.createMatcher(request))) as g:
-                for m in g:
-                    yield m
-            if self.timeout:
+            await self.wait_for_send(ResolveRequestEvent(request))
+            timeout, ev, m = await self.waitWithTimeout(self.connect_timeout, ResolveResponseEvent.createMatcher(request))
+            if timeout:
                 # Resolve is only allowed through asynchronous resolver
                 #try:
                 #    self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
                 #except:
                 raise IOError('Resolve hostname timeout: ' + self.hostname)
             else:
-                if hasattr(self.event, 'error'):
+                if hasattr(ev, 'error'):
                     raise IOError('Cannot resolve hostname: ' + self.hostname)
-                self.addrinfo = self.event.response
+                self.addrinfo = ev.response
         if self.passive:
             if self.unix:
                 socket_listen = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM)
@@ -697,8 +608,8 @@ class Client(Connection):
                     err_udp = PollEvent.createMatcher(self.socket.fileno(), PollEvent.ERROR)
                     connected = False
                     while not connected:
-                        yield (read_udp, err_udp)
-                        if self.event.category == PollEvent.READ_READY:
+                        ev, m = await M_(read_udp, err_udp)
+                        if ev.category == PollEvent.READ_READY:
                             while not connected:
                                 try:
                                     data, remote_addr = self.socket.recvfrom(65536, socket.MSG_PEEK)
@@ -715,16 +626,14 @@ class Client(Connection):
                                         connected = True
                                 else:
                                     connected = True
-                        elif self.event.category == PollEvent.ERROR or self.event.category == PollEvent.HANGUP:
+                        elif ev.category == PollEvent.ERROR or ev.category == PollEvent.HANGUP:
                             raise IOError('Listen socket is closed')
                     try:
                         err = self.socket.connect_ex(remote_addr)
                         if err == errno.EINPROGRESS:
                             connect_match = PollEvent.createMatcher(self.socket.fileno())
-                            with closing(self.waitWithTimeout(self.connect_timeout, connect_match)) as g:
-                                for m in g:
-                                    yield m
-                            if self.timeout:
+                            timeout, ev, m = await self.waitWithTimeout(self.connect_timeout, connect_match)
+                            if timeout:
                                 raise IOError('timeout')
                             else:
                                 err = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
@@ -757,8 +666,8 @@ class Client(Connection):
                     m = PollEvent.createMatcher(socket_listen.fileno())
                     connected = False
                     while not connected:
-                        yield (m,)
-                        if self.event.category == PollEvent.READ_READY:
+                        ev = await m
+                        if ev.category == PollEvent.READ_READY:
                             while not connected:
                                 try:
                                     self.socket, remote_addr = socket_listen.accept()
@@ -774,7 +683,7 @@ class Client(Connection):
                                         connected = True
                                 else:
                                     connected = True
-                        elif self.event.category == PollEvent.ERROR and self.event.category == PollEvent.HANGUP:
+                        elif ev.category == PollEvent.ERROR and ev.category == PollEvent.HANGUP:
                             raise IOError('Listen socket is closed')
                 finally:
                     self.scheduler.unregisterPolling(socket_listen)
@@ -840,10 +749,8 @@ class Client(Connection):
                     err = self.socket.connect_ex(addr)
                     if err == errno.EINPROGRESS or err == errno.EWOULDBLOCK or err == errno.EAGAIN:
                         connect_match = PollEvent.createMatcher(self.socket.fileno())
-                        with closing(self.waitWithTimeout(self.connect_timeout, connect_match)) as g:
-                            for m in g:
-                                yield m
-                        if self.timeout:
+                        timeout, ev, m = await self.waitWithTimeout(self.connect_timeout, connect_match)
+                        if timeout:
                             raise Exception('timeout')
                         else:
                             err = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
@@ -884,12 +791,12 @@ class Client(Connection):
                         handshake = True
                     except ssl.SSLError as exc:
                         if exc.args[0] == ssl.SSL_ERROR_WANT_READ:
-                            yield (read_matcher, error_matcher)
-                            if self.matcher is error_matcher:
+                            ev, m = await M_(read_matcher, error_matcher)
+                            if m is error_matcher:
                                 raise IOError('Socket closed or get error status before SSL handshake complete')
                         elif exc.args[0] == ssl.SSL_ERROR_WANT_WRITE:
-                            yield (write_matcher, error_matcher)
-                            if self.matcher is error_matcher:
+                            ev, m = await M_(write_matcher, error_matcher)
+                            if m is error_matcher:
                                 raise IOError('Socket closed or get error status before SSL handshake complete')
                         else:
                             raise
@@ -898,57 +805,44 @@ class Client(Connection):
                 self.socket.close()
                 self.socket = None
                 raise
-    def _reconnect_internal(self):
+    async def _reconnect_internal(self):
         timeretry = 0
         for timewait in self.reconnect_timeseq():
-            with closing(self.waitWithTimeout(timewait)) as g:
-                for m in g:
-                    yield m
+            await self.wait_with_timeout(timewait)
             try:
-                with closing(self.create_socket()) as cs:
-                    for m in cs:
-                        yield m
-                break
+                await self.create_socket()
             except IOError as exc:
                 timeretry += 1
                 if timeretry > 3:
                     self.logger.warning('Reconnect failed after %d times retry, url=%s', timeretry, self.rawurl, exc_info = True)
-    def _reconnect(self):
+            else:
+                break
+    async def _reconnect(self):
         matcher = ConnectionControlEvent.createMatcher(self, ConnectionControlEvent.SHUTDOWN, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
         try:
             self.connected = False
-            with closing(self.withException(self._reconnect_internal(), matcher)) as g:
-                for m in g:
-                    yield m
+            await self.with_exception(self._reconnect_internal(), matcher)
             self.connected = True
         except RoutineException:
             self.need_reconnect = False
             self.connected = False
-    def main(self):
+    async def main(self):
         self.connmark = -1
         try:
             matcher = ConnectionControlEvent.createMatcher(self, ConnectionControlEvent.SHUTDOWN, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
-            with closing(self.withException(self.create_socket(), matcher)) as g:
-                for m in g:
-                    yield m
+            await self.withException(self.create_socket(), matcher)
         except RoutineException:
             return
         except IOError:
             self.logger.warning('Connection failed for url: %s', self.rawurl, exc_info = True)
             if self.need_reconnect:
-                with closing(self._reconnect()) as g:
-                    for m in g:
-                        yield m
+                await self._reconnect()
                 if not self.connected:
-                    for m in self.protocol.notconnected(self):
-                        yield m
+                    await self.protocol.notconnected(self)
             else:
-                for m in self.protocol.notconnected(self):
-                    yield m
+                await self.protocol.notconnected(self)
         if self.socket:
-            with closing(Connection.main(self)) as g:
-                for m in g:
-                    yield m
+            await Connection.main(self)
     def __repr__(self, *args, **kwargs):
         return Connection.__repr__(self, *args, **kwargs) + '(url=' + self.rawurl + ')'
 
@@ -1002,7 +896,7 @@ class TcpServer(RoutineContainer):
         self.totalaccepts = 0
         self.accepts = 0
         self.listening = False
-    def _connection(self, newsock, newproto):
+    async def _connection(self, newsock, newproto):
         try:
             newsock.setblocking(False)
             if self.nodelay:
@@ -1020,12 +914,12 @@ class TcpServer(RoutineContainer):
                         handshake = True
                     except ssl.SSLError as exc:
                         if exc.args[0] == ssl.SSL_ERROR_WANT_READ:
-                            yield (read_matcher, error_matcher)
-                            if self.matcher is error_matcher:
+                            ev, m = await M_(read_matcher, error_matcher)
+                            if m is error_matcher:
                                 raise IOError('Socket closed or get error status before SSL handshake complete')
                         elif exc.args[0] == ssl.SSL_ERROR_WANT_WRITE:
-                            yield (write_matcher, error_matcher)
-                            if self.matcher is error_matcher:
+                            ev, m = await M_(write_matcher, error_matcher)
+                            if m is error_matcher:
                                 raise IOError('Socket closed or get error status before SSL handshake complete')
                         else:
                             raise
@@ -1038,22 +932,19 @@ class TcpServer(RoutineContainer):
             self.scheduler.unregisterPolling(newsock)
             newsock.close()
             raise
-    def _server(self):
+    async def _server(self):
         if not self.unix:
             request = (None if not self.hostname else self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_PASSIVE)
             # Resolve hostname
-            for m in self.waitForSend(ResolveRequestEvent(request)):
-                yield m
-            with closing(self.waitWithTimeout(20, ResolveResponseEvent.createMatcher(request))) as g:
-                for m in g:
-                    yield m
-            if self.timeout:
+            await self.wait_for_send(ResolveRequestEvent(request))
+            timeout, ev, m = await self.waitWithTimeout(20, ResolveResponseEvent.createMatcher(request))
+            if timeout:
                 # Resolve is only allowed through asynchronous resolver 
                 self.addrinfo = socket.getaddrinfo(self.hostname, self.port, socket.AF_UNSPEC, socket.SOCK_DGRAM if self.udp else socket.SOCK_STREAM, socket.IPPROTO_UDP if self.udp else socket.IPPROTO_TCP, socket.AI_ADDRCONFIG|socket.AI_NUMERICHOST)
             else:
-                if hasattr(self.event, 'error'):
+                if hasattr(ev, 'error'):
                     raise IOError('Cannot resolve hostname: ' + self.hostname)
-                self.addrinfo = self.event.response
+                self.addrinfo = ev.response
         if self.unix:
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -1084,8 +975,7 @@ class TcpServer(RoutineContainer):
             if self.ssl:
                 self.socket = ssl.wrap_socket(self.socket, self.key, self.certificate, True, ssl.CERT_NONE if self.ca_certs is None else ssl.CERT_REQUIRED,
                                               self.sslversion, self.ca_certs, False)                
-            for m in self.protocol.beforelisten(self, self.socket):
-                yield m
+            await self.protocol.beforelisten(self, self.socket)
             self.scheduler.registerPolling(self.socket, POLLING_IN)
             self.socket.listen(self.backlogsize)
             self.listening = True
@@ -1095,8 +985,8 @@ class TcpServer(RoutineContainer):
                 pass
             m = PollEvent.createMatcher(self.socket.fileno())
             while True:
-                yield (m,)
-                if self.event.category == PollEvent.READ_READY:
+                ev = await m
+                if ev.category == PollEvent.READ_READY:
                     while True:
                         try:
                             new_socket, remote_addr = self.socket.accept()
@@ -1121,7 +1011,7 @@ class TcpServer(RoutineContainer):
                             new_socket.close()
                             raise
                 else:
-                    self.logger.warning('Error polling status received: ' + repr(self.event))
+                    self.logger.warning('Error polling status received: ' + repr(ev))
                     break
         finally:
             self.scheduler.unregisterPolling(self.socket)
@@ -1132,7 +1022,7 @@ class TcpServer(RoutineContainer):
                 except Exception:
                     pass
             self.listening = False
-    def main(self):
+    async def main(self):
         self.connmark = 0
         matcher = ConnectionControlEvent.createMatcher(self, ConnectionControlEvent.SHUTDOWN, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
         matcher2 = ConnectionControlEvent.createMatcher(self, ConnectionControlEvent.STOPLISTEN, _ismatch = lambda x: x.connmark == self.connmark or x.connmark < 0)
@@ -1144,15 +1034,13 @@ class TcpServer(RoutineContainer):
                 self.connmark += 1
                 self.accepts = 0
                 try:
-                    with closing(self.withException(self._server(), matcher, matcher2)) as g:
-                        for m in g:
-                            yield m
-                except RoutineException:
-                    if self.matcher is matcher:
+                    _, m = await self.with_exception(self._server(), matcher, matcher2)
+                except RoutineException as e:
+                    if e.matcher is matcher:
                         retry = False
                     else:
-                        yield (matcher, matcher3)
-                        if self.matcher is matcher:
+                        _, m = await M_(matcher, matcher3)
+                        if m is matcher:
                             retry = False
                         else:
                             retry = True
@@ -1160,43 +1048,38 @@ class TcpServer(RoutineContainer):
                     retry = self.retry_listen
                     if retry:
                         self.logger.warning('Begin listen failed on URL: %s', self.rawurl, exc_info = True)
-                        with closing(self.waitWithTimeout(self.retry_interval)) as g:
-                            for m in g:
-                                yield m
+                        await self.wait_with_timeout(self.retry_interval)
                     else:
                         raise
         finally:
             self.subroutine(self._final())
-    def shutdown(self, connmark = -1):
+    async def shutdown(self, connmark = -1):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
         self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.SHUTDOWN, True, connmark))
-        if False:
-            yield
-    def stoplisten(self, connmark = -1):
+
+    async def stoplisten(self, connmark = -1):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
         self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.STOPLISTEN, True, connmark))
-        if False:
-            yield    
-    def startlisten(self, connmark = -1):
+
+    async def startlisten(self, connmark = -1):
         '''
         Can call without delegate
         '''
         if connmark is None:
             connmark = self.connmark
         self.scheduler.emergesend(ConnectionControlEvent(self, ConnectionControlEvent.STARTLISTEN, True, connmark))
-        if False:
-            yield    
-    def _final(self):
-        for m in self.protocol.serverfinal(self):
-            yield m
+
+    async def _final(self):
+        await self.protocol.serverfinal(self)
+
     def __repr__(self, *args, **kwargs):
         baserepr = RoutineContainer.__repr__(self, *args, **kwargs)
         return baserepr + '(Listen on %r)' % (getattr(self, 'localaddr', None),)

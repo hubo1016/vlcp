@@ -36,7 +36,41 @@ class Test(unittest.TestCase):
         while heap:
             result.append(heap.pop())
         self.assertListEqual(result, [d[1] for d in sorted(data)])
-        
+    
+    def testPending(self):
+        heap = IndexedHeap()
+        heap.push(1, 1)
+        self.assertEqual(len(heap), 1)
+        self.assertEqual(len(heap.heap), 1)
+        heap.push(2, 3)
+        self.assertEqual(len(heap), 2)
+        self.assertEqual(len(heap.heap), 1)
+        self.assertEqual(len(heap.pending), 1)
+        heap.push(3, 2)
+        self.assertEqual(len(heap), 3)
+        self.assertEqual(len(heap.heap), 1)
+        self.assertEqual(len(heap.pending), 2)
+        self.assertEqual(heap.pendingpriority, 2)
+        heap.push(4, 4)
+        self.assertEqual(len(heap), 4)
+        self.assertEqual(len(heap.heap), 1)
+        self.assertEqual(len(heap.pending), 3)
+        self.assertEqual(heap.pendingpriority, 2)
+        heap.remove(4)
+        self.assertEqual(len(heap), 3)
+        self.assertEqual(len(heap.heap), 1)
+        self.assertEqual(len(heap.pending), 2)
+        self.assertEqual(heap.pendingpriority, 2)
+        self.assertEqual(heap.pop(), 1)
+        self.assertEqual(len(heap), 2)
+        self.assertEqual(len(heap.heap), 2)
+        self.assertEqual(len(heap.pending), 0)
+        self.assertIsNone(heap.pendingpriority)
+        heap.push(1, 1)
+        self.assertEqual(len(heap), 3)
+        self.assertEqual(len(heap.heap), 3)
+        self.assertEqual(len(heap.pending), 0)
+        self.assertIsNone(heap.pendingpriority)
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testRandomSort']

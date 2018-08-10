@@ -32,7 +32,7 @@ except Exception:
             return unquote_to_bytes(s.replace(b'+', b' '))
 import re
 from email.message import Message
-from vlcp.server.module import callAPI
+from vlcp.server.module import call_api
 import functools
 import logging
 import os.path
@@ -64,6 +64,9 @@ def _safename(name):
     return name
 
 class Environment(object):
+    """
+    Environment object used in HTTP handlers
+    """
     def __init__(self, event, container = None, defaultencoding = 'utf-8'):
         try:
             self.event = event
@@ -139,7 +142,7 @@ class Environment(object):
             return r.decode(self.encoding)
         else:
             return r
-    def startResponse(self, status = 200, headers = [], clearheaders = True, disabletransferencoding = False):
+    def start_response(self, status = 200, headers = [], clearheaders = True, disabletransferencoding = False):
         "Start to send response"
         if self._sendHeaders:
             raise HttpProtocolException('Cannot modify response, headers already sent')
@@ -149,6 +152,9 @@ class Environment(object):
             self.sent_headers = headers[:]
         else:
             self.sent_headers.extend(headers)
+        
+    startResponse = start_response
+    
     def header(self, key, value, replace = True):
         "Send a new header"
         if hasattr(key, 'encode'):
@@ -159,11 +165,17 @@ class Environment(object):
             self.sent_headers = [(k,v) for k,v in self.sent_headers if k.lower() != key.lower()]
         self.sent_headers.append((key, value))
     def rawheader(self, kv, replace = True):
+        """
+        Add a header with "<Header>: Value" string
+        """
         if hasattr(kv, 'encode'):
             kv = kv.encode(self.encoding)
         k,v = kv.split(b':', 1)
         self.header(k, v.strip(), replace)
     def setcookie(self, key, value, max_age=None, expires=None, path='/', domain=None, secure=None, httponly=False):
+        """
+        Add a new cookie
+        """
         newcookie = Morsel()
         newcookie.key = key
         newcookie.value = value
@@ -183,18 +195,25 @@ class Environment(object):
         self.sent_cookies = [c for c in self.sent_cookies if c.key != key]
         self.sent_cookies.append(newcookie)
     def bufferoutput(self):
+        """
+        Buffer the whole output until write EOF or flushed.
+        """
+        new_stream = Stream(writebufferlimit=None)
+        if self._sendHeaders:
+            # An extra copy
+            self.container.subroutine(new_stream.copy_to(self.outputstream, self.container, buffering=False))
         self.outputstream = Stream(writebufferlimit=None)
     def _startResponse(self):
         if not hasattr(self, 'status'):
-            self.startResponse(200, clearheaders=False)
+            self.start_response(200, clearheaders=False)
         if all(k.lower() != b'content-type' for k,_ in self.sent_headers):
             self.header('Content-Type', 'text/html; charset=' + self.encoding, False)
         # Process cookies
         for c in self.sent_cookies:
             self.rawheader(c.output(), False)
-        self.protocol.startResponse(self.connection, self.xid, self.status, self.sent_headers, self.outputstream, self.disabledeflate)
+        self.protocol.start_response(self.connection, self.xid, self.status, self.sent_headers, self.outputstream, self.disabledeflate)
         self._sendHeaders = True
-    def rewrite(self, path, method = None, keepresponse = True):
+    async def rewrite(self, path, method = None, keepresponse = True):
         "Rewrite this request to another processor. Must be called before header sent"
         if self._sendHeaders:
             raise HttpProtocolException('Cannot modify response, headers already sent')
@@ -225,65 +244,68 @@ class Environment(object):
                                rewritedepth = getattr(self.event, 'rewritedepth', 0) + 1,
                                **extraparams
                                )
-        for m in self.connection.waitForSend(r):
-            yield m
+        await self.connection.wait_for_send(r)
         self._sendHeaders = True
         self.outputstream = None
-    def redirect(self, path, status = 302):
+    async def redirect(self, path, status = 302):
+        """
+        Redirect this request with 3xx status
+        """
         location = urljoin(urlunsplit((b'https' if self.https else b'http',
                                                                      self.host,
                                                                      quote_from_bytes(self.path).encode('ascii'),
                                                                      '',
                                                                      ''
                                                                      )), path)
-        self.startResponse(status, [(b'Location', location)])
-        for m in self.write(b'<a href="' + self.escape(location, True) + b'">' + self.escape(location) + b'</a>'):
-            yield m
-        for m in self.flush(True):
-            yield m
+        self.start_response(status, [(b'Location', location)])
+        await self.write(b'<a href="' + self.escape(location, True) + b'">' + self.escape(location) + b'</a>')
+        await self.flush(True)
     def nl2br(self, text):
+        """
+        Replace '\n' with '<br/>\n'
+        """
         if isinstance(text, bytes):
             return text.replace(b'\n', b'<br/>\n')
         else:
             return text.replace('\n', '<br/>\n')
     def escape(self, text, quote = True):
+        """
+        Escape special characters in HTML
+        """
         if isinstance(text, bytes):
             return escape_b(text, quote)
         else:
             return escape(text, quote)
-    def error(self, status=500, allowredirect = True, close = True, showerror = None, headers = []):
+    async def error(self, status=500, allowredirect = True, close = True, showerror = None, headers = []):
+        """
+        Show default error response
+        """
         if showerror is None:
             showerror = self.showerrorinfo
         if self._sendHeaders:
             if showerror:
                 typ, exc, tb = sys.exc_info()
                 if exc:
-                    for m in self.write('<span style="white-space:pre-wrap">\n', buffering = False):
-                        yield m
-                    for m in self.writelines((self.nl2br(self.escape(v)) for v in traceback.format_exception(typ, exc, tb)), buffering = False):
-                        yield m
-                    for m in self.write('</span>\n', close, False):
-                        yield m
+                    await self.write('<span style="white-space:pre-wrap">\n', buffering = False)
+                    await self.writelines((self.nl2br(self.escape(v)) for v in traceback.format_exception(typ, exc, tb)), buffering = False)
+                    await self.write('</span>\n', close, False)
         elif allowredirect and status in self.protocol.errorrewrite:
-            for m in self.rewrite(self.protocol.errorrewrite[status], b'GET'):
-                yield m
+            await self.rewrite(self.protocol.errorrewrite[status], b'GET')
         elif allowredirect and status in self.protocol.errorredirect:
-            for m in self.redirect(self.protocol.errorredirect[status]):
-                yield m
+            await self.redirect(self.protocol.errorredirect[status])
         else:
-            self.startResponse(status, headers)
+            self.start_response(status, headers)
             typ, exc, tb = sys.exc_info()
             if showerror and exc:
-                for m in self.write('<span style="white-space:pre-wrap">\n', buffering = False):
-                    yield m
-                for m in self.writelines((self.nl2br(self.escape(v)) for v in traceback.format_exception(typ, exc, tb)), buffering = False):
-                    yield m
-                for m in self.write('</span>\n', close, False):
-                    yield m
+                await self.write('<span style="white-space:pre-wrap">\n', buffering = False)
+                await self.writelines((self.nl2br(self.escape(v)) for v in traceback.format_exception(typ, exc, tb)), buffering = False)
+                await self.write('</span>\n', close, False)
             else:
-                for m in self.write(b'<h1>' + _createstatus(status) + b'</h1>', close, False):
-                    yield m
-    def write(self, data, eof = False, buffering = True):
+                await self.write(b'<h1>' + _createstatus(status) + b'</h1>', close, False)
+    async def write(self, data, eof = False, buffering = True):
+        """
+        Write output to current output stream
+        """
         if not self.outputstream:
             self.outputstream = Stream()
             self._startResponse()
@@ -291,19 +313,24 @@ class Environment(object):
             self._startResponse()
         if not isinstance(data, bytes):
             data = data.encode(self.encoding)
-        for m in self.outputstream.write(data, self.connection, eof, False, buffering):
-            yield m
-    def writelines(self, lines, eof = False, buffering = True):
+        await self.outputstream.write(data, self.connection, eof, False, buffering)
+    async def writelines(self, lines, eof = False, buffering = True):
+        """
+        Write lines to current output stream
+        """
         for l in lines:
-            for m in self.write(l, False, buffering):
-                yield m
+            await self.write(l, False, buffering)
         if eof:
-            for m in self.write(b'', eof, buffering):
-                yield m
-    def flush(self, eof = False):
-        for m in self.write(b'', eof, False):
-            yield m
+            await self.write(b'', eof, buffering)
+    async def flush(self, eof = False):
+        """
+        Flush the current output stream buffer
+        """
+        await self.write(b'', eof, False)
     def output(self, stream, disabletransferencoding = None):
+        """
+        Set output stream and send response immediately
+        """
         if self._sendHeaders:
             raise HttpProtocolException('Cannot modify response, headers already sent')
         self.outputstream = stream
@@ -317,23 +344,28 @@ class Environment(object):
             self.disabledeflate = disabletransferencoding
         self._startResponse()
     def outputdata(self, data):
+        """
+        Send output with fixed length data
+        """
         if not isinstance(data, bytes):
             data = str(data).encode(self.encoding)
         self.output(MemoryStream(data))
-    def close(self):
+    async def close(self):
+        """
+        Close this request, send all data. You can still run other operations in the handler.
+        """
         if not self._sendHeaders:
             self._startResponse()
         if self.inputstream is not None:
             self.inputstream.close(self.connection.scheduler)
         if self.outputstream is not None:
-            for m in self.flush(True):
-                yield m
+            await self.flush(True)
         if hasattr(self, 'session') and self.session:
             self.session.unlock()
     def exit(self, output=b''):
         "Exit current HTTP processing"
         raise HttpExitException(output)
-    def parseform(self, limit = 67108864, tostr = True, safename = True):
+    async def parseform(self, limit = 67108864, tostr = True, safename = True):
         '''
         Parse form-data with multipart/form-data or application/x-www-form-urlencoded
         In Python3, the keys of form and files are unicode, but values are bytes
@@ -375,8 +407,7 @@ class Environment(object):
                     total_length = 0
                     while True:
                         try:
-                            for m in self.inputstream.prepareRead(self.container):
-                                yield m
+                            await self.inputstream.prepareRead(self.container)
                             data = self.inputstream.readonce()
                             total_length += len(data)
                             if limit is not None and total_length > limit:
@@ -415,15 +446,11 @@ class Environment(object):
                 elif m.get_content_type() == 'application/x-www-form-urlencoded' or \
                         m.get_content_type() == 'application/x-url-encoded':
                     if limit is not None:
-                        for m in self.inputstream.read(self.container, limit + 1):
-                            yield m
-                        data = self.container.data
+                        data = await self.inputstream.read(self.container, limit + 1)
                         if len(data) > limit:
                             raise HttpInputException('Data is too large')
                     else:
-                        for m in self.inputstream.read(self.container):
-                            yield m
-                        data = self.container.data
+                        data = await self.inputstream.read(self.container)
                     result = parse_qs(data, True)
                     def convert(k,v):
                         try:
@@ -444,22 +471,21 @@ class Environment(object):
             self.files = files                
         except Exception as exc:
             raise HttpInputException('Failed to parse form-data: ' + str(exc))
-    def sessionstart(self):
+    async def sessionstart(self):
         "Start session. Must start service.utils.session.Session to use this method"
         if not hasattr(self, 'session') or not self.session:
-            for m in callAPI(self.container, 'session', 'start', {'cookies':self.rawcookie}):
-                yield m
-            self.session, setcookies = self.container.retvalue
+            self.session, setcookies = await call_api(self.container, 'session', 'start', {'cookies':self.rawcookie})
             for nc in setcookies:
                 self.sent_cookies = [c for c in self.sent_cookies if c.key != nc.key]
                 self.sent_cookies.append(nc)
-    def sessiondestroy(self):
+    async def sessiondestroy(self):
+        """
+        Destroy current session. The session object is discarded and can no longer be used in other requests.
+        """
         if hasattr(self, 'session') and self.session:
-            for m in callAPI(self.container, 'session', 'destroy', {'sessionid':self.session.id}):
-                yield m
+            setcookies = await call_api(self.container, 'session', 'destroy', {'sessionid':self.session.id})
             self.session.unlock()
             del self.session
-            setcookies = self.container.retvalue
             for nc in setcookies:
                 self.sent_cookies = [c for c in self.sent_cookies if c.key != nc.key]
                 self.sent_cookies.append(nc)
@@ -484,9 +510,12 @@ class Environment(object):
         else:
             self.basicauthfail(realm)
     def basicauthfail(self, realm = b'all'):
+        """
+        Return 401 for authentication failure. This will end the handler.
+        """
         if not isinstance(realm, bytes):
             realm = realm.encode('ascii')
-        self.startResponse(401, [(b'WWW-Authenticate', b'Basic realm="' + realm + b'"')])
+        self.start_response(401, [(b'WWW-Authenticate', b'Basic realm="' + realm + b'"')])
         self.exit(b'<h1>' + _createstatus(401) + b'</h1>')
     def getrealpath(self, root, path):
         '''
@@ -495,7 +524,9 @@ class Environment(object):
         or even with UNC or drive '\\test\abc', 'c:\test.abc',
         which creates security issues when accessing file contents with the path.
         With getrealpath, these paths cannot point to files beyond the root path.
+        
         :param root: root path of disk files, any query is limited in root directory.
+        
         :param path: query path from URL.
         '''
         if not isinstance(path, str):
@@ -526,16 +557,22 @@ class Environment(object):
         "Cookie values are bytes in Python3. This function Convert bytes to string with env.encoding(default to utf-8)."
         self.cookies = dict((k, (v.decode(self.encoding) if not isinstance(v, str) else v)) for k,v in self.cookies.items())
         return self.cookies
-    def createcsrf(self, csrfarg = '_csrf'):
-        for m in self.sessionstart():
-            yield m
+    async def createcsrf(self, csrfarg = '_csrf'):
+        """
+        Create a anti-CSRF token in the session
+        """
+        await self.sessionstart()
         if not csrfarg in self.session.vars:
             self.session.vars[csrfarg] = uuid.uuid4().hex
     def outputjson(self, obj):
+        """
+        Serialize `obj` with JSON and output to the client
+        """
         self.header('Content-Type', 'application/json')
         self.outputdata(json.dumps(obj).encode('ascii'))
     
-def _handler(container, event, func):
+
+async def _handler(container, event, func):
     try:
         env = Environment(event, container)
         try:
@@ -543,31 +580,24 @@ def _handler(container, event, func):
                 raise HttpInputException('Bad request')
             r = func(env)
             if r:
-                with closing(env.container.executeWithTimeout(getattr(env.protocol, 'processtimeout', None), r)) as g:
-                    for m in g:
-                        yield m
-                if env.container.timeout:
+                timeout, _ = await env.container.execute_with_timeout(getattr(env.protocol, 'processtimeout', None), r)
+                if timeout:
                     if container and hasattr(container, 'logger'):
                         container.logger.warning('Timeout in HTTP processing, env=%r:', env)
-                    for m in env.error(500, showerror=False):
-                        yield m
+                    await env.error(500, showerror=False)
         except HttpExitException as exc:
             if exc.args[0]:
-                for m in env.write(exc.args[0]):
-                    yield m
+                await env.write(exc.args[0])
         except HttpInputException:
             # HTTP 400 Bad Request
-            for m in env.error(400):
-                yield m
+            await env.error(400)
         except QuitException:
             raise
         except Exception:
             if container and hasattr(container, 'logger'):
                 container.logger.exception('Unhandled exception in HTTP processing, env=%r:', env)
-            for m in env.error(500):
-                yield m
-        for m in env.close():
-            yield m
+            await env.error(500)
+        await env.close()
     except QuitException:
         raise
     except Exception:
@@ -728,7 +758,7 @@ class Dispatcher(EventHandler):
             requires = arguments[:-len(routinemethod.__defaults__)]
         else:
             requires = arguments[:]
-        def handler(env):
+        async def handler(env):
             if tostr:
                 def _str(s):
                     if not isinstance(s, str):
@@ -742,8 +772,7 @@ class Dispatcher(EventHandler):
                 env.argstostr()
                 env.cookietostr()
             if env.method == b'POST':
-                for m in env.parseform(formlimit, tostr):
-                    yield m
+                await env.parseform(formlimit, tostr)
                 argfrom = env.form
             else:
                 # Ignore input
@@ -788,13 +817,11 @@ class Dispatcher(EventHandler):
                 if csrfcheck:
                     if csrfarg not in kwargs:
                         raise HttpInputException('CSRF check failed')
-                    for m in env.sessionstart():
-                        yield m
+                    await env.sessionstart()
                     if env.session.vars[csrfarg] != kwargs[csrfarg]:
                         raise HttpInputException('CSRF check failed')
                 if sessionargs:
-                    for m in env.sessionstart():
-                        yield m
+                    await env.sessionstart()
                     for sa in sessionargs:
                         extract(sa, env.session.vars)
                 # Check required arguments
@@ -815,8 +842,7 @@ class Dispatcher(EventHandler):
             except Exception as exc:
                 raise HttpInputException(str(exc))
             if r:
-                for m in r:
-                    yield m
+                return await r
         self.route(path, handler, container, host, vhost, method)
     class _EncodedMatch(object):
         "Hacker for match.expand"
@@ -828,32 +854,32 @@ class Dispatcher(EventHandler):
             return quote_from_bytes(self.__innerobj.group(index)).encode('ascii')
     @classmethod
     def expand(cls, match, expand):
-        # If use expand directly, the url-decoded context will be decoded again, which create a security
-        # issue. Hack expand to quote the text before expanding
+        """
+        If use expand directly, the url-decoded context will be decoded again, which create a security
+        issue. Hack expand to quote the text before expanding
+        """
         return re._expand(match.re, cls._EncodedMatch(match), expand)
     def rewrite(self, path, expand, newmethod = None, host = None, vhost = None, method = [b'GET', b'HEAD'], keepquery = True):
-        "Rewrite a request to another location"
-        def func(env):
+        "Automatically rewrite a request to another location"
+        async def func(env):
             newpath = self.expand(env.path_match, expand)
             if keepquery and getattr(env, 'querystring', None):
                 if b'?' in newpath:
                     newpath += b'&' + env.querystring
                 else:
                     newpath += b'?' + env.querystring
-            for m in env.rewrite(newpath, newmethod):
-                yield m
+            await env.rewrite(newpath, newmethod)
         self.route(path, func)
     def redirect(self, path, expand, status = 302, host = None, vhost = None, method = [b'GET', b'HEAD'], keepquery = True):
-        "Redirect a request to another location"
-        def func(env):
+        "Automatically redirect a request to another location"
+        async def func(env):
             newpath = self.expand(env.path_match, expand)
             if keepquery and getattr(env, 'querystring', None):
                 if b'?' in newpath:
                     newpath += b'&' + env.querystring
                 else:
                     newpath += b'?' + env.querystring
-            for m in env.redirect(newpath, status):
-                yield m
+            await env.redirect(newpath, status)
         self.route(path, func)
 
 class HttpHandler(RoutineContainer):

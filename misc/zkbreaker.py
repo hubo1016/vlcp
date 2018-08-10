@@ -9,7 +9,13 @@ import vlcp.protocol.zookeeper
 from random import random
 from vlcp.event.core import syscall_clearqueue
 
-@config('zookeeper')
+from logging import getLogger
+
+
+_logger = getLogger(__name__)
+
+
+@config('protocol.zookeeper')
 class BreakingZooKeeper(ZooKeeper):
     '''
     This evil protocol breaks ZooKeeper connection from time to time to validate your client
@@ -18,21 +24,22 @@ class BreakingZooKeeper(ZooKeeper):
     _default_senddrop = 0.001
     _default_receivedrop = 0.01
     
-    def _senddata(self, connection, data, container):
+    async def _senddata(self, connection, data, container, priority = 0):
         if random() < self.senddrop:
-            for m in connection.reset(True):
-                yield m
-        for m in ZooKeeper._senddata(self, connection, data, container):
-            yield m
-    def requests(self, connection, requests, container, callback=None):
+            _logger.warning("Oops, I break a connection when sending")
+            await connection.reset(True)
+        return await ZooKeeper._senddata(self, connection, data, container, priority)
+
+    async def requests(self, connection, requests, container, callback=None, priority = 0):
         def evil_callback(request, response):
             if random() < self.receivedrop:
+                _logger.warning("Oops, I break a connection when receiving")
                 connection.subroutine(connection.reset(True), False)
                 connection.subroutine(connection.syscall_noreturn(syscall_clearqueue(connection.scheduler.queue[('message', connection)])))
             if callback:
                 callback(request, response)
-        for m in ZooKeeper.requests(self, connection, requests, container, callback=callback):
-            yield m
-            
+        return await ZooKeeper.requests(self, connection, requests, container, evil_callback, priority)
+
+
 def patch_zookeeper():
     vlcp.protocol.zookeeper.ZooKeeper = BreakingZooKeeper

@@ -10,6 +10,7 @@ from vlcp.event.runnable import RoutineContainer
 import sys
 import getopt
 
+
 class ScriptModule(Module):
     '''
     Base script module
@@ -23,18 +24,17 @@ class ScriptModule(Module):
     def __init__(self, server):
         Module.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)
-        def _main():
+        async def _main():
             try:
-                for m in self.run(*self.args, **self.kwargs):
-                    yield m
+                return await self.run(*self.args, **self.kwargs)
             finally:
                 self.scheduler.quit()
         self.apiroutine.main = _main
         self.routines.append(self.apiroutine)
-    def run(self, *argv, **kwargs):
+
+    async def run(self, *argv, **kwargs):
         print('Running script...')
-        if False:
-            yield
+
     @classmethod
     def main(cls):
         short_opts = 'f:h?'
