@@ -21,3 +21,5 @@ There are some introducing articles for VLCP or related technologies in Chinese:
 
 `No-SQL数据库中的事务性设计（续）——VLCP中的ObjectDB简要介绍 <https://zhuanlan.zhihu.com/p/23747209>`_
 
+.. note:: The code examples in them are outdated because they are written for v1.x, but v2.0
+          changes the basic grammer and moved to Python 3.5+. But, most designs remain the same.

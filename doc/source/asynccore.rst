@@ -79,60 +79,88 @@ from the ancestors to the descendants.
 VLCP Routines and Routine Containers
 ====================================
 
-VLCP is a coroutine-based framework. Each coroutine is a Python generator which yields tuples of event matchers::
-
-   def new_routine():
+VLCP is a coroutine-based framework. Each coroutine is a Python async coroutine (created by an async function)::
+   
+   from vlcp.event import M_
+   
+   async def new_routine():
        # Wait for event1
-       yield (event_matcher1,)
+       ev = await event_matcher1
        # Some work...
        # Wait for event2
-       yield (event_matcher2,)
+       ev = await event_matcher2
+       # Wait for multiple events, return the first matched event and the corresponding matcher
+       ev, m = await M_(event_matcher3, event_matcher4)
+       if m is event_matcher3:
+          ...
+       else:
+          ...
 
-On each yield, the routine is suspended by scheduler to wait for an event object which matches one of the
-yielded event matchers. When this event object appears, scheduler wake up the routine to let it continue.
+.. note:: From v2.0, async coroutines are used instead of generators. Notice that the async functions
+          are not compatible with `asyncio`: `asyncio` awaitable cannot be awaited in VLCP, and VLCP
+          awaitables cannot be awaited in `asyncio`.
+
+Following objects are awaitables in VLCP:
+
+1. An event matcher - when awaited, return the matched event
+2. A `vlcp.event.M_` object - wait for multiple matchers, return (event, matcher) tuple
+3. A `vlcp.event.future.Future` object - return the result of the future
+4. (internal) `vlcp.event.event.Diff_` and `vlcp.event.event.DiffRef_` object -
+   specialized event matcher tuples for efficient differencing, used by `wait_for_all`.
+5. Other coroutines (created by an async method)
+
+The routine is suspended by scheduler to wait for an event object which matches one of the
+yielded event matchers inside a `await` expression. When this event object appears,
+scheduler wake up the routine to let it continue.
 An event object can wake up multiple routines, and the routines will be executed in order.
 
 Each routine is associated with a **Routine Container**. The routine container is an object of type
 :py:class:`vlcp.event.runnable.RoutineContainer`. It is used as the executing context of the routine.
-When the routine awakes, the matched event object is saved to `container.event` and the matcher which
-matches this event is saved to `container.matcher`. Routines use these variables to determine what to do next.
+When the routine awakes, the matched event object and the matcher is sent to the routine as `await` return
+values. Routines use these variables to determine what to do next.
 
-A coroutine method (generator) can be called with a for-loop (or `yield from` in Python 3.4+) as long as they
-are associated with the same **Routine Container** (or the method accepts the routine container as a parameter)::
+.. note:: In v1.x, `container.event` and `container.matcher` is used to receive the event and matcher.
+          It is no longer supported in v2.0 - use return value instead.
 
-   for m in my_method(container):
-       yield m
+An async method can also be awaited::
+   
+   async def my_method():
+       ev = await my_event_matcher
+       return ev.result
+   
+   return_value = await my_method()
 
-.. note:: You must use the for-loop (or `yield from`) to call a coroutine method. Use only `my_method(container)`
+.. note:: You must use `await` to call a coroutine method. Use only `my_method()`
           does not have any effect. Beginners are easy to make this mistake.
+          Python 3.5+ will show warnings on coroutines not awaited.
+          
 
-Coroutine methods can return value through the routine container. Usually it uses `container.retvalue`, but some
-methods use different names, please read documents of those methods.
+Coroutine methods can return value like `return_value` in the above example.
+
+.. note:: In v1.x, `container.retvalue` is used for return value of a coroutine method (because Python 2.x
+          does not support returning a value from a generator method). This is no longer supported in v2.0
 
 Routine containers have some helpful methods to construct common work flows. One of the most important methods is
-`waitForSend`, which sends an event object to wake up other routines::
+`wait_for_send`, which sends an event object to wake up other routines::
 
-   for m in container.waitForSend(my_event):
-       yield m
-       
+   await container.wait_for_send(my_event)
+
+.. note:: From v2.0, many methods of `RoutineContainer` class uses name consistent with PEP 8(lower_case_with_underscores),
+          but the previous mixedCase names (like `waitForSend`) is kept for compatibility.
+
 The sending process is asynchronous, which means the method returns before other routines receive this event object.
 
 Another method `subroutine` creates a new routine and let it executes independently::
 
-   def new_routine():
+   async def new_routine():
        ...
        
    container.subroutine(new_routine())
 
 It is quite similar to the `go` statement in Golang.   
 
-If a coroutine method must be executed in a specified container, you can call it from another container with
-`delegateOther` method::
-   
-   for m in container.delegateOther(remote_routine(), remote_container):
-       yield m
-       
-   retvalue = container.retvalue[0]
+.. note:: In v1.x, many async methods can only be called by routines in the same `RoutineContainer`.
+          This limit is removed in v2.0, so `delegate` methods are deprecated.
 
 See :py:class:`vlcp.event.runnable.RoutineContainer` for all the useful methods.
 
@@ -178,7 +206,7 @@ usage to different connections on high load. A subqueue can also have subqueues 
 priorities.
 
 A subqueue can have size limit, so that when the subqueue is full, the routine which tries to send an event with
-`waitForSend()` stops and wait for the queue to have space for more events. This provides an easy way to create
+`wait_for_send()` stops and wait for the queue to have space for more events. This provides an easy way to create
 a robust consumer-producer system.
 
 Subqueues can be created or removed by routines when the scheduler is running. Event senders and receivers do not
@@ -207,11 +235,10 @@ the event object blocking by default, like::
     
 When an event object is processed, the routine should set `canignore = True` on the event object immediately::
 
-   def my_routine(container):
+   async def my_routine():
        matcher = MyBlockingEvent.createMatcher(12)
-       yield (matcher,)
-       event = container.event
-       event.canignore = True
+       ev = await matcher
+       ev.canignore = True
        
 When a blocking event is not processed correctly, it goes back to the subqueue from the front end, and blocks
 the subqueue until it is matched by a newly registered event matcher. The processing order of the events are not

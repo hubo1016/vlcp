@@ -193,7 +193,7 @@ class generatorwrapper(object):
 
 def Routine(coroutine, scheduler, asyncStart = True, container = None, manualStart = False, daemon = False):
     """
-    This wraps a normal generator to become a VLCP routine. Usually you do not need to call this yourself;
+    This wraps a normal coroutine to become a VLCP routine. Usually you do not need to call this yourself;
     `container.start` and `container.subroutine` calls this automatically.
     """
     def run():
@@ -345,7 +345,7 @@ class RoutineContainer(object):
         self.scheduler = scheduler
     def main(self):
         """
-        The main routine method, should be rewritten to a generator method
+        The main routine method, should be rewritten to an async method
         """
         raise NotImplementedError
     def start(self, asyncStart = False):
@@ -368,8 +368,7 @@ class RoutineContainer(object):
         """
         Start extra routines in this container.
         
-        :param iterator: A generator object i.e the return value of a generator method `my_routine()`,
-                         or a coroutine
+        :param iterator: A coroutine object i.e the return value of an async method `my_routine()`
         
         :param asyncStart: if False, start the routine in foreground. By default, the routine
                            starts in background, which means it is not executed until the current caller

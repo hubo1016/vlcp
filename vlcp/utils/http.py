@@ -262,7 +262,7 @@ class Environment(object):
         await self.flush(True)
     def nl2br(self, text):
         """
-        Replace '\n' with '<br/>\n'
+        Replace \'\n\' with \'<br/>\\n\'
         """
         if isinstance(text, bytes):
             return text.replace(b'\n', b'<br/>\n')
@@ -632,12 +632,18 @@ class Dispatcher(EventHandler):
     def routeevent(self, path, routinemethod, container = None, host = None, vhost = None, method = [b'GET', b'HEAD']):
         '''
         Route specified path to a routine factory
-        :param path: path to match, can be a regular expression 
+        
+        :param path: path to match, can be a regular expression
+         
         :param routinemethod: factory function routinemethod(event), event is the HttpRequestEvent
-        :param container: routine container. If None, default to self for bound method, or event.connection if not 
+        
+        :param container: routine container. If None, default to self for bound method, or event.connection if not
+         
         :param host: if specified, only response to request to specified host
+        
         :param vhost: if specified, only response to request to specified vhost.
                       If not specified, response to dispatcher default vhost.
+        
         :param method: if specified, response to specified methods
         '''
         regm = re.compile(path + b'$')
@@ -684,13 +690,19 @@ class Dispatcher(EventHandler):
     def route(self, path, routinemethod, container = None, host = None, vhost = None, method = [b'GET', b'HEAD']):
         '''
         Route specified path to a WSGI-styled routine factory
-        :param path: path to match, can be a regular expression 
+        
+        :param path: path to match, can be a regular expression
+         
         :param routinemethod: factory function routinemethod(env), env is an Environment object
                 see also utils.http.Environment
+        
         :param container: routine container
+        
         :param host: if specified, only response to request to specified host
+        
         :param vhost: if specified, only response to request to specified vhost.
                       If not specified, response to dispatcher default vhost.
+        
         :param method: if specified, response to specified methods
         '''
         self.routeevent(path, statichttp(container)(routinemethod), container, host, vhost, method)
@@ -703,43 +715,62 @@ class Dispatcher(EventHandler):
         creates a 400 Bad Request response. If optional arguments are missing, they are replaced with default values
         just as normal Python call does. If handler accepts keyword arguments, extra arguments are sent
         with kwargs. If not, they are safely ignored.
+        
         :param path: path to match, can be a regular expression
+        
         :param routinemethod: factory function routinemethod(env, arga, argb, argc...). env is an Environment
                 object. form or querystring arguments 'arga', 'argb', 'argc' are passed to arga, argb, argc.
+        
         :param container: routine container
+        
         :param host: if specified, only response to request to specified host
+        
         :param vhost: if specified, only response to request to specified vhost.
                       If not specified, response to dispatcher default vhost.
+        
         :param method: methods allowed. With POST method, arguments are extracted from form by default;
                         With GET or HEAD method, arguments are extracted from querystring(args).
+        
         :param tostr: In Python3, convert bytes to str before sending arguments to handler.
+        
         :param matchargs: Instead of using form or args, extract arguments from path match.
                         matchargs is a sequence of matcher group names. If specified a group name
                         by number, the argument is used as positional arguments; if specified a group
                         name by name(str), the argument is used as a keyword argument.
+        
         :param fileargs: Instead of using form or args, extract specified arguments from files.
+        
         :param queryargs: Instead of using form, extract specified arguments from args. Notice that when
-                        GET is allowed, the arguments are always extracted from args by default.
+                          GET is allowed, the arguments are always extracted from args by default.
+        
         :param cookieargs: Instead of using form or args, extract specified arguments from cookies.
+        
         :param sessionargs: Instead of using form or args, extract specified arguments from session.
-                        Notice that if sessionargs is not empty, env.sessionstart() is called,
-                        so vlcp.service.utils.session.Session module must be loaded.        
+                            Notice that if sessionargs is not empty, env.sessionstart() is called,
+                            so vlcp.service.utils.session.Session module must be loaded.
+                
         :param csrfcheck: If True, check <csrfarg> in input arguments against <csrfarg> in session.
-                        Notice that csrfcheck=True cause env.sessionstart() to be called, so
-                        vlcp.service.utils.session.Session module must be loaded.
-        :param csrfarg: argument name to check, default to "_csrf" 
+                          Notice that csrfcheck=True cause env.sessionstart() to be called, so
+                          vlcp.service.utils.session.Session module must be loaded.
+        
+        :param csrfarg: argument name to check, default to "_csrf"
+         
         :param formlimit: limit on parseform, default to 64MB. None to no limit.
-        For example, if using:
-        def handler(env, target, arga, argb, argc):
-            ...
-        dispatcher.routeargs(b'/do/(.*)', handler, matchargs=(1,), queryargs=('argc'))
         
-        And there is a HTTP POST:
-        POST /do/mytarget?argc=1 HTTP/1.1
-        Host: ...
-        ...
+        For example, if using::
         
-        arga=test&argb=test2
+           async def handler(env, target, arga, argb, argc):
+              ...
+           
+           dispatcher.routeargs(b'/do/(.*)', handler, matchargs=(1,), queryargs=('argc'))
+        
+        And there is a HTTP POST::
+        
+           POST /do/mytarget?argc=1 HTTP/1.1
+           Host: ...
+           ...
+        
+           arga=test&argb=test2
         
         then handler accepts arguments: target="mytarget", arga="test", argb="test2", argc="1"
         '''

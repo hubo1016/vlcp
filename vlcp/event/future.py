@@ -9,17 +9,21 @@ the event. Multiple routines can wait for the same Future object.
 
 The interface is similar to asyncio, but:
 
-- Cancel is not supported - you should terminate the sender routine instead. But RoutineFuture supports
-  close() (and cancel() which is the same)
+- Cancel is not supported - you should terminate the sender routine instead. But `RoutineFuture` supports
+  `close()` (and `cancel()` which is the same)
 
 - Callback is not supported - start a subroutine to wait for the result instead.
 
-- result() returns None if the result is not ready; exception() is not supported.
+- `result()` returns None if the result is not ready; `exception()` is not supported.
 
-- New wait() generator function: get the result, or wait for the result until available. It is
-  always the recommended way to use a future; result() is not recommended.
+- New `wait()` async function: get the result, or wait for the result until available. It is
+  always the recommended way to use a future; `result()` is not recommended.
+  
+  `wait()` will NOT cancel the `Future` (or `RoutineFuture`) when the waiting coroutine is
+  closed. This is different from `asyncio.Future`. To ensure that the future closes after awaited,
+  use `wait_and_close()` of `RoutineFuture`.
 
-- ensure_result() which returns a context manager: this should be used in the sender routine,
+- `ensure_result()` returns a context manager: this should be used in the sender routine,
   to ensure that a result is always set after exit the with scope. If the result is not set,
   it is set to None; if an exception is raised, it is set with set_exception.
 
@@ -32,6 +36,10 @@ from vlcp.event.runnable import GeneratorExit_
 
 @withIndices('futureobj')
 class FutureEvent(Event):
+    pass
+
+
+class FutureCancelledException(Exception):
     pass
 
 
@@ -107,19 +115,20 @@ class Future(object):
         try:
             yield self
         except Exception as exc:
-            self.set_exception(exc)
+            if not self.done():
+                self.set_exception(exc)
             if not supress_exception:
                 raise
+        except:
+            if not self.done():
+                self.set_exception(FutureCancelledException('cancelled'))
+            raise
         else:
             if not self.done():
                 self.set_result(defaultresult)
     
     def __await__(self):
         return self.wait().__await__()
-
-
-class FutureCancelledException(Exception):
-    pass
 
 
 class RoutineFuture(Future):

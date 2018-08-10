@@ -65,17 +65,24 @@ class Protocol(Configurable):
     def parse(self, connection, data, laststart):
         '''
         Parse input data into events
+        
         :param connection: connection object
+        
         :param data: view for input data
+        
         :param laststart: last parsed position
+        
         :returns: (events, keep) where events are parsed events to send, keep is the unused data length to be keeped for next parse.
         '''
         raise NotImplementedError
     def serialize(self, connection, event):
         '''
         Serialize a write event to bytes, and return if it is EOF
+        
         :param connection: connection object
+        
         :param event: write event
+        
         :returns: (bytes, EOF)
         '''
         return (event.data, getattr(event, 'EOF', False))

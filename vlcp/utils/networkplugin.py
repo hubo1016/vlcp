@@ -45,7 +45,7 @@ def createphysicalnetwork(type, create_processor = partial(default_processor, ex
     """
     :param type: physical network type
     
-    :param create_processor: create_processor(physicalnetwork, walk, write, *, parameters)
+    :param create_processor: create_processor(physicalnetwork, walk, write, \*, parameters)
     """
     # create an new physical network
     def walker(walk, write, timestamp, parameters_dict):
@@ -79,7 +79,7 @@ def createphysicalnetwork(type, create_processor = partial(default_processor, ex
 def updatephysicalnetwork(update_processor = partial(default_processor, disabled=('type',)),
                                 reorder_dict = default_iterate_dict):
     """
-    :param update_processor: update_processor(physicalnetwork, walk, write, *, parameters)
+    :param update_processor: update_processor(physicalnetwork, walk, write, \*, parameters)
     """
     def walker(walk, write, timestamp, parameters_dict):
         # do not need to check value is not None in a plugin; it is checked in the caller
@@ -104,7 +104,7 @@ def default_physicalnetwork_delete_check(phynet, phymap, *args, parameters):
 def deletephysicalnetwork(check_processor = default_physicalnetwork_delete_check,
                                 reorder_dict = default_iterate_dict):
     """
-    :param check_processor: check_processor(physicalnetwork, physicalnetworkmap, walk, write, *, parameters)
+    :param check_processor: check_processor(physicalnetwork, physicalnetworkmap, walk, write, \*, parameters)
     """
     def walker(walk, write, timestamp, parameters_dict):
         for key, parameters in reorder_dict(parameters_dict):
@@ -143,7 +143,7 @@ def createphysicalport(create_processor = partial(default_processor, excluding=(
                                                                                        'physicalnetwork')),
                        reorder_dict = default_iterate_dict):
     """
-    :param create_processor: create_processor(physicalport, physicalnetwork, physicalnetworkmap, walk, write, *, parameters)
+    :param create_processor: create_processor(physicalport, physicalnetwork, physicalnetworkmap, walk, write, \*, parameters)
     """
     def walker(walk, write, timestamp, parameters_dict):
         for key, parameters in reorder_dict(parameters_dict):
@@ -186,7 +186,7 @@ def updatephysicalport(update_processor = partial(default_processor, excluding=(
                        reorder_dict = default_iterate_dict
                       ):
     """
-    :param update_processor: update_processor(physcialport, walk, write, *, parameters)    
+    :param update_processor: update_processor(physcialport, walk, write, \*, parameters)    
     """
     def walker(walk, write, timestamp, parameters_dict):
         for key, parameters in reorder_dict(parameters_dict):
@@ -204,7 +204,7 @@ def deletephysicalport(check_processor=_false_processor,
                        reorder_dict = default_iterate_dict):
     """
     :param check_processor: check_processor(physicalport, physicalnetwork, physicalnetworkmap,
-                            walk, write *, parameters)
+                            walk, write \*, parameters)
     """
     def walker(walk, write, timestamp, parameters_dict):
         for key, parameters in reorder_dict(parameters_dict):
@@ -248,7 +248,7 @@ def createlogicalnetwork(create_processor = partial(default_processor, excluding
                          reorder_dict = default_iterate_dict):
     """
     :param create_processor: create_processor(logicalnetwork, logicalnetworkmap, physicalnetwork,
-                             physicalnetworkmap, walk, write, *, parameters)
+                             physicalnetworkmap, walk, write, \*, parameters)
     """
     def walker(walk, write, timestamp, parameters_dict):
         for key, parameters in reorder_dict(parameters_dict):
@@ -291,7 +291,7 @@ def updatelogicalnetwork(update_processor = partial(default_processor, excluding
                                                                        disabled=('physicalnetwork',)),
                          reorder_dict = default_iterate_dict):
     """
-    :param update_processor: update_processor(logicalnetwork, walk, write, *, parameters)
+    :param update_processor: update_processor(logicalnetwork, walk, write, \*, parameters)
     """
     def walker(walk, write, timestamp, parameters_dict):
         for key, parameters in reorder_dict(parameters_dict):
@@ -317,7 +317,7 @@ def deletelogicalnetwork(check_processor=default_logicalnetwork_delete_check,
     """
     :param check_processor: check_processor(logicalnetwork, logicalnetworkmap,
                                             physicalnetwork, physicalnetworkmap,
-                                            walk, write, *, parameters)
+                                            walk, write, \*, parameters)
     """
     def walker(walk, write, timestamp, parameters_dict):
         for key, parameters in reorder_dict(parameters_dict):
