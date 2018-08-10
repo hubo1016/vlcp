@@ -1,2 +1,2 @@
 Jinja2
-vlcp-docker-plugin==0.2.7
+vlcp-docker-plugin<0.3.0
