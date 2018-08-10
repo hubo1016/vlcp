@@ -41,11 +41,12 @@ Usually you may build a RPM package once and install it on each server nodes wit
 Prepare Python Environment
 --------------------------
 
-VLCP works in Python 2.6, Python 2.7, Python 3.3+ and PyPy2. For production environment, PyPy is recommended
+VLCP v2.0 works Python 3.5+ and PyPy3.5. For production environment, PyPy3 is recommended
 which is about 5x faster than CPython. The most simple way to use PyPy is using the
 `Portable PyPy distribution for Linux <https://github.com/squeaky-pl/portable-pypy#portable-pypy-distribution-for-linux>`_.
-For test purpose, using the default CPython (2.7 in CentOS 7) is enough. You may also use a *virtualenv* environment
-if you want.
+You may also use a *virtualenv* environment if you want.
+
+.. note:: VLCP v1.x supports Python 2.6, Python 2.7 and PyPy2, but in v2.0, only Python 3.5+ are supported.
 
 Use pip to install VLCP. If pip is not ready, refer to `https://pip.pypa.io/en/stable/installing/ <https://pip.pypa.io/en/stable/installing/>`_.
 If you are using old versions of pip, you may also want to upgrade pip, setuptools and wheel::
