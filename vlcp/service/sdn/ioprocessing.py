@@ -15,7 +15,7 @@ from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.utils.networkmodel import PhysicalPort, LogicalPort, PhysicalPortSet, LogicalPortSet, LogicalNetwork, \
     PhysicalNetwork,SubNet,RouterPort,VRouter, \
     PhysicalNetworkMap
-from vlcp.utils.flowupdater import FlowUpdater,FlowUpdaterNotification
+from vlcp.utils.flowupdater import FlowUpdater
 
 import itertools
 from functools import partial
@@ -132,7 +132,7 @@ class IOFlowUpdater(FlowUpdater):
         flowready_matcher = FlowReadyEvent.createMatcher(self._connection)
         conn_down = self._connection.protocol.statematcher(self._connection)
         dataobjectchanged = DataObjectChanged.createMatcher(None, None, self._connection)
-        while True:
+        while self._connection.connected:
             currentlognetid = dict((id, n) for n, id in self._lastlognets)
             currentphyportid = dict((id, (p, p.physicalnetwork)) for p, id in self._lastphyports)
             if (logicalnetworkid, physicalportid) in self._flows_sent:
@@ -142,6 +142,7 @@ class IOFlowUpdater(FlowUpdater):
                 await M_(dataobjectchanged, conn_down, flowready_matcher)
             else:
                 return False
+        return False
 
     def _logicalport_walker(self, key, value, walk, save, _portids):
         _, (id,) = LogicalPort._getIndices(key)

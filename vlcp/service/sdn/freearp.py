@@ -39,10 +39,6 @@ class FreeArpUpdater(FlowUpdater):
 
     async def main(self):
         try:
-            if self._connection.protocol.disablenxext:
-                self._logger.warning("FreeArpUpdater disabled on connection %r because Nicira extension is not enabled",
-                                     self._connection)
-                return
             self.subroutine(self._update_handler(), True, '_update_handler_routine')
             await FlowUpdater.main(self)
         finally:
@@ -58,12 +54,14 @@ class FreeArpUpdater(FlowUpdater):
             self.updateobjects((p for p, _ in self._lastlogports))
 
     def _walk_logport(self, key, value, walk, save):
+        save(key)
         if value is not None:
-            save(key)
+            return
 
     def _walk_phyport(self, key, value, walk, save):
+        save(key)
         if value is not None:
-            save(key)
+            return
 
     def _walk_lognet(self, key, value, walk, save):
         save(key)
@@ -98,8 +96,7 @@ class FreeArpUpdater(FlowUpdater):
             cmds = []
             ofdef = connection.openflowdef
 
-
-            def packetOut_freeArp(logicalport,logicalnet,logicalnetid,phyportid):
+            def packet_out_free_arp(logicalport,logicalnet,logicalnetid,phyportid):
                 egress = self._parent._gettableindex("egress", self._connection.protocol.vhost)
                 arp_request_packet = arp_packet_l4(
                     dl_src=mac_addr(logicalport.mac_address),
@@ -142,10 +139,10 @@ class FreeArpUpdater(FlowUpdater):
                     logicalnetid, _ = currentlognetinfo[logicalnet]
                     phyportid, _ = currentphynetinfo[logicalnet.physicalnetwork]
                     if phyportid is not None and logicalnet.physicalnetwork.type in self._parent.allowednetworktypes:
-                        await call_api(self, 'ioprocessing', 'flowready', {'connection': connection,
+                        if await call_api(self, 'ioprocessing', 'flowready', {'connection': connection,
                                                                             'logicalnetworkid': logicalnetid,
-                                                                            'physicalportid': phyportid})
-                        cmds.append(packetOut_freeArp(p,logicalnet,logicalnetid,phyportid))
+                                                                            'physicalportid': phyportid}):
+                            cmds.append(packet_out_free_arp(p,logicalnet,logicalnetid,phyportid))
             if cmds is not None:
                 await self.execute_commands(connection, cmds)
         except Exception:
@@ -160,7 +157,7 @@ class FreeArp(FlowBase):
     _tablerequest = (("ingress", (), ''),
                      ("egress", ("ingress",), ''))
 
-    _default_allowednetworktypes = ('native', 'vlan')
+    _default_allowednetworktypes = ("native", "vlan")
 
     def __init__(self, server):
         FlowBase.__init__(self, server)

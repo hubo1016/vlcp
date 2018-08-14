@@ -313,8 +313,8 @@ class ARPUpdater(FlowUpdater):
                                                                 )
                                                            ])
                                )
-            def _create_flow2(ip, mac, nid, pid, islocal, broadcast,ifdrop):
-                if ifdrop:
+            def _create_flow2(ip, mac, nid, pid, islocal, broadcast,ifpass):
+                if ifpass:
                     ins = [ofdef.ofp_instruction_goto_table(table_id=arp_next)]
                 else:
                     ins = [ofdef.ofp_instruction_actions(type=ofdef.OFPIT_CLEAR_ACTIONS)]
@@ -348,7 +348,10 @@ class ARPUpdater(FlowUpdater):
                         if lognet in current_arps and lognet in currentlognetinfo:
                             nid, _ = currentlognetinfo[lognet]
                             if islocal and port == p:
-                                cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast, True))
+                                if p.network.physicalnetwork.type in self._parent.enable_freearp_networktypes and self._parent.enable_freearp:
+                                    cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast, True))
+                                else:
+                                    cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast, False))
             # phynetdict = {}
             # for n in current_arps:
             #     phynet = n.physicalnetwork
@@ -403,6 +406,9 @@ class ARPResponder(FlowBase):
     # Drop ARP requests with unknown IP addresses. The ports will not be able to access external IPs,
     # so use with caution.
     _default_disableothers = False
+    _default_enable_freearp = True
+    _default_enable_freearp_networktypes = ("vlan", "native")
+
     def __init__(self, server):
         FlowBase.__init__(self, server)
         self.apiroutine = RoutineContainer(self.scheduler)
