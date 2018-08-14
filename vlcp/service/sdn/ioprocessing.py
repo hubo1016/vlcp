@@ -4,7 +4,7 @@ Created on 2016/4/13
 :author: hubo
 '''
 from vlcp.service.sdn.flowbase import FlowBase
-from vlcp.server.module import depend, ModuleNotification, call_api
+from vlcp.server.module import depend, ModuleNotification, call_api,api
 import vlcp.service.sdn.ofpportmanager as ofpportmanager
 import vlcp.service.sdn.ovsdbportmanager as ovsdbportmanager
 import vlcp.service.kvdb.objectdb as objectdb
@@ -15,12 +15,13 @@ from vlcp.service.sdn.ofpmanager import FlowInitialize
 from vlcp.utils.networkmodel import PhysicalPort, LogicalPort, PhysicalPortSet, LogicalPortSet, LogicalNetwork, \
     PhysicalNetwork,SubNet,RouterPort,VRouter, \
     PhysicalNetworkMap
-from vlcp.utils.flowupdater import FlowUpdater
+from vlcp.utils.flowupdater import FlowUpdater,FlowUpdaterNotification
 
 import itertools
 from functools import partial
 from contextlib import closing, suppress
 from vlcp.utils.exceptions import WalkKeyNotRetrieved
+from vlcp.protocol.openflow.openflow import OpenflowConnectionStateEvent
 
 @withIndices('datapathid', 'vhost', 'connection', 'logicalportchanged', 'physicalportchanged',
                                                     'logicalnetworkchanged', 'physicalnetworkchanged')
@@ -60,6 +61,12 @@ def _to32bitport(portno):
         portno = 0xffff0000 | portno
     return portno
 
+
+@withIndices('connection')
+class FlowReadyEvent(Event):
+    pass
+
+
 class IOFlowUpdater(FlowUpdater):
     def __init__(self, connection, systemid, bridgename, parent):
         FlowUpdater.__init__(self, connection, (PhysicalPortSet.default_key(),),
@@ -85,6 +92,7 @@ class IOFlowUpdater(FlowUpdater):
         self._original_initialkeys = []
         self._append_initialkeys = []
         self._parent = parent
+        self._flows_sent = set()
 
     async def update_ports(self, ports, ovsdb_ports):
         """
@@ -112,6 +120,28 @@ class IOFlowUpdater(FlowUpdater):
         self._portnames = new_port_names
         self._portids = new_port_ids
         await self.restart_walk()
+
+    async def flowready(self, logicalnetworkid, physicalportid):
+        # 1. Check the current updated flows
+        # 2. Check the current logicalnetwork and physicalport
+        # 3. Wait for:
+        #    a. flow updated event
+        #    b. data object change event
+        #    c. connection down event
+
+        flowready_matcher = FlowReadyEvent.createMatcher(self._connection)
+        conn_down = self._connection.protocol.statematcher(self._connection)
+        dataobjectchanged = DataObjectChanged.createMatcher(None, None, self._connection)
+        while True:
+            currentlognetid = dict((id, n) for n, id in self._lastlognets)
+            currentphyportid = dict((id, (p, p.physicalnetwork)) for p, id in self._lastphyports)
+            if (logicalnetworkid, physicalportid) in self._flows_sent:
+                return True
+            elif logicalnetworkid in currentlognetid and physicalportid in currentphyportid:
+                conn_down = OpenflowConnectionStateEvent.createMatcher(None, None, OpenflowConnectionStateEvent.CONNECTION_DOWN, self._connection)
+                await M_(dataobjectchanged, conn_down, flowready_matcher)
+            else:
+                return False
 
     def _logicalport_walker(self, key, value, walk, save, _portids):
         _, (id,) = LogicalPort._getIndices(key)
@@ -221,6 +251,8 @@ class IOFlowUpdater(FlowUpdater):
                                                                                        current_data.get(PhysicalPort),
                                                                                        current_data.get(LogicalNetwork),
                                                                                        current_data.get(PhysicalNetwork))))
+        self._lastlognets = current_data.get(LogicalNetwork)
+        self._lastphyports = current_data.get(PhysicalPort)
         self._currentportids = _currentportids
         self._currentportnames = _currentportnames
 
@@ -284,6 +316,7 @@ class IOFlowUpdater(FlowUpdater):
             group_updates.update(lnet for pnet in updated_physicalnetworks
                                  if pnet in lognetdict
                                  for lnet in lognetdict[pnet])
+            _flows_sent = set()
             for pnet in phynetset:
                 if pnet in lognetdict and pnet in phyportdict:
                     for lognet in lognetdict[pnet]:
@@ -304,6 +337,7 @@ class IOFlowUpdater(FlowUpdater):
                                                 self._parent._logger.warning("Create flow parts failed for %r and %r", lognet, p, exc_info = True)
                                                 return None
                                             else:
+                                                _flows_sent.add((netid, pid))
                                                 return ((lognet, p), r)
                                         allapis.append(subr(lognet, p, netid, pid))
             flowparts_result = await self.execute_all(allapis)
@@ -855,6 +889,9 @@ class IOFlowUpdater(FlowUpdater):
                                                ))                
             # Ignore logical network update
             await self.execute_commands(connection, cmds)
+            self._flows_sent = _flows_sent
+            await self.wait_for_send(FlowReadyEvent(self._connection))
+
         except Exception:
             self._parent._logger.warning("Update flow for connection %r failed with exception", connection, exc_info = True)
             # We don't want the whole flow update stops, so ignore the exception and continue
@@ -879,6 +916,21 @@ class IOProcessing(FlowBase):
         self._flowupdaters = {}
         self._portchanging = set()
         self._portchanged = set()
+        self.createAPI(api(self.flowready, self.apiroutine))
+
+    async def flowready(self, connection, logicalnetworkid, physicalportid):
+        """
+        Wait until flows are sent to switch
+
+        :param connection: Openflow connection
+        :param logicalnetworkid: logical network id (integer)
+        :param physicalportid: physical port id (integer)
+        :return: If connection/network/port not exists, return False, else return True
+        """
+        if connection not in self._flowupdaters:
+            return False
+        else:
+            return await self._flowupdaters[connection].flowready(logicalnetworkid, physicalportid)
 
     async def _main(self):
         flow_init = FlowInitialize.createMatcher(_ismatch = lambda x: self.vhostbind is None or x.vhost in self.vhostbind)

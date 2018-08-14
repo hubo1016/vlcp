@@ -134,6 +134,7 @@ class ARPUpdater(FlowUpdater):
             vhost = connection.protocol.vhost
             arp = self._parent._gettableindex('arp', vhost)
             l2out_next = self._parent._getnexttable('', 'l2output', vhost = vhost)
+            arp_next = self._parent._getnexttable('', 'arp', vhost = vhost)
             #===================================================================
             # if connection.protocol.disablenxext:
             #     def match_network(nid):
@@ -312,7 +313,11 @@ class ARPUpdater(FlowUpdater):
                                                                 )
                                                            ])
                                )
-            def _create_flow2(ip, mac, nid, pid, islocal, broadcast):
+            def _create_flow2(ip, mac, nid, pid, islocal, broadcast,ifdrop):
+                if ifdrop:
+                    ins = [ofdef.ofp_instruction_goto_table(table_id=arp_next)]
+                else:
+                    ins = [ofdef.ofp_instruction_actions(type=ofdef.OFPIT_CLEAR_ACTIONS)]
                 return ofdef.ofp_flow_mod(
                                table_id = arp,
                                cookie = 0x1 | (0x2 if islocal else 0),
@@ -332,7 +337,7 @@ class ARPUpdater(FlowUpdater):
                                                 + ([ofdef.create_oxm(ofdef.OXM_OF_ETH_DST_W, b'\x01\x00\x00\x00\x00\x00', b'\x01\x00\x00\x00\x00\x00')]
                                                   if broadcast else [])
                                         ),
-                               instructions = [ofdef.ofp_instruction_actions(type = ofdef.OFPIT_CLEAR_ACTIONS)]
+                               instructions=ins
                                )
             logport_arps = dict((ent[3],ent) for n,v in current_arps.items() for ent in v if ent[3] is not None)
             for p in currentlogportinfo:
@@ -343,7 +348,7 @@ class ARPUpdater(FlowUpdater):
                         if lognet in current_arps and lognet in currentlognetinfo:
                             nid, _ = currentlognetinfo[lognet]
                             if islocal and port == p:
-                                cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast))
+                                cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast, True))
             # phynetdict = {}
             # for n in current_arps:
             #     phynet = n.physicalnetwork
@@ -375,7 +380,7 @@ class ARPUpdater(FlowUpdater):
                         cmds.append(_create_flow(ip, mac, nid, islocal, broadcast))
                         if islocal:
                             if port in currentlognetinfo:
-                                cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast))
+                                cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast,True))
             await self.execute_commands(connection, cmds)
         except Exception:
             self._logger.warning("Unexpected exception in ARPUpdater. Will ignore and continue.", exc_info = True)

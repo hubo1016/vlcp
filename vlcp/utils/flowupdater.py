@@ -251,9 +251,9 @@ class FlowUpdater(RoutineContainer):
         if cmds:
             try:
                 _, openflow_replydict = await conn.protocol.batch(cmds, conn, self)
-            except OpenflowErrorResultException:
+            except OpenflowErrorResultException as exc:
                 self._logger.warning("Some Openflow commands return error result on connection %r, will ignore and continue.\n"
                                              "Details:\n%s", conn,
                                              "\n".join("REQUEST = \n%s\nERRORS = \n%s\n" % (json.dumps(dump(k, tostr=True), indent=2),
                                                                                             json.dumps(dump(v, tostr=True), indent=2))
-                                                       for k,v in openflow_replydict.items()))
+                                                       for k,v in exc.result[1].items()))
