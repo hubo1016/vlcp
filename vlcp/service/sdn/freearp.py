@@ -39,6 +39,9 @@ class FreeArpUpdater(FlowUpdater):
 
     async def main(self):
         try:
+            if self._connection.protocol.disablenxext:
+                self._logger.warning("Free arp fuc disabled on connection %r because Nicira extension is not enabled", self._connection)
+                return
             self.subroutine(self._update_handler(), True, '_update_handler_routine')
             await FlowUpdater.main(self)
         finally:
@@ -55,18 +58,12 @@ class FreeArpUpdater(FlowUpdater):
 
     def _walk_logport(self, key, value, walk, save):
         save(key)
-        if value is not None:
-            return
 
     def _walk_phyport(self, key, value, walk, save):
         save(key)
-        if value is not None:
-            return
 
     def _walk_lognet(self, key, value, walk, save):
         save(key)
-        if value is None:
-            return
 
 
     def _update_walk(self):
