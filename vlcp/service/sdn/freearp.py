@@ -25,9 +25,9 @@ from vlcp.event.event import M_
 from vlcp.server.module import call_api
 
 
-class FreeArpUpdater(FlowUpdater):
+class FreeARPUpdater(FlowUpdater):
     def __init__(self, connection, parent):
-        FlowUpdater.__init__(self, connection, (), ('FreeArpUpdater', connection), parent._logger)
+        FlowUpdater.__init__(self, connection, (), ('FreeARPUpdater', connection), parent._logger)
         self._parent = parent
         self._lastlognets = ()
         self._lastphyports = ()
@@ -143,12 +143,12 @@ class FreeArpUpdater(FlowUpdater):
             if cmds is not None:
                 await self.execute_commands(connection, cmds)
         except Exception:
-            self._logger.warning("Unexpected exception in FreeArpUpdater. Will ignore and continue.", exc_info=True)
+            self._logger.warning("Unexpected exception in FreeARPUpdater. Will ignore and continue.", exc_info=True)
 
 
 @defaultconfig
 @depend(ofpportmanager.OpenflowPortManager, objectdb.ObjectDB)
-class FreeArp(FlowBase):
+class FreeARP(FlowBase):
     "Send FREE ARP"
 
     _tablerequest = (("ingress", (), ''),
@@ -181,7 +181,7 @@ class FreeArp(FlowBase):
         if conn in self._flowupdaters:
             updater = self._flowupdaters.pop(conn)
             updater.close()
-        updater = FreeArpUpdater(conn, self)
+        updater = FreeARPUpdater(conn, self)
         self._flowupdaters[conn] = updater
         updater.start()
 

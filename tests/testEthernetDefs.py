@@ -201,7 +201,7 @@ class Test(unittest.TestCase):
         mypacket7 = ethernet_l2.create(mypacket_bytes)
         self.assertEqual(mypacket7.dl_src, mac_addr('02:00:11:38:0a:19'))
         self.assertEqual(mypacket7.dl_dst, mac_addr('06:00:99:ff:01:07'))
-    def testEthernetArp(self):
+    def testEthernetARP(self):
         mypacket = arp_packet_l7(dl_src = mac_addr('02:00:11:38:0a:19'),
                                  dl_dst = mac_addr('ff:ff:ff:ff:ff:ff'),
                                  arp_sha = mac_addr('02:00:11:38:0a:19'),
