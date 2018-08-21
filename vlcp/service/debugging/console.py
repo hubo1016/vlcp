@@ -274,8 +274,10 @@ console_help()
             except SystemExit:
                 pass
             finally:
+                async def _quit():
+                    scheduler.quit()
+                self.sendEventQueue.put((ConsoleServiceCall(routine=_quit()),))
                 self.sendEventQueue.put(None)
-                scheduler.quit()
                 if self.startinconsole:
                     print('Wait for scheduler end, this may take some time...')
                 t.join()

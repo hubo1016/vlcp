@@ -21,6 +21,7 @@ from vlcp.event.ratelimiter import RateLimiter
 from vlcp.event.future import RoutineFuture
 from vlcp.event.runnable import RoutineException
 from vlcp.event.runnable import _close_generator
+from vlcp.event.lock import Lock
 
 @withIndices('state', 'connection', 'connmark', 'createby')
 class ZooKeeperConnectionStateEvent(Event):
@@ -116,7 +117,7 @@ class ZooKeeper(Protocol):
                                                                                         priority = ZooKeeperWriteEvent.HIGH),
                                          None, self.writequeuesize)
         # Use limiter to limit the request serialization in one iteration
-        connection._rate_limiter = (RateLimiter(256, connection), RateLimiter(256, connection))
+        connection._rate_limiter = (RateLimiter(0xfffff, connection), RateLimiter(0xfffff, connection))
         await self.reconnect_init(connection)
 
     async def reconnect_init(self, connection):
@@ -212,7 +213,7 @@ class ZooKeeper(Protocol):
             timeout, r = await container.execute_with_timeout(
                             10,
                             container.with_callback(
-                                self.requests(connection, extrapackets, container, priority=ZooKeeperWriteEvent.HIGH),
+                                self.requests(connection, extrapackets, container, priority=ZooKeeperWriteEvent.MIDDLE),
                                 callback,
                                 handshake_matcher
                             )
@@ -253,34 +254,35 @@ class ZooKeeper(Protocol):
         :return: (matchers, sendall), where matchers are event matchers for the requests; sendall
                  is an async function to send to requests. Use `await sendall()` to send the requests.
         '''
-        matchers = []
-        for r in requests:
-            xid = self._pre_assign_xid(connection, r)
-            resp_matcher = ZooKeeperResponseEvent.createMatcher(connection, connection.connmark, None, xid)
-            matchers.append(resp_matcher)
-        alldata = []
-        for i in range(0, len(requests), 100):
-            size = min(100, len(requests) - i)
-            if priority < ZooKeeperWriteEvent.HIGH:
-                await connection._rate_limiter[priority].limit(size)
-            for j in range(i, i + size):
-                r = requests[j]
+        async with Lock((connection, 'async_requests', priority), connection.scheduler):
+            matchers = []
+            for r in requests:
+                xid = self._pre_assign_xid(connection, r)
+                resp_matcher = ZooKeeperResponseEvent.createMatcher(connection, connection.connmark, None, xid)
+                matchers.append(resp_matcher)
+            alldata = []
+            for r in requests:
+                if priority < ZooKeeperWriteEvent.HIGH:
+                    # Test if already limited by consuming 1 byte
+                    await connection._rate_limiter[priority].limit(1)
                 data = r._tobytes()
                 if len(data) >= 0xfffff:
                     # This is the default limit of ZooKeeper, reject this request
                     raise ZooKeeperRequestTooLargeException('The request is %d bytes which is too large for ZooKeeper' % len(data))
+                if priority < ZooKeeperWriteEvent.HIGH:
+                    await connection._rate_limiter[priority].limit(len(data) - 1)
                 alldata.append(data)
-        for r in requests:
-            self._register_xid(connection, r)
-        async def _sendall():
-            sent_requests = []
-            for data in alldata:
-                try:
-                    sent_requests.append(await self._senddata(connection, data, container, priority))
-                except ZooKeeperRetryException:
-                    raise ZooKeeperRetryException(sent_requests)
-            return sent_requests
-        return (matchers, _sendall)
+            for r in requests:
+                self._register_xid(connection, r)
+            async def _sendall():
+                sent_requests = []
+                for data in alldata:
+                    try:
+                        sent_requests.append(await self._senddata(connection, data, container, priority))
+                    except ZooKeeperRetryException:
+                        raise ZooKeeperRetryException(sent_requests)
+                return sent_requests
+            return (matchers, _sendall)
 
     async def requests(self, connection, requests, container = None, callback = None, priority = 0):
         '''
