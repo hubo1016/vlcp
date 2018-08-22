@@ -13,6 +13,7 @@ from vlcp.event.connection import Client
 from vlcp.event.event import Event, withIndices, M_
 import logging
 import vlcp.utils.zookeeper as zk
+from vlcp.event.runnable import GeneratorExit_
 try:
     from itertools import izip_longest
 except Exception:
@@ -433,33 +434,41 @@ class ZooKeeperClient(Configurable):
         '''
         Watch the specified path as specified type
         '''
-        if watch_type == zk.CHANGED_EVENT_DEF:
-            watch_matchers = (ZooKeeperWatcherEvent.createMatcher(None, None, self.protocol, zk.CHANGED_EVENT_DEF, None, path),
-                              ZooKeeperWatcherEvent.createMatcher(None, None, self.protocol, zk.DELETED_EVENT_DEF, None, path))
-        else:
-            watch_matchers = (ZooKeeperWatcherEvent.createMatcher(None, None, self.protocol, watch_type, None, path),)
-        # If the session expires, raise exception and exit
-        session_state = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.EXPIRED,
-                                                                   self,
-                                                                   self.session_id)
-        auth_failed = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.AUTHFAILED,
-                                                                   self,
-                                                                   self.session_id)
-        # If the watchers are restored, restore the matchers
-        restore_matcher = ZooKeeperRestoreWatches.createMatcher(self, self.session_id, True)
-        while True:
-            ev, m = await M_(session_state, auth_failed, restore_matcher, *watch_matchers)
-            if m is session_state or m is auth_failed:
-                raise ZooKeeperSessionUnavailable(ev.state)
-            elif m is restore_matcher:
-                ev.restore_watches[{zk.CHANGED_EVENT_DEF : 0,
-                                   zk.CREATED_EVENT_DEF : 1,
-                                   zk.CHILD_EVENT_DEF : 2}[watch_type]].add(path)
+        try:
+            self._logger.debug("Watcher (%r, %r) created", path, watch_type)
+            if watch_type == zk.CHANGED_EVENT_DEF:
+                watch_matchers = (ZooKeeperWatcherEvent.createMatcher(None, None, self.protocol, zk.CHANGED_EVENT_DEF, None, path),
+                                  ZooKeeperWatcherEvent.createMatcher(None, None, self.protocol, zk.DELETED_EVENT_DEF, None, path))
             else:
-                watcher_event = ev.message
-                if watcher_event.path:
-                    watcher_event.path = self.unchroot_path(watcher_event.path)
-                return watcher_event
+                watch_matchers = (ZooKeeperWatcherEvent.createMatcher(None, None, self.protocol, watch_type, None, path),)
+            # If the session expires, raise exception and exit
+            session_state = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.EXPIRED,
+                                                                       self,
+                                                                       self.session_id)
+            auth_failed = ZooKeeperSessionStateChanged.createMatcher(ZooKeeperSessionStateChanged.AUTHFAILED,
+                                                                       self,
+                                                                       self.session_id)
+            # If the watchers are restored, restore the matchers
+            restore_matcher = ZooKeeperRestoreWatches.createMatcher(self, self.session_id, True)
+            while True:
+                ev, m = await M_(session_state, auth_failed, restore_matcher, *watch_matchers)
+                if m is session_state or m is auth_failed:
+                    self._logger.debug("Watcher (%r, %r) cancelled by session unavailable", path, watch_type)
+                    raise ZooKeeperSessionUnavailable(ev.state)
+                elif m is restore_matcher:
+                    self._logger.debug("Restoring watcher (%r, %r)", path, watch_type)
+                    ev.restore_watches[{zk.CHANGED_EVENT_DEF : 0,
+                                       zk.CREATED_EVENT_DEF : 1,
+                                       zk.CHILD_EVENT_DEF : 2}[watch_type]].add(path)
+                else:
+                    self._logger.debug("Watcher (%r, %r) received an event", path, watch_type)
+                    watcher_event = ev.message
+                    if watcher_event.path:
+                        watcher_event.path = self.unchroot_path(watcher_event.path)
+                    return watcher_event
+        except GeneratorExit_:
+            self._logger.debug("Watcher (%r, %r) cancelled by user", path, watch_type)
+            raise
 
     async def requests(self, requests, container, timeout = None, session_lock = None, callback = None, priority = 0):
         '''

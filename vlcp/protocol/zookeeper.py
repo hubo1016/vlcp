@@ -167,6 +167,8 @@ class ZooKeeper(Protocol):
                     reply.last_zxid = connection.zookeeper_lastzxid
                     if reply.state != ZOO_SYNC_CONNECTED_STATE:
                         self._logger.warning("Receive abnormal watch event: %s", dumps(dump(reply, tostr=True)))
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug("Watcher notification received: %s", dumps(dump(reply, tostr=True)))
                     events.append(ZooKeeperWatcherEvent(connection, connection.connmark,
                                                         self, reply.type, reply.state, b'' if reply.path is None else reply.path,
                                                         message = reply))
