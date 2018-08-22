@@ -58,6 +58,8 @@ class RateLimiter(object):
         `limit` number of "resources" are permitted.
         
         :param use: number of "resouces" to be used.
+        
+        :return: True if is limited
         """
         c = self._counter
         self._counter = c + use
@@ -66,3 +68,6 @@ class RateLimiter(object):
         if c >= self._bottom_line:
             # Limited
             await RateLimitingEvent.createMatcher(self, c // self._limit)
+            return True
+        else:
+            return False
