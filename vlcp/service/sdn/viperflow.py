@@ -1676,7 +1676,7 @@ def check_ip_pool(gateway, start, end, allocated, cidr):
         assert ip_in_network(nend,ncidr,prefix)
         assert nstart <= nend
 
-        for ip in allocated:
+        for ip, target in allocated.items():
             nip = parse_ip4_address(ip)
             assert ip_in_network(nip, ncidr, prefix)
             if isinstance(target, WeakReferenceObject):

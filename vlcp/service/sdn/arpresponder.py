@@ -37,6 +37,7 @@ class ARPUpdater(FlowUpdater):
         self._lastphyportinfo = {}
         self._lastlognetinfo = {}
         self._last_arps = set()
+        self._last_freearps = {}
 
     async def main(self):
         try:
@@ -100,6 +101,7 @@ class ARPUpdater(FlowUpdater):
             lastlogportinfo = self._lastlogportinfo
             lastlognetinfo = self._lastlognetinfo
             lastphyportinfo = self._lastphyportinfo
+            lastfreearps = self._last_freearps
             currentlognetinfo = dict((n,(id, n.physicalnetwork)) for n,id in self._lastlognets if n in allobjs)
             netdict = dict((n.getkey(), n) for n in currentlognetinfo)
             currentlogportinfo = dict((p, (id, p.network)) for p,id in self._lastlogports if p in allobjs)
@@ -112,23 +114,35 @@ class ARPUpdater(FlowUpdater):
                     lognet = netdict.get(LogicalNetwork.default_key(lognetid))
                     if lognet is not None:
                         if islocal is None:
-                            arp_set = current_arps.setdefault(lognet, set())
-                            arp_set.add((ip, mac, True, None, False))
-                            arp_set.add((ip, mac, False, None, False))
+                            arp_set = current_arps.setdefault(lognet, {})
+                            arp_set[(ip, True)] = (mac, False)
+                            arp_set[(ip, False)] = (mac, False)
                         else:
-                            arp_set = current_arps.setdefault(lognet, set())
-                            arp_set.add((ip, mac, islocal, None, False))
+                            arp_set = current_arps.setdefault(lognet, {})
+                            arp_set[(ip, islocal)] = (mac, False)
             broadcast_only = self._parent.broadcastonly
+            currentfreearps = {}
             if self._parent.prepush:
                 for obj in self._savedresult:
                     if obj is not None and not obj.isdeleted() and obj.isinstance(LogicalPort) and hasattr(obj, 'ip_address') and hasattr(obj, 'mac_address'):
                         if obj.network in currentlognetinfo:
-                            arp_set = current_arps.setdefault(obj.network, set())
-                            arp_set.add((obj.ip_address, obj.mac_address, True, obj, broadcast_only))
+                            arp_set = current_arps.setdefault(obj.network, {})
+                            arp_set[(obj.ip_address, True)] = (obj.mac_address, broadcast_only)
+                            if obj in currentlogportinfo:
+                                # This port is in local switch, add a free ARP flow
+                                pid, network = currentlogportinfo[obj]
+                                currentfreearps[(network, obj.ip_address, obj)] = (obj.mac_address, broadcast_only,
+                                                                                       network.physicalnetwork.type in self._parent.enable_freearp_networktypes and \
+                                                                                        self._parent.enable_freearp)
+            # Flow mapping:
+            
+            # arp_set => create_flow
+            # currentfreearps => create_flow2
             self._lastlogportinfo = currentlogportinfo
             self._lastlognetinfo = currentlognetinfo
             self._lastphyportinfo = currentphyportinfo
             self._last_arps = current_arps
+            self._last_freearps = currentfreearps
             cmds = []
             ofdef = connection.openflowdef
             vhost = connection.protocol.vhost
@@ -161,38 +175,14 @@ class ARPUpdater(FlowUpdater):
                                                             dst = ofdef.NXM_NX_REG6
                                                             )]),
                         ofdef.ofp_instruction_goto_table(table_id = l2out_next)]
-            for p in lastlogportinfo:
-                if p not in currentlogportinfo or currentlogportinfo[p] != lastlogportinfo[p]:
-                    pid, _ = lastlogportinfo[p]
-                    cmds.append(ofdef.ofp_flow_mod(table_id = arp,
-                                                   command = ofdef.OFPFC_DELETE,
-                                                   buffer_id = ofdef.OFP_NO_BUFFER,
-                                                   out_port = ofdef.OFPP_ANY,
-                                                   out_group = ofdef.OFPG_ANY,
-                                                   match = ofdef.ofp_match_oxm(
-                                                                oxm_fields = [ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid)]
-                                                            )
-                                                   ))
-            for p in lastphyportinfo:
-                if p not in currentphyportinfo or currentphyportinfo[p] != lastphyportinfo[p]:
-                    pid, _ = lastphyportinfo[p]
-                    cmds.append(ofdef.ofp_flow_mod(table_id = arp,
-                                                   command = ofdef.OFPFC_DELETE,
-                                                   buffer_id = ofdef.OFP_NO_BUFFER,
-                                                   out_port = ofdef.OFPP_ANY,
-                                                   out_group = ofdef.OFPG_ANY,
-                                                   match = ofdef.ofp_match_oxm(
-                                                                oxm_fields = [ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid)]
-                                                            )
-                                                   ))
             for n in last_arps:
                 if n not in current_arps:
                     if n in lastlognetinfo:
                         nid, _ = lastlognetinfo[n]
-                        for ip,_,islocal,_,_ in last_arps[n]:
+                        for ip, islocal in last_arps[n]:
                             cmds.append(ofdef.ofp_flow_mod(table_id = arp,
                                                            cookie = 0x1 | (0x2 if islocal else 0),
-                                                           cookie_mask = 0x3,
+                                                           cookie_mask = 0x7,
                                                            command = ofdef.OFPFC_DELETE,
                                                            buffer_id = ofdef.OFP_NO_BUFFER,
                                                            out_port = ofdef.OFPP_ANY,
@@ -213,11 +203,12 @@ class ARPUpdater(FlowUpdater):
                                                            ))
                 else:
                     if n in lastlognetinfo and n in currentlognetinfo and currentlognetinfo[n] != lastlognetinfo[n]:
+                        # Delete all because network changes
                         nid, _ = lastlognetinfo[n]
-                        for ip,_,islocal,_,_ in last_arps[n]:
+                        for ip, islocal in last_arps[n]:
                             cmds.append(ofdef.ofp_flow_mod(table_id = arp,
                                                            cookie = 0x1 | (0x2 if islocal else 0),
-                                                           cookie_mask = 0x3,
+                                                           cookie_mask = 0x7,
                                                            command = ofdef.OFPFC_DELETE,
                                                            buffer_id = ofdef.OFP_NO_BUFFER,
                                                            out_port = ofdef.OFPP_ANY,
@@ -239,22 +230,46 @@ class ARPUpdater(FlowUpdater):
                     else:
                         if n in currentlognetinfo:
                             nid, _ = currentlognetinfo[n]
-                            for ip, _, islocal, _, _ in last_arps[n].difference(current_arps[n]):
-                                cmds.append(ofdef.ofp_flow_mod(table_id = arp,
-                                                               cookie = 0x1 | (0x2 if islocal else 0),
-                                                               cookie_mask = 0x3,
-                                                               command = ofdef.OFPFC_DELETE,
-                                                               buffer_id = ofdef.OFP_NO_BUFFER,
-                                                               out_port = ofdef.OFPP_ANY,
-                                                               out_group = ofdef.OFPG_ANY,
-                                                               match = ofdef.ofp_match_oxm(
-                                                                            oxm_fields = [match_network(nid),
-                                                                                          ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
-                                                                                          ofdef.create_oxm(ofdef.OXM_OF_ARP_TPA, ofdef.ip4_addr(ip)),
-                                                                                          ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REQUEST)
-                                                                                          ]
-                                                                        )
-                                                               ))
+                            for (ip,islocal), value in last_arps[n].items():
+                                if (ip,islocal) not in current_arps[n] or value != current_arps[n]:
+                                    cmds.append(ofdef.ofp_flow_mod(table_id = arp,
+                                                                   cookie = 0x1 | (0x2 if islocal else 0),
+                                                                   cookie_mask = 0x7,
+                                                                   command = ofdef.OFPFC_DELETE,
+                                                                   buffer_id = ofdef.OFP_NO_BUFFER,
+                                                                   out_port = ofdef.OFPP_ANY,
+                                                                   out_group = ofdef.OFPG_ANY,
+                                                                   match = ofdef.ofp_match_oxm(
+                                                                                oxm_fields = [match_network(nid),
+                                                                                              ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
+                                                                                              ofdef.create_oxm(ofdef.OXM_OF_ARP_TPA, ofdef.ip4_addr(ip)),
+                                                                                              ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REQUEST)
+                                                                                              ]
+                                                                            )
+                                                                   ))
+            for (network, ip, port), value in lastfreearps.items():
+                if (network, ip, port) not in currentfreearps or currentfreearps[(network, ip, port)] != value \
+                        or lastlogportinfo.get(port) != currentlogportinfo.get(port) \
+                        or lastlognetinfo.get(network) != currentlognetinfo.get(network):
+                    if port in lastlogportinfo and network in lastlognetinfo:
+                        pid, _ = lastlogportinfo[port]
+                        nid, _ = lastlognetinfo[network]
+                        cmds.append(ofdef.ofp_flow_mod(table_id = arp,
+                                                       cookie = 0x5 | (0x2 if islocal else 0),
+                                                       cookie_mask = 0x7,
+                                                       command = ofdef.OFPFC_DELETE,
+                                                       buffer_id = ofdef.OFP_NO_BUFFER,
+                                                       out_port = ofdef.OFPP_ANY,
+                                                       out_group = ofdef.OFPG_ANY,
+                                                       match = ofdef.ofp_match_oxm(
+                                                                    oxm_fields = [ofdef.create_oxm(ofdef.OXM_OF_IN_PORT, pid),
+                                                                                  match_network(nid),
+                                                                                  ofdef.create_oxm(ofdef.OXM_OF_ETH_TYPE, ofdef.ETHERTYPE_ARP),
+                                                                                  ofdef.create_oxm(ofdef.OXM_OF_ARP_TPA, ofdef.ip4_addr(ip)),
+                                                                                  ofdef.create_oxm(ofdef.OXM_OF_ARP_OP, ofdef.ARPOP_REQUEST)
+                                                                                  ]
+                                                                )
+                                                       ))
             await self.execute_commands(connection, cmds)
             del cmds[:]
             # Create flows
@@ -320,7 +335,7 @@ class ARPUpdater(FlowUpdater):
                     ins = [ofdef.ofp_instruction_actions(type=ofdef.OFPIT_CLEAR_ACTIONS)]
                 return ofdef.ofp_flow_mod(
                                table_id = arp,
-                               cookie = 0x1 | (0x2 if islocal else 0),
+                               cookie = 0x5 | (0x2 if islocal else 0),
                                cookie_mask = 0xffffffffffffffff,
                                command = ofdef.OFPFC_ADD,
                                buffer_id = ofdef.OFP_NO_BUFFER,
@@ -339,19 +354,15 @@ class ARPUpdater(FlowUpdater):
                                         ),
                                instructions=ins
                                )
-            logport_arps = dict((ent[3],ent) for n,v in current_arps.items() for ent in v if ent[3] is not None)
-            for p in currentlogportinfo:
-                if p not in lastlogportinfo or lastlogportinfo[p] != currentlogportinfo[p]:
-                    if p in logport_arps:
-                        ip, mac, islocal, port, broadcast = logport_arps[p]
-                        pid, lognet = currentlogportinfo[p]
-                        if lognet in current_arps and lognet in currentlognetinfo:
-                            nid, _ = currentlognetinfo[lognet]
-                            if islocal and port == p:
-                                if p.network.physicalnetwork.type in self._parent.enable_freearp_networktypes and self._parent.enable_freearp:
-                                    cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast, True))
-                                else:
-                                    cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast, False))
+            for (network, ip, port), value in currentfreearps.items():
+                if (network, ip, port) not in lastfreearps or lastfreearps[(network, ip, port)] != value \
+                        or lastlogportinfo.get(port) != currentlogportinfo.get(port) \
+                        or lastlognetinfo.get(network) != currentlognetinfo.get(network):
+                    if port in currentlogportinfo and network in currentlognetinfo:
+                        pid, _ = currentlogportinfo[port]
+                        nid, _ = currentlognetinfo[network]
+                        mac, broadcast, ifpass = value
+                        cmds.append(_create_flow2(ip, mac, nid, pid, True, broadcast, ifpass))
             # phynetdict = {}
             # for n in current_arps:
             #     phynet = n.physicalnetwork
@@ -368,22 +379,16 @@ class ARPUpdater(FlowUpdater):
             #                         if not islocal and port != p:
             #                             cmds.append(_create_flow(ip, mac, nid, islocal, broadcast))
             #===================================================================
-            phyportdict = {}
-            for p in currentphyportinfo:
-                phynet = p.physicalnetwork
-                phyportdict.setdefault(phynet, []).append(p)
             for n, arps in current_arps.items():
                 if n in currentlognetinfo:
                     nid, _ = currentlognetinfo[n]
                     if n not in last_arps or n not in lastlognetinfo or lastlognetinfo[n] != currentlognetinfo[n]:
                         send_arps = arps
                     else:
-                        send_arps = arps.difference(last_arps[n])
-                    for ip, mac, islocal, port, broadcast in send_arps:
+                        send_arps = {k:v for k,v in arps.items()
+                                     if k not in last_arps[n] or last_arps[n] != v}
+                    for (ip, islocal), (mac, broadcast) in send_arps.items():
                         cmds.append(_create_flow(ip, mac, nid, islocal, broadcast))
-                        if islocal:
-                            if port in currentlognetinfo:
-                                cmds.append(_create_flow2(ip, mac, nid, pid, islocal, broadcast,True))
             await self.execute_commands(connection, cmds)
         except Exception:
             self._logger.warning("Unexpected exception in ARPUpdater. Will ignore and continue.", exc_info = True)
