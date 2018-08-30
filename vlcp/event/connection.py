@@ -270,9 +270,14 @@ class Connection(RoutineContainer):
                                 raise
                         if wouldblock:
                             if wantRead:
-                                ev, m = await M_(canread_matcher, connection_control)
+                                timeout, ev, m = await self.wait_with_timeout(writekeepalivetime, canread_matcher, connection_control)
                             else:
-                                ev, m = await M_(canwrite_matcher, connection_control)
+                                timeout, ev, m = await self.wait_with_timeout(writekeepalivetime, canwrite_matcher, connection_control)
+                            if timeout:
+                                # Time to send a keep-alive, but we are still blocking, something wrong here
+                                self.logger.warning("Write keep alive time exceeded, drop connection")
+                                self.socket.shutdown(socket.SHUT_RDWR)
+                                raise IOError
                             if m is connection_control:
                                 _process_conn_event(ev, m)
                     if isEOF:
