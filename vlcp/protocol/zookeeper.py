@@ -89,7 +89,7 @@ class ZooKeeper(Protocol):
     # Limit the response and watcher queue size
     _default_messagequeuesize = 1024
     # Send ping command when the connection is idle
-    _default_keepalivetime = None
+    _default_keepalivetime = 10
     _default_writekeepalivetime = 5
     # Disconnect when the ping command does not receive response
     _default_keepalivetimeout = 10
