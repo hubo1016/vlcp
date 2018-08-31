@@ -16,10 +16,12 @@ import vlcp.utils.zookeeper as zk
 try:
     from itertools import izip_longest
 except Exception:
-    izip_longest = zip
+    from itertools import zip_longest as izip_longest
 from time import time
 from vlcp.event.future import RoutineFuture
 from contextlib import closing
+from namedstruct import dump
+import json
 
 @withIndices('state', 'client', 'sessionid')
 class ZooKeeperSessionStateChanged(Event):
@@ -185,6 +187,7 @@ class ZooKeeperClient(Configurable):
                                         or current_set_watches.childWatches:
                                     set_watches.append(current_set_watches)
                         auth_list = list(self.auth_set)
+                        extra_requests = [zk.AuthPacket(scheme = a[0], auth = a[1]) for a in auth_list] + set_watches
                         timeout, handshake_result = await self._container.execute_with_timeout(
                                                         10,
                                                         self.protocol.handshake(
@@ -195,8 +198,7 @@ class ZooKeeperClient(Configurable):
                                                                               passwd = passwd,
                                                                               readOnly = self.readonly),
                                                              self._container,
-                                                            [zk.AuthPacket(scheme = a[0], auth = a[1]) for a in auth_list] +
-                                                            set_watches
+                                                             extra_requests
                                                         )
                                                     )
                         if timeout:
@@ -295,6 +297,12 @@ class ZooKeeperClient(Configurable):
                                 # Not retrying
                                 break
                             else:
+                                # Check other failures
+                                failed_results = [[r,a] for r,a in zip(extra_requests, auth_resp) if a.err != zk.ZOO_ERR_OK]
+                                if failed_results:
+                                    # What's wrong? log them and ignored
+                                    self._logger.warning('Some handshake packets have error result:\n%s',
+                                                         json.dumps(dump(failed_results, tostr=True), indent=2))
                                 self.session_readonly = getattr(conn_resp, 'readOnly', False)
                                 self.session_id = session_id
                                 if self.session_state == ZooKeeperSessionStateChanged.EXPIRED:
