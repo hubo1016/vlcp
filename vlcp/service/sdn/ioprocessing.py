@@ -991,82 +991,113 @@ class IOProcessing(FlowBase):
             self._portchanged.add(conn)
             return
         self._portchanging.add(conn)
+        last_portno = set()
         try:
             while True:
                 self._portchanged.discard(conn)
                 flow_updater = self._flowupdaters.get(conn)
                 if flow_updater is None:
                     break
+                if not conn.connected:
+                    break
                 datapath_id = conn.openflow_datapathid
                 ovsdb_vhost = self.vhostmap.get(conn.protocol.vhost, "")
-                ports = await call_api(self.apiroutine, 'openflowportmanager', 'getports', {'datapathid': datapath_id,
-                                                                                            'vhost': conn.protocol.vhost})
-                if conn in self._portchanged:
+                ovsdb_update_event_matcher = ModuleNotification.createMatcher(
+                                                "ovsdbportmanager",
+                                                "update",
+                                                _ismatch = lambda x: x.vhost == ovsdb_vhost and x.datapathid == datapath_id)
+                ovsdb_updated = False
+                def _ovsdb_update_callback(event, matcher):
+                    nonlocal ovsdb_updated
+                    ovsdb_updated = True
+                ports, ovsdb_ports = \
+                    await self.apiroutine.with_callback( 
+                                    self.apiroutine.execute_all(
+                                                    [call_api(self.apiroutine, 'openflowportmanager', 'getports', {'datapathid': datapath_id,
+                                                                                            'vhost': conn.protocol.vhost}),
+                                                     call_api(self.apiroutine, 'ovsdbportmanager', 'getports', {'datapathid': datapath_id,
+                                                                                                  'vhost': ovsdb_vhost})]),
+                                    _ovsdb_update_callback,
+                                    ovsdb_update_event_matcher
+                                )
+                if conn in self._portchanged or ovsdb_updated:
+                    # Retrieve again
                     continue
                 if not conn.connected:
                     self._portchanged.discard(conn)
                     return
-                async def ovsdb_info():
-                    resync = 0
-                    while True:
-                        try:
-                            if conn in self._portchanged:
-                                return None
-                            ovsdb_ports = await self.apiroutine.execute_all([call_api(self.apiroutine, 'ovsdbportmanager', 'waitportbyno',
-                                                                                    {'datapathid': datapath_id,
-                                                                                     'vhost': ovsdb_vhost,
-                                                                                     'portno': p.port_no,
-                                                                                     'timeout': 5 + 5 * min(resync, 5)
-                                                                                    })
-                                                                        for p in ports])
-                        except Exception:
-                            self._logger.warning('Cannot retrieve port info from OVSDB for datapathid %016x, vhost = %r',
-                                                 datapath_id, ovsdb_vhost, exc_info = True)
-                            result = await call_api(self.apiroutine, 'ovsdbmanager', 'getconnection',
-                                                                    {'datapathid': datapath_id,
-                                                                     'vhost': ovsdb_vhost})
-                            if result is None:
-                                self._logger.warning("OVSDB connection may not be ready for datapathid %016x, vhost = %r", datapath_id, ovsdb_vhost)
-                                trytimes = 0
-                                while True:
-                                    try:
-                                        await call_api(self.apiroutine, 'ovsdbmanager', 'waitconnection', {'datapathid': datapath_id,
-                                                                                                             'vhost': ovsdb_vhost})
-                                    except Exception:
-                                        trytimes += 1
-                                        if trytimes > 10:
-                                            self._logger.warning("OVSDB connection is still not ready after a long time for %016x, vhost = %r. Keep waiting...", datapath_id, ovsdb_vhost)
-                                            trytimes = 0
-                                    else:
-                                        break
-                            else:
-                                self._logger.warning('OpenFlow ports may not be synchronized. Try resync...')
-                                # Connection is up but ports are not synchronized, try resync
-                                await self.apiroutine.execute_all([call_api(self.apiroutine, 'openflowportmanager', 'resync',
-                                                                             {'datapathid': datapath_id,
-                                                                              'vhost': conn.protocol.vhost}),
-                                                                   call_api(self.apiroutine, 'ovsdbportmanager', 'resync',
-                                                                             {'datapathid': datapath_id,
-                                                                              'vhost': ovsdb_vhost})])
-                                # Do not resync too often
-                                await self.apiroutine.wait_with_timeout(0.1)
-                                resync += 1
-                        else:
-                            break
-                    return ovsdb_ports
-                conn_down = conn.protocol.statematcher(conn)
-                try:
-                    ovsdb_ports = await self.apiroutine.with_exception(ovsdb_info(), conn_down)
-                except RoutineException:
-                    self._portchanged.discard(conn)
-                    return
-                if conn in self._portchanged:
-                    continue
+                ovsdb_port_dict = {p['ofport']: p for p in ovsdb_ports}
+                # Choose the intersection of ports from two sources
+                port_pairs = [(p, ovsdb_port_dict[p.port_no & 0xffff])
+                              for p in ports
+                              if (p.port_no & 0xffff) in ovsdb_port_dict]
+                current_portno = {p.port_no for p, _ in port_pairs}
+                # Get again to prevent concurrent problems
                 flow_updater = self._flowupdaters.get(conn)
                 if flow_updater is None:
                     break
-                await flow_updater.update_ports(ports, ovsdb_ports)
-                if conn not in self._portchanged:
+                if not conn.connected:
                     break
+                if conn in self._portchanged or ovsdb_updated:
+                    continue
+                # If all openflow ports have their OVSDB ports, we are in sync and can exit
+                if all((p.port_no & 0xffff) in ovsdb_port_dict for p in ports):
+                    if current_portno != last_portno:
+                        if port_pairs:
+                            await self.apiroutine.with_callback(
+                                        flow_updater.update_ports(*zip(*port_pairs)),
+                                        _ovsdb_update_callback,
+                                        ovsdb_update_event_matcher
+                                    )
+                        else:
+                            await self.apiroutine.with_callback(
+                                        flow_updater.update_ports((), ()),
+                                        _ovsdb_update_callback,
+                                        ovsdb_update_event_matcher
+                                    )
+                    break
+                else:
+                    # Partially update
+                    if current_portno and current_portno != last_portno:
+                        if port_pairs:
+                            await self.apiroutine.with_callback(
+                                        flow_updater.update_ports(*zip(*port_pairs)),
+                                        _ovsdb_update_callback,
+                                        ovsdb_update_event_matcher
+                                    )
+                        else:
+                            await self.apiroutine.with_callback(
+                                        flow_updater.update_ports((), ()),
+                                        _ovsdb_update_callback,
+                                        ovsdb_update_event_matcher
+                                    )
+                        last_portno = current_portno                    
+                    # Some openflow ports do not have OVSDB information, this may be caused
+                    # by:
+                    # 1. A port is added to OpenFlow, but not yet retrieved from OVSDB
+                    # 2. A port is deleted from OVSDB, but not yet updated in OpenFlow
+                    # 3. Other synchronization problem
+                    port_change = ModuleNotification.createMatcher("openflowportmanager", "update",
+                                                                   _ismatch = lambda x: x.connection == conn)
+                    conndown = conn.protocol.statematcher(conn)
+                    timeout, _, m = await self.apiroutine.wait_with_timeout(5,
+                                                                            port_change,
+                                                                            ovsdb_update_event_matcher,
+                                                                            conndown)
+                    if timeout:
+                        self._logger.warning('OpenFlow ports may not be synchronized. Try resync...')
+                        # Connection is up but ports are not synchronized, try resync
+                        await self.apiroutine.execute_all([call_api(self.apiroutine, 'openflowportmanager', 'resync',
+                                                                     {'datapathid': datapath_id,
+                                                                      'vhost': conn.protocol.vhost}),
+                                                           call_api(self.apiroutine, 'ovsdbportmanager', 'resync',
+                                                                     {'datapathid': datapath_id,
+                                                                      'vhost': ovsdb_vhost})])
+                        # Wait for a while
+                        await self.apiroutine.wait_with_timeout(5)
+                        continue
+                    elif m is conndown:
+                        # Connection lost, no longer need to trace the port changes
+                        break
         finally:
             self._portchanging.remove(conn)
