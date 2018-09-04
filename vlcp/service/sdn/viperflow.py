@@ -29,6 +29,7 @@ from vlcp.utils.typelib import ip_address_type, cidr_type, autoint, mac_address_
     cidr_nonstrict_type
 from pychecktype import tuple_, extra
 from vlcp.utils.dhcp import dhcp_options_type
+from vlcp.utils.typelib import acl_list_type
 
 logger = logging.getLogger('viperflow')
 
@@ -693,7 +694,8 @@ class ViperFlow(Module):
                                                      "?domain_name": (str, None),
                                                      "?ntp_servers": ([ip_address_type], None),
                                                      "?lease_time": lease_time_type,
-                                                     "?extra_dhcp_options": dhcp_options_type}]):
+                                                     "?extra_dhcp_options": dhcp_options_type,
+                                                     "?acl": acl_list_type}]):
         """
         Create multiple logical networks in a transaction.
         
@@ -746,7 +748,8 @@ class ViperFlow(Module):
                                                      "?domain_name": (str, None),
                                                      "?ntp_servers": ([ip_address_type], None),
                                                      "?lease_time": lease_time_type,
-                                                     "?extra_dhcp_options": dhcp_options_type}]):
+                                                     "?extra_dhcp_options": dhcp_options_type,
+                                                     "?acl": acl_list_type}]):
         """
         Update multiple logical networks in a transaction
         """
@@ -912,7 +915,9 @@ class ViperFlow(Module):
                                                 "?mac_address": mac_address_type,
                                                 "?ip_address": ip_address_type,
                                                 "?hostname": (str, None),
-                                                "?extra_dhcp_options": dhcp_options_type}]):
+                                                "?extra_dhcp_options": dhcp_options_type,
+                                                "?ingress_acl": acl_list_type,
+                                                "?egress_acl": acl_list_type}]):
         """
         Create multiple logical ports in a transaction
         """
@@ -1026,7 +1031,9 @@ class ViperFlow(Module):
                                                 "?mac_address": mac_address_type,
                                                 "?ip_address": ip_address_type,
                                                 "?hostname": (str, None),
-                                                "?extra_dhcp_options": dhcp_options_type}]):
+                                                "?extra_dhcp_options": dhcp_options_type,
+                                                "?ingress_acl": acl_list_type,
+                                                "?egress_acl": acl_list_type}]):
         "Update multiple logcial ports"
         # ports [{"id":id,...},{...}]
         
@@ -1284,7 +1291,8 @@ class ViperFlow(Module):
                                              "?domain_name": (str, None),
                                              "?ntp_servers": ([ip_address_type], None),
                                              "?lease_time": lease_time_type,
-                                             "?extra_dhcp_options": dhcp_options_type}]):
+                                             "?extra_dhcp_options": dhcp_options_type,
+                                             "?acl": acl_list_type}]):
         """
         Create multiple subnets in a transaction.
         """
@@ -1418,7 +1426,8 @@ class ViperFlow(Module):
                                              "?domain_name": (str, None),
                                              "?ntp_servers": ([ip_address_type], None),
                                              "?lease_time": lease_time_type,
-                                             "?extra_dhcp_options": dhcp_options_type}]):
+                                             "?extra_dhcp_options": dhcp_options_type,
+                                             "?acl": acl_list_type}]):
         """
         Update multiple subnets
         """
