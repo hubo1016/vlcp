@@ -298,7 +298,7 @@ class VRouterApi(Module):
         parameter_dict = OrderedDict()
         for interface in interfaces:
             interface = copy.deepcopy(interface)
-            if 'id' not in interface['id']:
+            if 'id' not in interface:
                 interface['id'] = str(uuid1())
             key = RouterPort.default_key(interface['id'])
             if key in parameter_dict:
