@@ -155,7 +155,7 @@ class ModuleAPIHandler(RoutineContainer):
         self.registeredAPIs = {}
         self.discoverinfo = {}
         self.allowdiscover = allowdiscover
-        self.rejectunknown = True
+        self.rejectunknown = rejectunknown
     @staticmethod
     def createReply(handle, result):
         return ModuleAPIReply(handle, result=result)
@@ -167,7 +167,6 @@ class ModuleAPIHandler(RoutineContainer):
         if criteria:
             extra_params['_ismatch'] = lambda e: not e.canignore and criteria(**e.params)
         if name is None:
-            matcher = ModuleAPICall.createMatcher(target = self.servicename, **extra_params)
             matcher = ModuleAPICall.createMatcher(target = self.servicename, **extra_params)
         elif name.startswith('public/'):
             matcher = ModuleAPICall.createMatcher(target = 'public', name = name[len('public/'):], **extra_params)
