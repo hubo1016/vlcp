@@ -101,7 +101,7 @@ with _warnings.catch_warnings():
                       classifier = lambda x: x.header.type,
                       extend = {('header','type') : ofp_type})
     
-    ofp_vendor = nstruct((uint32, 'vendor'),
+    ofp_vendor = nstruct((experimenter_ids, 'vendor'),
                          name = 'ofp_vendor',
                          base = ofp_msg,
                          criteria = lambda x: x.header.type == OFPT_VENDOR,
@@ -213,12 +213,12 @@ with _warnings.catch_warnings():
     ofp_action = nstruct((ofp_action_type, 'type'),
                         (uint16, 'len'),
                         name = 'ofp_action',
-                        size = sizefromlen(512, 'len'),
+                        size = lambda x: x.len,
                         prepack = packsize('len'),
                         classifier = lambda x: x.type
                         )
     
-    ofp_action_vendor = nstruct((uint32, 'vendor'),
+    ofp_action_vendor = nstruct((experimenter_ids, 'vendor'),
                                        name = 'ofp_action_vendor',
                                        base = ofp_action,
                                        criteria = lambda x: x.type == OFPAT_VENDOR,
@@ -387,7 +387,7 @@ with _warnings.catch_warnings():
     
     ofp_queue_prop = nstruct((ofp_queue_prop_header, 'prop_header'),
                              name = 'ofp_queue_prop',
-                             size = sizefromlen(256, 'prop_header', 'len'),
+                             size = lambda x: x.prop_header.len,
                              prepack = packrealsize('prop_header', 'len'),
                              classifier = lambda x: x.prop_header.property
                              )
@@ -407,7 +407,7 @@ with _warnings.catch_warnings():
         (uint8[2],),                #   /* 64-bit alignment. */
         (ofp_queue_prop[0], 'properties'),
         name = 'ofp_packet_queue',
-        size = sizefromlen(4096, 'len'),
+        size = lambda x: x.len,
         prepack = packsize('len')
         )
     '''
@@ -751,7 +751,7 @@ with _warnings.catch_warnings():
         (uint64, 'byte_count'),    #/* Number of bytes in flow. */
         (ofp_action[0], 'actions'),#/* Actions. */
         name = 'ofp_flow_stats',
-        size = sizefromlen(4096, 'length'),
+        size = lambda x: x.length,
         prepack = packsize('length')
     )
     
@@ -925,7 +925,7 @@ with _warnings.catch_warnings():
     /* Vendor extension stats message. */
     '''
     ofp_vendor_stats_request = nstruct(
-        (uint32, 'vendor'),
+        (experimenter_ids, 'vendor'),
         name = 'ofp_vendor_stats_request',
         base = ofp_stats_request,
         criteria = lambda x: x.type == OFPST_VENDOR,
@@ -935,7 +935,7 @@ with _warnings.catch_warnings():
     )
     
     ofp_vendor_stats_reply = nstruct(
-        (uint32, 'vendor'),
+        (experimenter_ids, 'vendor'),
         name = 'ofp_vendor_stats_reply',
         base = ofp_stats_reply,
         criteria = lambda x: x.type == OFPST_VENDOR,
@@ -999,4 +999,5 @@ with _warnings.catch_warnings():
         classifier = lambda x: getattr(x, 'subtype')
     )
     
-    create_extension(globals(), nicira_header, nx_action, nx_stats_request, nx_stats_reply, ofp_vendor_subtype, ofp_action_vendor_subtype, ofp_stats_vendor_subtype)
+    create_extension(globals(), nicira_header, nx_action, nx_stats_request, nx_stats_reply,
+                     ofp_vendor_subtype, ofp_action_vendor_subtype, ofp_stats_vendor_subtype)

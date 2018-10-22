@@ -1,38 +1,39 @@
 '''
 /* Copyright (c) 2008 The Board of Trustees of The Leland Stanford
-* Junior University
-* Copyright (c) 2011, 2012 Open Networking Foundation
-*
-* We are making the OpenFlow specification and associated documentation
-* (Software) available for public use and benefit with the expectation
-* that others will use, modify and enhance the Software and contribute
-* those enhancements back to the community. However, since we would
-* like to make the Software available for broadest use, with as few
-* restrictions as possible permission is hereby granted, free of
-* charge, to any person obtaining a copy of this Software to deal in
-* the Software under the copyrights without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-*
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-* BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-* ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-* CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-* SOFTWARE.
-*
-* The name and trademarks of copyright holder(s) may NOT be used in
-* advertising or publicity pertaining to the Software or any
-* derivatives without specific, written prior permission.
-*/
-Created on 2015/7/14
+ * Junior University
+ * Copyright (c) 2011, 2013 Open Networking Foundation
+ *
+ * We are making the OpenFlow specification and associated documentation
+ * (Software) available for public use and benefit with the expectation
+ * that others will use, modify and enhance the Software and contribute
+ * those enhancements back to the community. However, since we would
+ * like to make the Software available for broadest use, with as few
+ * restrictions as possible permission is hereby granted, free of
+ * charge, to any person obtaining a copy of this Software to deal in
+ * the Software under the copyrights without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ *
+ * The name and trademarks of copyright holder(s) may NOT be used in
+ * advertising or publicity pertaining to the Software or any
+ * derivatives without specific, written prior permission.
+ */
+
+Modified from openflow.h on 2018/8/16
 
 :author: hubo
 '''
@@ -44,87 +45,91 @@ import warnings as _warnings
 
 with _warnings.catch_warnings():
     _warnings.filterwarnings('ignore', '^padding', StructDefWarning)
-    
+
     ofp_port_no = enum('ofp_port_no',
                        globals(),
                        uint32,
-                       OFPP_MAX = 0xffffff00,
-                       OFPP_IN_PORT = 0xfffffff8,
-                       OFPP_TABLE = 0xfffffff9,
-                       OFPP_NORMAL = 0xfffffffa,
-                       OFPP_FLOOD = 0xfffffffb,
-                       OFPP_ALL = 0xfffffffc,
-                       OFPP_CONTROLLER = 0xfffffffd,
-                       OFPP_LOCAL = 0xfffffffe,
-                       OFPP_ANY = 0xffffffff)
-    
-    ofp_error_type = ofp_error_type.extend(globals(),
-        OFPET_BAD_INSTRUCTION      = 3,  #/* Error in instruction list. */
-        OFPET_BAD_MATCH            = 4,  #/* Error in match. */
-        OFPET_FLOW_MOD_FAILED      = 5,  #/* Problem modifying flow entry. */
-        OFPET_GROUP_MOD_FAILED     = 6,  #/* Problem modifying group entry. */
-        OFPET_PORT_MOD_FAILED      = 7,  #/* Port mod request failed. */
-        OFPET_TABLE_MOD_FAILED     = 8,  #/* Table mod request failed. */
-        OFPET_QUEUE_OP_FAILED      = 9,  #/* Queue operation failed. */
-        OFPET_SWITCH_CONFIG_FAILED = 10, #/* Switch config request failed. */
-        OFPET_ROLE_REQUEST_FAILED  = 11, #/* Controller Role request failed. */
-        OFPET_METER_MOD_FAILED     = 12, #/* Error in meter. */
-        OFPET_TABLE_FEATURES_FAILED = 13,# /* Setting table features failed. */
-        OFPET_EXPERIMENTER = 0xffff      #/* Experimenter error messages. */
-    )
+                       # /* Maximum number of physical and logical switch ports. */
+                       OFPP_MAX        = 0xffffff00,
+                       # /* Reserved OpenFlow Port (fake output "ports"). */
+                       OFPP_IN_PORT    = 0xfffffff8, # /* Send the packet out the input port.  This
+                                                     #    reserved port must be explicitly used
+                                                     #    in order to send back out of the input
+                                                     #    port. */
+                       OFPP_TABLE      = 0xfffffff9, # /* Submit the packet to the first flow table
+                                                     #     NB: This destination port can only be
+                                                     #     used in packet-out messages. */
+                       OFPP_NORMAL     = 0xfffffffa, # /* Forward using non-OpenFlow pipeline. */
+                       OFPP_FLOOD      = 0xfffffffb, # /* Flood using non-OpenFlow pipeline. */
+                       OFPP_ALL        = 0xfffffffc, # /* All standard ports except input port. */
+                       OFPP_CONTROLLER = 0xfffffffd, # /* Send to controller. */
+                       OFPP_LOCAL      = 0xfffffffe, # /* Local openflow "port". */
+                       OFPP_ANY        = 0xffffffff  # /* Special value used in some requests when
+                                                     #    no port is specified (i.e. wildcarded). */
+                    )
     
     ofp_type = ofp_type.extend(globals(),
-        OFPT_EXPERIMENTER       = 4,  #/* Symmetric message */
+        # /* Immutable messages. */
+        OFPT_EXPERIMENTER       = 4,  # /* Symmetric message */
     
-    #    /* Switch configuration messages. */
-        OFPT_FEATURES_REQUEST   = 5,  #/* Controller/switch message */
-        OFPT_FEATURES_REPLY     = 6,  #/* Controller/switch message */
-        OFPT_GET_CONFIG_REQUEST = 7,  #/* Controller/switch message */
-        OFPT_GET_CONFIG_REPLY   = 8,  #/* Controller/switch message */
-        OFPT_SET_CONFIG         = 9,  #/* Controller/switch message */
+        # /* Switch configuration messages. */
+        OFPT_FEATURES_REQUEST   = 5,  # /* Controller/switch message */
+        OFPT_FEATURES_REPLY     = 6,  # /* Controller/switch message */
+        OFPT_GET_CONFIG_REQUEST = 7,  # /* Controller/switch message */
+        OFPT_GET_CONFIG_REPLY   = 8,  # /* Controller/switch message */
+        OFPT_SET_CONFIG         = 9,  # /* Controller/switch message */
     
-    #    /* Asynchronous messages. */
-        OFPT_PACKET_IN          = 10, #/* Async message */
-        OFPT_FLOW_REMOVED       = 11, #/* Async message */
-        OFPT_PORT_STATUS        = 12, #/* Async message */
+        # /* Asynchronous messages. */
+        OFPT_PACKET_IN          = 10, # /* Async message */
+        OFPT_FLOW_REMOVED       = 11, # /* Async message */
+        OFPT_PORT_STATUS        = 12, # /* Async message */
     
-    #    /* Controller command messages. */
-        OFPT_PACKET_OUT         = 13, #/* Controller/switch message */
-        OFPT_FLOW_MOD           = 14, #/* Controller/switch message */
-        OFPT_GROUP_MOD          = 15, #/* Controller/switch message */
-        OFPT_PORT_MOD           = 16, #/* Controller/switch message */
-        OFPT_TABLE_MOD          = 17, #/* Controller/switch message */
+        # /* Controller command messages. */
+        OFPT_PACKET_OUT         = 13, # /* Controller/switch message */
+        OFPT_FLOW_MOD           = 14, # /* Controller/switch message */
+        OFPT_GROUP_MOD          = 15, # /* Controller/switch message */
+        OFPT_PORT_MOD           = 16, # /* Controller/switch message */
+        OFPT_TABLE_MOD          = 17, # /* Controller/switch message */
     
-    #    /* Multipart messages. */
-        OFPT_MULTIPART_REQUEST      = 18, #/* Controller/switch message */
-        OFPT_MULTIPART_REPLY        = 19, #/* Controller/switch message */
+        # /* Multipart messages. */
+        OFPT_MULTIPART_REQUEST      = 18, # /* Controller/switch message */
+        OFPT_MULTIPART_REPLY        = 19, # /* Controller/switch message */
     
-    #    /* Barrier messages. */
-        OFPT_BARRIER_REQUEST    = 20, #/* Controller/switch message */
-        OFPT_BARRIER_REPLY      = 21, #/* Controller/switch message */
+        # /* Barrier messages. */
+        OFPT_BARRIER_REQUEST    = 20, # /* Controller/switch message */
+        OFPT_BARRIER_REPLY      = 21, # /* Controller/switch message */
     
-    #    /* Queue Configuration messages. */
-        OFPT_QUEUE_GET_CONFIG_REQUEST = 22,  #/* Controller/switch message */
-        OFPT_QUEUE_GET_CONFIG_REPLY   = 23,  #/* Controller/switch message */
+        # /* Controller role change request messages. */
+        OFPT_ROLE_REQUEST       = 24, # /* Controller/switch message */
+        OFPT_ROLE_REPLY         = 25, # /* Controller/switch message */
     
-    #    /* Controller role change request messages. */
-        OFPT_ROLE_REQUEST       = 24, #/* Controller/switch message */
-        OFPT_ROLE_REPLY         = 25, #/* Controller/switch message */
+        # /* Asynchronous message configuration. */
+        OFPT_GET_ASYNC_REQUEST  = 26, # /* Controller/switch message */
+        OFPT_GET_ASYNC_REPLY    = 27, # /* Controller/switch message */
+        OFPT_SET_ASYNC          = 28, # /* Controller/switch message */
     
-    #    /* Asynchronous message configuration. */
-        OFPT_GET_ASYNC_REQUEST  = 26, #/* Controller/switch message */
-        OFPT_GET_ASYNC_REPLY    = 27, #/* Controller/switch message */
-        OFPT_SET_ASYNC          = 28, #/* Controller/switch message */
+        # /* Meters and rate limiters configuration messages. */
+        OFPT_METER_MOD          = 29, # /* Controller/switch message */
     
-    #    /* Meters and rate limiters configuration messages. */
-        OFPT_METER_MOD          = 29, #/* Controller/switch message */
+        # /* Controller role change event messages. */
+        OFPT_ROLE_STATUS        = 30, # /* Async message */
+    
+        # /* Asynchronous messages. */
+        OFPT_TABLE_STATUS       = 31, # /* Async message */
+    
+        # /* Request forwarding by the switch. */
+        OFPT_REQUESTFORWARD     = 32, # /* Async message */
+    
+        # /* Bundle operations (multiple messages as a single operation). */
+        OFPT_BUNDLE_CONTROL     = 33, # /* Controller/switch message */
+        OFPT_BUNDLE_ADD_MESSAGE = 34  # /* Controller/switch message */
     )
+        
+    ofp_type_reply_set = set([OFPT_ECHO_REPLY, OFPT_FEATURES_REPLY, OFPT_GET_CONFIG_REPLY, OFPT_MULTIPART_REPLY, OFPT_BARRIER_REPLY, OFPT_ROLE_REPLY, OFPT_GET_ASYNC_REPLY])
     
-    ofp_type_reply_set = set([OFPT_ECHO_REPLY, OFPT_FEATURES_REPLY, OFPT_GET_CONFIG_REPLY, OFPT_MULTIPART_REPLY, OFPT_BARRIER_REPLY, OFPT_QUEUE_GET_CONFIG_REPLY, OFPT_ROLE_REPLY, OFPT_GET_ASYNC_REPLY])
+    ofp_type_asyncmessage_set = set([OFPT_PACKET_IN, OFPT_FLOW_REMOVED, OFPT_PORT_STATUS, OFPT_ROLE_STATUS, OFPT_TABLE_STATUS, OFPT_REQUESTFORWARD])
     
-    ofp_type_asyncmessage_set = set([OFPT_PACKET_IN, OFPT_FLOW_REMOVED, OFPT_PORT_STATUS])
-    
-    OFP_VERSION = OFP13_VERSION
+    OFP_VERSION = OFP14_VERSION
     
     ofp_msg = nstruct(name = 'ofp_msg',
                       base = common.ofp_msg_mutable,
@@ -134,9 +139,7 @@ with _warnings.catch_warnings():
                       classifier = lambda x: x.header.type,
                       extend = {('header', 'type') : ofp_type})
     
-    '''
-    /* Switch configuration. */
-    '''
+    # /* Switch configuration. */
     ofp_switch_config = nstruct((ofp_config_flags, 'flags'),
                                 (uint16, 'miss_send_len'),
                                 name = 'ofp_switch_config',
@@ -144,14 +147,82 @@ with _warnings.catch_warnings():
                                 criteria = lambda x: x.header.type == OFPT_GET_CONFIG_REPLY or x.header.type == OFPT_SET_CONFIG,
                                 classifyby = (OFPT_SET_CONFIG, OFPT_GET_CONFIG_REPLY),
                                 init = packvalue(OFPT_SET_CONFIG, 'header','type'))
+
+    # /* Table Mod property types.-
+    #  */
+    ofp_table_mod_prop_type = enum('ofp_table_mod_prop_type',
+                                   globals(),
+                                   uint16,
+                                   OFPTMPT_EVICTION               = 0x2,    # /* Eviction property. */
+                                   OFPTMPT_VACANCY                = 0x3,    # /* Vacancy property. */
+                                   OFPTMPT_EXPERIMENTER           = 0xFFFF  # /* Experimenter property. */
+                                )
     
-    '''
-    /* Configure/Modify behavior of a flow table */
-    '''
+    # /* Common header for all Table Mod Properties */
+    ofp_table_mod_prop = nstruct((ofp_table_mod_prop_type, 'type'),  # /* One of OFPTMPT_*. */
+                                 (uint16, 'length'),                 # /* Length in bytes of this property. */
+                                 name = 'ofp_table_mod_prop',
+                                 classifier = lambda x: x.type,
+                                 size = lambda x: x.length,
+                                 prepack = packrealsize('length')
+                                )
+    
+    # /* Eviction flags. */
+    ofp_table_mod_prop_eviction_flag = enum('ofp_table_mod_prop_eviction_flag',
+                                            globals(),
+                                            uint32,
+                                            True,
+                                            OFPTMPEF_OTHER           = 1 << 0, # /* Using other factors. */
+                                            OFPTMPEF_IMPORTANCE      = 1 << 1, # /* Using flow entry importance. */
+                                            OFPTMPEF_LIFETIME        = 1 << 2  # /* Using flow entry lifetime. */
+                                        )
+    
+    # /* Eviction table mod Property. Mostly used in OFPMP_TABLE_DESC replies. */
+    ofp_table_mod_prop_eviction = nstruct((ofp_table_mod_prop_eviction_flag, 'flags'),  # /* Bitmap of OFPTMPEF_* flags */
+                                          name = 'ofp_table_mod_prop_eviction',
+                                          base = ofp_table_mod_prop,
+                                          criteria = lambda x: x.type == OFPTMPT_EVICTION,
+                                          classifyby = (OFPTMPT_EVICTION,),
+                                          init = packvalue(OFPTMPT_EVICTION, 'type')
+                                        )
+    
+    # /* Vacancy table mod property */
+    ofp_table_mod_prop_vacancy = nstruct((uint8, 'vacancy_down'),   #/* Vacancy threshold when space decreases (%). */
+                                         (uint8, 'vacancy_up'),     #/* Vacancy threshold when space increases (%). */
+                                         (uint8, 'vacancy'),        #/* Current vacancy (%) - only in ofp_table_desc. */
+                                         (uint8,),                  #/* Align to 64 bits. */
+                                         name = 'ofp_table_mod_prop_vacancy',
+                                         base = ofp_table_mod_prop,
+                                         criteria = lambda x: x.type == OFPTMPT_VACANCY,
+                                         classifyby = (OFPTMPT_VACANCY,),
+                                         init = packvalue(OFPTMPT_VACANCY, 'type')
+                                        )
+    
+    # /* Experimenter table mod property */
+    ofp_table_mod_prop_experimenter = nstruct(
+                                        (experimenter_ids, 'experimenter'),
+                                                                    # /* Experimenter ID which takes the same
+                                                                    #    form as in struct
+                                                                    #    ofp_experimenter_header. */
+                                        (uint32, 'exp_type'),       # /* Experimenter defined. */
+                                                                    #/* Followed by:
+                                                                    # *   - Exactly (length - 12) bytes containing the experimenter data, then
+                                                                    # *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+                                                                    # *     bytes of all-zero bytes */
+                                        name = 'ofp_table_mod_prop_experimenter',
+                                        base = ofp_table_mod_prop,
+                                        criteria = lambda x: x.type == OFPTMPT_EXPERIMENTER,
+                                        classifyby = (OFPTMPT_EXPERIMENTER,),
+                                        init = packvalue(OFPTMPT_EXPERIMENTER, 'type')
+                                       )
+    
+    # /* Configure/Modify behavior of a flow table */
     ofp_table_mod = nstruct(
-        (ofp_table, 'table_id'),     #  /* ID of the table, OFPTT_ALL indicates all tables */
-        (uint8[3],),        # /* Pad to 32 bits */
-        (ofp_table_config, 'config'), #      /* Bitmap of OFPTC_* flags */
+        (ofp_table, 'table_id'),      #  /* ID of the table, OFPTT_ALL indicates all tables */
+        (uint8[3],),                  # /* Pad to 32 bits */
+        (ofp_table_config, 'config'), # /* Bitmap of OFPTC_* flags */,
+        # /* Table Mod Property list */
+        (ofp_table_mod_prop[0], 'properties'),
         name = 'ofp_table_mod',
         base = ofp_msg,
         criteria = lambda x: x.header.type == OFPT_TABLE_MOD,
@@ -159,28 +230,24 @@ with _warnings.catch_warnings():
         init = packvalue(OFPT_TABLE_MOD, 'header', 'type')
     )
     
-    
-    '''
-    /* Capabilities supported by the datapath. */
-    '''
+    # /* Capabilities supported by the datapath. */
     ofp_capabilities = ofp_capabilities.extend(globals(),
         OFPC_GROUP_STATS    = 1 << 3,  # /* Group statistics. */
-        OFPC_PORT_BLOCKED   = 1 << 8   # /* Switch will block looping ports. */
+        OFPC_PORT_BLOCKED   = 1 << 8,  # /* Switch will block looping ports. */
+        OFPC_BUNDLES        = 1 << 9,  # /* Switch supports bundles. */
+        OFPC_FLOW_MONITORING = 1 << 10 # /* Switch supports flow monitoring. */
     )
     
-    '''
-    /* Current state of the physical port.  These are not configurable from
-     * the controller.
-    */
-    '''
+    
+    # /* Current state of the physical port.  These are not configurable from
+    # * the controller.
+    # */
     ofp_port_state = ofp_port_state.extend(globals(),
         OFPPS_BLOCKED      = 1 << 1,  # /* Port is blocked */
         OFPPS_LIVE         = 1 << 2,  # /* Live for Fast Failover Group. */
     )
     
-    '''
-    /* Features of ports available in a datapath. */
-    '''
+    # /* Features of ports available in a datapath. */
     ofp_port_features = ofp_port_features.extend(
         OFPPF_40GB_FD    = 1 << 7,  #/* 40 Gb full-duplex rate support. */
         OFPPF_100GB_FD   = 1 << 8,  #/* 100 Gb full-duplex rate support. */
@@ -194,35 +261,111 @@ with _warnings.catch_warnings():
         OFPPF_PAUSE_ASYM = 1 << 15  #/* Asymmetric pause. */
     )
     
-    '''
-    /* Description of a port */
-    '''
+    # /* Port description property types.
+    #  */
+    ofp_port_desc_prop_type = enum('ofp_port_desc_prop_type',
+                                   globals(),
+                                   uint16,
+                                   OFPPDPT_ETHERNET          = 0,      # /* Ethernet property. */
+                                   OFPPDPT_OPTICAL           = 1,      # /* Optical property. */
+                                   OFPPDPT_EXPERIMENTER      = 0xFFFF  # /* Experimenter property. */
+                                )
+    
+    # /* Common header for all port description properties. */
+    ofp_port_desc_prop = nstruct(
+                                (ofp_port_desc_prop_type, 'type'),     # /* One of OFPPDPT_*. */
+                                (uint16, 'length'),                    # /* Length in bytes of this property. */
+                                name = 'ofp_port_desc_prop',
+                                classifier = lambda x: x.type,
+                                size = lambda x: x.length,
+                                prepack = packrealsize('length')
+                            )
+    
+    # /* Ethernet port description property. */
+    ofp_port_desc_prop_ethernet = \
+        nstruct(
+            (uint8[4],),
+            #/* Bitmaps of OFPPF_* that describe features.  All bits zeroed if
+            # * unsupported or unavailable. */
+            (ofp_port_features, 'curr'),                # /* Current features. */
+            (ofp_port_features, 'advertised'),          # /* Features being advertised by the port. */
+            (ofp_port_features, 'supported'),           # /* Features supported by the port. */
+            (ofp_port_features, 'peer'),                # /* Features advertised by peer. */
+            (uint32, 'curr_speed'),                     # /* Current port bitrate in kbps. */
+            (uint32, 'max_speed'),                      # /* Max port bitrate in kbps */
+            name = 'ofp_port_desc_prop_ethernet',
+            base = ofp_port_desc_prop,
+            criteria = lambda x: x.type == OFPPDPT_ETHERNET,
+            classifyby = (OFPPDPT_ETHERNET,),
+            init = packvalue(OFPPDPT_ETHERNET, 'type')
+        )
+    
+    # /* Features of optical ports available in switch. */
+    ofp_optical_port_features = \
+        enum('ofp_optical_port_features',
+             globals(),
+             uint32,
+             True,
+             OFPOPF_RX_TUNE   = 1 << 0,  # /* Receiver is tunable */
+             OFPOPF_TX_TUNE   = 1 << 1,  # /* Transmit is tunable */
+             OFPOPF_TX_PWR    = 1 << 2,  # /* Power is configurable */
+             OFPOPF_USE_FREQ  = 1 << 3,  # /* Use Frequency, not wavelength */
+        )
+    
+    # /* Optical port description property. */
+    ofp_port_desc_prop_optical = \
+        nstruct(
+            (uint8[4],),                                # /* Align to 64 bits. */
+            (ofp_optical_port_features, 'supported'),   # /* Features supported by the port. */
+            (uint32, 'tx_min_freq_lmda'),               # /* Minimum TX Frequency/Wavelength */
+            (uint32, 'tx_max_freq_lmda'),               # /* Maximum TX Frequency/Wavelength */
+            (uint32, 'tx_grid_freq_lmda'),              # /* TX Grid Spacing Frequency/Wavelength */
+            (uint32, 'rx_min_freq_lmda'),               # /* Minimum RX Frequency/Wavelength */
+            (uint32, 'rx_max_freq_lmda'),               # /* Maximum RX Frequency/Wavelength */
+            (uint32, 'rx_grid_freq_lmda'),              # /* RX Grid Spacing Frequency/Wavelength */
+            (uint16, 'tx_pwr_min'),                     # /* Minimum TX power */
+            (uint16, 'tx_pwr_max'),                     # /* Maximum TX power */
+            name = 'ofp_port_desc_prop_optical',
+            base = ofp_port_desc_prop,
+            criteria = lambda x: x.type == OFPPDPT_OPTICAL,
+            classifyby = (OFPPDPT_OPTICAL,),
+            init = packvalue(OFPPDPT_OPTICAL, 'type')
+        )
+    
+    # /* Experimenter port description property. */
+    ofp_port_desc_prop_experimenter = \
+        nstruct(
+            (experimenter_ids, 'experimenter'),         # /* Experimenter ID which takes the same
+                                                        #    form as in struct
+                                                        #    ofp_experimenter_header. */
+            (uint32, 'exp_type'),                       # /* Experimenter defined. */
+            #/* Followed by:
+            # *   - Exactly (length - 12) bytes containing the experimenter data, then
+            # *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+            # *     bytes of all-zero bytes */
+            name = 'ofp_port_desc_prop_experimenter',
+            base = ofp_port_desc_prop,
+            criteria = lambda x: x.type == OFPPDPT_EXPERIMENTER,
+            classifyby = (OFPPDPT_EXPERIMENTER,),
+            init = packvalue(OFPPDPT_EXPERIMENTER, 'type')
+        )
+    
+    # /* Description of a port */
     ofp_port = nstruct(
         (ofp_port_no, 'port_no'),
         (uint8[4],),
         (mac_addr, 'hw_addr'),
-        (uint8[2],),                #  /* Align to 64 bits. */
-        (char[OFP_MAX_PORT_NAME_LEN], 'name'), # /* Null-terminated */
+        (uint8[2],),                            # /* Align to 64 bits. */
+        (char[OFP_MAX_PORT_NAME_LEN], 'name'),  # /* Null-terminated */
     
-        (ofp_port_config, 'config'),     #   /* Bitmap of OFPPC_* flags. */
-        (ofp_port_state, 'state'),      #   /* Bitmap of OFPPS_* flags. */
-    
-    #    /* Bitmaps of OFPPF_* that describe features.  All bits zeroed if
-    #     * unsupported or unavailable. */
-        (ofp_port_features, 'curr'),       #   /* Current features. */
-        (ofp_port_features, 'advertised'), #   /* Features being advertised by the port. */
-        (ofp_port_features, 'supported'),  #   /* Features supported by the port. */
-        (ofp_port_features, 'peer'),       #   /* Features advertised by peer. */
-    
-        (uint32, 'curr_speed'), #   /* Current port bitrate in kbps. */
-        (uint32, 'max_speed'),  #   /* Max port bitrate in kbps */
+        (ofp_port_config, 'config'),            # /* Bitmap of OFPPC_* flags. */
+        (ofp_port_state, 'state'),              # /* Bitmap of OFPPS_* flags. */
+
+        # /* Port description property list - 0 or more properties */
+        (ofp_port_desc_prop[0], 'properties'),
         name = 'ofp_port',
         inline = False
     )
-    
-    '''
-    /* Switch features. */
-    '''
     
     ofp_switch_features = nstruct((uint64, 'datapath_id'),
                                   (uint32, 'n_buffers'),
@@ -237,55 +380,123 @@ with _warnings.catch_warnings():
                                   classifyby = (OFPT_FEATURES_REPLY,),
                                   init = packvalue(OFPT_FEATURES_REPLY, 'header', 'type'))
     
-    '''
-    /* A physical port has changed in the datapath */
-    '''
-    ofp_port_status = nstruct(
-        (ofp_port_reason, 'reason'),
-        (uint8[7],),
-        (ofp_port, 'desc'),
-        name= 'ofp_port_status',
-        base = ofp_msg,
-        criteria = lambda x: x.header.type == OFPT_PORT_STATUS,
-        classifyby = (OFPT_PORT_STATUS,),
-        init = packvalue(OFPT_PORT_STATUS, 'header', 'type')
-    )
+    # /* A physical port has changed in the datapath */
+    ofp_port_status = \
+        nstruct(
+            (ofp_port_reason, 'reason'),
+            (uint8[7],),
+            (ofp_port, 'desc'),
+            name= 'ofp_port_status',
+            base = ofp_msg,
+            criteria = lambda x: x.header.type == OFPT_PORT_STATUS,
+            classifyby = (OFPT_PORT_STATUS,),
+            init = packvalue(OFPT_PORT_STATUS, 'header', 'type')
+        )
+
     
-    '''
-    /* Modify behavior of the physical port */
-    '''
-    ofp_port_mod = nstruct(
-        (uint32, 'port_no'),
-        (uint8[4],),
-        (mac_addr, 'hw_addr'), 
-        (uint8[2],),
-        (ofp_port_config, 'config'),     #   /* Bitmap of OFPPC_* flags. */
-        (ofp_port_config, 'mask'),       #   /* Bitmap of OFPPC_* flags to be changed. */
+    # /* Port mod property types.
+    #  */
+    ofp_port_mod_prop_type = \
+        enum(
+            'ofp_port_mod_prop_type',
+            globals(),
+            uint16,
+            OFPPMPT_ETHERNET          = 0,      # /* Ethernet property. */
+            OFPPMPT_OPTICAL           = 1,      # /* Optical property. */
+            OFPPMPT_EXPERIMENTER      = 0xFFFF  # /* Experimenter property. */
+        )
     
-        (ofp_port_features, 'advertise'),  #   /* Bitmap of "ofp_port_features"s.  Zero all bits to prevent any action taking place. */
-        (uint8[4],),            #   /* Pad to 64-bits. */
-        name = 'ofp_port_mod',
-        base = ofp_msg,
-        criteria = lambda x: x.header.type == OFPT_PORT_MOD,
-        classifyby = (OFPT_PORT_MOD,),
-        init = packvalue(OFPT_PORT_MOD, 'header', 'type')
-    )
+    # /* Common header for all port mod properties. */
+    ofp_port_mod_prop = \
+        nstruct(
+            (uint16, 'type'),                   # /* One of OFPPMPT_*. */
+            (uint16, 'length'),                 # /* Length in bytes of this property. */
+            name = 'ofp_port_mod_prop',
+            size = lambda x: x.length,
+            prepack = packrealsize('length'),
+            classifier = lambda x: x.type,
+        )
     
-    '''
-    /* ## -------------------------- ## */
-    /* ## OpenFlow Extensible Match. ## */
-    /* ## -------------------------- ## */
+    # /* Ethernet port mod property. */
+    ofp_port_mod_prop_ethernet = \
+        nstruct(
+            (uint32, 'advertise'),              # /* Bitmap of OFPPF_*.  Zero all bits to prevent
+                                                #    any action taking place. */
+            name = 'ofp_port_mod_prop_ethernet',
+            base = ofp_port_mod_prop,
+            criteria = lambda x: x.type == OFPPMPT_ETHERNET,
+            classifyby = (OFPPMPT_ETHERNET,),
+            init = packvalue(OFPPMPT_ETHERNET, 'type')
+        )
     
-    /* The match type indicates the match structure (set of fields that compose the
-     * match) in use. The match type is placed in the type field at the beginning
-     * of all match structures. The "OpenFlow Extensible Match" type corresponds
-     * to OXM TLV format described below and must be supported by all OpenFlow
-     * switches. Extensions that define other match types may be published on the
-     * ONF wiki. Support for extensions is optional.
-    */
+    ofp_port_mod_prop_optical = \
+        nstruct(
+            (ofp_optical_port_features, 'configure'),   # /* Bitmap of OFPOPF_*. */
+            (uint32, 'freq_lmda'),                      # /* The "center" frequency */
+            (int32, 'fl_offset'),                       # /* signed frequency offset */
+            (uint32, 'grid_span'),                      # /* The size of the grid for this port */
+            (uint32, 'tx_pwr'),                         # /* tx power setting */
+            name = 'ofp_port_mod_prop_optical',
+            base = ofp_port_mod_prop,
+            criteria = lambda x: x.type == OFPPMPT_OPTICAL,
+            classifyby = (OFPPMPT_OPTICAL,),
+            init = packvalue(OFPPMPT_OPTICAL, 'type')
+        )
     
-    /* Fields to match against flows */
-    '''
+    # /* Experimenter port mod property. */
+    ofp_port_mod_prop_experimenter = \
+        nstruct(
+            (experimenter_ids, 'experimenter'),     # /* Experimenter ID which takes the same
+                                                    #    form as in struct
+                                                    #    ofp_experimenter_header. */
+            (uint32, 'exp_type'),                   # /* Experimenter defined. */
+            # /* Followed by:
+            #  *   - Exactly (length - 12) bytes containing the experimenter data, then
+            #  *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+            #  *     bytes of all-zero bytes */
+            name = 'ofp_port_mod_prop_experimenter',
+            base = ofp_port_mod_prop,
+            criteria = lambda x: x.type == OFPPMPT_EXPERIMENTER,
+            classifyby = (OFPPMPT_EXPERIMENTER,),
+            init = packvalue(OFPPMPT_EXPERIMENTER, 'type')
+        )
+    
+    # /* Modify behavior of the physical port */
+    ofp_port_mod = \
+        nstruct(
+            (uint32, 'port_no'),
+            (uint8[4],),
+            (mac_addr, 'hw_addr'),                  # /* The hardware address is not
+                                                    #          configurable.  This is used to
+                                                    #          sanity-check the request, so it must
+                                                    #          be the same as returned in an
+                                                    #          ofp_port struct. */
+            (uint8[2],),                            # /* Pad to 64 bits. */
+            (ofp_port_config, 'config'),            # /* Bitmap of OFPPC_* flags. */
+            (ofp_port_config, 'mask'),              # /* Bitmap of OFPPC_* flags to be changed. */
+        
+            # /* Port mod property list - 0 or more properties */
+            (ofp_port_mod_prop[0], 'properties'),
+            name = 'ofp_port_mod',
+            base = ofp_msg,
+            criteria = lambda x: x.header.type == OFPT_PORT_MOD,
+            classifyby = (OFPT_PORT_MOD,),
+            init = packvalue(OFPT_PORT_MOD, 'header', 'type')
+        )
+    
+    # /* ## -------------------------- ## */
+    # /* ## OpenFlow Extensible Match. ## */
+    # /* ## -------------------------- ## */
+    
+    # /* The match type indicates the match structure (set of fields that compose the
+    #  * match) in use. The match type is placed in the type field at the beginning
+    #  * of all match structures. The "OpenFlow Extensible Match" type corresponds
+    #  * to OXM TLV format described below and must be supported by all OpenFlow
+    #  * switches. Extensions that define other match types may be published on the
+    # -------------------------- * ONF wiki. Support for extensions is optional.
+    # ----------------------------------------------------------------------- */
+    
+    # /* Fields to match against flows */
     ofp_match = nstruct(
         (ofp_match_type, 'type'),      #       /* One of OFPMT_* */
         (uint16, 'length'),    #       /* Length of ofp_match (excluding padding) */
@@ -301,11 +512,9 @@ with _warnings.catch_warnings():
         prepack = packrealsize('length')
     )
     
-    '''
-    /* Components of a OXM TLV header.
-     * Those macros are not valid for the experimenter class, macros for the
-     * experimenter class will depend on the experimenter header used. */
-    '''
+    #/* Components of a OXM TLV header.
+    # * Those macros are not valid for the experimenter class, macros for the
+    # * experimenter class will depend on the experimenter header used. */
     def OXM_HEADER__(CLASS, FIELD, HASMASK, LENGTH):
         return (((CLASS) << 16) | ((FIELD) << 9) | ((HASMASK) << 8) | (LENGTH))
     def OXM_HEADER(CLASS, FIELD, LENGTH):
@@ -326,13 +535,11 @@ with _warnings.catch_warnings():
     def OXM_MAKE_WILD_HEADER(HEADER):
         return OXM_HEADER_W(OXM_CLASS(HEADER), OXM_FIELD(HEADER), OXM_LENGTH(HEADER))
     
-    '''
-    /* OXM Class IDs.
-     * The high order bit differentiate reserved classes from member classes.
-     * Classes 0x0000 to 0x7FFF are member classes, allocated by ONF.
-     * Classes 0x8000 to 0xFFFE are reserved classes, reserved for standardisation.
-    */
-    '''
+    # /* OXM Class IDs.
+    #  * The high order bit differentiate reserved classes from member classes.
+    #  * Classes 0x0000 to 0x7FFF are member classes, allocated by ONF.
+    #  * Classes 0x8000 to 0xFFFE are reserved classes, reserved for standardisation.
+    #  */
     ofp_oxm_class = enum('ofp_oxm_class', globals(), uint16,
         OFPXMC_NXM_0          = 0x0000,  #  /* Backward compatibility with NXM */
         OFPXMC_NXM_1          = 0x0001,  #  /* Backward compatibility with NXM */
@@ -340,9 +547,7 @@ with _warnings.catch_warnings():
         OFPXMC_EXPERIMENTER   = 0xFFFF,  #  /* Experimenter class */
     )
     
-    '''
-    /* OXM Flow match field types for OpenFlow basic class. */
-    '''
+    # /* OXM Flow match field types for OpenFlow basic class. */
     oxm_ofb_match_fields = enum('oxm_ofb_match_fields', globals(), uint8,
         OFPXMT_OFB_IN_PORT        = 0, # /* Switch input port. */
         OFPXMT_OFB_IN_PHY_PORT    = 1, # /* Switch physical input port. */
@@ -384,25 +589,24 @@ with _warnings.catch_warnings():
         OFPXMT_OFB_PBB_ISID       = 37,# /* PBB I-SID. */
         OFPXMT_OFB_TUNNEL_ID      = 38,# /* Logical Port Metadata. */
         OFPXMT_OFB_IPV6_EXTHDR    = 39,# /* IPv6 Extension Header pseudo-field */
+        OFPXMT_OFB_PBB_UCA        = 41,# /* PBB UCA header field. */
     )
     
-    OFPXMT_OFB_ALL = ((1 << 40) - 1)
-    
-    '''
-    /* The VLAN id is 12-bits, so we can use the entire 16 bits to indicate
-     * special conditions.
-    */
-    '''
+    OFPXMT_OFB_ALL = ((1 << 42) - 1)
+
+    # /* The VLAN id is 12-bits, so we can use the entire 16 bits to indicate
+    #  * special conditions.
+    # */
     ofp_vlan_id = enum('ofp_vlan_id', globals(),
         OFPVID_PRESENT = 0x1000, #/* Bit that indicate that a VLAN id is set */
         OFPVID_NONE    = 0x0000, #/* No VLAN id was set. */
     )
-    '''
-    /* Define for compatibility */
-    '''
+
+    # /* Define for compatibility */
+
     OFP_VLAN_NONE = OFPVID_NONE
-    
-    
+
+
     ofp_oxm_header = enum('ofp_oxm_header', globals(), uint32,
     #===============================================================================
     # /* OpenFlow port on which the packet was received.
@@ -863,12 +1067,26 @@ with _warnings.catch_warnings():
     #  * Masking: Maskable. */
     #===============================================================================
     OXM_OF_IPV6_EXTHDR = OXM_HEADER  (0x8000, OFPXMT_OFB_IPV6_EXTHDR, 2),
-    OXM_OF_IPV6_EXTHDR_W = OXM_HEADER_W(0x8000, OFPXMT_OFB_IPV6_EXTHDR, 2)
+    OXM_OF_IPV6_EXTHDR_W = OXM_HEADER_W(0x8000, OFPXMT_OFB_IPV6_EXTHDR, 2),
+    # /* IEEE 802.1ah UCA.
+    #  *
+    #  * For a packet with a PBB header, this is the UCA (Use Customer Address)
+    #  * from the outermost service tag.
+    #  *
+    #  * Prereqs:
+    #  *   OXM_OF_ETH_TYPE must match 0x88E7 exactly.
+    #  *
+    #  * Format: 8-bit integer with 7 most-significant bits forced to 0.
+    #  * Only the lower 1 bit has meaning.
+    #  *
+    #  * Masking: Not maskable. */
+    OXM_OF_PBB_UCA = OXM_HEADER  (0x8000, OFPXMT_OFB_PBB_UCA, 1)
     )
     
-    '''
-    /* Bit definitions for IPv6 Extension Header pseudo-field. */
-    '''
+    
+    # '''
+    # /* Bit definitions for IPv6 Extension Header pseudo-field. */
+    # '''
     ofp_ipv6exthdr_flags = enum('ofp_ipv6exthdr_flags', globals(), uint16, True,
         OFPIEH_NONEXT = 1 << 0,   #  /* "No next header" encountered. */
         OFPIEH_ESP    = 1 << 1,   #  /* Encrypted Sec Payload header present. */
@@ -880,26 +1098,25 @@ with _warnings.catch_warnings():
         OFPIEH_UNREP  = 1 << 7,   #  /* Unexpected repeats encountered. */
         OFPIEH_UNSEQ  = 1 << 8    #  /* Unexpected sequencing encountered. */
     )
-    
+
     ofp_oxm = nstruct(
         (ofp_oxm_header, 'header'),
         name = 'ofp_oxm',
         padding = 1,
         size = lambda x: OXM_LENGTH(x.header) + 4
     )
-    
-    '''
-    /* Header for OXM experimenter match fields.
-     * The experimenter class should not use OXM_HEADER() macros for defining
-     * fields due to this extra header. */
-    '''
+
+    # /* Header for OXM experimenter match fields.
+    #  * The experimenter class should not use OXM_HEADER() macros for defining
+    # * fields due to this extra header. */
     ofp_oxm_experimenter = nstruct(
-        (experimenter_ids, 'experimenter'),   #   /* Experimenter ID which takes the same form as in struct ofp_experimenter_header. */
+        (experimenter_ids, 'experimenter'),   #   /* Experimenter ID. */
         base = ofp_oxm,
         name = 'ofp_oxm_experimenter',
         criteria = lambda x: OXM_CLASS(x.header) == OFPXMC_EXPERIMENTER,
         init = packvalue(OXM_HEADER(OFPXMC_EXPERIMENTER, 0, 4), 'header')
     )
+
     
     ofp_oxm_nomask = nstruct(
         (hexraw, 'value'),
@@ -1042,11 +1259,9 @@ with _warnings.catch_warnings():
                                   init = packvalue(OXM_OF_IPV6_SRC, 'header'),
                                   extend = {'value': ip6_addr_bytes, 'mask': ip6_addr_bytes})
     
-    '''
-    /* ## ----------------- ## */
-    /* ## OpenFlow Actions. ## */
-    /* ## ----------------- ## */
-    '''
+    # /* ## ----------------- ## */
+    # /* ## OpenFlow Actions. ## */
+    # /* ## ----------------- ## */
     
     ofp_action_type = enum('ofp_action_type', globals(), uint16,
         OFPAT_OUTPUT       = 0,  #/* Output to switch port. */
@@ -1069,11 +1284,9 @@ with _warnings.catch_warnings():
         OFPAT_EXPERIMENTER = 0xffff
     )
     
-    '''
-    /* Action header that is common to all actions.  The length includes the
-     * header and any padding used to make the action 64-bit aligned.
-     * NB: The length of an action *must* always be a multiple of eight. */
-    '''
+    # /* Action header that is common to all actions.  The length includes the
+    #  * header and any padding used to make the action 64-bit aligned.
+    #  * NB: The length of an action *must* always be a multiple of eight. */
     ofp_action = nstruct((ofp_action_type, 'type'),
                         (uint16, 'len'),
                         name = 'ofp_action',
@@ -1088,14 +1301,12 @@ with _warnings.catch_warnings():
     )
     
     
-    '''
-    /* Action structure for OFPAT_OUTPUT, which sends packets out 'port'.
-     * When the 'port' is the OFPP_CONTROLLER, 'max_len' indicates the max
-     * number of bytes to send.  A 'max_len' of zero means no bytes of the
-     * packet should be sent. A 'max_len' of OFPCML_NO_BUFFER means that
-     * the packet is not buffered and the complete packet is to be sent to
-     * the controller. */
-    '''
+    # /* Action structure for OFPAT_OUTPUT, which sends packets out 'port'.
+    #  * When the 'port' is the OFPP_CONTROLLER, 'max_len' indicates the max
+    #  * number of bytes to send.  A 'max_len' of zero means no bytes of the
+    #  * packet should be sent. A 'max_len' of OFPCML_NO_BUFFER means that
+    #  * the packet is not buffered and the complete packet is to be sent to
+    #  * the controller. */
     ofp_action_output = nstruct((ofp_port_no, 'port'),
                                 (ofp_controller_max_len, 'max_len'),
                                 (uint8[6],),
@@ -1105,9 +1316,22 @@ with _warnings.catch_warnings():
                                 classifyby = (OFPAT_OUTPUT,),
                                 init = packvalue(OFPAT_OUTPUT, 'type'))
     
-    '''
-    /* Action structure for OFPAT_SET_MPLS_TTL. */
-    '''
+    # /* Action structure for OFPAT_COPY_TTL_OUT, OFPAT_COPY_TTL_IN,
+    #  * OFPAT_DEC_MPLS_TTL, OFPAT_DEC_NW_TTL, OFPAT_POP_VLAN and OFPAT_POP_PBB. */
+    ofp_action_generic = \
+        nstruct((uint8[4],),
+                name = 'ofp_action_generic',
+                base = ofp_action,
+                criteria = lambda x: x.type in (OFPAT_COPY_TTL_OUT, OFPAT_COPY_TTL_IN,
+                                                OFPAT_DEC_MPLS_TTL, OFPAT_DEC_NW_TTL,
+                                                OFPAT_POP_VLAN, OFPAT_POP_PBB),
+                classifyby = (OFPAT_COPY_TTL_OUT, OFPAT_COPY_TTL_IN,
+                              OFPAT_DEC_MPLS_TTL, OFPAT_DEC_NW_TTL,
+                              OFPAT_POP_VLAN, OFPAT_POP_PBB),
+                init = packvalue(OFPAT_COPY_TTL_OUT, 'type')
+                )
+    
+    # /* Action structure for OFPAT_SET_MPLS_TTL. */
     ofp_action_mpls_ttl = nstruct(
         (uint8, 'mpls_ttl'),             #  /* MPLS TTL */
         (uint8[3],),
@@ -1118,9 +1342,7 @@ with _warnings.catch_warnings():
         init = packvalue(OFPAT_SET_MPLS_TTL, 'type')
     )
     
-    '''
-    /* Action structure for OFPAT_PUSH_VLAN/MPLS/PBB. */
-    '''
+    # /* Action structure for OFPAT_PUSH_VLAN/MPLS/PBB. */
     ofp_action_push = nstruct(
         (ethertype, 'ethertype'),          #   /* Ethertype */
         (uint8[2],),
@@ -1131,9 +1353,7 @@ with _warnings.catch_warnings():
         init = packvalue(OFPAT_PUSH_VLAN, 'type')
     )
     
-    '''
-    /* Action structure for OFPAT_POP_MPLS. */
-    '''
+    # /* Action structure for OFPAT_POP_MPLS. */
     ofp_action_pop_mpls = nstruct(
         (ethertype, 'ethertype'),          #   /* Ethertype */
         (uint8[2],),
@@ -1144,9 +1364,17 @@ with _warnings.catch_warnings():
         init = packvalue(OFPAT_POP_MPLS, 'type')
     )
     
-    '''
-    /* Action structure for OFPAT_GROUP. */
-    '''
+    # /* Action structure for OFPAT_SET_QUEUE. */
+    ofp_action_set_queue = nstruct(
+        (uint32, 'queue_id'),      # /* Queue id for the packets. */
+        base = ofp_action,
+        criteria = lambda x: x.type == OFPAT_SET_QUEUE,
+        classifyby = (OFPAT_SET_QUEUE,),
+        init = packvalue(OFPAT_SET_QUEUE, 'type'),
+        name = 'ofp_action_set_queue'
+    )
+
+    # /* Action structure for OFPAT_GROUP. */
     ofp_action_group = nstruct(
         (uint32, 'group_id'),           #   /* Group identifier. */
         name = 'ofp_action_group',
@@ -1156,9 +1384,7 @@ with _warnings.catch_warnings():
         init = packvalue(OFPAT_GROUP, 'type')
     )
     
-    '''
-    /* Action structure for OFPAT_SET_NW_TTL. */
-    '''
+    # /* Action structure for OFPAT_SET_NW_TTL. */
     ofp_action_nw_ttl = nstruct(
         (uint8, 'nw_ttl'),              #   /* IP TTL */
         (uint8[3],),
@@ -1169,9 +1395,7 @@ with _warnings.catch_warnings():
         name = 'ofp_action_nw_ttl'
     )
     
-    '''
-    /* Action structure for OFPAT_SET_FIELD. */
-    '''
+    # /* Action structure for OFPAT_SET_FIELD. */
     ofp_action_set_field = nstruct(
         (ofp_oxm, 'field'),
         base = ofp_action,
@@ -1181,14 +1405,10 @@ with _warnings.catch_warnings():
         name = 'ofp_action_set_field'
     )
     
-    '''
-    /* Action header for OFPAT_EXPERIMENTER.
-     * The rest of the body is experimenter-defined. */
-    '''
+    # /* Action header for OFPAT_EXPERIMENTER.
+    #  * The rest of the body is experimenter-defined. */
     ofp_action_experimenter = nstruct(
-        (experimenter_ids, 'experimenter'),     #  /* Experimenter ID which takes the same
-    #                                       form as in struct
-    #                                       ofp_experimenter_header. */
+        (experimenter_ids, 'experimenter'),     #  /* Experimenter ID. */
         base = ofp_action,
         criteria = lambda x: x.type == OFPAT_EXPERIMENTER,
         classifyby = (OFPAT_EXPERIMENTER,),
@@ -1196,11 +1416,10 @@ with _warnings.catch_warnings():
         name = 'ofp_action_experimenter'
     )
     
-    '''
-    /* ## ---------------------- ## */
-    /* ## OpenFlow Instructions. ## */
-    /* ## ---------------------- ## */
-    '''
+    # /* ## ---------------------- ## */
+    # /* ## OpenFlow Instructions. ## */
+    # /* ## ---------------------- ## */
+    
     ofp_instruction_type = enum('ofp_instruction_type', globals(), uint16,
         OFPIT_GOTO_TABLE = 1,      # /* Setup the next table in the lookup pipeline */
         OFPIT_WRITE_METADATA = 2,  # /* Setup the metadata field for use later in pipeline */
@@ -1212,27 +1431,23 @@ with _warnings.catch_warnings():
         OFPIT_EXPERIMENTER = 0xFFFF # /* Experimenter instruction */
     )
     
-    '''
-    /* Instruction header that is common to all instructions.  The length includes
-     * the header and any padding used to make the instruction 64-bit aligned.
-     * NB: The length of an instruction *must* always be a multiple of eight. */
-    '''
+    # /* Instruction header that is common to all instructions.  The length includes
+    #  * the header and any padding used to make the instruction 64-bit aligned.
+    #  * NB: The length of an instruction *must* always be a multiple of eight. */
     
     ofp_instruction = nstruct(
         (ofp_instruction_type, 'type'),           #     /* Instruction type */
-        (uint16, 'len'),            #     /* Length of this struct in bytes. */
+        (uint16, 'len'),                          #     /* Length of this struct in bytes. */
         name = 'ofp_instruction',
         size = lambda x: x.len,
         prepack = packsize('len'),
         classifier = lambda x: x.type
     )
     
-    '''
-    /* Instruction structure for OFPIT_GOTO_TABLE */
-    '''
+    # /* Instruction structure for OFPIT_GOTO_TABLE */
     ofp_instruction_goto_table = nstruct(
         (uint8, 'table_id'),        #     /* Set next table in the lookup pipeline */
-        (uint8[3],),                   #     /* Pad to 64 bits. */
+        (uint8[3],),                #     /* Pad to 64 bits. */
         base = ofp_instruction,
         name = 'ofp_instruction_goto_table',
         criteria = lambda x: x.type == OFPIT_GOTO_TABLE,
@@ -1240,9 +1455,7 @@ with _warnings.catch_warnings():
         init = packvalue(OFPIT_GOTO_TABLE, 'type')
     )
     
-    '''
-    /* Instruction structure for OFPIT_WRITE_METADATA */
-    '''
+    # /* Instruction structure for OFPIT_WRITE_METADATA */
     ofp_instruction_write_metadata = nstruct(
         (uint8[4],),                  # /* Align to 64-bits */
         (uint64, 'metadata'),         # /* Metadata value to write */
@@ -1254,9 +1467,7 @@ with _warnings.catch_warnings():
         init = packvalue(OFPIT_WRITE_METADATA, 'type')
     )
     
-    '''
-    /* Instruction structure for OFPIT_WRITE/APPLY/CLEAR_ACTIONS */
-    '''
+    # /* Instruction structure for OFPIT_WRITE/APPLY/CLEAR_ACTIONS */
     ofp_instruction_actions = nstruct(
         (uint8[4],),                  # /* Align to 64-bits */
         (ofp_action[0], 'actions'),   # /* 0 or more actions associated with OFPIT_WRITE_ACTIONS and OFPIT_APPLY_ACTIONS */
@@ -1267,9 +1478,7 @@ with _warnings.catch_warnings():
         init = packvalue(OFPIT_APPLY_ACTIONS, 'type')
     )
     
-    '''
-    /* Instruction structure for OFPIT_METER */
-    '''
+    # /* Instruction structure for OFPIT_METER */
     ofp_instruction_meter = nstruct(
         (uint32, 'meter_id'),          # /* Meter instance. */
         base = ofp_instruction,
@@ -1279,12 +1488,10 @@ with _warnings.catch_warnings():
         init = packvalue(OFPIT_METER, 'type')
     )
     
-    '''
-    /* Instruction structure for experimental instructions */
-    '''
+    # /* Instruction structure for experimental instructions */
     ofp_instruction_experimenter = nstruct(
         (experimenter_ids, 'experimenter'),  # /* Experimenter ID which takes the same form as in struct ofp_experimenter_header. */
-    #    /* Experimenter-defined arbitrary additional data. */
+        # /* Experimenter-defined arbitrary additional data. */
         base = ofp_instruction,
         name = 'ofp_instruction_experimenter',
         criteria = lambda x: x.type == OFPIT_EXPERIMENTER,
@@ -1292,15 +1499,15 @@ with _warnings.catch_warnings():
         init = packvalue(OFPIT_EXPERIMENTER, 'type')
     )
     
-    '''
-    /* Value used in "idle_timeout" and "hard_timeout" to indicate that the entry
-     * is permanent. */
-    '''
+    # /* ## --------------------------- ## */
+    # /* ## OpenFlow Flow Modification. ## */
+    # /* ## --------------------------- ## */
+    
+    # /* Value used in "idle_timeout" and "hard_timeout" to indicate that the entry
+    #  * is permanent. */
     OFP_FLOW_PERMANENT = 0
     
-    '''
-    /* By default, choose a priority in the middle. */
-    '''
+    # /* By default, choose a priority in the middle. */
     OFP_DEFAULT_PRIORITY = 0x8000
     
     ofp_flow_mod_flags = ofp_flow_mod_flags.extend(globals(),
@@ -1308,18 +1515,13 @@ with _warnings.catch_warnings():
         OFPFF_NO_PKT_COUNTS = 1 << 3, # /* Don't keep track of packet count. */
         OFPFF_NO_BYT_COUNTS = 1 << 4, # /* Don't keep track of byte count. */
     )
-    
-    
-    '''
-    /* Special buffer-id to indicate 'no buffer' */
-    '''
+
+    # /* Special buffer-id to indicate 'no buffer' */    
     ofp_buffer_id = enum('ofp_buffer_id', globals(), uint32,
                          OFP_NO_BUFFER = 0xffffffff
     )
-    
-    '''
-    /* Flow setup and teardown (controller -> datapath). */
-    '''
+        
+    # /* Flow setup and teardown (controller -> datapath). */
     ofp_flow_mod = nstruct(
         (uint64, 'cookie'),            #  /* Opaque controller-issued identifier. */
     # /* Mask used to restrict the cookie bits
@@ -1351,7 +1553,7 @@ with _warnings.catch_warnings():
     # indicates no restriction. */
         (ofp_group, 'out_group'),
         (ofp_flow_mod_flags, 'flags'),            #  /* Bitmap of OFPFF_* flags. */
-        (uint8[2],),
+        (uint16, 'importance'),
         (ofp_match, 'match'),         #  /* Fields to match. Variable size. */
     #    /* The variable size and padded match is always followed by instructions. */
     # /* Instruction set - 0 or more.
@@ -1365,7 +1567,6 @@ with _warnings.catch_warnings():
         classifyby = (OFPT_FLOW_MOD,),
         init = packvalue(OFPT_FLOW_MOD, 'header', 'type')
     )
-    
     
     '''
     /* Group commands */
@@ -1433,11 +1634,8 @@ with _warnings.catch_warnings():
         init = packvalue(OFPT_GROUP_MOD, 'header', 'type'),
         name = 'ofp_group_mod'
     )
-    
-    '''
-    /* Send packet (controller -> datapath). */
-    '''
-    
+        
+    # /* Send packet (controller -> datapath). */
     def _ofp_packet_out_actions_packsize(x):
         x.actions_len = x._realsize() - 8
     ofp_packet_out_actions = nstruct(
@@ -1461,9 +1659,16 @@ with _warnings.catch_warnings():
         name = 'ofp_packet_out'
     )
     
-    '''
-    /* Packet received on port (datapath -> controller). */
-    '''
+    # /* Why is this packet being sent to the controller? */
+    ofp_packet_in_reason = \
+            ofp_packet_in_reason.extend(
+                    globals(),
+                    OFPR_ACTION_SET   = 3,   # /* Output to controller in action set. */
+                    OFPR_GROUP        = 4,   # /* Output to controller in group bucket. */
+                    OFPR_PACKET_OUT   = 5,   # /* Output to controller in packet-out. */                    
+            )
+    
+    # /* Packet received on port (datapath -> controller). */
     ofp_packet_in = nstruct(
         (ofp_buffer_id, 'buffer_id'),  #   /* ID assigned by datapath. */
         (uint16, 'total_len'),  #   /* Full length of frame. */
@@ -1492,10 +1697,8 @@ with _warnings.catch_warnings():
             return v[0]
         else:
             return create_binary(0, OXM_LENGTH(header))
-    
-    '''
-    /* Flow removed (datapath -> controller). */
-    '''
+        
+    # /* Flow removed (datapath -> controller). */
     ofp_flow_removed = nstruct(
         (uint64, 'cookie'),     #     /* Opaque controller-issued identifier. */
     
@@ -1517,9 +1720,7 @@ with _warnings.catch_warnings():
         name = 'ofp_flow_removed'
     )
     
-    '''
-    /* Meter numbering. Flow meters can use any number up to OFPM_MAX. */
-    '''
+    # /* Meter numbering. Flow meters can use any number up to OFPM_MAX. */
     ofp_meter = enum('ofp_meter', globals(),uint32,
     
     #    /* Virtual meters. */
@@ -1531,19 +1732,14 @@ with _warnings.catch_warnings():
     #    /* Last usable meter. */
     OFPM_MAX        = 0xffff0000
     
-    
-    '''
-    /* Meter band types */
-    '''
+    # /* Meter band types */
     ofp_meter_band_type = enum('ofp_meter_band_type', globals(), uint16,
         OFPMBT_DROP            = 1,     # /* Drop packet. */
         OFPMBT_DSCP_REMARK     = 2,     # /* Remark DSCP in the IP header. */
         OFPMBT_EXPERIMENTER    = 0xFFFF # /* Experimenter meter band. */
     )
     
-    '''
-    /* Common header for all meter bands */
-    '''
+    # /* Common header for all meter bands */
     ofp_meter_band = nstruct(
         (ofp_meter_band_type, 'type'),   # /* One of OFPMBT_*. */
         (uint16, 'len'),    # /* Length in bytes of this band. */
@@ -1555,9 +1751,7 @@ with _warnings.catch_warnings():
         classifier = lambda x: x.type
     )
     
-    '''
-    /* OFPMBT_DROP band - drop packets */
-    '''
+    # /* OFPMBT_DROP band - drop packets */
     ofp_meter_band_drop = nstruct(
         (uint8[4],),
         base = ofp_meter_band,
@@ -1567,9 +1761,7 @@ with _warnings.catch_warnings():
         name = 'ofp_meter_band_drop'
     )
     
-    '''
-    /* OFPMBT_DSCP_REMARK band - Remark DSCP in the IP header */
-    '''
+    # /* OFPMBT_DSCP_REMARK band - Remark DSCP in the IP header */
     ofp_meter_band_dscp_remark = nstruct(
         (uint8, 'prec_level'), # /* Number of drop precedence level to add. */
         (uint8[3],),
@@ -1581,10 +1773,8 @@ with _warnings.catch_warnings():
     )
     
     
-    '''
-    /* OFPMBT_EXPERIMENTER band - Experimenter type.
-     * The rest of the band is experimenter-defined. */
-    '''
+    # /* OFPMBT_EXPERIMENTER band - Experimenter type.
+    #  * The rest of the band is experimenter-defined. */
     ofp_meter_band_experimenter = nstruct(
     #/* Experimenter ID which takes the same
     # form as in struct
@@ -1597,18 +1787,14 @@ with _warnings.catch_warnings():
         name = 'ofp_meter_band_experimenter'
     )
     
-    '''
-    /* Meter commands */
-    '''
+    # /* Meter commands */
     ofp_meter_mod_command = enum('ofp_meter_mod_command', globals(),uint16,
         OFPMC_ADD = 0,            #  /* New meter. */
         OFPMC_MODIFY = 1,         #  /* Modify specified meter. */
         OFPMC_DELETE = 2,         #  /* Delete specified meter. */
     )
     
-    '''
-    /* Meter configuration flags */
-    '''
+    # /* Meter configuration flags */
     ofp_meter_flags = enum('ofp_meter_flags', globals(),uint16,
         OFPMF_KBPS    = 1 << 0,   #  /* Rate value in kb/s (kilo-bit per second). */
         OFPMF_PKTPS   = 1 << 1,   #  /* Rate value in packet/sec. */
@@ -1616,9 +1802,7 @@ with _warnings.catch_warnings():
         OFPMF_STATS   = 1 << 3,   #  /* Collect statistics. */
     )
     
-    '''
-    /* Meter configuration. OFPT_METER_MOD. */
-    '''
+    # /* Meter configuration. OFPT_METER_MOD. */
     ofp_meter_mod = nstruct(
         (ofp_meter_mod_command, 'command'),      #  /* One of OFPMC_*. */
         (ofp_meter_flags, 'flags'),        #  /* Bitmap of OFPMF_* flags. */
@@ -1632,11 +1816,30 @@ with _warnings.catch_warnings():
         name = 'ofp_meter_mod'
     )
     
-    
-    '''
-    /* ofp_error_msg 'code' values for OFPET_BAD_INSTRUCTION.  'data' contains at least
-     * the first 64 bytes of the failed request. */
-    '''
+    # /* Values for 'type' in ofp_error_message.  These values are immutable: they
+    #  * will not change in future versions of the protocol (although new values may
+    #  * be added). */
+    ofp_error_type = ofp_error_type.extend(globals(),
+        OFPET_BAD_INSTRUCTION      = 3,  #/* Error in instruction list. */
+        OFPET_BAD_MATCH            = 4,  #/* Error in match. */
+        OFPET_FLOW_MOD_FAILED      = 5,  #/* Problem modifying flow entry. */
+        OFPET_GROUP_MOD_FAILED     = 6,  #/* Problem modifying group entry. */
+        OFPET_PORT_MOD_FAILED      = 7,  #/* Port mod request failed. */
+        OFPET_TABLE_MOD_FAILED     = 8,  #/* Table mod request failed. */
+        OFPET_QUEUE_OP_FAILED      = 9,  #/* Queue operation failed. */
+        OFPET_SWITCH_CONFIG_FAILED = 10, #/* Switch config request failed. */
+        OFPET_ROLE_REQUEST_FAILED  = 11, #/* Controller Role request failed. */
+        OFPET_METER_MOD_FAILED     = 12, #/* Error in meter. */
+        OFPET_TABLE_FEATURES_FAILED = 13,# /* Setting table features failed. */
+        OFPET_BAD_PROPERTY         = 14, # /* Some property is invalid. */
+        OFPET_ASYNC_CONFIG_FAILED  = 15, # /* Asynchronous config request failed. */
+        OFPET_FLOW_MONITOR_FAILED  = 16, # /* Setting flow monitor failed. */
+        OFPET_BUNDLE_FAILED        = 17, # /* Bundle operation failed. */
+        OFPET_EXPERIMENTER = 0xffff      #/* Experimenter error messages. */
+    )
+
+    # /* ofp_error_msg 'code' values for OFPET_BAD_INSTRUCTION.  'data' contains at least
+    #  * the first 64 bytes of the failed request. */
     ofp_bad_instruction_code = enum('ofp_bad_instruction_code', globals(), uint16,
         OFPBIC_UNKNOWN_INST     = 0, #/* Unknown instruction. */
         OFPBIC_UNSUP_INST       = 1, #/* Switch or table does not support the
@@ -1649,12 +1852,11 @@ with _warnings.catch_warnings():
         OFPBIC_BAD_EXP_TYPE     = 6, #/* Unknown instruction for experimenter id. */
         OFPBIC_BAD_LEN          = 7, #/* Length problem in instructions. */
         OFPBIC_EPERM            = 8, #/* Permissions error. */
+        OFPBIC_DUP_INST         = 9, #/* Duplicate instruction. */
     )
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_BAD_MATCH.  'data' contains at least
-     * the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_BAD_MATCH.  'data' contains at least
+    #  * the first 64 bytes of the failed request. */
     ofp_bad_match_code = enum('ofp_bad_match_code', globals(), uint16,
         OFPBMC_BAD_TYPE         = 0, # /* Unsupported match type specified by the
     #                                     match */
@@ -1677,10 +1879,8 @@ with _warnings.catch_warnings():
         OFPBMC_EPERM            = 11,# /* Permissions error. */
     )
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_FLOW_MOD_FAILED.  'data' contains
-     * at least the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_FLOW_MOD_FAILED.  'data' contains
+    #  * at least the first 64 bytes of the failed request. */
     ofp_flow_mod_failed_code = enum('ofp_flow_mod_failed_code', globals(), uint16,
         OFPFMFC_UNKNOWN      = 0,  # /* Unspecified error. */
         OFPFMFC_TABLE_FULL   = 1,  # /* Flow not added because table was full. */
@@ -1692,12 +1892,13 @@ with _warnings.catch_warnings():
     #                                   idle/hard timeout. */
         OFPFMFC_BAD_COMMAND  = 6,  # /* Unsupported or unknown command. */
         OFPFMFC_BAD_FLAGS    = 7,  # /* Unsupported or unknown flags. */
+        OFPFMFC_CANT_SYNC    = 8,  # /* Problem in table synchronisation. */
+        OFPFMFC_BAD_PRIORITY = 9,  # /* Unsupported priority value. */
+        OFPFMFC_IS_SYNC      = 10, # /* Synchronised flow entry is read only. */
     )
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_GROUP_MOD_FAILED.  'data' contains
-     * at least the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_GROUP_MOD_FAILED.  'data' contains
+    #  * at least the first 64 bytes of the failed request. */
     ofp_group_mod_failed_code = enum('ofp_group_mod_failed_code', globals(), uint16,
         OFPGMFC_GROUP_EXISTS         = 0, # /* Group not added because a group ADD
     #                                          attempted to replace an
@@ -1726,10 +1927,8 @@ with _warnings.catch_warnings():
         OFPGMFC_EPERM                = 14,# /* Permissions error. */
     )
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_PORT_MOD_FAILED.  'data' contains
-     * at least the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_PORT_MOD_FAILED.  'data' contains
+    #  * at least the first 64 bytes of the failed request. */
     ofp_port_mod_failed_code = enum('ofp_port_mod_failed_code', globals(), uint16,
         OFPPMFC_BAD_PORT      = 0,  # /* Specified port number does not exist. */
         OFPPMFC_BAD_HW_ADDR   = 1,  # /* Specified hardware address does not
@@ -1739,50 +1938,40 @@ with _warnings.catch_warnings():
         OFPPMFC_EPERM         = 4,  # /* Permissions error. */
     )
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_TABLE_MOD_FAILED.  'data' contains
-     * at least the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_TABLE_MOD_FAILED.  'data' contains
+    #  * at least the first 64 bytes of the failed request. */
     ofp_table_mod_failed_code = enum('ofp_table_mod_failed_code', globals(), uint16,
         OFPTMFC_BAD_TABLE  = 0,     # /* Specified table does not exist. */
         OFPTMFC_BAD_CONFIG = 1,     # /* Specified config is invalid. */
         OFPTMFC_EPERM      = 2,     # /* Permissions error. */
     )
     
-    '''
-    /* ofp_error msg 'code' values for OFPET_QUEUE_OP_FAILED. 'data' contains
-     * at least the first 64 bytes of the failed request */
-    '''
+    # /* ofp_error msg 'code' values for OFPET_QUEUE_OP_FAILED. 'data' contains
+    #  * at least the first 64 bytes of the failed request */
     ofp_queue_op_failed_code = enum('ofp_queue_op_failed_code', globals(), uint16,
         OFPQOFC_BAD_PORT   = 0,    # /* Invalid port (or port does not exist). */
         OFPQOFC_BAD_QUEUE  = 1,    # /* Queue does not exist. */
         OFPQOFC_EPERM      = 2,    # /* Permissions error. */
     )
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_SWITCH_CONFIG_FAILED. 'data' contains
-     * at least the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_SWITCH_CONFIG_FAILED. 'data' contains
+    #  * at least the first 64 bytes of the failed request. */
     ofp_switch_config_failed_code = enum('ofp_switch_config_failed_code', globals(), uint16,
         OFPSCFC_BAD_FLAGS  = 0,     # /* Specified flags is invalid. */
         OFPSCFC_BAD_LEN    = 1,     # /* Specified len is invalid. */
         OFPSCFC_EPERM      = 2,     # /* Permissions error. */
     )
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_ROLE_REQUEST_FAILED. 'data' contains
-     * at least the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_ROLE_REQUEST_FAILED. 'data' contains
+    #  * at least the first 64 bytes of the failed request. */
     ofp_role_request_failed_code = enum('ofp_role_request_failed_code', globals(), uint16,
         OFPRRFC_STALE      = 0,     # /* Stale Message: old generation_id. */
         OFPRRFC_UNSUP      = 1,     # /* Controller role change unsupported. */
         OFPRRFC_BAD_ROLE   = 2,     # /* Invalid role. */
     )
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_METER_MOD_FAILED.  'data' contains
-     * at least the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_METER_MOD_FAILED.  'data' contains
+    #  * at least the first 64 bytes of the failed request. */
     ofp_meter_mod_failed_code = enum('ofp_meter_mod_failed_code', globals(), uint16,
         OFPMMFC_UNKNOWN       = 0, # /* Unspecified error. */
         OFPMMFC_METER_EXISTS  = 1, # /* Meter not added because a Meter ADD
@@ -1803,19 +1992,88 @@ with _warnings.catch_warnings():
         OFPMMFC_OUT_OF_BANDS  = 11,# /* The maximum number of properties
     #                                 * for a meter has been exceeded. */
     )
+
     
-    '''
-    /* ofp_error_msg 'code' values for OFPET_TABLE_FEATURES_FAILED. 'data' contains
-     * at least the first 64 bytes of the failed request. */
-    '''
+    # /* ofp_error_msg 'code' values for OFPET_TABLE_FEATURES_FAILED. 'data' contains
+    #  * at least the first 64 bytes of the failed request. */
     ofp_table_features_failed_code = enum('ofp_table_features_failed_code', globals(), uint16,
         OFPTFFC_BAD_TABLE    = 0,     # /* Specified table does not exist. */
         OFPTFFC_BAD_METADATA = 1,     # /* Invalid metadata mask. */
-        OFPTFFC_BAD_TYPE     = 2,     # /* Unknown property type. */
-        OFPTFFC_BAD_LEN      = 3,     # /* Length problem in properties. */
-        OFPTFFC_BAD_ARGUMENT = 4,     # /* Unsupported property value. */
         OFPTFFC_EPERM        = 5,     # /* Permissions error. */
     )
+    
+    # /* ofp_error_msg 'code' values for OFPET_BAD_PROPERTY. 'data' contains at least
+    #  * the first 64 bytes of the failed request. */
+    ofp_bad_property_code = \
+            enum('ofp_bad_property_code',
+                 globals(),
+                 uint16,                         
+                 OFPBPC_BAD_TYPE           = 0,  # /* Unknown property type. */
+                 OFPBPC_BAD_LEN            = 1,  # /* Length problem in property. */
+                 OFPBPC_BAD_VALUE          = 2,  # /* Unsupported property value. */
+                 OFPBPC_TOO_MANY           = 3,  # /* Can't handle this many properties. */
+                 OFPBPC_DUP_TYPE           = 4,  # /* A property type was duplicated. */
+                 OFPBPC_BAD_EXPERIMENTER   = 5,  # /* Unknown experimenter id specified. */
+                 OFPBPC_BAD_EXP_TYPE       = 6,  # /* Unknown exp_type for experimenter id. */
+                 OFPBPC_BAD_EXP_VALUE      = 7,  # /* Unknown value for experimenter id. */
+                 OFPBPC_EPERM              = 8,  # /* Permissions error. */
+            )
+    
+    # /* ofp_error_msg 'code' values for OFPET_ASYNC_CONFIG_FAILED. 'data' contains
+    #  * at least the first 64 bytes of the failed request. */
+    ofp_async_config_failed_code = \
+            enum('ofp_async_config_failed_code',
+                 globals(),
+                 uint16,
+                 OFPACFC_INVALID      = 0,      # /* One mask is invalid. */
+                 OFPACFC_UNSUPPORTED  = 1,      # /* Requested configuration not supported. */
+                 OFPACFC_EPERM        = 2,      # /* Permissions error. */
+            )
+    
+    # /* ofp_error_msg 'code' values for OFPET_FLOW_MONITOR_FAILED.  'data' contains
+    #  * at least the first 64 bytes of the failed request. */
+    ofp_flow_monitor_failed_code = \
+            enum('ofp_flow_monitor_failed_code',
+                 globals(),
+                 uint16,
+                 OFPMOFC_UNKNOWN       = 0,  # /* Unspecified error. */
+                 OFPMOFC_MONITOR_EXISTS = 1, # /* Monitor not added because a Monitor ADD
+                                             #  * attempted to replace an existing Monitor. */
+                 OFPMOFC_INVALID_MONITOR = 2,# /* Monitor not added because Monitor specified
+                                             #  * is invalid. */
+                 OFPMOFC_UNKNOWN_MONITOR = 3,# /* Monitor not modified because a Monitor
+                                             #    MODIFY attempted to modify a non-existent
+                                             #    Monitor. */
+                 OFPMOFC_BAD_COMMAND   = 4,  # /* Unsupported or unknown command. */
+                 OFPMOFC_BAD_FLAGS     = 5,  # /* Flag configuration unsupported. */
+                 OFPMOFC_BAD_TABLE_ID  = 6,  # /* Specified table does not exist. */
+                 OFPMOFC_BAD_OUT       = 7,  # /* Error in output port/group. */
+            )
+    
+    # /* ofp_error_msg 'code' values for OFPET_BUNDLE_FAILED.  'data' contains
+    #  * at least the first 64 bytes of the failed request. */
+    ofp_bundle_failed_code = \
+            enum('ofp_bundle_failed_code',
+                 globals(),
+                 uint16,
+                 OFPBFC_UNKNOWN        = 0,  # /* Unspecified error. */
+                 OFPBFC_EPERM          = 1,  # /* Permissions error. */
+                 OFPBFC_BAD_ID         = 2,  # /* Bundle ID doesn't exist. */
+                 OFPBFC_BUNDLE_EXIST   = 3,  # /* Bundle ID already exist. */
+                 OFPBFC_BUNDLE_CLOSED  = 4,  # /* Bundle ID is closed. */
+                 OFPBFC_OUT_OF_BUNDLES = 5,  # /* Too many bundles IDs. */
+                 OFPBFC_BAD_TYPE       = 6,  # /* Unsupported or unknown message control type. */
+                 OFPBFC_BAD_FLAGS      = 7,  # /* Unsupported, unknown, or inconsistent flags. */
+                 OFPBFC_MSG_BAD_LEN    = 8,  # /* Length problem in included message. */
+                 OFPBFC_MSG_BAD_XID    = 9,  # /* Inconsistent or duplicate XID. */
+                 OFPBFC_MSG_UNSUP      = 10, # /* Unsupported message in this bundle. */
+                 OFPBFC_MSG_CONFLICT   = 11, # /* Unsupported message combination in this bundle. */
+                 OFPBFC_MSG_TOO_MANY   = 12, # /* Can't handle this many messages in bundle. */
+                 OFPBFC_MSG_FAILED     = 13, # /* One message in bundle failed. */
+                 OFPBFC_TIMEOUT        = 14, # /* Bundle is taking too long. */
+                 OFPBFC_BUNDLE_IN_PROGRESS = 15, # /* Bundle is locking the resource. */
+            )
+    
     
     ofp_multipart_type = enum('ofp_multipart_type', globals(), uint16,
     #    /* Description of this OpenFlow switch.
@@ -1846,7 +2104,7 @@ with _warnings.catch_warnings():
     #    /* Queue statistics for a port
     #     * The request body is struct ofp_queue_stats_request.
     #     * The reply body is an array of struct ofp_queue_stats */
-        OFPMP_QUEUE = 5,
+        OFPMP_QUEUE_STATS = 5,
     
     #    /* Group counter statistics.
     #     * The request body is struct ofp_group_stats_request.
@@ -1891,6 +2149,21 @@ with _warnings.catch_warnings():
     #     * The reply body is an array of struct ofp_port. */
         OFPMP_PORT_DESC = 13,
     
+    #    /* Table description.
+    #     * The request body is empty.
+    #     * The reply body is an array of struct ofp_table_desc. */
+        OFPMP_TABLE_DESC = 14,
+    
+    #    /* Queue description.
+    #     * The request body is struct ofp_queue_desc_request.
+    #     * The reply body is an array of struct ofp_queue_desc. */
+        OFPMP_QUEUE_DESC = 15,
+    
+    #    /* Flow monitors. Reply may be an asynchronous message.
+    #     * The request body is an array of struct ofp_flow_monitor_request.
+    #     * The reply body is an array of struct ofp_flow_update_header. */
+        OFPMP_FLOW_MONITOR = 16,
+
     #    /* Experimenter extension.
     #     * The request and reply bodies begin with
     #     * struct ofp_experimenter_multipart_header.
@@ -1898,10 +2171,9 @@ with _warnings.catch_warnings():
         OFPMP_EXPERIMENTER = 0xffff
     )
     
-    '''
-    /* Backward compatibility with 1.3.1 - avoid breaking the API. */
-    '''
+    # /* Backward compatibility with 1.3.1 - avoid breaking the API. */
     ofp_multipart_types = ofp_multipart_type
+    OFPMP_QUEUE = OFPMP_QUEUE_STATS
     
     ofp_multipart_request_flags = enum('ofp_multipart_request_flags', globals(), uint16, True,
         OFPMPF_REQ_MORE  = 1 << 0 # /* More requests to follow. */
@@ -1958,9 +2230,8 @@ with _warnings.catch_warnings():
         init = packvalue(OFPMP_DESC, 'type'),
         name = 'ofp_desc_reply'
     )
-    '''
-    /* Body for ofp_multipart_request of type OFPMP_FLOW. */
-    '''
+    
+    # /* Body for ofp_multipart_request of type OFPMP_FLOW. */
     ofp_flow_stats_request = nstruct(
         (ofp_table, 'table_id'),    #  /* ID of table to read (from ofp_table_stats),
     #                                 OFPTT_ALL for all tables. */
@@ -1985,9 +2256,7 @@ with _warnings.catch_warnings():
         name = 'ofp_flow_stats_request'
     )
     
-    '''
-    /* Body of reply to OFPMP_FLOW request. */
-    '''
+    # /* Body of reply to OFPMP_FLOW request. */
     ofp_flow_stats = nstruct(
         (uint16, 'length'),         # /* Length of this entry. */
         (uint8, 'table_id'),        # /* ID of table flow came from. */
@@ -1999,13 +2268,14 @@ with _warnings.catch_warnings():
         (uint16, 'idle_timeout'),   # /* Number of seconds idle before expiration. */
         (uint16, 'hard_timeout'),   # /* Number of seconds before expiration. */
         (ofp_flow_mod_flags, 'flags'),          # /* Bitmap of OFPFF_* flags. */
-        (uint8[4],),                # /* Align to 64-bits. */
+        (uint16, 'importance'),     # /* Eviction precedence. */
+        (uint8[2],),                # /* Align to 64-bits. */
         (uint64, 'cookie'),         # /* Opaque controller-issued identifier. */
         (uint64, 'packet_count'),   # /* Number of packets in flow. */
         (uint64, 'byte_count'),     # /* Number of bytes in flow. */
         (ofp_match, 'match'),       # /* Description of fields. Variable size. */
-    #    /* The variable size and padded match is always followed by instructions. */
-        (ofp_instruction[0], 'instructions'), # /* Instruction set - 0 or more. */
+        (ofp_instruction[0], 'instructions'),
+                                    # /* Instruction set - 0 or more. */
         name = 'ofp_flow_stats',
         size = lambda x: x.length,
         prepack = packsize('length')
@@ -2020,9 +2290,7 @@ with _warnings.catch_warnings():
         name = 'ofp_flow_stats_reply'
     )
     
-    '''
-    /* Body for ofp_multipart_request of type OFPMP_AGGREGATE. */
-    '''
+    # /* Body for ofp_multipart_request of type OFPMP_AGGREGATE. */
     ofp_aggregate_stats_request = nstruct(
         (ofp_table, 'table_id'),      #     /* ID of table to read (from ofp_table_stats)
     #                                 OFPTT_ALL for all tables. */
@@ -2047,9 +2315,7 @@ with _warnings.catch_warnings():
         name = 'ofp_aggregate_stats_request'
     )
     
-    '''
-    /* Body of reply to OFPMP_AGGREGATE request. */
-    '''
+    # /* Body of reply to OFPMP_AGGREGATE request. */
     ofp_aggregate_stats_reply = nstruct(
         (uint64, 'packet_count'),     #  /* Number of packets in flows. */
         (uint64, 'byte_count'),       #  /* Number of bytes in flows. */
@@ -2062,13 +2328,10 @@ with _warnings.catch_warnings():
         name = 'ofp_aggregate_stats_reply'
     )
     
-    
-    '''
-    /* Table Feature property types.
-     * Low order bit cleared indicates a property for a regular Flow Entry.
-     * Low order bit set indicates a property for the Table-Miss Flow Entry.
-    */
-    '''
+    # /* Table Feature property types.
+    #  * Low order bit cleared indicates a property for a regular Flow Entry.
+    #  * Low order bit set indicates a property for the Table-Miss Flow Entry.
+    #  */
     ofp_table_feature_prop_type = enum('ofp_table_feature_prop_type', globals(), uint16,
         OFPTFPT_INSTRUCTIONS           = 0, # /* Instructions property. */
         OFPTFPT_INSTRUCTIONS_MISS      = 1, # /* Instructions for table-miss. */
@@ -2084,13 +2347,12 @@ with _warnings.catch_warnings():
         OFPTFPT_WRITE_SETFIELD_MISS    = 13,# /* Write Set-Field for table-miss. */
         OFPTFPT_APPLY_SETFIELD         = 14,# /* Apply Set-Field property. */
         OFPTFPT_APPLY_SETFIELD_MISS    = 15,# /* Apply Set-Field for table-miss. */
+        OFPTFPT_TABLE_SYNC_FROM        = 16,# /* Table synchronisation property. */
         OFPTFPT_EXPERIMENTER           = 0xFFFE,# /* Experimenter property. */
         OFPTFPT_EXPERIMENTER_MISS      = 0xFFFF,# /* Experimenter for table-miss. */
     )
     
-    '''
-    /* Common header for all Table Feature Properties */
-    '''
+    # /* Common header for all Table Feature Properties */
     ofp_table_feature_prop = nstruct(
         (ofp_table_feature_prop_type, 'type'),                  # /* One of OFPTFPT_*. */
         (uint16, 'length'),                # /* Length in bytes of this property. */
@@ -2100,30 +2362,31 @@ with _warnings.catch_warnings():
         classifier = lambda x: x.type
     )
     
-    ofp_instruction_feature = nstruct(
+    ofp_instruction_id = nstruct(
         (ofp_instruction_type, 'type'),           #     /* Instruction type */
         (uint16, 'len'),            #     /* Length of this struct in bytes. */
-        name = 'ofp_instruction_feature',
+        name = 'ofp_instruction_id',
         size = lambda x: x.len,
         prepack = packsize('len'),
         padding = 1
     )
     
-    ofp_instruction_experimenter_feature = nstruct(
+    ofp_instruction_experimenter_id = nstruct(
         (experimenter_ids, 'experimenter'),  # /* Experimenter ID which takes the same form as in struct ofp_experimenter_header. */
     #    /* Experimenter-defined arbitrary additional data. */
-        base = ofp_instruction_feature,
-        name = 'ofp_instruction_experimenter_feature',
+        base = ofp_instruction_id,
+        name = 'ofp_instruction_experimenter_id',
         criteria = lambda x: x.type == OFPIT_EXPERIMENTER,
         init = packvalue(OFPIT_EXPERIMENTER, 'type')
     )
     
+    ofp_instruction_feature = ofp_instruction_id
     
-    '''
-    /* Instructions property */
-    '''
+    ofp_instruction_experimenter_feature = ofp_instruction_experimenter_id
+    
+    # /* Instructions property */
     ofp_table_feature_prop_instructions = nstruct(
-        (ofp_instruction_feature[0], 'instruction_ids'),  # /* List of instructions */
+        (ofp_instruction_id[0], 'instruction_ids'),  # /* List of instructions */
         name = 'ofp_table_feature_prop_instructions',
         base = ofp_table_feature_prop,
         criteria = lambda x: x.type == OFPTFPT_INSTRUCTIONS or x.type == OFPTFPT_INSTRUCTIONS_MISS,
@@ -2131,46 +2394,48 @@ with _warnings.catch_warnings():
         init = packvalue(OFPTFPT_INSTRUCTIONS, 'type')
     )
     
-    '''
-    /* Next Tables property */
-    '''
-    ofp_table_feature_prop_next_tables = nstruct(
-        (uint8[0], 'next_table_ids'),       # /* List of table ids. */
+    # /* Next Tables and Table Synchronise From properties */
+    ofp_table_feature_prop_tables = nstruct(
+        (uint8[0], 'table_ids'),       # /* List of table ids. */
         base = ofp_table_feature_prop,
-        name = 'ofp_table_feature_prop_next_tables',
-        criteria = lambda x: x.type == OFPTFPT_NEXT_TABLES or x.type == OFPTFPT_NEXT_TABLES_MISS,
-        classifyby = (OFPTFPT_NEXT_TABLES, OFPTFPT_NEXT_TABLES_MISS),
+        name = 'ofp_table_feature_prop_tables',
+        criteria = lambda x: x.type in (OFPTFPT_NEXT_TABLES, OFPTFPT_NEXT_TABLES_MISS, OFPTFPT_TABLE_SYNC_FROM),
+        classifyby = (OFPTFPT_NEXT_TABLES, OFPTFPT_NEXT_TABLES_MISS, OFPTFPT_TABLE_SYNC_FROM),
         init = packvalue(OFPTFPT_NEXT_TABLES, 'type')
     )
     
-    ofp_action_desc = nstruct((ofp_action_type, 'type'),
+    ##### WARNING: ofp_table_feature_prop_tables is not compatible with previous version #####
+    
+    ofp_action_id = nstruct((ofp_action_type, 'type'),
                         (uint16, 'len'),
-                        name = 'ofp_action_desc',
+                        name = 'ofp_action_id',
                         size = lambda x: x.len,
                         prepack = packsize('len'),
                         padding = 1
                         )
     
     
-    ofp_action_experimenter_desc = nstruct(
-        (experimenter_ids, 'experimenter'),     #  /* Experimenter ID which takes the same
-    #                                       form as in struct
-    #                                       ofp_experimenter_header. */
-        base = ofp_action_desc,
+    ofp_action_experimenter_id = nstruct(
+        (experimenter_ids, 'experimenter'),    #  /* Experimenter ID which takes the same
+                                               #     form as in struct
+                                               #     ofp_experimenter_header. */
+        base = ofp_action_id,
         criteria = lambda x: x.type == OFPAT_EXPERIMENTER,
         init = packvalue(OFPAT_EXPERIMENTER, 'type'),
-        name = 'ofp_action_experimenter_desc'
+        name = 'ofp_action_experimenter_id'
     )
     
-    '''
-    /* Actions property */
-    '''
+    ofp_action_desc = ofp_action_id
+    
+    ofp_action_experimenter_desc = ofp_action_experimenter_id
+        
+    # /* Actions property */
     ofp_table_feature_prop_actions = nstruct(
     #    /* Followed by:
     #     *   - Exactly (length - 4) bytes containing the action_ids, then
     #     *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
     #     *     bytes of all-zero bytes */
-        (ofp_action_desc[0], 'action_ids'),    #  /* List of actions */
+        (ofp_action_id[0], 'action_ids'),    #  /* List of actions */
         base = ofp_table_feature_prop,
         criteria = lambda x: x.type in (OFPTFPT_WRITE_ACTIONS, OFPTFPT_WRITE_ACTIONS_MISS, OFPTFPT_APPLY_ACTIONS, OFPTFPT_APPLY_ACTIONS_MISS),
         classifyby = (OFPTFPT_WRITE_ACTIONS, OFPTFPT_WRITE_ACTIONS_MISS, OFPTFPT_APPLY_ACTIONS, OFPTFPT_APPLY_ACTIONS_MISS),
@@ -2178,9 +2443,7 @@ with _warnings.catch_warnings():
         name = 'ofp_table_feature_prop_actions'
     )
     
-    '''
-    /* Match, Wildcard or Set-Field property */
-    '''
+    # /* Match, Wildcard or Set-Field property */
     ofp_table_feature_prop_oxm  = nstruct(
     #    uint16_t         type;    /* One of OFPTFPT_MATCH,
     #                                 OFPTFPT_WILDCARDS,
@@ -2201,14 +2464,13 @@ with _warnings.catch_warnings():
         init = packvalue(OFPTFPT_MATCH, 'type')
     )
     
-    '''
-    /* Experimenter table feature property */
-    '''
+    # /* Experimenter table feature property */
     ofp_table_feature_prop_experimenter = nstruct(
     #    uint16_t         type;    /* One of OFPTFPT_EXPERIMENTER,
     #                                 OFPTFPT_EXPERIMENTER_MISS. */
     #    uint16_t         length;  /* Length in bytes of this property. */
-        (experimenter_ids, 'experimenter'),   #  /* Experimenter ID which takes the same
+        (experimenter_ids, 'experimenter'),   
+    #                                  /* Experimenter ID which takes the same
     #                                       form as in struct
     #                                       ofp_experimenter_header. */
         (uint32, 'exp_type'),       #  /* Experimenter defined. */
@@ -2224,10 +2486,8 @@ with _warnings.catch_warnings():
         init = packvalue(OFPTFPT_EXPERIMENTER, 'type')
     )
     
-    '''
-    /* Body for ofp_multipart_request of type OFPMP_TABLE_FEATURES./
-     * Body of reply to OFPMP_TABLE_FEATURES request. */
-    '''
+    # /* Body for ofp_multipart_request of type OFPMP_TABLE_FEATURES./
+    #  * Body of reply to OFPMP_TABLE_FEATURES request. */
     ofp_table_features = nstruct(
         (uint16, 'length'),       #  /* Length is padded to 64 bits. */
         (uint8, 'table_id'),      #  /* Identifier of table.  Lower numbered tables
@@ -2236,7 +2496,7 @@ with _warnings.catch_warnings():
         (char[OFP_MAX_TABLE_NAME_LEN], 'name'),
         (uint64, 'metadata_match'), #/* Bits of metadata table can match. */
         (uint64, 'metadata_write'), #/* Bits of metadata table can write. */
-        (ofp_table_config, 'config'),         #/* Bitmap of OFPTC_* values */
+        (ofp_table_config, 'capabilities'),         #/* Bitmap of OFPTC_* values */
         (uint32, 'max_entries'),    #/* Max number of entries supported. */
     
     #    /* Table Feature Property list */
@@ -2264,10 +2524,7 @@ with _warnings.catch_warnings():
         name = 'ofp_table_features_reply'
     )
     
-    
-    '''
-    /* Body of reply to OFPMP_TABLE request. */
-    '''
+    # /* Body of reply to OFPMP_TABLE request. */
     ofp_table_stats = nstruct(
         (uint8, 'table_id'),     #   /* Identifier of table.  Lower numbered tables
     #                                are consulted first. */
@@ -2287,9 +2544,33 @@ with _warnings.catch_warnings():
         name = 'ofp_table_stats_reply'
     )
     
-    '''
-    /* Body for ofp_multipart_request of type OFPMP_PORT. */
-    '''
+    # /* Body of reply to OFPMP_TABLE_DESC request. */
+    ofp_table_desc = \
+            nstruct(
+                (uint16, 'length'),                 #  /* Length is padded to 64 bits. */
+                (uint8, 'table_id'),                #  /* Identifier of table.  Lower numbered tables
+                                                    #     are consulted first. */
+                (uint8[1],),                        #  /* Align to 32-bits. */
+                (ofp_table_config, 'config'),       #  /* Bitmap of OFPTC_* values. */
+            
+                # /* Table Mod Property list - 0 or more. */
+                (ofp_table_mod_prop[0], 'properties'),
+                name = 'ofp_table_desc',
+                size = lambda x: x.length,
+                prepack = packrealsize('length')
+            )
+
+    ofp_table_desc_reply = nstruct(
+        (ofp_table_desc[0], 'tables'),
+        base = ofp_multipart_reply,
+        criteria = lambda x: x.type == OFPMP_TABLE_DESC,
+        classifyby = (OFPMP_TABLE_DESC,),
+        init = packvalue(OFPMP_TABLE_DESC, 'type'),
+        name = 'ofp_table_desc_reply'
+    )
+
+    
+    # /* Body for ofp_multipart_request of type OFPMP_PORT_STATS. */
     ofp_port_stats_request = nstruct(
         (ofp_port_no, 'port_no'),    #    /* OFPMP_PORT message must request statistics
     #                              * either for a single port (specified in
@@ -2303,36 +2584,131 @@ with _warnings.catch_warnings():
         name = 'ofp_port_stats_request'
     )
     
-    '''
-    /* Body of reply to OFPMP_PORT request. If a counter is unsupported, set
-     * the field to all ones. */
-    '''
-    ofp_port_stats = nstruct(
-        (ofp_port_no, 'port_no'),
-        (uint8[4],),                # /* Align to 64-bits. */
-        (uint64, 'rx_packets'),     # /* Number of received packets. */
-        (uint64, 'tx_packets'),     # /* Number of transmitted packets. */
-        (uint64, 'rx_bytes'),       # /* Number of received bytes. */
-        (uint64, 'tx_bytes'),       # /* Number of transmitted bytes. */
-        (uint64, 'rx_dropped'),     # /* Number of packets dropped by RX. */
-        (uint64, 'tx_dropped'),     # /* Number of packets dropped by TX. */
-        (uint64, 'rx_errors'),      # /* Number of receive errors.  This is a super-set
-    #                                of more specific receive errors and should be
-    #                                greater than or equal to the sum of all
-    #                                rx_*_err values. */
-        (uint64, 'tx_errors'),      # /* Number of transmit errors.  This is a super-set
-    #                                of more specific transmit errors and should be
-    #                                greater than or equal to the sum of all
-    #                                tx_*_err values (none currently defined.) */
-        (uint64, 'rx_frame_err'),   # /* Number of frame alignment errors. */
-        (uint64, 'rx_over_err'),    # /* Number of packets with RX overrun. */
-        (uint64, 'rx_crc_err'),     # /* Number of CRC errors. */
-        (uint64, 'collisions'),     # /* Number of collisions. */
-        (uint32, 'duration_sec'),   # /* Time port has been alive in seconds. */
-        (uint32, 'duration_nsec'),  # /* Time port has been alive in nanoseconds beyond
-    #                                duration_sec. */
-        name = 'ofp_port_stats'
-    )
+    # /* Port stats property types.
+    #  */
+    ofp_port_stats_prop_type = \
+        enum('ofp_port_stats_prop_type',
+             globals(),
+             uint16,
+             OFPPSPT_ETHERNET          = 0,      # /* Ethernet property. */
+             OFPPSPT_OPTICAL           = 1,      # /* Optical property. */
+             OFPPSPT_EXPERIMENTER      = 0xFFFF, # /* Experimenter property. */
+        )
+    
+    # /* Common header for all port stats properties. */
+    ofp_port_stats_prop = \
+        nstruct(
+            (uint16, 'type'),       # /* One of OFPPSPT_*. */
+            (uint16, 'length'),     # /* Length in bytes of this property. */
+            name = 'ofp_port_stats_prop',
+            size = lambda x: x.length,
+            prepack = packrealsize('length'),
+            classifier = lambda x: x.type
+        )
+    
+    # /* Ethernet port stats property. */
+    ofp_port_stats_prop_ethernet = \
+        nstruct(
+            (uint8[4],),                # /* Align to 64 bits. */
+        
+            (uint64, 'rx_frame_err'),   # /* Number of frame alignment errors. */
+            (uint64, 'rx_over_err'),    # /* Number of packets with RX overrun. */
+            (uint64, 'rx_crc_err'),     # /* Number of CRC errors. */
+            (uint64, 'collisions'),     # /* Number of collisions. */
+            name = 'ofp_port_stats_prop_ethernet',
+            base = ofp_port_stats_prop,
+            criteria = lambda x: x.type == OFPPSPT_ETHERNET,
+            classifyby = (OFPPSPT_ETHERNET,)
+        )
+    
+    # /* Flags is one of OFPOSF_ below */
+    ofp_port_stats_optical_flags = \
+        enum('ofp_port_stats_optical_flags',
+             globals(),
+             uint32,
+             True,
+             OFPOSF_RX_TUNE   = 1 << 0,  # /* Receiver tune info valid */
+             OFPOSF_TX_TUNE   = 1 << 1,  # /* Transmit tune info valid */
+             OFPOSF_TX_PWR    = 1 << 2,  # /* TX Power is valid */
+             OFPOSF_RX_PWR    = 1 << 4,  # /* RX power is valid */
+             OFPOSF_TX_BIAS   = 1 << 5,  # /* Transmit bias is valid */
+             OFPOSF_TX_TEMP   = 1 << 6,  # /* TX Temp is valid */
+        )
+
+    # /* Optical port stats property. */
+    ofp_port_stats_prop_optical = \
+        nstruct(
+            (uint8[4],),                # /* Align to 64 bits. */
+            (ofp_port_stats_optical_flags, 'flags'),
+                                        # /* Features enabled by the port. */
+            (uint32, 'tx_freq_lmda'),   # /* Current TX Frequency/Wavelength */
+            (uint32, 'tx_offset'),      # /* TX Offset */
+            (uint32, 'tx_grid_span'),   # /* TX Grid Spacing */
+            (uint32, 'rx_freq_lmda'),   # /* Current RX Frequency/Wavelength */
+            (uint32, 'rx_offset'),      # /* RX Offset */
+            (uint32, 'rx_grid_span'),   # /* RX Grid Spacing */
+            (uint16, 'tx_pwr'),         # /* Current TX power */
+            (uint16, 'rx_pwr'),         # /* Current RX power */
+            (uint16, 'bias_current'),   # /* TX Bias Current */
+            (uint16, 'temperature'),    # /* TX Laser Temperature */
+            name = 'ofp_port_stats_prop_optical',
+            base = ofp_port_stats_prop,
+            criteria = lambda x: x.type == OFPPSPT_OPTICAL,
+            classifyby = (OFPPSPT_OPTICAL,),
+            init = packvalue(OFPPSPT_OPTICAL, 'type')
+        )
+        
+    # /* Experimenter port stats property. */
+    ofp_port_stats_prop_experimenter = \
+        nstruct(
+            (experimenter_ids, 'experimenter'),   
+                                        # /* Experimenter ID which takes the same
+                                        #    form as in struct
+                                        #    ofp_experimenter_header. */
+            (uint32, 'exp_type'),       # /* Experimenter defined. */
+            # /* Followed by:
+            #  *   - Exactly (length - 12) bytes containing the experimenter data, then
+            #  *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+            #  *     bytes of all-zero bytes */
+            name = 'ofp_port_stats_prop_experimenter',
+            base = ofp_port_stats_prop,
+            criteria = lambda x: x.type == OFPPSPT_EXPERIMENTER,
+            classifyby = (OFPPSPT_EXPERIMENTER,),
+            init = packvalue(OFPPSPT_EXPERIMENTER, 'type')
+        )
+    
+    # /* Body of reply to OFPMP_PORT_STATS request. If a counter is unsupported,
+    #  * set the field to all ones. */
+    ofp_port_stats = \
+        nstruct(
+            (uint16, 'length'),         # /* Length of this entry. */
+            (uint8[2],),                # /* Align to 64 bits. */
+            (ofp_port_no, 'port_no'),
+            (uint32, 'duration_sec'),   # /* Time port has been alive in seconds. */
+            (uint32, 'duration_nsec'),  # /* Time port has been alive in nanoseconds beyond
+                                        #    duration_sec. */
+            (uint64, 'rx_packets'),     # /* Number of received packets. */
+            (uint64, 'tx_packets'),     # /* Number of transmitted packets. */
+            (uint64, 'rx_bytes'),       # /* Number of received bytes. */
+            (uint64, 'tx_bytes'),       # /* Number of transmitted bytes. */
+        
+            (uint64, 'rx_dropped'),     # /* Number of packets dropped by RX. */
+            (uint64, 'tx_dropped'),     # /* Number of packets dropped by TX. */
+            (uint64, 'rx_errors'),      # /* Number of receive errors.  This is a super-set
+                                        #    of more specific receive errors and should be
+                                        #    greater than or equal to the sum of all
+                                        #    rx_*_err values in properties. */
+            (uint64, 'tx_errors'),      # /* Number of transmit errors.  This is a super-set
+                                        #    of more specific transmit errors and should be
+                                        #    greater than or equal to the sum of all
+                                        #    tx_*_err values (none currently defined.) */
+        
+            # /* Port description property list - 0 or more properties */
+            (ofp_port_desc_prop[0], 'properties'),
+            name = 'ofp_port_stats',
+            size = lambda x: x.length,
+            prepack = packrealsize('length')
+        )
     
     ofp_port_stats_reply = nstruct(
         (ofp_port_stats[0], 'stats'),
@@ -2350,11 +2726,9 @@ with _warnings.catch_warnings():
         classifyby = (OFPMP_PORT_DESC,),
         init = packvalue(OFPMP_PORT_DESC, 'type'),
         name = 'ofp_port_desc_reply'
-    )
+    )    
     
-    '''
-    /* Body of OFPMP_GROUP request. */
-    '''
+    # /* Body of OFPMP_GROUP request. */
     ofp_group_stats_request = nstruct(
         (ofp_group, 'group_id'),       #  /* All groups if OFPG_ALL. */
         (uint8[4],),                #  /* Align to 64 bits. */
@@ -2364,7 +2738,7 @@ with _warnings.catch_warnings():
         init = packvalue(OFPMP_GROUP, 'type'),
         name = 'ofp_group_stats_request'
     )
-    
+
     '''
     /* Used in group stats replies. */
     '''
@@ -2403,7 +2777,7 @@ with _warnings.catch_warnings():
         init = packvalue(OFPMP_GROUP, 'type'),
         name = 'ofp_group_stats_reply'
     )
-    
+
     '''
     /* Body of reply to OFPMP_GROUP_DESC request. */
     '''
@@ -2568,11 +2942,368 @@ with _warnings.catch_warnings():
         init = packvalue(OFPMP_METER_FEATURES, 'type'),
     )
     
-    '''
-    /* Body for ofp_multipart_request/reply of type OFPMP_EXPERIMENTER. */
-    '''
+    # /* All ones is used to indicate all queues in a port (for stats retrieval). */
+    ofp_queue = enum('ofp_queue', globals(), uint32,
+                     OFPQ_ALL = 0xffffffff)
+    
+    # /* Min rate > 1000 means not configured. */
+    OFPQ_MIN_RATE_UNCFG = 0xffff
+    
+    # /* Max rate > 1000 means not configured. */
+    OFPQ_MAX_RATE_UNCFG = 0xffff
+    
+    ofp_queue_desc_prop_type = \
+        enum('ofp_queue_desc_prop_type',
+             globals(),
+             uint16,
+             OFPQDPT_MIN_RATE      = 1,      # /* Minimum datarate guaranteed. */
+             OFPQDPT_MAX_RATE      = 2,      # /* Maximum datarate. */
+             OFPQDPT_EXPERIMENTER  = 0xffff  # /* Experimenter defined property. */
+        )
+    
+    # /* Common header for all queue properties */
+    ofp_queue_desc_prop = \
+        nstruct(
+            (ofp_queue_desc_prop_type, 'type'),   # /* One of OFPQDPT_*. */
+            (uint16, 'length'),                   # /* Length in bytes of this property. */
+            name = 'ofp_queue_desc_prop',
+            size = lambda x: x.length,
+            prepack = packrealsize('length'),
+            classifier = lambda x: x.type
+        )
+    
+    # /* Min-Rate queue property description. */
+    ofp_queue_desc_prop_min_rate = \
+        nstruct(
+            (uint16, 'rate'),     # /* In 1/10 of a percent; >1000 -> disabled. */
+            (uint8[2],),          # /* 64-bit alignment */
+            name = 'ofp_queue_desc_prop_min_rate',
+            base = ofp_queue_desc_prop,
+            criteria = lambda x: x.type == OFPQDPT_MIN_RATE,
+            init = packvalue(OFPQDPT_MIN_RATE, 'type'),
+            classifyby = (OFPQDPT_MIN_RATE,)
+        )
+    
+    # /* Max-Rate queue property description. */
+    ofp_queue_desc_prop_max_rate = \
+        nstruct(
+            (uint16, 'rate'),     # /* In 1/10 of a percent; >1000 -> disabled. */
+            (uint8[2],),          # /* 64-bit alignment */
+            name = 'ofp_queue_desc_prop_max_rate',
+            base = ofp_queue_desc_prop,
+            criteria = lambda x: x.type == OFPQDPT_MAX_RATE,
+            init = packvalue(OFPQDPT_MAX_RATE, 'type'),
+            classifyby = (OFPQDPT_MAX_RATE,)
+        )
+    
+    # /* Experimenter queue property description. */
+    ofp_queue_desc_prop_experimenter = \
+        nstruct(
+            (experimenter_ids, 'experimenter'),
+                                            # /* Experimenter ID which takes the same
+                                            #    form as in struct
+                                            #    ofp_experimenter_header. */
+            (uint32, 'exp_type'),           # /* Experimenter defined. */
+            # /* Followed by:
+            #  *   - Exactly (length - 12) bytes containing the experimenter data, then
+            #  *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+            #  *     bytes of all-zero bytes */
+            name = 'ofp_queue_desc_prop_experimenter',
+            base = ofp_queue_desc_prop,
+            criteria = lambda x: x.type == OFPQDPT_EXPERIMENTER,
+            init = packvalue(OFPQDPT_EXPERIMENTER, 'type'),
+            classifyby = (OFPQDPT_EXPERIMENTER,)
+        )
+    
+    # /* Body for ofp_multipart_request of type OFPMP_QUEUE_DESC. */
+    ofp_queue_desc_request = \
+        nstruct(
+            (ofp_port_no, 'port_no'),       # /* All ports if OFPP_ANY. */
+            (ofp_queue, 'queue_id'),        # /* All queues if OFPQ_ALL. */
+            name = 'ofp_queue_desc_request',
+            base = ofp_multipart_request,
+            criteria = lambda x: x.type == OFPMP_QUEUE_DESC,
+            init = packvalue(OFPMP_QUEUE_DESC, 'type'),
+            classifyby = (OFPMP_QUEUE_DESC,)
+        )
+    
+    # /* Body of reply to OFPMP_QUEUE_DESC request. */
+    ofp_queue_desc = \
+        nstruct(
+            (uint32, 'port_no'),      # /* Port this queue is attached to. */
+            (uint32, 'queue_id'),     # /* id for the specific queue. */
+            (uint16, 'len'),          # /* Length in bytes of this queue desc. */
+            (uint8[6],),              # /* 64-bit alignment. */
+            (ofp_queue_desc_prop[0], 'properties'),
+                                      # /* List of properties. */
+            name = 'ofp_queue_desc',
+            size = lambda x: x.len,
+            prepack = packrealsize('len')
+        )
+    
+    ofp_queue_desc_reply = \
+        nstruct(
+            (ofp_queue_desc, 'queues'),
+            name = 'ofp_queue_desc_reply',
+            base = ofp_multipart_reply,
+            criteria = lambda x: x.type == OFPMP_QUEUE_DESC,
+            init = packvalue(OFPMP_QUEUE_DESC, 'type'),
+            classifyby = (OFPMP_QUEUE_DESC,)
+        )
+    
+    # /* Body for ofp_multipart_request of type OFPMP_QUEUE_STATS. */
+    ofp_queue_stats_request = nstruct(
+        (ofp_port_no, 'port_no'),          # /* All ports if OFPP_ANY. */
+        (ofp_queue, 'queue_id'),         # /* All queues if OFPQ_ALL. */
+        base = ofp_multipart_request,
+        criteria = lambda x: x.type == OFPMP_QUEUE_STATS,
+        classifyby = (OFPMP_QUEUE_STATS,),
+        init = packvalue(OFPMP_QUEUE_STATS, 'type'),
+        name = 'ofp_queue_stats_request'
+    )
+    
+    ofp_queue_stats_prop_type = \
+        enum('ofp_queue_stats_prop_type',
+             globals(),
+             uint16,
+             OFPQSPT_EXPERIMENTER  = 0xffff  # /* Experimenter defined property. */
+        )
+    
+    # /* Common header for all queue properties */
+    ofp_queue_stats_prop = \
+        nstruct(
+            (ofp_queue_stats_prop_type, 'type'),    # /* One of OFPQSPT_*. */
+            (uint16, 'length'),                     # /* Length in bytes of this property. */
+            name = 'ofp_queue_stats_prop',
+            size = lambda x: x.length,
+            prepack = packrealsize('length'),
+            classifier = lambda x: x.type
+        )
+    
+    # /* Experimenter queue property description. */
+    ofp_queue_stats_prop_experimenter = \
+        nstruct(
+            (experimenter_ids, 'experimenter'),   
+                                        # /* Experimenter ID which takes the same
+                                        #    form as in struct
+                                        #    ofp_experimenter_header. */
+            (uint32, 'exp_type'),       # /* Experimenter defined. */
+            # /* Followed by:
+            #  *   - Exactly (length - 12) bytes containing the experimenter data, then
+            #  *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+            #  *     bytes of all-zero bytes */
+            name = 'ofp_queue_stats_prop_experimenter',
+            base = ofp_queue_stats_prop,
+            criteria = lambda x: x.type == OFPQSPT_EXPERIMENTER,
+            classifyby = (OFPQSPT_EXPERIMENTER,),
+            classifier = lambda x: x.exp_type,
+            init = packvalue(OFPQSPT_EXPERIMENTER, 'type')
+        )
+    
+    # /* Body of reply to OFPMP_QUEUE_STATS request. */
+    ofp_queue_stats = \
+        nstruct(
+            (uint16, 'length'),        # /* Length of this entry. */
+            (uint8[6],),               # /* Align to 64 bits. */
+            (uint32, 'port_no'),       # /* Port the queue is attached to. */
+            (uint32, 'queue_id'),      # /* Queue i.d */
+            (uint64, 'tx_bytes'),      # /* Number of transmitted bytes. */
+            (uint64, 'tx_packets'),    # /* Number of transmitted packets. */
+            (uint64, 'tx_errors'),     # /* Number of packets dropped due to overrun. */
+            (uint32, 'duration_sec'),  # /* Time queue has been alive in seconds. */
+            (uint32, 'duration_nsec'), # /* Time queue has been alive in nanoseconds beyond
+                                       #    duration_sec. */
+            (ofp_queue_stats_prop[0], 'properties'),
+                                       # /* List of properties. */
+            name = 'ofp_queue_stats',
+            size = lambda x: x.length,
+            prepack = packrealsize('length')
+        )
+    
+    ofp_queue_stats_reply = nstruct(
+        (ofp_queue_stats[0], 'stats'),
+        base = ofp_multipart_reply,
+        criteria = lambda x: x.type == OFPMP_QUEUE_STATS,
+        classifyby = (OFPMP_QUEUE_STATS,),
+        init = packvalue(OFPMP_QUEUE_STATS, 'type'),
+        name = 'ofp_queue_stats_reply'
+    )    
+    
+    # /* 'flags' bits in struct of_flow_monitor_request. */
+    ofp_flow_monitor_flags = \
+        enum(
+            'ofp_flow_monitor_flags',
+            globals(),
+            uint16,
+            True,
+            # /* When to send updates. */
+            OFPFMF_INITIAL = 1 << 0,     # /* Initially matching flows. */
+            OFPFMF_ADD = 1 << 1,         # /* New matching flows as they are added. */
+            OFPFMF_REMOVED = 1 << 2,     # /* Old matching flows as they are removed. */
+            OFPFMF_MODIFY = 1 << 3,      # /* Matching flows as they are changed. */
+        
+            # /* What to include in updates. */
+            OFPFMF_INSTRUCTIONS = 1 << 4,# /* If set, instructions are included. */
+            OFPFMF_NO_ABBREV = 1 << 5,   # /* If set, include own changes in full. */
+            OFPFMF_ONLY_OWN = 1 << 6,    # /* If set, don't include other controllers. */
+        )
+
+    # /* Flow monitor commands */
+    ofp_flow_monitor_command = \
+        enum(
+            'ofp_flow_monitor_command',
+            globals(),
+            uint8,
+            OFPFMC_ADD    = 0,       # /* New flow monitor. */
+            OFPFMC_MODIFY = 1,       # /* Modify existing flow monitor. */
+            OFPFMC_DELETE = 2,       # /* Delete/cancel existing flow monitor. */
+        )
+
+    #/* Body for ofp_multipart_request of type OFPMP_FLOW_MONITOR.
+    # *
+    # * The OFPMP_FLOW_MONITOR request's body consists of an array of zero or more
+    # * instances of this structure.  The request arranges to monitor the flows
+    # * that match the specified criteria, which are interpreted in the same way as
+    # * for OFPMP_FLOW.
+    # *
+    # * 'id' identifies a particular monitor for the purpose of allowing it to be
+    # * canceled later with OFPFMC_DELETE.  'id' must be unique among
+    # * existing monitors that have not already been canceled.
+    # */
+    ofp_flow_monitor_request = \
+        nstruct(
+            (uint32, 'monitor_id'),        # /* Controller-assigned ID for this monitor. */
+            (ofp_port_no, 'out_port'),     # /* Required output port, if not OFPP_ANY. */
+            (ofp_group, 'out_group'),        # /* Required group number, if not OFPG_ANY. */
+            (ofp_flow_monitor_flags, 'flags'),             
+                                           # /* OFPFMF_*. */
+            (ofp_table, 'table_id'),       # /* One table's ID or OFPTT_ALL (all tables). */
+            (ofp_flow_monitor_command, 'command'),
+                                           # /* One of OFPFMC_*. */
+            (ofp_match, 'match'),          # /* Fields to match. Variable size. */
+            name = 'ofp_flow_monitor_request'
+        )
+    
+    ofp_flow_monitor_multipart_request = \
+        nstruct(
+            (ofp_flow_monitor_request[0], 'requests'),
+            name = 'ofp_flow_monitor_multipart_request',
+            base = ofp_multipart_request,
+            criteria = lambda x: x.type == OFPMP_FLOW_MONITOR,
+            classifyby = (OFPMP_FLOW_MONITOR,),
+            init = packvalue(OFPMP_FLOW_MONITOR, 'type'),
+        )
+    
+    # /* 'event' values in struct ofp_flow_update_header. */
+    ofp_flow_update_event = \
+        enum(
+            'ofp_flow_update_event',
+            globals(),
+            uint16,
+            # /* struct ofp_flow_update_full. */
+            OFPFME_INITIAL = 0,          # /* Flow present when flow monitor created. */
+            OFPFME_ADDED = 1,            # /* Flow was added. */
+            OFPFME_REMOVED = 2,          # /* Flow was removed. */
+            OFPFME_MODIFIED = 3,         # /* Flow instructions were changed. */
+        
+            # /* struct ofp_flow_update_abbrev. */
+            OFPFME_ABBREV = 4,           # /* Abbreviated reply. */
+        
+            # /* struct ofp_flow_update_header. */
+            OFPFME_PAUSED = 5,           # /* Monitoring paused (out of buffer space). */
+            OFPFME_RESUMED = 6,          # /* Monitoring resumed. */
+        )
+
+    # /* OFPMP_FLOW_MONITOR reply header.
+    #  *
+    #  * The body of an OFPMP_FLOW_MONITOR reply is an array of variable-length
+    #  * structures, each of which begins with this header.  The 'length' member may
+    #  * be used to traverse the array, and the 'event' member may be used to
+    #  * determine the particular structure.
+    #  *
+    #  * Every instance is a multiple of 8 bytes long. */
+    ofp_flow_update = \
+        nstruct(
+            (uint16, 'length'),                 # /* Length of this entry. */
+            (ofp_flow_update_event, 'event'),   # /* One of OFPFME_*. */
+            name = 'ofp_flow_update',
+            size = lambda x: x.length,
+            prepack = packrealsize('length'),
+            classifier = lambda x: x.event
+        )
+    
+    
+    # /* OFPMP_FLOW_MONITOR reply for OFPFME_INITIAL, OFPFME_ADDED, OFPFME_REMOVED,
+    #  * and OFPFME_MODIFIED. */
+    ofp_flow_update_full = \
+        nstruct(
+            (uint8, 'table_id'),                # /* ID of flow's table. */
+            (ofp_flow_removed_reason, 'reason'),# /* OFPRR_* for OFPFME_REMOVED, else zero. */
+            (uint16, 'idle_timeout'),           # /* Number of seconds idle before expiration. */
+            (uint16, 'hard_timeout'),           # /* Number of seconds before expiration. */
+            (uint16, 'priority'),               # /* Priority of the entry. */
+            (uint8[4],),                        # /* Reserved, currently zeroed. */
+            (uint64, 'cookie'),                 # /* Opaque controller-issued identifier. */
+            (ofp_match, 'match'),               # /* Fields to match. Variable size. */
+            # /*     Instruction set.
+            #  *     If OFPFMF_INSTRUCTIONS was not specified, or 'event' is
+            #  *     OFPFME_REMOVED, no instructions are included.
+            #  */
+            (ofp_instruction[0], 'instructions'),
+            name = 'ofp_flow_update_full',
+            base = ofp_flow_update,
+            criteria = lambda x: x.event in (OFPFME_INITIAL, OFPFME_ADDED,
+                                             OFPFME_REMOVED, OFPFME_MODIFIED),
+            classifyby = (OFPFME_INITIAL, OFPFME_ADDED,
+                          OFPFME_REMOVED, OFPFME_MODIFIED),
+            init = packvalue(OFPFME_INITIAL, 'event')
+        )
+    
+    # /* OFPMP_FLOW_MONITOR reply for OFPFME_ABBREV.
+    #  *
+    #  * When the controller does not specify OFPFMF_NO_ABBREV in a monitor request,
+    #  * any flow tables changes due to the controller's own requests (on the same
+    #  * OpenFlow channel) will be abbreviated, when possible, to this form, which
+    #  * simply specifies the 'xid' of the OpenFlow request (e.g. an OFPT_FLOW_MOD)
+    #  * that caused the change.
+    #  * Some changes cannot be abbreviated and will be sent in full.
+    #  */
+    ofp_flow_update_abbrev = \
+        nstruct(
+            (uint32, 'xid'),               # /* Controller-specified xid from flow_mod. */
+            name = 'ofp_flow_update_abbrev',
+            base = ofp_flow_update,
+            criteria = lambda x: x.event == OFPFME_ABBREV,
+            classifyby = (OFPFME_ABBREV,),
+            init = packvalue(OFPFME_ABBREV, 'event')
+        )
+    
+    # /* OFPMP_FLOW_MONITOR reply for OFPFME_PAUSED and OFPFME_RESUMED.
+    #  */
+    ofp_flow_update_paused = \
+        nstruct(
+            (uint8[4],),                   # /* Reserved, currently zeroed. */
+            name = 'ofp_flow_update_paused',
+            base = ofp_flow_update,
+            criteria = lambda x: x.event in (OFPFME_PAUSED, OFPFME_RESUMED),
+            classifyby = (OFPFME_PAUSED, OFPFME_RESUMED),
+            init = packvalue(OFPFME_PAUSED, 'event')            
+        )
+    
+    ofp_flow_monitor_multipart_reply = \
+        nstruct(
+            (ofp_flow_update[0], 'events'),
+            name = 'ofp_flow_monitor_multipart_reply',
+            base = ofp_multipart_reply,
+            criteria = lambda x: x.type == OFPMP_FLOW_MONITOR,
+            classifyby = (OFPMP_FLOW_MONITOR,),
+            init = packvalue(OFPMP_FLOW_MONITOR, 'type'),
+        )
+    
+    # /* Body for ofp_multipart_request/reply of type OFPMP_EXPERIMENTER. */
     ofp_experimenter_multipart_header = nstruct(
-        (experimenter_ids, 'experimenter'),  # /* Experimenter ID which takes the same form
+        (experimenter_ids, 'experimenter'), 
+                                   # /* Experimenter ID which takes the same form
     #                                 as in struct ofp_experimenter_header. */
         (uint32, 'exp_type'),      # /* Experimenter defined. */
     #    /* Experimenter-defined arbitrary additional data. */
@@ -2597,12 +3328,19 @@ with _warnings.catch_warnings():
         name = 'ofp_experimenter_multipart_reply',
     )
     
+    # /* Typical Experimenter structure. */
+    # struct ofp_experimenter_structure {
+    #     uint32_t experimenter;      /* Experimenter ID:
+    #                                  * - MSB 0: low-order bytes are IEEE OUI.
+    #                                  * - MSB != 0: defined by ONF. */
+    #     uint32_t exp_type;          /* Experimenter defined. */
+    #     uint8_t  experimenter_data[0];
+    # };
     
-    '''
-    /* Experimenter extension. */
-    '''
-    ofp_experimenter = nstruct(
-        (experimenter_ids, 'experimenter'),   #      /* Experimenter ID:
+    # /* Experimenter extension message. */
+    ofp_experimenter_msg = nstruct(
+        (experimenter_ids, 'experimenter'),   
+                                    #      /* Experimenter ID:
     #                                       * - MSB 0: low-order bytes are IEEE OUI.
     #                                       * - MSB != 0: defined by ONF. */
         (uint32, 'exp_type'),       #      /* Experimenter defined. */
@@ -2610,186 +3348,32 @@ with _warnings.catch_warnings():
         criteria = lambda x: x.header.type == OFPT_EXPERIMENTER,
         classifyby = (OFPT_EXPERIMENTER,),
         init = packvalue(OFPT_EXPERIMENTER, 'header', 'type'),
-        name = 'ofp_experimenter'
+        name = 'ofp_experimenter_msg'
     )
     
-    '''
-    /* All ones is used to indicate all queues in a port (for stats retrieval). */
-    '''
-    ofp_queue = enum('ofp_queue', globals(), uint32,
-    OFPQ_ALL = 0xffffffff)
+    ofp_experimenter = ofp_experimenter_msg
+
+    # /* Configures the "role" of the sending controller.  The default role is:
+    #  *
+    #  *    - Equal (OFPCR_ROLE_EQUAL), which allows the controller access to all
+    #  *      OpenFlow features. All controllers have equal responsibility.
+    #  *
+    #  * The other possible roles are a related pair:
+    #  *
+    #  *    - Master (OFPCR_ROLE_MASTER) is equivalent to Equal, except that there
+    #  *      may be at most one Master controller at a time: when a controller
+    #  *      configures itself as Master, any existing Master is demoted to the
+    #  *      Slave role.
+    #  *
+    #  *    - Slave (OFPCR_ROLE_SLAVE) allows the controller read-only access to
+    #  *      OpenFlow features.  In particular attempts to modify the flow table
+    #  *      will be rejected with an OFPBRC_EPERM error.
+    #  *
+    #  *      Slave controllers do not receive OFPT_PACKET_IN or OFPT_FLOW_REMOVED
+    #  *      messages, but they do receive OFPT_PORT_STATUS messages.
+    #  */
     
-    '''
-    /* Min rate > 1000 means not configured. */
-    '''
-    OFPQ_MIN_RATE_UNCFG = 0xffff
-    
-    '''
-    /* Max rate > 1000 means not configured. */
-    '''
-    OFPQ_MAX_RATE_UNCFG = 0xffff
-    
-    '''
-    /* Common description for a queue. */
-    '''
-    ofp_queue_prop_header = nstruct((ofp_queue_properties, 'property'),
-                                    (uint16, 'len'),
-                                    (uint8[4],),
-                                    name = 'ofp_queue_prop_header')
-    
-    ofp_queue_prop = nstruct((ofp_queue_prop_header, 'prop_header'),
-                             name = 'ofp_queue_prop',
-                             size = lambda x: x.prop_header.len,
-                             prepack = packrealsize('prop_header', 'len'),
-                             classifier = lambda x: x.prop_header.property
-                             )
-    '''
-    /* Min-Rate queue property description. */
-    '''
-    ofp_queue_prop_min_rate = nstruct((uint16, 'rate'),
-                                  (uint8[6],),
-                                  base = ofp_queue_prop,
-                                  criteria = lambda x: x.prop_header.property == OFPQT_MIN_RATE,
-                                  classifyby = (OFPQT_MIN_RATE,),
-                                  init = packvalue(OFPQT_MIN_RATE, 'prop_header', 'property'),
-                                  name = 'ofp_queue_prop_min_rate')
-    
-    '''
-    /* Max-Rate queue property description. */
-    '''
-    ofp_queue_prop_max_rate = nstruct((uint16, 'rate'),
-                                  (uint8[6],),
-                                  base = ofp_queue_prop,
-                                  criteria = lambda x: x.prop_header.property == OFPQT_MAX_RATE,
-                                  classifyby = (OFPQT_MAX_RATE,),
-                                  init = packvalue(OFPQT_MAX_RATE, 'prop_header', 'property'),
-                                  name = 'ofp_queue_prop_max_rate')
-    
-    '''
-    /* Experimenter queue property description. */
-    '''
-    ofp_queue_prop_experimenter = nstruct((experimenter_ids, 'experimenter'),
-                                          (uint8[4],),
-                                          (raw, 'data'),
-                                          name = 'ofp_queue_prop_experimenter',
-                                          base = ofp_queue_prop,
-                                          criteria = lambda x: x.prop_header.property == OFPQT_EXPERIMENTER,
-                                          classifyby = (OFPQT_EXPERIMENTER,),
-                                          init = packvalue(OFPQT_EXPERIMENTER, 'prop_header', 'property'))
-    
-    '''
-    /* Full description for a queue. */
-    '''
-    ofp_packet_queue = nstruct(
-        (uint32, 'queue_id'),  # /* id for the specific queue. */
-        (uint32, 'port'),      # /* Port this queue is attached to. */
-        (uint16, 'len'),       # /* Length in bytes of this queue desc. */
-        (uint8[6],),           # /* 64-bit alignment. */
-        (ofp_queue_prop_header[0], 'properties'),   # /* List of properties. */
-        name = 'ofp_packet_queue',
-        size = lambda x: x.len,
-        prepack = packsize('len')
-    )
-    
-    '''
-    /* Query for port queue configuration. */
-    '''
-    ofp_queue_get_config_request = nstruct(
-        (ofp_port_no, 'port'),      #  /* Port to be queried. Should refer
-    #                              to a valid physical port (i.e. <= OFPP_MAX),
-    #                              or OFPP_ANY to request all configured
-    #                              queues.*/
-        (uint8[4],),
-        name = 'ofp_queue_get_config_request',
-        base = ofp_msg,
-        criteria = lambda x: x.header.type == OFPT_QUEUE_GET_CONFIG_REQUEST,
-        classifyby = (OFPT_QUEUE_GET_CONFIG_REQUEST,),
-        init = packvalue(OFPT_QUEUE_GET_CONFIG_REQUEST, 'header', 'type')
-    )
-    
-    '''
-    /* Queue configuration for a given port. */
-    '''
-    ofp_queue_get_config_reply = nstruct(
-        (ofp_port_no, 'port'),
-        (uint8[4],),
-        (ofp_packet_queue[0], 'queues'),        # /* List of configured queues. */
-        base = ofp_msg,
-        criteria = lambda x: x.header.type == OFPT_QUEUE_GET_CONFIG_REPLY,
-        classifyby = (OFPT_QUEUE_GET_CONFIG_REPLY,),
-        init = packvalue(OFPT_QUEUE_GET_CONFIG_REPLY, 'header', 'type'),
-        name = 'ofp_queue_get_config_reply'
-    )
-    
-    
-    '''
-    /* OFPAT_SET_QUEUE action struct: send packets to given queue on port. */
-    '''
-    ofp_action_set_queue = nstruct(
-        (uint32, 'queue_id'),      # /* Queue id for the packets. */
-        base = ofp_action,
-        criteria = lambda x: x.type == OFPAT_SET_QUEUE,
-        classifyby = (OFPAT_SET_QUEUE,),
-        init = packvalue(OFPAT_SET_QUEUE, 'type'),
-        name = 'ofp_action_set_queue'
-    )
-    
-    ofp_queue_stats_request = nstruct(
-        (ofp_port_no, 'port_no'),          # /* All ports if OFPP_ANY. */
-        (ofp_queue, 'queue_id'),         # /* All queues if OFPQ_ALL. */
-        base = ofp_multipart_request,
-        criteria = lambda x: x.type == OFPMP_QUEUE,
-        classifyby = (OFPMP_QUEUE,),
-        init = packvalue(OFPMP_QUEUE, 'type'),
-        name = 'ofp_queue_stats_request'
-    )
-    
-    ofp_queue_stats = nstruct(
-        (uint32, 'port_no'),
-        (uint32, 'queue_id'),   #       /* Queue i.d */
-        (uint64, 'tx_bytes'),   #       /* Number of transmitted bytes. */
-        (uint64, 'tx_packets'), #       /* Number of transmitted packets. */
-        (uint64, 'tx_errors'),  #       /* Number of packets dropped due to overrun. */
-        (uint32, 'duration_sec'),   #   /* Time queue has been alive in seconds. */
-        (uint32, 'duration_nsec'),  #   /* Time queue has been alive in nanoseconds beyond
-    #                                duration_sec. */
-        name = 'ofp_queue_stats'
-    )
-    
-    ofp_queue_stats_reply = nstruct(
-        (ofp_queue_stats[0], 'stats'),
-        base = ofp_multipart_reply,
-        criteria = lambda x: x.type == OFPMP_QUEUE,
-        classifyby = (OFPMP_QUEUE,),
-        init = packvalue(OFPMP_QUEUE, 'type'),
-        name = 'ofp_queue_stats_reply'
-    )
-    
-    '''
-    /* Configures the "role" of the sending controller.  The default role is:
-     *
-     *    - Equal (OFPCR_ROLE_EQUAL), which allows the controller access to all
-     *      OpenFlow features. All controllers have equal responsibility.
-     *
-     * The other possible roles are a related pair:
-     *
-     *    - Master (OFPCR_ROLE_MASTER) is equivalent to Equal, except that there
-     *      may be at most one Master controller at a time: when a controller
-     *      configures itself as Master, any existing Master is demoted to the
-     *      Slave role.
-     *
-     *    - Slave (OFPCR_ROLE_SLAVE) allows the controller read-only access to
-     *      OpenFlow features.  In particular attempts to modify the flow table
-     *      will be rejected with an OFPBRC_EPERM error.
-     *
-     *      Slave controllers do not receive OFPT_PACKET_IN or OFPT_FLOW_REMOVED
-     *      messages, but they do receive OFPT_PORT_STATUS messages.
-    */
-    '''
-    
-    '''
-    /* Controller roles. */
-    '''
+    # /* Controller roles. */
     ofp_controller_role = enum('ofp_controller_role', globals(), uint32,
         OFPCR_ROLE_NOCHANGE = 0,   # /* Don't change current role. */
         OFPCR_ROLE_EQUAL    = 1,   # /* Default role, full access. */
@@ -2797,9 +3381,7 @@ with _warnings.catch_warnings():
         OFPCR_ROLE_SLAVE    = 3,   # /* Read-only access. */
     )
     
-    '''
-    /* Role request and reply message. */
-    '''
+    # /* Role request and reply message. */
     ofp_role_request = nstruct(
         (ofp_controller_role, 'role'),      #    /* One of OFPCR_ROLE_*. */
         (uint8[4],),           #    /* Align to 64 bits. */
@@ -2811,6 +3393,95 @@ with _warnings.catch_warnings():
         name = 'ofp_role_request'
     )
     
+    # /* Role property types.
+    #  */
+    ofp_role_prop_type = \
+        enum(
+            'ofp_role_prop_type',
+            globals(),
+            uint16,
+            OFPRPT_EXPERIMENTER           = 0xFFFF, # /* Experimenter property. */
+        )
+    
+    # /* Common header for all Role Properties */
+    ofp_role_prop = \
+        nstruct(
+            (ofp_role_prop_type, 'type'),           # /* One of OFPRPT_*. */
+            (uint16, 'length'),                     # /* Length in bytes of this property. */
+            name = 'ofp_role_prop',
+            size = lambda x: x.length,
+            prepack = packrealsize('length'),
+            classifier = lambda x: x.type
+        )
+    
+    # /* Experimenter role property */
+    ofp_role_prop_experimenter = \
+        nstruct(
+            (experimenter_ids, 'experimenter'),
+                                            # /* Experimenter ID which takes the same
+                                            #    form as in struct
+                                            #    ofp_experimenter_header. */
+            (uint32, 'exp_type'),           # /* Experimenter defined. */
+            name = 'ofp_role_prop_experimenter',
+            base = ofp_role_prop,
+            criteria = lambda x: x.type == OFPRPT_EXPERIMENTER,
+            init = packvalue(OFPRPT_EXPERIMENTER, 'type'),
+            classifyby = (OFPRPT_EXPERIMENTER,)
+        )
+        
+    # /* Role status event message. */
+    ofp_role_status = \
+        nstruct(
+            (ofp_controller_role, 'role'),              # /* One of OFPCR_ROLE_*. */
+            (ofp_controller_role_reason, 'reason'),     # /* One of OFPCRR_*. */
+            (uint8[3],),                                # /* Align to 64 bits. */
+            (uint64, 'generation_id'),                  # /* Master Election Generation Id */
+            # /* Role Property list */
+            (ofp_role_prop[0], 'properties'),
+            name = 'ofp_role_status',
+            base = ofp_msg,
+            criteria = lambda x: x.header.type == OFPT_ROLE_STATUS,
+            classifyby = (OFPT_ROLE_STATUS,),
+            init = packvalue(OFPT_ROLE_STATUS, 'header', 'type')
+        )
+        
+    # /* Common header for all async config Properties */
+    ofp_async_config_prop = \
+        nstruct(
+            (ofp_async_config_prop_type, 'type'),                   
+                                                # /* One of OFPACPT_*. */
+            (uint16, 'length'),                 # /* Length in bytes of this property. */
+            name = 'ofp_async_config_prop',
+            size = lambda x: x.length,
+            prepack = packrealsize('length'),
+            classifier = lambda x: x.type
+        )
+    
+    # /* Various reason based properties */
+    ofp_async_config_prop_reasons = \
+        nstruct(
+            (uint32, 'mask'),         # /* Bitmasks of reason values. */
+            name = 'ofp_async_config_prop_reasons',
+            base = ofp_async_config_prop,
+            criteria = lambda x: OFPACPT_PACKET_IN_SLAVE <= x.type <= OFPACPT_REQUESTFORWARD_MASTER,
+            classifyby = (OFPACPT_PACKET_IN_SLAVE,
+                          OFPACPT_PACKET_IN_MASTER,
+                          OFPACPT_PORT_STATUS_SLAVE,
+                          OFPACPT_PORT_STATUS_MASTER,
+                          OFPACPT_FLOW_REMOVED_SLAVE,
+                          OFPACPT_FLOW_REMOVED_MASTER,
+                          OFPACPT_ROLE_STATUS_SLAVE,
+                          OFPACPT_ROLE_STATUS_MASTER,
+                          OFPACPT_TABLE_STATUS_SLAVE,
+                          OFPACPT_TABLE_STATUS_MASTER,
+                          OFPACPT_REQUESTFORWARD_SLAVE,
+                          OFPACPT_REQUESTFORWARD_MASTER,
+                          OFPTFPT_EXPERIMENTER_SLAVE,
+                          OFPTFPT_EXPERIMENTER_MASTER,
+                         ),
+            classifier = lambda x: x.type
+        )
+
     ofp_packet_in_reason_bitwise = enum('ofp_packet_in_reason_bitwise', None, uint32, True,
                                         **dict((k, 1<<v) for k,v in ofp_packet_in_reason.getDict().items()))
     
@@ -2820,21 +3491,255 @@ with _warnings.catch_warnings():
     ofp_flow_removed_reason_bitwise = enum('ofp_flow_removed_reason_bitwise', None, uint32, True,
                                         **dict((k, 1<<v) for k,v in ofp_flow_removed_reason.getDict().items()))
     
-    '''
-    /* Asynchronous message configuration. */
-    '''
-    ofp_async_config = nstruct(
-        (ofp_packet_in_reason_bitwise[2], 'packet_in_mask'),      #   /* Bitmasks of OFPR_* values. */
-        (ofp_port_reason_bitwise[2], 'port_status_mask'),    #   /* Bitmasks of OFPPR_* values. */
-        (ofp_flow_removed_reason_bitwise[2], 'flow_removed_mask'),   #   /* Bitmasks of OFPRR_* values. */
-        base = ofp_msg,
-        criteria = lambda x: x.header.type == OFPT_GET_ASYNC_REPLY or x.header.type == OFPT_SET_ASYNC,
-        classifyby = (OFPT_GET_ASYNC_REPLY, OFPT_SET_ASYNC),
-        init = packvalue(OFPT_SET_ASYNC, 'header', 'type'),
-        name = 'ofp_async_config'
-    )
+    ofp_controller_role_reason_bitwise = enum('ofp_controller_role_reason_bitwise', None, uint32, True,
+                                              **dict((k, 1<<v) for k,v in ofp_controller_role_reason.getDict().items()))
+        
+    ofp_table_reason_bitwise = enum('ofp_table_reason_bitwise', None, uint32, True,
+                                        **dict((k, 1<<v) for k,v in ofp_table_reason.getDict().items()))
+
+    ofp_requestforward_reason_bitwise = enum('ofp_requestforward_reason_bitwise', None, uint32, True,
+                                        **dict((k, 1<<v) for k,v in ofp_requestforward_reason.getDict().items()))
     
+    ofp_async_config_prop_reasons_packet_in = \
+        nstruct(
+            name = 'ofp_async_config_prop_reasons_packet_in',
+            base = ofp_async_config_prop_reasons,
+            criteria = lambda x: x.type in (OFPACPT_PACKET_IN_SLAVE, OFPACPT_PACKET_IN_MASTER),
+            classifyby = (OFPACPT_PACKET_IN_SLAVE, OFPACPT_PACKET_IN_MASTER),
+            init = packvalue(OFPACPT_PACKET_IN_SLAVE, 'type'),
+            extend = {"mask": ofp_packet_in_reason_bitwise}
+        )
     
+    ofp_async_config_prop_reasons_port_status = \
+        nstruct(
+            name = 'ofp_async_config_prop_reasons_port_status',
+            base = ofp_async_config_prop_reasons,
+            criteria = lambda x: x.type in (OFPACPT_PORT_STATUS_SLAVE, OFPACPT_PORT_STATUS_MASTER),
+            classifyby = (OFPACPT_PORT_STATUS_SLAVE, OFPACPT_PORT_STATUS_MASTER),
+            init = packvalue(OFPACPT_PORT_STATUS_SLAVE, 'type'),
+            extend = {"mask": ofp_port_reason_bitwise}
+        )
+    
+    ofp_async_config_prop_reasons_flow_removed = \
+        nstruct(
+            name = 'ofp_async_config_prop_reasons_flow_removed',
+            base = ofp_async_config_prop_reasons,
+            criteria = lambda x: x.type in (OFPACPT_FLOW_REMOVED_SLAVE, OFPACPT_FLOW_REMOVED_MASTER),
+            classifyby = (OFPACPT_FLOW_REMOVED_SLAVE, OFPACPT_FLOW_REMOVED_MASTER),
+            init = packvalue(OFPACPT_FLOW_REMOVED_SLAVE, 'type'),
+            extend = {"mask": ofp_flow_removed_reason_bitwise}
+        )
+    
+    ofp_async_config_prop_reasons_role_status = \
+        nstruct(
+            name = 'ofp_async_config_prop_reasons_role_status',
+            base = ofp_async_config_prop_reasons,
+            criteria = lambda x: x.type in (OFPACPT_ROLE_STATUS_SLAVE, OFPACPT_ROLE_STATUS_MASTER),
+            classifyby = (OFPACPT_ROLE_STATUS_SLAVE, OFPACPT_ROLE_STATUS_MASTER),
+            init = packvalue(OFPACPT_ROLE_STATUS_SLAVE, 'type'),
+            extend = {"mask": ofp_controller_role_reason_bitwise}
+        )
+    
+    ofp_async_config_prop_reasons_table = \
+        nstruct(
+            name = 'ofp_async_config_prop_reasons_table',
+            base = ofp_async_config_prop_reasons,
+            criteria = lambda x: x.type in (OFPACPT_TABLE_STATUS_SLAVE, OFPACPT_TABLE_STATUS_MASTER),
+            classifyby = (OFPACPT_TABLE_STATUS_SLAVE, OFPACPT_TABLE_STATUS_MASTER),
+            init = packvalue(OFPACPT_TABLE_STATUS_SLAVE, 'type'),
+            extend = {"mask": ofp_table_reason_bitwise}
+        )
+
+    ofp_async_config_prop_reasons_requestforward = \
+        nstruct(
+            name = 'ofp_async_config_prop_reasons_requestforward',
+            base = ofp_async_config_prop_reasons,
+            criteria = lambda x: x.type in (OFPACPT_REQUESTFORWARD_SLAVE, OFPACPT_REQUESTFORWARD_MASTER),
+            classifyby = (OFPACPT_REQUESTFORWARD_SLAVE, OFPACPT_REQUESTFORWARD_MASTER),
+            init = packvalue(OFPACPT_REQUESTFORWARD_SLAVE, 'type'),
+            extend = {"mask": ofp_requestforward_reason_bitwise}
+        )
+
+    # /* Experimenter async config  property */
+    ofp_async_config_prop_experimenter = \
+        nstruct(
+            (experimenter_ids, 'experimenter'),
+                                            # /* Experimenter ID which takes the same
+                                            #    form as in struct
+                                            #    ofp_experimenter_header. */
+            (uint32, 'exp_type'),           # /* Experimenter defined. */
+            # /* Followed by:
+            #  *   - Exactly (length - 12) bytes containing the experimenter data, then
+            #  *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+            #  *     bytes of all-zero bytes */
+            name = 'ofp_async_config_prop_experimenter',
+            base = ofp_async_config_prop,
+            criteria = lambda x: x.type in (OFPTFPT_EXPERIMENTER_SLAVE, OFPTFPT_EXPERIMENTER_MASTER),
+            classifyby = (OFPTFPT_EXPERIMENTER_SLAVE, OFPTFPT_EXPERIMENTER_MASTER),
+            init = packvalue(OFPTFPT_EXPERIMENTER_SLAVE, 'type')
+        )
+    
+    # /* Asynchronous message configuration. */
+    ofp_async_config = \
+        nstruct(
+            # /* Async config Property list - 0 or more */
+            (ofp_async_config_prop[0], 'properties'),
+            name = 'ofp_async_config',
+            base = ofp_msg,
+            criteria = lambda x: x.header.type in (OFPT_GET_ASYNC_REPLY, OFPT_SET_ASYNC),
+            classifyby = (OFPT_GET_ASYNC_REPLY, OFPT_SET_ASYNC),
+            init = packvalue(OFPT_SET_ASYNC, 'header', 'type')
+        )
+    
+    # /* A table config has changed in the datapath */
+    ofp_table_status = \
+        nstruct(
+            (ofp_table_reason, 'reason'),           # /* One of OFPTR_*. */
+            (uint8[7],),                            # /* Pad to 64 bits */
+            (ofp_table_desc, 'table'),              # /* New table config. */
+            name = 'ofp_table_status',
+            base = ofp_msg,
+            criteria = lambda x: x.header.type == OFPT_TABLE_STATUS,
+            classifyby = (OFPT_TABLE_STATUS,),
+            init = packvalue(OFPT_TABLE_STATUS, 'header', 'type')
+        )
+    
+    # /* Group/Meter request forwarding. */
+    ofp_requestforward = \
+        nstruct(
+            (ofp_msg, 'request'),                   # /* Request being forwarded. */
+            name = 'ofp_requestforward',
+            base = ofp_msg,
+            criteria = lambda x: x.header.type == OFPT_REQUESTFORWARD,
+            classifyby = (OFPT_REQUESTFORWARD,),
+            init = packvalue(OFPT_REQUESTFORWARD, 'header', 'type')
+        )
+    
+    # /* Bundle property types. */
+    ofp_bundle_prop_type = \
+        enum(
+            'ofp_bundle_prop_type',
+            globals(),
+            uint16,
+            OFPBPT_EXPERIMENTER           = 0xFFFF, # /* Experimenter property. */
+        )
+    
+    # /* Common header for all Bundle Properties */
+    ofp_bundle_prop = \
+        nstruct(
+            (ofp_bundle_prop_type, 'type'),         # /* One of OFPBPT_*. */
+            (uint16, 'length'),                     # /* Length in bytes of this property. */
+            name = 'ofp_bundle_prop',
+            size = lambda x: x.length,
+            prepack = packrealsize('length'),
+            classifier = lambda x: x.type
+        )
+    
+    # /* Experimenter bundle property */
+    ofp_bundle_prop_experimenter = \
+        nstruct(
+            (experimenter_ids, 'experimenter'),
+                                            # /* Experimenter ID which takes the same
+                                            #    form as in struct
+                                            #    ofp_experimenter_header. */
+            (uint32, 'exp_type'),           # /* Experimenter defined. */
+            # /* Followed by:
+            #  *   - Exactly (length - 12) bytes containing the experimenter data, then
+            #  *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+            #  *     bytes of all-zero bytes */
+            name = 'ofp_bundle_prop_experimenter',
+            base = ofp_bundle_prop,
+            criteria = lambda x: x.type == OFPBPT_EXPERIMENTER,
+            classifyby = (OFPBPT_EXPERIMENTER,),
+            init = packvalue(OFPBPT_EXPERIMENTER, 'type')
+        )
+    
+    # /* Bundle control message types */
+    ofp_bundle_ctrl_type = \
+        enum(
+            'ofp_bundle_ctrl_type',
+            globals(),
+            uint16,
+            OFPBCT_OPEN_REQUEST    = 0,
+            OFPBCT_OPEN_REPLY      = 1,
+            OFPBCT_CLOSE_REQUEST   = 2,
+            OFPBCT_CLOSE_REPLY     = 3,
+            OFPBCT_COMMIT_REQUEST  = 4,
+            OFPBCT_COMMIT_REPLY    = 5,
+            OFPBCT_DISCARD_REQUEST = 6,
+            OFPBCT_DISCARD_REPLY   = 7,
+        )
+    
+    # /* Bundle configuration flags. */
+    ofp_bundle_flags = \
+        enum(
+            'ofp_bundle_flags',
+            globals(),
+            uint16,
+            True,
+            OFPBF_ATOMIC  = 1 << 0,  # /* Execute atomically. */
+            OFPBF_ORDERED = 1 << 1,  # /* Execute in specified order. */
+        )
+    
+    # /* Message structure for OFPT_BUNDLE_CONTROL. */
+    ofp_bundle_ctrl_msg = \
+        nstruct(
+            (uint32, 'bundle_id'),              # /* Identify the bundle. */
+            (ofp_bundle_ctrl_type, 'type'),     # /* OFPBCT_*. */
+            (ofp_bundle_flags, 'flags'),        # /* Bitmap of OFPBF_* flags. */
+        
+            # /* Bundle Property list. */
+            (ofp_bundle_prop[0], 'properties'), # /* Zero or more properties. */
+            name = 'ofp_bundle_ctrl_msg',
+            base = ofp_msg,
+            criteria = lambda x: x.header.type == OFPT_BUNDLE_CONTROL,
+            classifyby = (OFPT_BUNDLE_CONTROL,),
+            init = packvalue(OFPT_BUNDLE_CONTROL, 'header', 'type')
+        )
+    
+    # /* Message structure for OFPT_BUNDLE_ADD_MESSAGE.
+    #  * Adding a message in a bundle is done with. */
+    
+    # Auto padding
+    def _bundle_add_msg_padding_prepack(x):
+        if x.properties:
+            # There are properties, add padding
+            message_size = x.message._realsize()
+            padded_size = (message_size + 7) // 8 * 8
+            x._setextra(b'\x00' * (padded_size - message_size))
+        else:
+            x._setextra(b'')
+    
+    _bundle_add_msg_padding = \
+        nstruct(
+            name = '_bundle_add_msg_padding',
+            padding = 1,
+            size = lambda x: (x.message.header.length + 7) // 8 * 8 - x.message.header.length
+                             if x.header.length > x.message.header.length + 16
+                             else 0,
+            prepack = _bundle_add_msg_padding_prepack
+        )
+
+
+    ofp_bundle_add_msg = \
+        nstruct(
+            (uint32, 'bundle_id'),              # /* Identify the bundle. */
+            (uint16,),                          # /* Align to 64 bits. */
+            (ofp_bundle_flags, 'flags'),        # /* Bitmap of OFPBF_* flags. */
+            (ofp_msg, 'message'),               # /* Message added to the bundle. */
+            # /* If there is one property or more, 'message' is followed by:
+            #  *   - Exactly (message.length + 7)/8*8 - (message.length) (between 0 and 7)
+            #  *     bytes of all-zero bytes */
+            (_bundle_add_msg_padding,),
+            # /* Bundle Property list. */
+            (ofp_bundle_prop[0], 'properties'),  # /* Zero or more properties. */
+            name = 'ofp_bundle_add_msg',
+            base = ofp_msg,
+            criteria = lambda x: x.header.type == OFPT_BUNDLE_ADD_MESSAGE,
+            classifyby = (OFPT_BUNDLE_ADD_MESSAGE,),
+            init = packvalue(OFPT_BUNDLE_ADD_MESSAGE, 'header', 'type')
+        )
+        
     ofp_error_types = dict(ofp_error_types)
     
     ofp_error_types.update({
@@ -2848,7 +3753,11 @@ with _warnings.catch_warnings():
         OFPET_SWITCH_CONFIG_FAILED : ofp_error_typedef(OFPET_SWITCH_CONFIG_FAILED, ofp_switch_config_failed_code, OFP_VERSION, ofp_error_type),
         OFPET_ROLE_REQUEST_FAILED : ofp_error_typedef(OFPET_ROLE_REQUEST_FAILED, ofp_role_request_failed_code, OFP_VERSION, ofp_error_type),
         OFPET_METER_MOD_FAILED : ofp_error_typedef(OFPET_METER_MOD_FAILED, ofp_meter_mod_failed_code, OFP_VERSION, ofp_error_type),
-        OFPET_TABLE_FEATURES_FAILED : ofp_error_typedef(OFPET_TABLE_FEATURES_FAILED, ofp_table_features_failed_code, OFP_VERSION, ofp_error_type)
+        OFPET_TABLE_FEATURES_FAILED : ofp_error_typedef(OFPET_TABLE_FEATURES_FAILED, ofp_table_features_failed_code, OFP_VERSION, ofp_error_type),
+        OFPET_BAD_PROPERTY : ofp_error_typedef(OFPET_BAD_PROPERTY, ofp_bad_property_code, OFP_VERSION, ofp_error_type),
+        OFPET_ASYNC_CONFIG_FAILED : ofp_error_typedef(OFPET_ASYNC_CONFIG_FAILED, ofp_async_config_failed_code, OFP_VERSION, ofp_error_type),
+        OFPET_FLOW_MONITOR_FAILED : ofp_error_typedef(OFPET_FLOW_MONITOR_FAILED, ofp_flow_monitor_failed_code, OFP_VERSION, ofp_error_type),
+        OFPET_BUNDLE_FAILED : ofp_error_typedef(OFPET_BUNDLE_FAILED, ofp_bundle_failed_code, OFP_VERSION, ofp_error_type)
     })
     
     ofp_vendor_vendorid = 'experimenter'
@@ -2862,9 +3771,7 @@ with _warnings.catch_warnings():
     
     from .nicira_ext import *
     
-    '''
-    /* Header for Nicira vendor requests and replies. */
-    '''
+    #/* Header for Nicira vendor requests and replies. */
     nicira_header = nstruct(
         base = ofp_experimenter,
         criteria = lambda x: x.experimenter == NX_VENDOR_ID,
@@ -2874,9 +3781,7 @@ with _warnings.catch_warnings():
         extend = {'exp_type': nxt_subtype}
     )
     
-    '''
-    /* Header for Nicira-defined actions. */
-    '''
+    # /* Header for Nicira-defined actions. */
     nx_action = nstruct(
         (nx_action_subtype, 'exp_type'),
         base = ofp_action_experimenter,

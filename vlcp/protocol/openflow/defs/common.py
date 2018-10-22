@@ -52,7 +52,7 @@ Created on 2015/7/13
 :author: hubo
 '''
 from namedstruct import *
-from namedstruct.namedstruct import NamedStruct, StructDefWarning
+from namedstruct.namedstruct import NamedStruct, StructDefWarning, rawtype as _rawtype
 from vlcp.utils.ethernet import *
 import warnings as _warnings
 
@@ -70,10 +70,20 @@ with _warnings.catch_warnings():
     
     ofp_version_bitwise = enum('ofp_version_bitwise', None, uint32, True,
                                **dict((k, 1<<v) for k,v in ofp_version.getDict().items()))
-    
-    OF_VENDOR_ID = 0
-    NX_VENDOR_ID = 0x00002320
-    ONF_VENDOR_ID = 0x4f4e4600
+
+    experimenter_ids = \
+        enum(
+            'experimenter_ids',
+            globals(),
+            uint32,
+            OF_VENDOR_ID = 0,
+            HPL_VENDOR_ID = 0x000004EA, # /* HP Labs. */
+            NTR_VENDOR_ID = 0x0000154d, # /* Netronome. */
+            NTR_COMPAT_VENDOR_ID = 0x00001540, # /* Incorrect value used in v2.4. */
+            NX_VENDOR_ID = 0x00002320,  # /* Nicira. */
+            ONF_VENDOR_ID = 0x4f4e4600, # /* Open Networking Foundation. */
+            INTEL_VENDOR_ID = 0x0000AA01, # /* Intel */
+        )
     
     OFP_MAX_TABLE_NAME_LEN = 32
     OFP_MAX_PORT_NAME_LEN = 16
@@ -140,15 +150,16 @@ with _warnings.catch_warnings():
                             (raw, 'data'),
                             name = 'ofp_error_msg',
                             base = ofp_error_msg_base,
-                            criteria = lambda x: x.type != OFPET_EXPERIMENTER or x.header.length < 14)
+                            criteria = lambda x: x.type not in (OFPET_EXPERIMENTER, NXET_VENDOR) or x.header.length < 14)
     
     ofp_error_experimenter_msg = nstruct(
         (uint16, 'exp_type'),
-        (uint32, 'experimenter'),  #  /* Experimenter ID which takes the same form as in struct ofp_experimenter_header. */
+        (experimenter_ids, 'experimenter'),  #  /* Experimenter ID which takes the same form as in struct ofp_experimenter_header. */
     #    (raw, 'data'),          # /* Variable-length data.  Interpreted based on the type and code.  No padding. */
         name = 'ofp_error_experimenter_msg',
         base = ofp_error_msg_base,
-        criteria = lambda x: x.header.length >= 14
+        criteria = lambda x: x.type == OFPET_EXPERIMENTER and x.header.length >= 14,
+        init = packvalue(OFPET_EXPERIMENTER, 'type')
     )
     
     '''
@@ -210,6 +221,8 @@ with _warnings.catch_warnings():
         OFPBRC_BAD_PACKET       = 12,# /* Invalid packet in packet-out. */
         OFPBRC_MULTIPART_BUFFER_OVERFLOW    = 13, #/* ofp_multipart_request
     #                                     overflowed the assigned buffer. */
+        OFPBRC_MULTIPART_REQUEST_TIMEOUT = 14, #/* Timeout during multipart request. */
+        OFPBRC_MULTIPART_REPLY_TIMEOUT = 15,   #/* Timeout during multipart reply. */
     )
     OFPBRC_BAD_STAT = OFPBRC_BAD_MULTIPART
     OFPBRC_BAD_VENDOR = OFPBRC_BAD_EXPERIMENTER
@@ -244,8 +257,7 @@ with _warnings.catch_warnings():
     
     ofp_error_types = {OFPET_HELLO_FAILED: ofp_error_typedef(OFPET_HELLO_FAILED, ofp_hello_failed_code),
                        OFPET_BAD_REQUEST: ofp_error_typedef(OFPET_BAD_REQUEST, ofp_bad_request_code),
-                       OFPET_BAD_ACTION: ofp_error_typedef(OFPET_BAD_ACTION, ofp_bad_action_code),
-                       NXET_VENDOR: ofp_error_typedef(NXET_VENDOR, nx_vendor_code)
+                       OFPET_BAD_ACTION: ofp_error_typedef(OFPET_BAD_ACTION, ofp_bad_action_code)
                        }
     
     ofp_config_flags = enum('ofp_config_flags',
@@ -317,7 +329,6 @@ with _warnings.catch_warnings():
                                 OFPR_ACTION = 1,
                                 OFPR_INVALID_TTL = 2
                                 )
-    OFPR_N_REASONS = 3
     
     ofp_flow_mod_command = enum('ofp_flow_mod_command',
                                 globals(),
@@ -448,3 +459,70 @@ with _warnings.catch_warnings():
                             #/* OpenFlow 1.4. */
                             OFPTC_EVICTION              = 1 << 2, #/* Allow table to evict flows. */
                             OFPTC_VACANCY_EVENTS        = 1 << 3) #/* Enable vacancy events. */
+    
+    
+    hexraw = _rawtype()
+    
+    def _smart_hex_format(x):
+        hex_str = ''.join('{:02x}'.format(b) for b in x)
+        if len(x) in (1, 2, 4, 8):
+            return int(hex_str, 16) + " (0x" + hex_str + ")"
+        else:
+            return "0x" + hex_str
+    
+    hexraw.formatter = _smart_hex_format
+
+    # /* Async Config property types.
+    #  * Low order bit cleared indicates a property for the slave role.
+    #  * Low order bit set indicates a property for the master/equal role.
+    #  */
+    ofp_async_config_prop_type = \
+        enum(
+            'ofp_async_config_prop_type',
+            globals(),
+            uint16,
+            OFPACPT_PACKET_IN_SLAVE      = 0,  # /* Packet-in mask for slave. */
+            OFPACPT_PACKET_IN_MASTER     = 1,  # /* Packet-in mask for master. */
+            OFPACPT_PORT_STATUS_SLAVE    = 2,  # /* Port-status mask for slave. */
+            OFPACPT_PORT_STATUS_MASTER   = 3,  # /* Port-status mask for master. */
+            OFPACPT_FLOW_REMOVED_SLAVE   = 4,  # /* Flow removed mask for slave. */
+            OFPACPT_FLOW_REMOVED_MASTER  = 5,  # /* Flow removed mask for master. */
+            OFPACPT_ROLE_STATUS_SLAVE    = 6,  # /* Role status mask for slave. */
+            OFPACPT_ROLE_STATUS_MASTER   = 7,  # /* Role status mask for master. */
+            OFPACPT_TABLE_STATUS_SLAVE   = 8,  # /* Table status mask for slave. */
+            OFPACPT_TABLE_STATUS_MASTER  = 9,  # /* Table status mask for master. */
+            OFPACPT_REQUESTFORWARD_SLAVE  = 10, # /* RequestForward mask for slave. */
+            OFPACPT_REQUESTFORWARD_MASTER = 11, # /* RequestForward mask for master. */
+            OFPTFPT_EXPERIMENTER_SLAVE   = 0xFFFE, # /* Experimenter for slave. */
+            OFPTFPT_EXPERIMENTER_MASTER  = 0xFFFF, # /* Experimenter for master. */
+        )
+    # /* What changed about the controller role */
+    ofp_controller_role_reason = \
+        enum(
+            'ofp_controller_role_reason',
+            globals(),
+            uint8,
+            OFPCRR_MASTER_REQUEST = 0,  # Another controller asked to be master.
+            OFPCRR_CONFIG         = 1,  # Configuration changed on the switch.
+            OFPCRR_EXPERIMENTER   = 2,  # Experimenter data changed.
+        )
+
+    # /* What changed about the table */
+    ofp_table_reason = \
+        enum(
+            'ofp_table_reason',
+            globals(),
+            uint8,
+            OFPTR_VACANCY_DOWN  = 3,        # /* Vacancy down threshold event. */
+            OFPTR_VACANCY_UP    = 4,        # /* Vacancy up threshold event. */
+        )
+
+    # /* Request forward reason */
+    ofp_requestforward_reason = \
+        enum(
+            'ofp_requestforward_reason',
+            globals(),
+            uint8,
+            OFPRFR_GROUP_MOD = 0,       # /* Forward group mod requests. */
+            OFPRFR_METER_MOD = 1,       # /* Forward meter mod requests. */
+        )

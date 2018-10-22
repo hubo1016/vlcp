@@ -23,7 +23,9 @@ Created on 2015/8/3
 from . import common
 from namedstruct import *
 from vlcp.utils.ethernet import mac_addr, ip4_addr, ethertype, ip4_addr_bytes, mac_addr_bytes, \
-                                ip6_addr, ip6_addr_bytes
+                                ip6_addr, ip6_addr_bytes, vxlan_group_policy_flags, \
+                                nsh_md_types, nsh_md_class
+import vlcp.utils.ethernet as _ethernet
 from namedstruct.namedstruct import StructDefWarning
 import warnings as _warnings
 
@@ -34,31 +36,6 @@ with _warnings.catch_warnings():
     /* The following vendor extensions, proposed by Nicira, are not yet
      * standardized, so they are not included in openflow.h.  Some of them may be
      * suitable for standardization; others we never expect to standardize. */
-    '''
-    '''
-    /* Nicira vendor-specific error messages extension.
-     *
-     * OpenFlow 1.0 has a set of predefined error types (OFPET_*) and codes (which
-     * are specific to each type).  It does not have any provision for
-     * vendor-specific error codes, and it does not even provide "generic" error
-     * codes that can apply to problems not anticipated by the OpenFlow
-     * specification authors.
-     *
-     * This extension attempts to address the problem by adding a generic "error
-     * vendor extension".  The extension works as follows: use NXET_VENDOR as type
-     * and NXVC_VENDOR_ERROR as code, followed by struct nx_vendor_error with
-     * vendor-specific details, followed by at least 64 bytes of the failed
-     * request.
-     *
-     * It would be better to have a type-specific vendor extension, e.g. so that
-     * OFPET_BAD_ACTION could be used with vendor-specific code values.  But
-     * OFPET_BAD_ACTION and most other standardized types already specify that
-     * their 'data' values are (the start of) the OpenFlow message being replied
-     * to, so there is no room to insert a vendor ID.
-     *
-     * Currently this extension is only implemented by Open vSwitch, but it seems
-     * like a reasonable candidate for future standardization.
-     */
     '''
     '''
     /* This is a random number to avoid accidental collision with any other
@@ -79,8 +56,268 @@ with _warnings.catch_warnings():
         NXT_SET_CONTROLLER_ID = 20,
         NXT_FLOW_MONITOR_CANCEL = 21,
         NXT_FLOW_MONITOR_PAUSED = 22,
-        NXT_FLOW_MONITOR_RESUMED = 23
+        NXT_FLOW_MONITOR_RESUMED = 23,
+        NXT_TLV_TABLE_MOD = 24,
+        NXT_TLV_TABLE_REQUEST = 25,
+        NXT_TLV_TABLE_REPLY = 26,
+        NXT_SET_ASYNC_CONFIG2 = 27,
+        NXT_RESUME = 28,
+        NXT_CT_FLUSH_ZONE = 29,
+        NXT_PACKET_IN2 = 30,
     )
+    
+    #===========================================================================
+    # /* Nicira vendor-specific error messages extension.
+    #  *
+    #  * OpenFlow 1.0 has a set of predefined error types (OFPET_*) and codes (which
+    #  * are specific to each type).  It does not have any provision for
+    #  * vendor-specific error codes, and it does not even provide "generic" error
+    #  * codes that can apply to problems not anticipated by the OpenFlow
+    #  * specification authors.
+    #  *
+    #  * This extension attempts to address the problem by adding a generic "error
+    #  * vendor extension".  The extension works as follows: use NXET_VENDOR as type
+    #  * and NXVC_VENDOR_ERROR as code, followed by struct nx_vendor_error with
+    #  * vendor-specific details, followed by at least 64 bytes of the failed
+    #  * request.
+    #  *
+    #  * It would be better to have a type-specific vendor extension, e.g. so that
+    #  * OFPET_BAD_ACTION could be used with vendor-specific code values.  But
+    #  * OFPET_BAD_ACTION and most other standardized types already specify that
+    #  * their 'data' values are (the start of) the OpenFlow message being replied
+    #  * to, so there is no room to insert a vendor ID.
+    #  *
+    #  * Currently this extension is only implemented by Open vSwitch, but it seems
+    #  * like a reasonable candidate for future standardization.
+    #  */
+    #===========================================================================
+    nx10_error_type = \
+        enum(
+            'nx10_error_type',
+            None,
+            uint16,
+            OFPET_HELLO_FAILED         = 0,  #/* Hello protocol failed. */
+            OFPET_BAD_REQUEST          = 1,  #/* Request was not understood. */
+            OFPET_BAD_ACTION           = 2,  #/* Error in action description. */
+            OFPET_BAD_INSTRUCTION      = 3,  #/* Error in instruction list. */
+            OFPET_BAD_MATCH            = 4,  #/* Error in match. */
+            OFPET_FLOW_MOD_FAILED      = 5,  #/* Problem modifying flow entry. */
+            OFPET_GROUP_MOD_FAILED     = 6,  #/* Problem modifying group entry. */
+            OFPET_PORT_MOD_FAILED      = 7,  #/* Port mod request failed. */
+            OFPET_TABLE_MOD_FAILED     = 8,  #/* Table mod request failed. */
+            OFPET_QUEUE_OP_FAILED      = 9,  #/* Queue operation failed. */
+            OFPET_SWITCH_CONFIG_FAILED = 10, #/* Switch config request failed. */
+            OFPET_ROLE_REQUEST_FAILED  = 11, #/* Controller Role request failed. */
+            OFPET_METER_MOD_FAILED     = 12, #/* Error in meter. */
+            OFPET_TABLE_FEATURES_FAILED = 13,# /* Setting table features failed. */
+            OFPET_BAD_PROPERTY         = 14, # /* Some property is invalid. */
+            OFPET_ASYNC_CONFIG_FAILED  = 15, # /* Asynchronous config request failed. */
+            OFPET_FLOW_MONITOR_FAILED  = 16, # /* Setting flow monitor failed. */
+            OFPET_BUNDLE_FAILED        = 17, # /* Bundle operation failed. */            
+        )
+    
+    # type = 0
+    nx10_error_type0_code = \
+        enum(
+            'nx10_error_type0_code',
+            None,
+            uint16,
+            OFPBMC_BAD_FIELD = 263
+        )
+    
+    # type = 1
+    nx10_error_bad_request_code = \
+        enum(
+            'nx10_error_type',
+            None,
+            uint16,
+            NXBRC_NXM_INVALID = 256,
+            NXBRC_NXM_BAD_TYPE = 257,
+            OFPBMC_BAD_VALUE = 258,
+            OFPBMC_BAD_MASK = 259,
+            OFPBMC_BAD_PREREQ = 260,
+            OFPBMC_DUP_FIELD = 261,
+            OFPBMC_BAD_WILDCARDS = 262,
+            NXBMC_CT_DATAPATH_SUPPORT = 264,
+            OFPBRC_BAD_TABLE_ID = 512,
+            OFPRRFC_BAD_ROLE = 513,
+            OFPBRC_BAD_PORT = 514,
+            NXBRC_MUST_BE_ZERO = 515,
+            NXBRC_BAD_REASON = 516,
+            OFPMOFC_MONITOR_EXISTS = 517,
+            OFPMOFC_BAD_FLAGS = 518,
+            OFPMOFC_UNKNOWN_MONITOR = 519,
+            NXBRC_FM_BAD_EVENT = 520,
+            NXBRC_UNENCODABLE_ERROR = 521,
+            OFPBAC_MATCH_INCONSISTENT = 522,
+            OFPBAC_BAD_SET_TYPE = 523,
+            OFPBAC_BAD_SET_LEN = 524,
+            OFPBAC_BAD_SET_ARGUMENT = 525,
+            NXTTMFC_BAD_COMMAND = 527,
+            NXTTMFC_BAD_OPT_LEN = 528,
+            NXTTMFC_BAD_FIELD_IDX = 529,
+            NXTTMFC_TABLE_FULL = 530,
+            NXTTMFC_ALREADY_MAPPED = 531,
+            NXTTMFC_DUP_ENTRY = 532,
+            NXR_NOT_SUPPORTED = 533,
+            NXR_STALE = 534,
+            NXST_NOT_CONFIGURED = 535,
+            NXFMFC_INVALID_TLV_FIELD = 536,
+            NXTTMFC_INVALID_TLV_DEL = 537
+        )
+    
+    # type = 2
+    nx10_error_bad_action_code = \
+        enum(
+            'nx10_error_bad_action_code',
+            None,
+            uint16,
+            NXBAC_MUST_BE_ZERO = 256,
+            OFPBIC_UNSUP_INST = 257,
+            NXBAC_BAD_CONJUNCTION = 526
+        )
+    
+    # type = 3
+    nx10_error_bad_instruction_code = \
+        enum(
+            'nx10_error_bad_instruction_code',
+            None,
+            uint16,
+            OFPBIC_DUP_INST = 256,
+            OFPFMFC_BAD_FLAGS = 258
+        )
+    
+    # type = 5
+    nx10_error_flow_mod_failed_code = \
+        enum(
+            'nx10_error_flow_mod_failed_code',
+            None,
+            uint16,
+            NXFMFC_HARDWARE = 256,
+            NXFMFC_BAD_TABLE_ID = 257,
+            OFPFMFC_BAD_FLAGS = 258
+        )
+    
+    # type = 13
+    nx10_error_table_features_failed_code = \
+        enum(
+            'nx10_error_table_features_failed_code',
+            None,
+            uint16,
+            OFPBPC_BAD_TYPE = 2,
+            OFPBPC_BAD_LEN = 3,
+            OFPBPC_BAD_VALUE = 4
+        )
+    
+    # type = 14
+    nx10_error_bad_property_code = \
+        enum(
+            'nx10_error_bad_property_code',
+            None,
+            uint16,
+            OFPBPC_TOO_MANY = 3,
+            OFPBPC_DUP_TYPE = 4,
+            OFPBPC_BAD_EXPERIMENTER = 5,
+            OFPBPC_BAD_EXP_TYPE = 6,
+            OFPBPC_BAD_EXP_VALUE = 7,
+            OFPBPC_EPERM = 8,
+        )
+    
+    nx_error_type = \
+        enum(
+            'nx_error_type',
+            globals(),
+            uint16,
+            NXBRC_NXM_INVALID = 2,
+            NXBRC_NXM_BAD_TYPE = 3,
+            NXBRC_MUST_BE_ZERO = 4,
+            NXBRC_BAD_REASON = 5,
+            NX_OFPMOFC_MONITOR_EXISTS = 6,
+            NX_OFPMOFC_BAD_FLAGS = 7,
+            NX_OFPMOFC_UNKNOWN_MONITOR = 8,
+            NXBRC_FM_BAD_EVENT = 9,
+            NXBRC_UNENCODABLE_ERROR = 10,
+            NXBAC_MUST_BE_ZERO = 11,
+            NXFMFC_HARDWARE = 12,
+            NXFMFC_BAD_TABLE_ID = 13,
+            NXBAC_BAD_CONJUNCTION = 15,
+            NXTTMFC_BAD_COMMAND = 16,
+            NXTTMFC_BAD_OPT_LEN = 17,
+            NXTTMFC_BAD_FIELD_IDX = 18,
+            NXTTMFC_TABLE_FULL = 19,
+            NXTTMFC_ALREADY_MAPPED = 20,
+            NXTTMFC_DUP_ENTRY = 21,
+            NX_OFPBFC_BAD_VERSION = 22,
+            NXQOFC_QUEUE_ERROR = 23,
+            NX_OFPBPC_BAD_TYPE = 25,
+            NX_OFPBPC_BAD_LEN = 26,
+            NX_OFPBPC_BAD_VALUE = 27,
+            NX_OFPBPC_TOO_MANY = 28,
+            NX_OFPBPC_DUP_TYPE = 29,
+            NX_OFPBPC_BAD_EXPERIMENTER = 30,
+            NX_OFPBPC_BAD_EXP_TYPE = 31,
+            NX_OFPBPC_BAD_EXP_VALUE = 32,
+            NX_OFPBPC_EPERM = 33,
+            NXR_NOT_SUPPORTED = 34,
+            NXR_STALE = 35,
+            NXST_NOT_CONFIGURED = 36,
+            NXFMFC_INVALID_TLV_FIELD = 37,
+            NXTTMFC_INVALID_TLV_DEL = 38,
+            NXBAC_BAD_HEADER_TYPE = 39,
+            NXBAC_UNKNOWN_ED_PROP = 40,
+            NXBAC_BAD_ED_PROP = 41,
+            NXBAC_CT_DATAPATH_SUPPORT = 42,
+            NXBMC_CT_DATAPATH_SUPPORT = 43,
+        )
+    
+    nx_error_msg = \
+        nstruct(
+            (raw, 'data'),
+            name = 'nx_error_msg',
+            base=common.ofp_error_experimenter_msg,
+            criteria = lambda x: x.experimenter == common.NX_VENDOR_ID,
+            init = packvalue(common.NX_VENDOR_ID, 'experimenter'),
+            extend = {'exp_type': nx_error_type}
+        )
+    
+    nx_vendor_error = \
+        nstruct(
+            (common.nx_vendor_code, 'code'),
+            (common.experimenter_ids, 'vendor'),
+            (uint16, 'nx_type'),
+            (uint16, 'nx_code'),
+            name = 'nx_vendor_error',
+            base = common.ofp_error_msg_base,
+            criteria = lambda x: x.type == common.NXET_VENDOR,
+            init = packvalue(common.NXET_VENDOR, 'type')
+        )
+    
+    nx_vendor_error_nx = \
+        nstruct(
+            name = 'nx_vendor_error_nx',
+            base = nx_vendor_error,
+            criteria = lambda x: x.vendor == common.NXET_VENDOR,
+            init = packvalue(common.NXET_VENDOR, 'vendor'),
+            extend = {'nx_type': nx_error_type},
+            classifier = lambda x: x.nx_type
+        )
+    
+    nx_vendor_error_types = \
+        {k: nstruct(name = 'nx_vendor_error_nx',
+                    base = nx_vendor_error_nx,
+                    criteria = lambda x: x.nx_type == k,
+                    classifyby = (k,),
+                    init = packvalue(k, 'nx_type'),
+                    extend = {'nx_code' : codeenum}
+                   )
+         for k, codeenum in ((nx10_error_type.OFPET_HELLO_FAILED, nx10_error_type0_code),
+                             (nx10_error_type.OFPET_BAD_REQUEST, nx10_error_bad_request_code),
+                             (nx10_error_type.OFPET_BAD_ACTION, nx10_error_bad_action_code),
+                             (nx10_error_type.OFPET_BAD_INSTRUCTION, nx10_error_bad_instruction_code),
+                             (nx10_error_type.OFPET_FLOW_MOD_FAILED, nx10_error_flow_mod_failed_code),
+                             (nx10_error_type.OFPET_TABLE_FEATURES_FAILED, nx10_error_table_features_failed_code),
+                             (nx10_error_type.OFPET_BAD_PROPERTY, nx10_error_bad_property_code))}
+
     
     '''
     /* Fields to use when hashing flows. */
@@ -102,14 +339,67 @@ with _warnings.catch_warnings():
         #  *  - NXM_OF_TCP_SRC / NXM_OF_TCP_DST
         #  */
         #===========================================================================
-        NX_HASH_FIELDS_SYMMETRIC_L4 = 1
+        NX_HASH_FIELDS_SYMMETRIC_L4 = 1,
+        #=======================================================================
+        # /* L3+L4 only, including the following fields:
+        #  *
+        #  *  - NXM_OF_IP_PROTO
+        #  *  - NXM_OF_IP_SRC / NXM_OF_IP_DST
+        #  *  - NXM_OF_SCTP_SRC / NXM_OF_SCTP_DST
+        #  *  - NXM_OF_TCP_SRC / NXM_OF_TCP_DST
+        #  */
+        #=======================================================================
+        NX_HASH_FIELDS_SYMMETRIC_L3L4 = 2,
+    
+        #=======================================================================
+        # /* L3+L4 only with UDP ports, including the following fields:
+        #  *
+        #  *  - NXM_OF_IP_PROTO
+        #  *  - NXM_OF_IP_SRC / NXM_OF_IP_DST
+        #  *  - NXM_OF_SCTP_SRC / NXM_OF_SCTP_DST
+        #  *  - NXM_OF_TCP_SRC / NXM_OF_TCP_DST
+        #  *  - NXM_OF_UDP_SRC / NXM_OF_UDP_DST
+        #  */
+        #=======================================================================
+        NX_HASH_FIELDS_SYMMETRIC_L3L4_UDP = 3,
+    
+        # /* Network source address (NXM_OF_IP_SRC) only. */
+        NX_HASH_FIELDS_NW_SRC = 4,
+    
+        # /* Network destination address (NXM_OF_IP_DST) only. */
+        NX_HASH_FIELDS_NW_DST = 5
     )
     
     nx_packet_in_format = enum('nx_packet_in_format', globals(), uint32,
-        NXPIF_OPENFLOW10 = 0,       # /* Standard OpenFlow 1.0 compatible. */
-        NXPIF_NXM = 1               # /* Nicira Extended. */
+        NXPIF_STANDARD = 0,         # /* OFPT_PACKET_IN for this OpenFlow version. */
+        NXPIF_NXT_PACKET_IN = 1,    # /* NXT_PACKET_IN (since OVS v1.1). */
+        NXPIF_NXT_PACKET_IN2 = 2,   # /* NXT_PACKET_IN2 (since OVS v2.6). */
     )
+
+    NXPIF_OPENFLOW10 = NXPIF_STANDARD       # /* Standard OpenFlow 1.0 compatible. */
+    NXPIF_NXM = NXPIF_NXT_PACKET_IN         # /* Nicira Extended. */
     
+    nx_packet_in2_prop_type = \
+        enum(
+            'nx_packet_in2_prop_type',
+            globals(),
+            uint16,
+            # /* Packet. */
+            NXPINT_PACKET = 0,              # /* Raw packet data. */
+            NXPINT_FULL_LEN = 1,            # /* ovs_be32: Full packet len, if truncated. */
+            NXPINT_BUFFER_ID = 2,           # /* ovs_be32: Buffer ID, if buffered. */
+        
+            # /* Information about the flow that triggered the packet-in. */
+            NXPINT_TABLE_ID = 3,            # /* uint8_t: Table ID. */
+            NXPINT_COOKIE = 4,              # /* ovs_be64: Flow cookie. */
+        
+            # /* Other. */
+            NXPINT_REASON = 5,              # /* uint8_t, one of OFPR_*. */
+            NXPINT_METADATA = 6,            # /* NXM or OXM for metadata fields. */
+            NXPINT_USERDATA = 7,            # /* From NXAST_CONTROLLER2 userdata. */
+            NXPINT_CONTINUATION = 8,        # /* Private data for continuing processing. */
+        )
+
     nx_role = enum('nx_role', globals(), uint32,
         NX_ROLE_OTHER = 0,           #   /* Default role, full access. */
         NX_ROLE_MASTER = 1,          #   /* Full access, at most one. */
@@ -328,6 +618,8 @@ with _warnings.catch_warnings():
     NX_IP_FRAG_ANY   = (1 << 0), # /* Is this a fragment? */
     NX_IP_FRAG_LATER = (1 << 1), # /* Is this a fragment with nonzero offset? */
     )
+    
+    NXM_NX_MAX_REGS = 16
     
     nxm_header = enum('nxm_header', globals(), uint32,
     #===============================================================================
@@ -562,23 +854,14 @@ with _warnings.catch_warnings():
     #  *
     #  * Masking: Arbitrary masks. */
     #===============================================================================
-    NXM_NX_REG0 = NXM_HEADER  (0x0001, 0, 4),
-    NXM_NX_REG0_W = NXM_HEADER_W(0x0001, 0, 4),
-    NXM_NX_REG1 = NXM_HEADER  (0x0001, 1, 4),
-    NXM_NX_REG1_W = NXM_HEADER_W(0x0001, 1, 4),
-    NXM_NX_REG2 = NXM_HEADER  (0x0001, 2, 4),
-    NXM_NX_REG2_W = NXM_HEADER_W(0x0001, 2, 4),
-    NXM_NX_REG3 = NXM_HEADER  (0x0001, 3, 4),
-    NXM_NX_REG3_W = NXM_HEADER_W(0x0001, 3, 4),
-    NXM_NX_REG4 = NXM_HEADER  (0x0001, 4, 4),
-    NXM_NX_REG4_W = NXM_HEADER_W(0x0001, 4, 4),
-    NXM_NX_REG5 = NXM_HEADER  (0x0001, 5, 4),
-    NXM_NX_REG5_W = NXM_HEADER_W(0x0001, 5, 4),
-    NXM_NX_REG6 = NXM_HEADER  (0x0001, 6, 4),
-    NXM_NX_REG6_W = NXM_HEADER_W(0x0001, 6, 4),
-    NXM_NX_REG7 = NXM_HEADER  (0x0001, 7, 4),
-    NXM_NX_REG7_W = NXM_HEADER_W(0x0001, 7, 4),
-    
+    **{
+        'NXM_NX_REG' + str(i): NXM_HEADER (0x0001, i, 4)
+        for i in range(NXM_NX_MAX_REGS)
+    },
+    **{
+        'NXM_NX_REG' + str(i) + '_W': NXM_HEADER_W (0x0001, i, 4)
+        for i in range(NXM_NX_MAX_REGS)
+    },
     #===============================================================================
     # /* Tunnel ID.
     #  *
@@ -870,9 +1153,439 @@ with _warnings.catch_warnings():
     #  * Masking: not maskable. */
     #===============================================================================
     NXM_NX_RECIRC_ID = NXM_HEADER  (0x0001, 36, 4),
+    #===========================================================================
+    # /* "conj_id".
+    #  *
+    #  * ID for "conjunction" actions.  Please refer to ovs-ofctl(8)
+    #  * documentation of "conjunction" for details.
+    #  *
+    #  * Type: be32.
+    #  * Maskable: no.
+    #  * Formatting: decimal.
+    #  * Prerequisites: none.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CONJ_ID(37) since v2.4.
+    #  * OXM: none. */
+    #===========================================================================
+    NXM_NX_CONJ_ID = NXM_HEADER  (0x0001, 37, 4),
+    #===========================================================================
+    # /* "tun_ipv6_src".
+    #  *
+    #  * The IPv6 source address in the outer IP header of a tunneled packet.
+    #  *
+    #  * For non-tunneled packets, the value is 0.
+    #  *
+    #  * Type: be128.
+    #  * Maskable: bitwise.
+    #  * Formatting: IPv6.
+    #  * Prerequisites: none.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_TUN_IPV6_SRC(109) since v2.5.
+    #  * OXM: none.
+    #  * Prefix lookup member: tunnel.ipv6_src.
+    #  */
+    #===========================================================================
+    NXM_NX_TUN_IPV6_SRC = NXM_HEADER  (0x0001, 109, 16),
+    NXM_NX_TUN_IPV6_SRC_W = NXM_HEADER_W  (0x0001, 109, 16),
+    #===========================================================================
+    # /* "tun_ipv6_dst".
+    #  *
+    #  * The IPv6 destination address in the outer IP header of a tunneled
+    #  * packet.
+    #  *
+    #  * For non-tunneled packets, the value is 0.
+    #  *
+    #  * Type: be128.
+    #  * Maskable: bitwise.
+    #  * Formatting: IPv6.
+    #  * Prerequisites: none.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_TUN_IPV6_DST(110) since v2.5.
+    #  * OXM: none.
+    #  * Prefix lookup member: tunnel.ipv6_dst.
+    #  */
+    #===========================================================================
+    NXM_NX_TUN_IPV6_DST = NXM_HEADER  (0x0001, 110, 16),
+    NXM_NX_TUN_IPV6_DST_W = NXM_HEADER_W  (0x0001, 110, 16),
+    #===========================================================================
+    # /* "tun_flags".
+    #  *
+    #  * Flags representing aspects of tunnel behavior.
+    #  *
+    #  * For non-tunneled packets, the value is 0.
+    #  *
+    #  * Type: be16 (low 1 bits).
+    #  * Maskable: bitwise.
+    #  * Formatting: tunnel flags.
+    #  * Prerequisites: none.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_TUN_FLAGS(104) since v2.5.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_TUN_FLAGS = NXM_HEADER  (0x0001, 104, 2),
+    NXM_NX_TUN_FLAGS_W = NXM_HEADER_W  (0x0001, 104, 2),
+    #===========================================================================
+    # /* "tun_gbp_id".
+    #  *
+    #  * VXLAN Group Policy ID
+    #  *
+    #  * Type: be16.
+    #  * Maskable: bitwise.
+    #  * Formatting: decimal.
+    #  * Prerequisites: none.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_TUN_GBP_ID(38) since v2.4.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_TUN_GBP_ID = NXM_HEADER  (0x0001, 38, 2),
+    NXM_NX_TUN_GBP_ID_W = NXM_HEADER_W  (0x0001, 38, 2),
+    #===========================================================================
+    # /* "tun_gbp_flags".
+    #  *
+    #  * VXLAN Group Policy flags
+    #  *
+    #  * Type: u8.
+    #  * Maskable: bitwise.
+    #  * Formatting: hexadecimal.
+    #  * Prerequisites: none.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_TUN_GBP_FLAGS(39) since v2.4.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_TUN_GBP_FLAGS = NXM_HEADER (0x0001, 39, 1),
+    NXM_NX_TUN_GBP_FLAGS_W = NXM_HEADER_W (0x0001, 39, 1),
+    #===========================================================================
+    # /* "ct_state".
+    #  *
+    #  * Connection tracking state.  The field is populated by the NXAST_CT
+    #  * action.
+    #  *
+    #  * Type: be32.
+    #  * Maskable: bitwise.
+    #  * Formatting: ct state.
+    #  * Prerequisites: none.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_STATE(105) since v2.5.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_STATE = NXM_HEADER (0x0001, 105, 4),
+    NXM_NX_CT_STATE_W = NXM_HEADER_W (0x0001, 105, 4),
+    #===========================================================================
+    # /* "ct_zone".
+    #  *
+    #  * Connection tracking zone.  The field is populated by the
+    #  * NXAST_CT action.
+    #  *
+    #  * Type: be16.
+    #  * Maskable: no.
+    #  * Formatting: hexadecimal.
+    #  * Prerequisites: none.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_ZONE(106) since v2.5.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_ZONE = NXM_HEADER (0x0001, 106, 2),
+    #===========================================================================
+    # /* "ct_mark".
+    #  *
+    #  * Connection tracking mark.  The mark is carried with the
+    #  * connection tracking state.  On Linux this corresponds to the
+    #  * nf_conn's "mark" member but the exact implementation is
+    #  * platform-dependent.
+    #  *
+    #  * Writable only from nested actions within the NXAST_CT action.
+    #  *
+    #  * Type: be32.
+    #  * Maskable: bitwise.
+    #  * Formatting: hexadecimal.
+    #  * Prerequisites: none.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_CT_MARK(107) since v2.5.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_MARK = NXM_HEADER (0x0001, 107, 4),
+    NXM_NX_CT_MARK_W = NXM_HEADER_W (0x0001, 107, 4),
+    #===========================================================================
+    # /* "ct_label".
+    #  *
+    #  * Connection tracking label.  The label is carried with the
+    #  * connection tracking state.  On Linux this is held in the
+    #  * conntrack label extension but the exact implementation is
+    #  * platform-dependent.
+    #  *
+    #  * Writable only from nested actions within the NXAST_CT action.
+    #  *
+    #  * Type: be128.
+    #  * Maskable: bitwise.
+    #  * Formatting: hexadecimal.
+    #  * Prerequisites: none.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_CT_LABEL(108) since v2.5.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_LABEL = NXM_HEADER (0x0001, 108, 32),
+    NXM_NX_CT_LABEL_W = NXM_HEADER_W (0x0001, 108, 32),
+    #===========================================================================
+    # /* "ct_nw_proto".
+    #  *
+    #  * The "protocol" byte in the IPv4 or IPv6 header for the original
+    #  * direction conntrack tuple, or of the master conntrack entry, if the
+    #  * current connection is a related connection.
+    #  *
+    #  * The value is initially zero and populated by the CT action.  The value
+    #  * remains zero after the CT action only if the packet can not be
+    #  * associated with a valid connection, in which case the prerequisites
+    #  * for matching this field ("CT") are not met.
+    #  *
+    #  * Type: u8.
+    #  * Maskable: no.
+    #  * Formatting: decimal.
+    #  * Prerequisites: CT.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_NW_PROTO(119) since v2.8.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_NW_PROTO = NXM_HEADER (0x0001, 119, 1),
+    #===========================================================================
+    # /* "ct_nw_src".
+    #  *
+    #  * IPv4 source address of the original direction tuple of the conntrack
+    #  * entry, or of the master conntrack entry, if the current connection is a
+    #  * related connection.
+    #  *
+    #  * The value is populated by the CT action.
+    #  *
+    #  * Type: be32.
+    #  * Maskable: bitwise.
+    #  * Formatting: IPv4.
+    #  * Prerequisites: CT.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_NW_SRC(120) since v2.8.
+    #  * OXM: none.
+    #  * Prefix lookup member: ct_nw_src.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_NW_SRC = NXM_HEADER (0x0001, 120, 4),
+    NXM_NX_CT_NW_SRC_W = NXM_HEADER_W (0x0001, 120, 4),
+
+    #===========================================================================
+    # /* "ct_nw_dst".
+    #  *
+    #  * IPv4 destination address of the original direction tuple of the
+    #  * conntrack entry, or of the master conntrack entry, if the current
+    #  * connection is a related connection.
+    #  *
+    #  * The value is populated by the CT action.
+    #  *
+    #  * Type: be32.
+    #  * Maskable: bitwise.
+    #  * Formatting: IPv4.
+    #  * Prerequisites: CT.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_NW_DST(121) since v2.8.
+    #  * OXM: none.
+    #  * Prefix lookup member: ct_nw_dst.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_NW_DST = NXM_HEADER (0x0001, 121, 4),
+    NXM_NX_CT_NW_DST_W = NXM_HEADER_W (0x0001, 121, 4),
+
+    #===========================================================================
+    # /* "ct_ipv6_src".
+    #  *
+    #  * IPv6 source address of the original direction tuple of the conntrack
+    #  * entry, or of the master conntrack entry, if the current connection is a
+    #  * related connection.
+    #  *
+    #  * The value is populated by the CT action.
+    #  *
+    #  * Type: be128.
+    #  * Maskable: bitwise.
+    #  * Formatting: IPv6.
+    #  * Prerequisites: CT.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_IPV6_SRC(122) since v2.8.
+    #  * OXM: none.
+    #  * Prefix lookup member: ct_ipv6_src.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_IPV6_SRC = NXM_HEADER (0x0001, 122, 16),
+    NXM_NX_CT_IPV6_SRC_W = NXM_HEADER_W (0x0001, 122, 16),
+
+    #===========================================================================
+    # /* "ct_ipv6_dst".
+    #  *
+    #  * IPv6 destination address of the original direction tuple of the
+    #  * conntrack entry, or of the master conntrack entry, if the current
+    #  * connection is a related connection.
+    #  *
+    #  * The value is populated by the CT action.
+    #  *
+    #  * Type: be128.
+    #  * Maskable: bitwise.
+    #  * Formatting: IPv6.
+    #  * Prerequisites: CT.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_IPV6_DST(123) since v2.8.
+    #  * OXM: none.
+    #  * Prefix lookup member: ct_ipv6_dst.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_IPV6_DST = NXM_HEADER (0x0001, 123, 16),
+    NXM_NX_CT_IPV6_DST_W = NXM_HEADER_W (0x0001, 123, 16),
+
+    #===========================================================================
+    # /* "ct_tp_src".
+    #  *
+    #  * Transport layer source port of the original direction tuple of the
+    #  * conntrack entry, or of the master conntrack entry, if the current
+    #  * connection is a related connection.
+    #  *
+    #  * The value is populated by the CT action.
+    #  *
+    #  * Type: be16.
+    #  * Maskable: bitwise.
+    #  * Formatting: decimal.
+    #  * Prerequisites: CT.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_TP_SRC(124) since v2.8.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_TP_SRC = NXM_HEADER (0x0001, 124, 2),
+    NXM_NX_CT_TP_SRC_W = NXM_HEADER_W (0x0001, 124, 2),
+
+    #===========================================================================
+    # /* "ct_tp_dst".
+    #  *
+    #  * Transport layer destination port of the original direction tuple of the
+    #  * conntrack entry, or of the master conntrack entry, if the current
+    #  * connection is a related connection.
+    #  *
+    #  * The value is populated by the CT action.
+    #  *
+    #  * Type: be16.
+    #  * Maskable: bitwise.
+    #  * Formatting: decimal.
+    #  * Prerequisites: CT.
+    #  * Access: read-only.
+    #  * NXM: NXM_NX_CT_TP_DST(125) since v2.8.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_CT_TP_DST = NXM_HEADER (0x0001, 125, 2),
+    NXM_NX_CT_TP_DST_W = NXM_HEADER (0x0001, 125, 2),
+    #===========================================================================
+    # /* "xxreg<N>".
+    #  *
+    #  * ``extended-extended register".
+    #  *
+    #  * Type: be128.
+    #  * Maskable: bitwise.
+    #  * Formatting: hexadecimal.
+    #  * Prerequisites: none.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_XXREG0(111) since v2.6.              <0>
+    #  * NXM: NXM_NX_XXREG1(112) since v2.6.              <1>
+    #  * NXM: NXM_NX_XXREG2(113) since v2.6.              <2>
+    #  * NXM: NXM_NX_XXREG3(114) since v2.6.              <3>
+    #  * NXM: NXM_NX_XXREG4(115) since vX.Y.              <4>
+    #  * NXM: NXM_NX_XXREG5(116) since vX.Y.              <5>
+    #  * NXM: NXM_NX_XXREG6(117) since vX.Y.              <6>
+    #  * NXM: NXM_NX_XXREG7(118) since vX.Y.              <7>
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    **{
+        'NXM_NX_XXREG' + str(i): NXM_HEADER(0x0001, 111 + i, 16)
+        for i in range(NXM_NX_MAX_REGS // 4)
+      },
+    **{
+        'NXM_NX_XXREG' + str(i) + '_W': NXM_HEADER_W(0x0001, 111 + i, 16)
+        for i in range(NXM_NX_MAX_REGS // 4)
+      },
+    #===========================================================================
+    # /* "mpls_ttl".
+    #  *
+    #  * The outermost MPLS label's time-to-live (TTL) field, or 0 if no MPLS
+    #  * labels are present.
+    #  *
+    #  * Type: u8.
+    #  * Maskable: no.
+    #  * Formatting: decimal.
+    #  * Prerequisites: MPLS.
+    #  * Access: read/write.
+    #  * NXM: NXM_NX_MPLS_TTL(30) since v2.6.
+    #  * OXM: none.
+    #  */
+    #===========================================================================
+    NXM_NX_MPLS_TTL = NXM_HEADER (0x0001, 30, 1)
     )
     
-    NXM_NX_MAX_REGS = 16
+    nx_conntrack_state = \
+        enum(
+            'nx_conntrack_state',
+            globals(),
+            uint32,
+            True,
+            CS_NEW              = 1 << 0,
+            CS_ESTABLISHED      = 1 << 1,
+            CS_RELATED          = 1 << 2,
+            CS_REPLY_DIR        = 1 << 3,
+            CS_INVALID          = 1 << 4,
+            CS_TRACKED          = 1 << 5,
+            CS_SRC_NAT          = 1 << 6,
+            CS_DST_NAT          = 1 << 7
+        )
+    
+    nx_tunnel_metadata_fields = \
+        enum(
+            'nx_tunnel_metadata_fields',
+            None,
+            uint16,
+            **{'NXM_NX_TUN_METADATA' + str(i): 40 + i
+               for i in range(64)}
+        )
+    
+    NX_TUN_METADATA_NUM_OPTS = 64
+    
+    def create_nx_tunnel_metadata_header(index, length, mask=False):
+        return (NXM_HEADER_W if mask else NXM_HEADER)(0x0001, 40 + index, length)
+    
+    def _is_nx_tunnel_metadata(x):
+        return 0 <= ((x & 0xffff) >> 9) - nx_tunnel_metadata_fields.NXM_NX_TUN_METADATA0 < NX_TUN_METADATA_NUM_OPTS
+    
+    _nx_tunnel_metadata_header_type = prim('I', '_nx_tunnel_metadata_header_type')
+    
+    def _nx_tunnel_metadata_formatter(x):
+        index = ((x & 0xffff) >> 9) - nx_tunnel_metadata_fields.NXM_NX_TUN_METADATA0
+        mask = x & 0x100
+        length = x & 0xff
+        return "NXM_NX_TUN_METADATA" + str(index) + ("_W" if mask else "") + "[" + str(length) + "]"
+    
+    _nx_tunnel_metadata_header_type.formatter = _nx_tunnel_metadata_formatter
+    
+    nx_tunnel_flags = \
+        enum(
+            'nx_tunnel_flags',
+            globals(),
+            uint16,
+            True,
+            NX_FLOW_TNL_F_OAM = (1 << 0),           
+            
+            # /* Private flags */
+            NX_FLOW_TNL_F_DONT_FRAGMENT = (1 << 1),
+            NX_FLOW_TNL_F_CSUM = (1 << 2),
+            NX_FLOW_TNL_F_KEY = (1 << 3),
+        )
     
     def NXM_NX_REG(IDX):
         return NXM_HEADER  (0x0001, IDX, 4),
@@ -917,17 +1630,38 @@ with _warnings.catch_warnings():
         NXAST_STACK_POP = 28,            # /* struct nx_action_stack */
         NXAST_SAMPLE = 29,               # /* struct nx_action_sample */
         NXAST_SET_MPLS_LABEL = 30,       # /* struct nx_action_ttl */
-        NXAST_SET_MPLS_TC = 31           # /* struct nx_action_ttl */
+        NXAST_SET_MPLS_TC = 31,          # /* struct nx_action_ttl */
+        NXAST_OUTPUT_REG2 = 32,          # /* struct nx_action_output_reg2 */
+        NXAST_REG_LOAD2 = 33,            # /* struct nx_action_reg_load2 */
+        NXAST_CONJUNCTION = 34,          # /* struct nx_action_conjunction */
+        NXAST_CT = 35,                   # /* struct nx_action_conntrack */
+        NXAST_NAT = 36,                  # /* struct nx_action_nat */
+        NXAST_CONTROLLER2 = 37,          # /* struct nx_action_controller2 */
+        NXAST_SAMPLE2 = 38,              # /* struct nx_action_sample2 */
+        NXAST_OUTPUT_TRUNC = 39,         # /* struct nx_action_output_trunc */
+        NXAST_SAMPLE3 = 41,              # /* struct nx_action_sample2 */
+        NXAST_CLONE = 42,                # /* struct nx_action_clone */
+        NXAST_CT_CLEAR = 43,             # /* struct nx_action_ct_clear */
+        NXAST_RESUBMIT_TABLE_CT = 44,    # /* struct nx_action_resubmit */
+        NXAST_LEARN2 = 45,               # /* struct nx_action_learn2 */
+        NXAST_ENCAP = 46,                # /* struct nx_action_encap */
+        NXAST_DECAP = 47,                # /* struct nx_action_decap */
+        NXAST_DEC_NSH_TTL = 48,          # /* struct nx_action_dec_nsh_ttl */
     )
     
     nx_stats_subtype = enum('nx_stats_subtype', globals(), uint32,
         NXST_FLOW = 0,
         NXST_AGGREGATE = 1,
-        NXST_FLOW_MONITOR = 2
+        NXST_FLOW_MONITOR = 2,
+        NXST_IPFIX_BRIDGE = 3,
+        NXST_IPFIX_FLOW = 4
     )
     
     def create_ofs_nbits(ofs, n_bits):
         return (ofs << 6) | (n_bits - 1)
+    
+    ofs_nbits_type = prim('H', 'ofs_nbits_type')
+    ofs_nbits_type.formatter = lambda x: '[%d..%d]' % (x >> 6, (x >> 6) + (x & 0x3f))
     
     '''
     /* NXAST_MULTIPATH: Multipath link choice algorithm to apply.
@@ -1016,57 +1750,7 @@ with _warnings.catch_warnings():
             x['_desc'] = descr(x)
             return x
         return formatter
-    
-    _nx_flow_mod_spec_src = nstruct(
-        name = '_nx_flow_mod_spec_src',
-        padding = 1,
-        size = lambda x: (((NX_FLOWMODSPEC_NBITS(x.header) + 15) // 16 * 2) if NX_FLOWMODSPEC_SRC(x.header) else 6)
-    )
-    
-    _nx_flow_mod_spec_dst = nstruct(
-        name = '_nx_flow_mod_spec_dst',
-        padding = 1,
-        size = lambda x: 0 if NX_FLOWMODSPEC_DST(x.header) == NX_LEARN_DST_OUTPUT else 6
-    )
-    
-    _nx_flow_mod_spec_src_value = nstruct(
-        (raw, 'value'),
-        name = '_nx_flow_mod_spec_src_value',
-        base = _nx_flow_mod_spec_src,
-        criteria = lambda x: NX_FLOWMODSPEC_SRC(x.header)
-    )
-    
-    _nx_flow_mod_spec_src_field = nstruct(
-        (nxm_header, 'src'),
-        (uint16, 'src_ofs'),
-        name = '_nx_flow_mod_spec_src_field',
-        base = _nx_flow_mod_spec_src,
-        criteria = lambda x: not NX_FLOWMODSPEC_SRC(x.header)
-    )
-    
-    _nx_flow_mod_spec_dst_field = nstruct(
-        (nxm_header, 'dst'),
-        (uint16, 'dst_ofs'),
-        name = '_nx_flow_mod_spec_dst_field',
-        base = _nx_flow_mod_spec_dst,
-        criteria = lambda x: NX_FLOWMODSPEC_DST(x.header) == NX_LEARN_DST_MATCH or NX_FLOWMODSPEC_DST(x.header) == NX_LEARN_DST_LOAD
-    )
-    
-    _nx_flow_mod_spec_dst_output = nstruct(
-        name = '_nx_flow_mod_spec_dst_output',
-        base = _nx_flow_mod_spec_dst,
-        criteria = lambda x: NX_FLOWMODSPEC_DST(x.header) == NX_LEARN_DST_OUTPUT
-    )
-    
-    
-    def _create_field(dst, ofs):
-        if NXM_HASMASK(dst):
-            raise ValueError('Must specify a nxm_header without mask')
-        return _nx_flow_mod_spec_dst_field.new(dst = dst, dst_ofs = ofs)._tobytes()
-    
-    def _create_header(src, dst, n_bits):
-        return uint16.tobytes((src & NX_LEARN_SRC_MASK) | (dst & NX_LEARN_DST_MASK) | (n_bits & NX_LEARN_N_BITS_MASK))
-    
+       
     '''
     /* NXAST_BUNDLE: Bundle slave choice algorithm to apply.
      *
@@ -1128,51 +1812,343 @@ with _warnings.catch_warnings():
     )
 
 
+    #===========================================================================
+    # /* Bits for 'flags' in struct nx_action_learn.
+    #  *
+    #  * If NX_LEARN_F_SEND_FLOW_REM is set, then the learned flows will have their
+    #  * OFPFF_SEND_FLOW_REM flag set.
+    #  *
+    #  * If NX_LEARN_F_WRITE_RESULT is set, then the actions will write whether the
+    #  * learn operation succeded on a bit.  If the learn is successful the bit will
+    #  * be set, otherwise (e.g. if the limit is hit) the bit will be unset.
+    #  *
+    #  * If NX_LEARN_F_DELETE_LEARNED is set, then removing this action will delete
+    #  * all the flows from the learn action's 'table_id' that have the learn
+    #  * action's 'cookie'.  Important points:
+    #  *
+    #  *     - The deleted flows include those created by this action, those created
+    #  *       by other learn actions with the same 'table_id' and 'cookie', those
+    #  *       created by flow_mod requests by a controller in the specified table
+    #  *       with the specified cookie, and those created through any other
+    #  *       means.
+    #  *
+    #  *     - If multiple flows specify "learn" actions with
+    #  *       NX_LEARN_F_DELETE_LEARNED with the same 'table_id' and 'cookie', then
+    #  *       no deletion occurs until all of those "learn" actions are deleted.
+    #  *
+    #  *     - Deleting a flow that contains a learn action is the most obvious way
+    #  *       to delete a learn action.  Modifying a flow's actions, or replacing it
+    #  *       by a new flow, can also delete a learn action.  Finally, replacing a
+    #  *       learn action with NX_LEARN_F_DELETE_LEARNED with a learn action
+    #  *       without that flag also effectively deletes the learn action and can
+    #  *       trigger flow deletion.
+    #  *
+    #  * NX_LEARN_F_DELETE_LEARNED was added in Open vSwitch 2.4. */
+    #===========================================================================
+    nx_learn_flags = \
+        enum(
+            'nx_learn_flags',
+            globals(),
+            uint16,
+            True,
+            NX_LEARN_F_SEND_FLOW_REM = 1 << 0,
+            NX_LEARN_F_DELETE_LEARNED = 1 << 1,
+            NX_LEARN_F_WRITE_RESULT = 1 << 2,
+        )
+
+
+    #===========================================================================
+    # /* Properties for NXAST_CONTROLLER2.
+    #  *
+    #  * For more information on the effect of NXAC2PT_PAUSE, see the large comment
+    #  * on NXT_PACKET_IN2 in nicira-ext.h */
+    #===========================================================================
+    nx_action_controller2_prop_type = \
+        enum(
+            'nx_action_controller2_prop_type',
+            globals(),
+            uint16,
+            NXAC2PT_MAX_LEN = 0,            # /* ovs_be16 max bytes to send (default all). */
+            NXAC2PT_CONTROLLER_ID = 1,      # /* ovs_be16 dest controller ID (default 0). */
+            NXAC2PT_REASON = 2,             # /* uint8_t reason (OFPR_*), default 0. */
+            NXAC2PT_USERDATA = 3,           # /* Data to copy into NXPINT_USERDATA. */
+            NXAC2PT_PAUSE = 4,              # /* Flag to pause pipeline to resume later. */
+        )
+
+
+    # /* Direction of sampled packets. */
+    nx_action_sample_direction = \
+        enum(
+            'nx_action_sample_direction',
+            globals(),
+            uint8,
+            #===================================================================
+            # /* OVS will attempt to infer the sample's direction based on whether
+            #  * 'sampling_port' is the packet's output port.  This is generally
+            #  * effective except when sampling happens as part of an output to a patch
+            #  * port, which doesn't involve a datapath output action. */
+            #===================================================================
+            NX_ACTION_SAMPLE_DEFAULT = 0,
+        
+            #===================================================================
+            # /* Explicit direction.  This is useful for sampling packets coming in from
+            #  * or going out of a patch port, where the direction cannot be inferred. */
+            #===================================================================
+            NX_ACTION_SAMPLE_INGRESS = 1,
+            NX_ACTION_SAMPLE_EGRESS = 2
+        )
+
+
+    #=======================================================================
+    # /* Bits for 'flags' in struct nx_action_conntrack.
+    #  *
+    #  * If NX_CT_F_COMMIT is set, then the connection entry is moved from the
+    #  * unconfirmed to confirmed list in the tracker.
+    #  * If NX_CT_F_FORCE is set, in addition to NX_CT_F_COMMIT, then the conntrack
+    #  * entry is replaced with a new one in case the original direction of the
+    #  * existing entry is opposite of the current packet direction.
+    #  */
+    #=======================================================================
+    nx_conntrack_flags = \
+        enum(
+            'nx_conntrack_flags',
+            globals(),
+            uint16,
+            True,
+            NX_CT_F_COMMIT = 1 << 0,
+            NX_CT_F_FORCE  = 1 << 1,
+        )
+
+    NX_CT_RECIRC_NONE = common.OFPTT_ALL
+    
+    nx_conntrack_alg_port = \
+        enum(
+            'nx_conntrack_alg_port',
+            globals(),
+            uint16,
+            NX_CT_A_IPPORT_NONE = 0,
+            NX_CT_A_IPPORT_FTP = 21,
+            NX_CT_A_IPPORT_TFTP = 69,
+        )
+
+
+    # /* Which optional fields are present? */
+    nx_nat_range = \
+        enum(
+            'nx_nat_range',
+            globals(),
+            uint16,
+            True,
+            NX_NAT_RANGE_IPV4_MIN  = 1 << 0, # /* ovs_be32 */
+            NX_NAT_RANGE_IPV4_MAX  = 1 << 1, # /* ovs_be32 */
+            NX_NAT_RANGE_IPV6_MIN  = 1 << 2, # /* struct in6_addr */
+            NX_NAT_RANGE_IPV6_MAX  = 1 << 3, # /* struct in6_addr */
+            NX_NAT_RANGE_PROTO_MIN = 1 << 4, # /* ovs_be16 */
+            NX_NAT_RANGE_PROTO_MAX = 1 << 5, # /* ovs_be16 */
+        )
+
+
+    # /* Bits for 'flags' in struct nx_action_nat.
+    #  */
+    nx_nat_flags = \
+        enum(
+            'nx_nat_flags',
+            globals(),
+            uint16,
+            True,
+            NX_NAT_F_SRC          = 1 << 0, # /* Mutually exclusive with NX_NAT_F_DST. */
+            NX_NAT_F_DST          = 1 << 1,
+            NX_NAT_F_PERSISTENT   = 1 << 2,
+            NX_NAT_F_PROTO_HASH   = 1 << 3, # /* Mutually exclusive with PROTO_RANDOM. */
+            NX_NAT_F_PROTO_RANDOM = 1 << 4,
+        )
+
+    NX_NAT_F_MASK = (NX_NAT_F_SRC | NX_NAT_F_DST | NX_NAT_F_PERSISTENT | NX_NAT_F_PROTO_HASH | NX_NAT_F_PROTO_RANDOM)
+
+
+    def PACKET_TYPE(NS, NS_TYPE):
+        return (((NS) << 16 | (NS_TYPE)))
+    
+    # /* Header and packet type name spaces. */
+    ofp_header_type_namespaces = \
+        enum(
+            'ofp_header_type_namespaces',
+            globals(),
+            uint16,
+            OFPHTN_ONF = 0,             # /* ONF namespace. */
+            OFPHTN_ETHERTYPE = 1,       # /* ns_type is an Ethertype. */
+            OFPHTN_IP_PROTO = 2,        # /* ns_type is a IP protocol number. */
+            OFPHTN_UDP_TCP_PORT = 3,    # /* ns_type is a TCP or UDP port. */
+            OFPHTN_IPV4_OPTION = 4,     # /* ns_type is an IPv4 option number. */
+        )
+    OFPHTN_N_TYPES = 5
+    
+    # /* Well-known packet_type field values. */
+    packet_type = \
+        enum(
+            'packet_type',
+            globals(),
+            uint32,
+            PT_ETH  = PACKET_TYPE(OFPHTN_ONF, 0x0000),  # /* Default PT: Ethernet */
+            PT_USE_NEXT_PROTO = PACKET_TYPE(OFPHTN_ONF, 0xfffe),  # /* Pseudo PT for decap. */
+            PT_IPV4 = PACKET_TYPE(OFPHTN_ETHERTYPE, _ethernet.ETHERTYPE_IP),
+            PT_IPV6 = PACKET_TYPE(OFPHTN_ETHERTYPE, _ethernet.ETHERTYPE_IPV6),
+            PT_MPLS = PACKET_TYPE(OFPHTN_ETHERTYPE, _ethernet.ETHERTYPE_MPLS_UC),
+            PT_MPLS_MC = PACKET_TYPE(OFPHTN_ETHERTYPE, _ethernet.ETHERTYPE_MPLS_MC),
+            PT_NSH  = PACKET_TYPE(OFPHTN_ETHERTYPE, _ethernet.ETHERTYPE_NSH),
+            PT_UNKNOWN = PACKET_TYPE(0xffff, 0xffff),   # /* Unknown packet type. */
+        )
+
+    ofp_ed_prop_class = \
+        enum(
+            'ofp_ed_prop_class',
+            globals(),
+            uint16,
+            OFPPPC_BASIC = 0,            # /* ONF Basic class. */
+            OFPPPC_MPLS  = 1,            # /* MPLS property class. */
+            OFPPPC_GRE   = 2,            # /* GRE property class. */
+            OFPPPC_GTP   = 3,            # /* GTP property class. */
+            OFPPPC_NSH   = 4,            # /* NSH property class */
+        
+            # /* Experimenter property class.
+            #  *
+            #  * First 32 bits of property data
+            #  * is exp id after that is the experimenter property data.
+            #  */
+            OFPPPC_EXPERIMENTER=0xffff
+        )
+    
+    ofp_ed_nsh_prop_type = \
+        enum(
+            'ofp_ed_nsh_prop_type',
+            globals(),
+            uint8,
+            OFPPPT_PROP_NSH_NONE = 0,    # /* unused */
+            OFPPPT_PROP_NSH_MDTYPE = 1,  # /* property MDTYPE in NSH */
+            OFPPPT_PROP_NSH_TLV = 2,     # /* property TLV in NSH */
+        )
+
+    # /*
+    #  * External representation of encap/decap properties.
+    #  * These must be padded to a multiple of 8 bytes.
+    #  */
+    ofp_ed_prop = \
+        nstruct(
+            (ofp_ed_prop_class, 'prop_class'),
+            (uint8, 'type'),
+            (uint8, 'len'),
+            name = 'ofp_ed_prop',
+            size = lambda x: x.len,
+            prepack = packrealsize('len'),
+            classifier = lambda x: x.prop_class
+        )
+    
+    ofp_ed_prop_nsh = \
+        nstruct(
+            name = 'ofp_ed_prop_nsh',
+            base = ofp_ed_prop,
+            criteria = lambda x: x.prop_class == OFPPPC_NSH,
+            classifyby = (OFPPPC_NSH,),
+            init = packvalue(OFPPPC_NSH, 'prop_class'),
+            extend = {'type': ofp_ed_nsh_prop_type},
+            classifier = lambda x: x.type
+        )
+    
+    ofp_ed_prop_nsh_md_type = \
+        nstruct(
+            (nsh_md_types, 'md_type'),          # /* NSH MD type .*/
+            (uint8[3],),                        # /* Padding to 8 bytes. */
+            name = 'ofp_ed_prop_nsh_md_type',
+            base = ofp_ed_prop_nsh,
+            criteria = lambda x: x.type == OFPPPT_PROP_NSH_MDTYPE,
+            classifyby = (OFPPPT_PROP_NSH_MDTYPE,),
+            init = packvalue(OFPPPT_PROP_NSH_MDTYPE, 'type')
+        )
+    
+    _ofp_ed_prop_nsh_tlv_data = \
+        nstruct(
+            (raw, 'data'),
+            name = '_ofp_ed_prop_nsh_tlv_data',
+            size = lambda x: x.tlv_len,
+            prepack = packrealsize('tlv_len'),
+            padding = 1,
+        )
+    
+    ofp_ed_prop_nsh_tlv = \
+        nstruct(
+            (nsh_md_class, 'tlv_class'),        # /* Metadata class. */
+            (uint8, 'tlv_type'),                # /* Metadata type including C bit. */
+            (uint8, 'tlv_len'),                # /* Metadata value length (0-127). */
+            (_ofp_ed_prop_nsh_tlv_data,),
+            name = 'ofp_ed_prop_nsh_tlv',
+            base = ofp_ed_prop_nsh,
+            criteria = lambda x: x.type == OFPPPT_PROP_NSH_TLV,
+            classifyby = (OFPPPT_PROP_NSH_TLV,),
+            init = packvalue(OFPPPT_PROP_NSH_TLV, 'type')
+        )
+
+
+    # /* TLV table commands */
+    nx_tlv_table_mod_command = \
+        enum(
+            'nx_tlv_table_mod_command',
+            globals(),
+            uint16,
+            NXTTMC_ADD = 0,          # /* New mappings (fails if an option is already
+                                     #    mapped). */
+            NXTTMC_DELETE = 1,       # /* Delete mappings, identified by index
+                                     #  * (unmapped options are ignored). */
+            NXTTMC_CLEAR = 2,        # /* Clear all mappings. Additional information
+                                     #    in this command is ignored. */
+        )
+
+
 def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_stats_reply,
                      msg_subtype, action_subtype, stats_subtype):
-    '''
-    /* This command enables or disables an Open vSwitch extension that allows a
-     * controller to specify the OpenFlow table to which a flow should be added,
-     * instead of having the switch decide which table is most appropriate as
-     * required by OpenFlow 1.0.  Because NXM was designed as an extension to
-     * OpenFlow 1.0, the extension applies equally to ofp10_flow_mod and
-     * nx_flow_mod.  By default, the extension is disabled.
-     *
-     * When this feature is enabled, Open vSwitch treats struct ofp10_flow_mod's
-     * and struct nx_flow_mod's 16-bit 'command' member as two separate fields.
-     * The upper 8 bits are used as the table ID, the lower 8 bits specify the
-     * command as usual.  A table ID of 0xff is treated like a wildcarded table ID.
-     *
-     * The specific treatment of the table ID depends on the type of flow mod:
-     *
-     *    - OFPFC_ADD: Given a specific table ID, the flow is always placed in that
-     *      table.  If an identical flow already exists in that table only, then it
-     *      is replaced.  If the flow cannot be placed in the specified table,
-     *      either because the table is full or because the table cannot support
-     *      flows of the given type, the switch replies with an OFPFMFC_TABLE_FULL
-     *      error.  (A controller can distinguish these cases by comparing the
-     *      current and maximum number of entries reported in ofp_table_stats.)
-     *
-     *      If the table ID is wildcarded, the switch picks an appropriate table
-     *      itself.  If an identical flow already exist in the selected flow table,
-     *      then it is replaced.  The choice of table might depend on the flows
-     *      that are already in the switch; for example, if one table fills up then
-     *      the switch might fall back to another one.
-     *
-     *    - OFPFC_MODIFY, OFPFC_DELETE: Given a specific table ID, only flows
-     *      within that table are matched and modified or deleted.  If the table ID
-     *      is wildcarded, flows within any table may be matched and modified or
-     *      deleted.
-     *
-     *    - OFPFC_MODIFY_STRICT, OFPFC_DELETE_STRICT: Given a specific table ID,
-     *      only a flow within that table may be matched and modified or deleted.
-     *      If the table ID is wildcarded and exactly one flow within any table
-     *      matches, then it is modified or deleted; if flows in more than one
-     *      table match, then none is modified or deleted.
-     */
-    '''
     with _warnings.catch_warnings():
         _warnings.filterwarnings('ignore', '^padding', StructDefWarning)
+        
+        #=======================================================================
+        # /* This command enables or disables an Open vSwitch extension that allows a
+        #  * controller to specify the OpenFlow table to which a flow should be added,
+        #  * instead of having the switch decide which table is most appropriate as
+        #  * required by OpenFlow 1.0.  Because NXM was designed as an extension to
+        #  * OpenFlow 1.0, the extension applies equally to ofp10_flow_mod and
+        #  * nx_flow_mod.  By default, the extension is disabled.
+        #  *
+        #  * When this feature is enabled, Open vSwitch treats struct ofp10_flow_mod's
+        #  * and struct nx_flow_mod's 16-bit 'command' member as two separate fields.
+        #  * The upper 8 bits are used as the table ID, the lower 8 bits specify the
+        #  * command as usual.  A table ID of 0xff is treated like a wildcarded table ID.
+        #  *
+        #  * The specific treatment of the table ID depends on the type of flow mod:
+        #  *
+        #  *    - OFPFC_ADD: Given a specific table ID, the flow is always placed in that
+        #  *      table.  If an identical flow already exists in that table only, then it
+        #  *      is replaced.  If the flow cannot be placed in the specified table,
+        #  *      either because the table is full or because the table cannot support
+        #  *      flows of the given type, the switch replies with an OFPFMFC_TABLE_FULL
+        #  *      error.  (A controller can distinguish these cases by comparing the
+        #  *      current and maximum number of entries reported in ofp_table_stats.)
+        #  *
+        #  *      If the table ID is wildcarded, the switch picks an appropriate table
+        #  *      itself.  If an identical flow already exist in the selected flow table,
+        #  *      then it is replaced.  The choice of table might depend on the flows
+        #  *      that are already in the switch; for example, if one table fills up then
+        #  *      the switch might fall back to another one.
+        #  *
+        #  *    - OFPFC_MODIFY, OFPFC_DELETE: Given a specific table ID, only flows
+        #  *      within that table are matched and modified or deleted.  If the table ID
+        #  *      is wildcarded, flows within any table may be matched and modified or
+        #  *      deleted.
+        #  *
+        #  *    - OFPFC_MODIFY_STRICT, OFPFC_DELETE_STRICT: Given a specific table ID,
+        #  *      only a flow within that table may be matched and modified or deleted.
+        #  *      If the table ID is wildcarded and exactly one flow within any table
+        #  *      matches, then it is modified or deleted; if flows in more than one
+        #  *      table match, then none is modified or deleted.
+        #  */
+        #=======================================================================
         nx_flow_mod_table_id = nstruct(
             (uint8, 'set'),                 # /* Nonzero to enable, zero to disable. */
             (uint8[7],),
@@ -1185,11 +2161,24 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         namespace['nx_flow_mod_table_id'] = nx_flow_mod_table_id
     
     
-        '''
-        /* NXT_SET_PACKET_IN_FORMAT request. */
-        '''
+        #=======================================================================
+        # /* NXT_SET_PACKET_IN_FORMAT request.
+        #  *
+        #  * For any given OpenFlow version, Open vSwitch supports multiple formats for
+        #  * "packet-in" messages.  The default is always the standard format for the
+        #  * OpenFlow version in question, but NXT_SET_PACKET_IN_FORMAT can be used to
+        #  * set an alternative format.
+        #  *
+        #  * From OVS v1.1 to OVS v2.5, this request was only honored for OpenFlow 1.0.
+        #  * Requests to set format NXPIF_NXT_PACKET_IN were accepted for OF1.1+ but they
+        #  * had no effect.  (Requests to set formats other than NXPIF_STANDARD or
+        #  * NXPIF_NXT_PACKET_IN were rejected with OFPBRC_EPERM.)
+        #  *
+        #  * From OVS v2.6 onward, this request is honored for all OpenFlow versions.
+        #  */
+        #=======================================================================
         nx_set_packet_in_format = nstruct(
-            (uint32, 'format'),           # /* One of NXPIF_*. */
+            (nx_packet_in_format, 'format'),           # /* One of NXPIF_*. */
             name = 'nx_set_packet_in_format',
             base = nicira_header,
             criteria = lambda x: getattr(x, msg_subtype) == NXT_SET_PACKET_IN_FORMAT,
@@ -1256,7 +2245,21 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
                 extend = {'header': nxm_header},
                 name = 'nx_match_mask_ext'
             )
-            namespace['nx_match_mask_ext'] = nx_match_mask_ext        
+            namespace['nx_match_mask_ext'] = nx_match_mask_ext
+            
+            OFPXMC_EXPERIMENTER = namespace['OFPXMC_EXPERIMENTER']
+            
+            all_nxm_header = nxm_header.merge(namespace['ofp_oxm_header'])
+            
+            def _create_oxm_header_only_fields(name, criteria = None):
+                if criteria is None:
+                    return ((all_nxm_header, name),
+                            (optional(common.experimenter_ids, name + '_experimenter',
+                                      lambda x: NXM_VENDOR(getattr(x, name)) == OFPXMC_EXPERIMENTER),))
+                else:
+                    return ((optional(all_nxm_header, name, criteria),),
+                            (optional(common.experimenter_ids, name + '_experimenter',
+                                      lambda x: criteria(x) and NXM_VENDOR(getattr(x, name)) == OFPXMC_EXPERIMENTER),))
         else:
             nx_match = nstruct(
                 (nxm_header, 'header'),
@@ -1266,7 +2269,7 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             )
             namespace['nx_match'] = nx_match
             nx_match_nomask = nstruct(
-                (raw, 'value'),
+                (common.hexraw, 'value'),
                 base = nx_match,
                 criteria = lambda x: not NXM_HASMASK(x.header),
                 init = packvalue(NXM_OF_IN_PORT, 'header'),
@@ -1274,14 +2277,14 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             )
             namespace['nx_match_nomask'] = nx_match_nomask
             _nxm_mask_value = nstruct(
-                (raw, 'value'),
+                (common.hexraw, 'value'),
                 name = 'nxm_mask_value',
                 size = lambda x: NXM_LENGTH(x.header) // 2,
                 padding = 1
             )
             nx_match_mask = nstruct(
                 (_nxm_mask_value,),
-                (raw, 'mask'),
+                (common.hexraw, 'mask'),
                 base = nx_match,
                 criteria = lambda x: NXM_HASMASK(x.header),
                 init = packvalue(NXM_OF_ETH_SRC_W, 'header'),
@@ -1307,6 +2310,13 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             nx_match_mask_ext = nx_match_mask
             namespace['nx_match_nomask_ext'] = nx_match_nomask_ext
             namespace['nx_match_mask_ext'] = nx_match_mask_ext
+            all_nxm_header = nxm_header
+            def _create_oxm_header_only_fields(name, criteria = None):
+                if criteria is None:
+                    return ((nxm_header, name),)
+                else:
+                    return ((optional(nxm_header, name, criteria),),)
+
         from namedstruct.namedstruct import rawtype as _rawtype
         import socket as _socket
         if 'ip4_addr_bytes' in namespace:
@@ -1318,14 +2328,20 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         
         nxm_mask_ipv4 = nstruct(name = 'nxm_mask_ipv4',
                                     base = nx_match_mask_ext,
-                                    criteria = lambda x: x.header in (NXM_OF_IP_SRC_W, NXM_OF_IP_DST_W, NXM_OF_ARP_SPA_W, NXM_OF_ARP_TPA_W, NXM_NX_TUN_IPV4_SRC_W, NXM_NX_TUN_IPV4_DST_W),
+                                    criteria = lambda x: x.header in (NXM_OF_IP_SRC_W, NXM_OF_IP_DST_W,
+                                                                      NXM_OF_ARP_SPA_W, NXM_OF_ARP_TPA_W,
+                                                                      NXM_NX_TUN_IPV4_SRC_W, NXM_NX_TUN_IPV4_DST_W,
+                                                                      NXM_NX_CT_NW_SRC_W, NXM_NX_CT_NW_DST_W),
                                     init = packvalue(NXM_OF_IP_SRC_W, 'header'),
                                     extend = {'value' : ip4_addr_bytes, 'mask' : ip4_addr_bytes}
                                     )
         namespace['nxm_mask_ipv4'] = nxm_mask_ipv4
         nxm_nomask_ipv4 = nstruct(name = 'nxm_nomask_ipv4',
                                     base = nx_match_nomask_ext,
-                                    criteria = lambda x: x.header in (NXM_OF_IP_SRC, NXM_OF_IP_DST, NXM_OF_ARP_SPA, NXM_OF_ARP_TPA, NXM_NX_TUN_IPV4_SRC, NXM_NX_TUN_IPV4_DST),
+                                    criteria = lambda x: x.header in (NXM_OF_IP_SRC, NXM_OF_IP_DST,
+                                                                      NXM_OF_ARP_SPA, NXM_OF_ARP_TPA,
+                                                                      NXM_NX_TUN_IPV4_SRC, NXM_NX_TUN_IPV4_DST,
+                                                                      NXM_NX_CT_NW_SRC, NXM_NX_CT_NW_DST),
                                     init = packvalue(NXM_OF_IP_SRC, 'header'),
                                     extend = {'value' : ip4_addr_bytes}
                                     )
@@ -1404,20 +2420,29 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         
         nxm_nomask_ip_protocol = nstruct(name = 'nxm_nomask_ip_protocol',
                                              base = nx_match_nomask_ext,
-                                             criteria = lambda x: x.header == NXM_OF_IP_PROTO,
+                                             criteria = lambda x: x.header in (NXM_OF_IP_PROTO, NXM_NX_CT_NW_PROTO),
                                              init = packvalue(NXM_OF_IP_PROTO, 'header'),
                                              extend = {'value': ip_protocol_raw})
         namespace['nxm_nomask_ip_protocol'] = nxm_nomask_ip_protocol
         if 'ip6_addr_bytes' in namespace:
             nxm_nomask_ipv6 = nstruct(name = 'nxm_nomask_ipv6',
                                           base = nx_match_nomask_ext,
-                                          criteria = lambda x: x.header in (NXM_NX_IPV6_SRC, NXM_NX_IPV6_DST, NXM_NX_ND_TARGET),
+                                          criteria = lambda x: x.header in (NXM_NX_IPV6_SRC, NXM_NX_IPV6_DST,
+                                                                            NXM_NX_ND_TARGET,
+                                                                            NXM_NX_TUN_IPV6_SRC,
+                                                                            NXM_NX_TUN_IPV6_DST,
+                                                                            NXM_NX_CT_IPV6_SRC,
+                                                                            NXM_NX_CT_IPV6_DST),
                                           init = packvalue(NXM_NX_IPV6_SRC, 'header'),
                                           extend = {'value': ip6_addr_bytes})
             namespace['nxm_nomask_ipv6'] = nxm_nomask_ipv6
             nxm_mask_ipv6 = nstruct(name = 'nxm_mask_ipv6',
                                           base = nx_match_mask_ext,
-                                          criteria = lambda x: x.header in (NXM_NX_IPV6_SRC_W, NXM_NX_IPV6_DST_W),
+                                          criteria = lambda x: x.header in (NXM_NX_IPV6_SRC_W, NXM_NX_IPV6_DST_W,
+                                                                            NXM_NX_TUN_IPV6_SRC_W,
+                                                                            NXM_NX_TUN_IPV6_DST_W,
+                                                                            NXM_NX_CT_IPV6_SRC_W,
+                                                                            NXM_NX_CT_IPV6_DST_W),
                                           init = packvalue(NXM_NX_IPV6_SRC_W, 'header'),
                                           extend = {'value': ip6_addr_bytes, 'mask': ip6_addr_bytes})
             namespace['nxm_mask_ipv6'] = nxm_mask_ipv6
@@ -1437,10 +2462,69 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
                                     extend = {'value': nx_ip_frag_raw, 'mask': nx_ip_frag_raw})
         namespace['nxm_mask_ipfrag'] = nxm_mask_ipfrag
         
+        nx_tunnel_flags_raw = _rawtype()
+        nx_tunnel_flags_raw.formatter = lambda x: nx_tunnel_flags.formatter(nx_tunnel_flags.parse(x)[0])
+        nxm_nomask_tun_flag = nstruct(name = 'nxm_nomask_tun_flag',
+                                      base = nx_match_nomask_ext,
+                                      criteria = lambda x: x.header == NXM_NX_TUN_FLAGS,
+                                      init = packvalue(NXM_NX_TUN_FLAGS, 'header'),
+                                      extend = {'value': nx_tunnel_flags_raw})
+        namespace['nxm_nomask_tun_flag'] = nxm_nomask_tun_flag
+        nxm_mask_tun_flag = nstruct(name = 'nxm_mask_tun_flag',
+                                    base = nx_match_mask_ext,
+                                    criteria = lambda x: x.header == NXM_NX_TUN_FLAGS_W,
+                                    init = packvalue(NXM_NX_TUN_FLAGS_W, 'header'),
+                                    extend = {'value': nx_tunnel_flags_raw, 'mask': nx_tunnel_flags_raw})
+        namespace['nxm_mask_tun_flag'] = nxm_mask_tun_flag
+
+        nx_tun_gbp_flags_raw = _rawtype()
+        nx_tun_gbp_flags_raw.formatter = lambda x: vxlan_group_policy_flags.formatter(vxlan_group_policy_flags.parse(x)[0])
+        nxm_nomask_tun_gbp_flags = nstruct(name = 'nxm_nomask_tun_gbp_flags',
+                                      base = nx_match_nomask_ext,
+                                      criteria = lambda x: x.header == NXM_NX_TUN_GBP_FLAGS,
+                                      init = packvalue(NXM_NX_TUN_GBP_FLAGS, 'header'),
+                                      extend = {'value': nx_tun_gbp_flags_raw})
+        namespace['nxm_nomask_tun_gbp_flags'] = nxm_nomask_tun_gbp_flags
+        nxm_mask_tun_gbp_flags = nstruct(name = 'nxm_mask_tun_gbp_flags',
+                                    base = nx_match_mask_ext,
+                                    criteria = lambda x: x.header == NXM_NX_TUN_GBP_FLAGS_W,
+                                    init = packvalue(NXM_NX_TUN_GBP_FLAGS_W, 'header'),
+                                    extend = {'value': nx_tun_gbp_flags_raw, 'mask': nx_tun_gbp_flags_raw})
+        namespace['nxm_mask_tun_gbp_flags'] = nxm_mask_tun_gbp_flags
+
+        nxm_nomask_tun_metadata = nstruct(name = 'nxm_nomask_tun_metadata',
+                                      base = nx_match_nomask_ext,
+                                      criteria = lambda x: _is_nx_tunnel_metadata(x.header),
+                                      init = packvalue(create_nx_tunnel_metadata_header(0, 1, False), 'header'),
+                                      extend = {'header': _nx_tunnel_metadata_header_type})
+        namespace['nxm_nomask_tun_metadata'] = nxm_nomask_tun_metadata
+        nxm_mask_tun_metadata = nstruct(name = 'nxm_mask_tun_metadata',
+                                    base = nx_match_mask_ext,
+                                    criteria = lambda x: _is_nx_tunnel_metadata(x.header),
+                                    init = packvalue(create_nx_tunnel_metadata_header(0, 1, True), 'header'),
+                                    extend = {'header': _nx_tunnel_metadata_header_type})
+        namespace['nxm_mask_tun_metadata'] = nxm_mask_tun_metadata
+
+        nx_conntrack_state_raw = _rawtype()
+        nx_conntrack_state_raw.formatter = lambda x: nx_conntrack_state.formatter(nx_conntrack_state.parse(x)[0])
+        nxm_nomask_conntrack_state = nstruct(name = 'nxm_nomask_conntrack_state',
+                                      base = nx_match_nomask_ext,
+                                      criteria = lambda x: x.header == NXM_NX_CT_STATE,
+                                      init = packvalue(NXM_NX_CT_STATE, 'header'),
+                                      extend = {'value': nx_conntrack_state_raw})
+        namespace['nxm_nomask_conntrack_state'] = nxm_nomask_conntrack_state
+        nxm_mask_conntrack_state = nstruct(name = 'nxm_mask_conntrack_state',
+                                    base = nx_match_mask_ext,
+                                    criteria = lambda x: x.header == NXM_NX_CT_STATE_W,
+                                    init = packvalue(NXM_NX_CT_STATE_W, 'header'),
+                                    extend = {'value': nx_conntrack_state_raw, 'mask': nx_conntrack_state_raw})
+        namespace['nxm_mask_conntrack_state'] = nxm_mask_conntrack_state
+
+        
         nx_matches = nstruct(
                 (nx_match[0], 'matches'),
                 name = 'nx_matches',
-                size = sizefromlen(65536, 'match_len'),
+                size = lambda x: x.match_len,
                 prepack = packrealsize('match_len'),
                 padding = 8
         )
@@ -1465,6 +2549,260 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             init = packvalue(NXT_PACKET_IN, msg_subtype)
         )
         namespace['nx_packet_in'] = nx_packet_in
+        
+        #========================================================================
+        # /* NXT_PACKET_IN2
+        #  * ==============
+        #  *
+        #  * NXT_PACKET_IN2 is conceptually similar to OFPT_PACKET_IN but it is expressed
+        #  * as an extensible set of properties instead of using a fixed structure.
+        #  *
+        #  * Added in Open vSwitch 2.6
+        #  *
+        #  *
+        #  * Continuations
+        #  * -------------
+        #  *
+        #  * When a "controller" action specifies the "pause" flag, the controller action
+        #  * freezes the packet's trip through Open vSwitch flow tables and serializes
+        #  * that state into the packet-in message as a "continuation".  The controller
+        #  * can later send the continuation back to the switch, which will restart the
+        #  * packet's traversal from the point where it was interrupted.  This permits an
+        #  * OpenFlow controller to interpose on a packet midway through processing in
+        #  * Open vSwitch.
+        #  *
+        #  * Continuations fit into packet processing this way:
+        #  *
+        #  * 1. A packet ingresses into Open vSwitch, which runs it through the OpenFlow
+        #  *    tables.
+        #  *
+        #  * 2. An OpenFlow flow executes a "controller" action that includes the "pause"
+        #  *    flag.  Open vSwitch serializes the packet processing state and sends it,
+        #  *    as an NXT_PACKET_IN2 that includes an additional NXPINT_CONTINUATION
+        #  *    property (the continuation), to the OpenFlow controller.
+        #  *
+        #  *    (The controller must use NXAST_CONTROLLER2 to generate the packet-in,
+        #  *    because only this form of the "controller" action has a "pause" flag.
+        #  *    Similarly, the controller must use NXT_SET_PACKET_IN_FORMAT to select
+        #  *    NXT_PACKET_IN2 as the packet-in format, because this is the only format
+        #  *    that supports continuation passing.)
+        #  *
+        #  * 3. The controller receives the NXT_PACKET_IN2 and processes it.  The
+        #  *    controller can interpret and, if desired, modify some of the contents of
+        #  *    the packet-in, such as the packet and the metadata being processed.
+        #  *
+        #  * 4. The controller sends the continuation back to the switch, using an
+        #  *    NXT_RESUME message.  Packet processing resumes where it left off.
+        #  *
+        #  * The controller might change the pipeline configuration concurrently with
+        #  * steps 2 through 4.  For example, it might add or remove OpenFlow flows.  If
+        #  * that happens, then the packet will experience a mix of processing from the
+        #  * two configurations, that is, the initial processing (before
+        #  * NXAST_CONTROLLER2) uses the initial flow table, and the later processing
+        #  * (after NXT_RESUME) uses the later flow table.  This means that the
+        #  * controller needs to take care to avoid incompatible pipeline changes while
+        #  * processing continuations.
+        #  *
+        #  * External side effects (e.g. "output") of OpenFlow actions processed before
+        #  * NXAST_CONTROLLER2 is encountered might be executed during step 2 or step 4,
+        #  * and the details may vary among Open vSwitch features and versions.  Thus, a
+        #  * controller that wants to make sure that side effects are executed must pass
+        #  * the continuation back to the switch, that is, must not skip step 4.
+        #  *
+        #  * Architecturally, continuations may be "stateful" or "stateless", that is,
+        #  * they may or may not refer to buffered state maintained in Open vSwitch.
+        #  * This means that a controller should not attempt to resume a given
+        #  * continuations more than once (because the switch might have discarded the
+        #  * buffered state after the first use).  For the same reason, continuations
+        #  * might become "stale" if the controller takes too long to resume them
+        #  * (because the switch might have discarded old buffered state).  Taken
+        #  * together with the previous note, this means that a controller should resume
+        #  * each continuation exactly once (and promptly).
+        #  *
+        #  * Without the information in NXPINT_CONTINUATION, the controller can (with
+        #  * careful design, and help from the flow cookie) determine where the packet is
+        #  * in the pipeline, but in the general case it can't determine what nested
+        #  * "resubmit"s that may be in progress, or what data is on the stack maintained
+        #  * by NXAST_STACK_PUSH and NXAST_STACK_POP actions, what is in the OpenFlow
+        #  * action set, etc.
+        #  *
+        #  * Continuations are expensive because they require a round trip between the
+        #  * switch and the controller.  Thus, they should not be used to implement
+        #  * processing that needs to happen at "line rate".
+        #  *
+        #  * The contents of NXPINT_CONTINUATION are private to the switch, may change
+        #  * unpredictably from one version of Open vSwitch to another, and are not
+        #  * documented here.  The contents are also tied to a given Open vSwitch process
+        #  * and bridge, so that restarting Open vSwitch or deleting and recreating a
+        #  * bridge will cause the corresponding NXT_RESUME to be rejected.
+        #  *
+        #  * In the current implementation, Open vSwitch forks the packet processing
+        #  * pipeline across patch ports.  Suppose, for example, that the pipeline for
+        #  * br0 outputs to a patch port whose peer belongs to br1, and that the pipeline
+        #  * for br1 executes a controller action with the "pause" flag.  This only
+        #  * pauses processing within br1, and processing in br0 continues and possibly
+        #  * completes with visible side effects, such as outputting to ports, before
+        #  * br1's controller receives or processes the continuation.  This
+        #  * implementation maintains the independence of separate bridges and, since
+        #  * processing in br1 cannot affect the behavior of br0 anyway, should not cause
+        #  * visible behavioral changes.
+        #  *
+        #  * A stateless implementation of continuations may ignore the "controller"
+        #  * action max_len, always sending the whole packet, because the full packet is
+        #  * required to continue traversal.
+        #  */        
+        #=======================================================================
+        nx_packet_in2_prop = \
+            nstruct(
+                (nx_packet_in2_prop_type, 'type'),
+                (uint16, 'len'),
+                name = 'nx_packet_in2_prop',
+                size = lambda x: x.len,
+                prepack = packrealsize('len'),
+                classifier = lambda x: x.type
+            )
+        
+        namespace['nx_packet_in2_prop'] = nx_packet_in2_prop
+        
+        nx_packet_in2_prop_packet = \
+            nstruct(
+                (raw, 'value'),
+                name = 'nx_packet_in2_prop_packet',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_PACKET,
+                classifyby = (NXPINT_PACKET,),
+                init = packvalue(NXPINT_PACKET, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_packet'] = nx_packet_in2_prop_packet
+        
+        nx_packet_in2_prop_full_len = \
+            nstruct(
+                (uint32, 'value'),
+                name = 'nx_packet_in2_prop_full_len',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_FULL_LEN,
+                classifyby = (NXPINT_FULL_LEN,),
+                init = packvalue(NXPINT_FULL_LEN, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_full_len'] = nx_packet_in2_prop_full_len
+
+        nx_packet_in2_prop_buffer_id = \
+            nstruct(
+                (uint32, 'value'),
+                name = 'nx_packet_in2_prop_buffer_id',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_BUFFER_ID,
+                classifyby = (NXPINT_BUFFER_ID,),
+                init = packvalue(NXPINT_BUFFER_ID, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_buffer_id'] = nx_packet_in2_prop_buffer_id        
+        
+        nx_packet_in2_prop_table_id = \
+            nstruct(
+                (uint8, 'value'),
+                name = 'nx_packet_in2_prop_table_id',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_TABLE_ID,
+                classifyby = (NXPINT_TABLE_ID,),
+                init = packvalue(NXPINT_TABLE_ID, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_table_id'] = nx_packet_in2_prop_table_id        
+
+        nx_packet_in2_prop_cookie = \
+            nstruct(
+                (uint32,),
+                (uint64, 'value'),
+                name = 'nx_packet_in2_prop_cookie',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_COOKIE,
+                classifyby = (NXPINT_COOKIE,),
+                init = packvalue(NXPINT_COOKIE, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_cookie'] = nx_packet_in2_prop_cookie                
+        
+        if 'ofp_packet_in_reason' in namespace:
+            ofp_packet_in_reason = namespace['ofp_packet_in_reason']
+        else:
+            from .common import ofp_packet_in_reason
+        
+        nx_packet_in2_prop_reason = \
+            nstruct(
+                (ofp_packet_in_reason, 'value'),
+                name = 'nx_packet_in2_prop_reason',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_REASON,
+                classifyby = (NXPINT_REASON,),
+                init = packvalue(NXPINT_REASON, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_reason'] = nx_packet_in2_prop_reason
+        
+        nx_packet_in2_prop_metadata = \
+            nstruct(
+                (nx_match[0], 'value'),
+                name = 'nx_packet_in2_prop_metadata',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_METADATA,
+                classifyby = (NXPINT_METADATA,),
+                init = packvalue(NXPINT_METADATA, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_metadata'] = nx_packet_in2_prop_metadata                
+        
+        nx_packet_in2_prop_userdata = \
+            nstruct(
+                (raw, 'value'),
+                name = 'nx_packet_in2_prop_userdata',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_USERDATA,
+                classifyby = (NXPINT_USERDATA,),
+                init = packvalue(NXPINT_USERDATA, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_userdata'] = nx_packet_in2_prop_userdata
+
+        nx_packet_in2_prop_continuation = \
+            nstruct(
+                (raw, 'value'),
+                name = 'nx_packet_in2_prop_continuation',
+                base = nx_packet_in2_prop,
+                criteria = lambda x: x.type == NXPINT_CONTINUATION,
+                classifyby = (NXPINT_CONTINUATION,),
+                init = packvalue(NXPINT_CONTINUATION, 'type')
+            )
+        
+        namespace['nx_packet_in2_prop_continuation'] = nx_packet_in2_prop_continuation
+        
+        nx_packet_in2 = \
+            nstruct(
+                (nx_packet_in2_prop[0], 'properties'),
+                name = 'nx_packet_in2',
+                base = nicira_header,
+                criteria = lambda x: getattr(x, msg_subtype) == NXT_PACKET_IN2,
+                classifyby = (NXT_PACKET_IN2,),
+                init = packvalue(NXT_PACKET_IN2, msg_subtype)
+            )
+        
+        namespace['nx_packet_in2'] = nx_packet_in2
+        
+        # /* Are the idle_age and hard_age members in struct nx_flow_stats supported?
+        #  * If so, the switch does not reply to this message (which consists only of
+        #  * a "struct nicira_header").  If not, the switch sends an error reply. */
+        nx_flow_age = \
+            nstruct(
+                name = 'nx_flow_age',
+                base = nicira_header,
+                criteria = lambda x: getattr(x, msg_subtype) == NXT_FLOW_AGE,
+                classifyby = (NXT_FLOW_AGE,),
+                init = packvalue(NXT_FLOW_AGE, msg_subtype)
+            )
+        namespace['nx_flow_age'] = nx_flow_age
+        
         '''
         /* Configures the "role" of the sending controller.  The default role is:
          *
@@ -1514,7 +2852,6 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
          * miss_send_len from default of zero to OFP_DEFAULT_MISS_SEND_LEN (128).
          */
          '''
-        ofp_packet_in_reason = namespace['ofp_packet_in_reason']
         if 'ofp_packet_in_reason_bitwise' in namespace:
             ofp_packet_in_reason_bitwise = namespace['ofp_packet_in_reason_bitwise']
         else:
@@ -1549,64 +2886,259 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             init = packvalue(NXT_SET_ASYNC_CONFIG, msg_subtype)
         )
         namespace['nx_async_config'] = nx_async_config
+        
+        if 'ofp_async_config_prop' in namespace:
+            nx_async_config2_prop = namespace['ofp_async_config_prop']
+            namespace['nx_async_config2_prop'] = nx_async_config2_prop
+            namespace['nx_async_config2_prop_reasons'] = namespace['ofp_async_config_prop_reasons']
+            namespace['nx_async_config2_prop_reasons_packet_in'] = namespace['ofp_async_config_prop_reasons_packet_in']
+            namespace['nx_async_config2_prop_reasons_port_status'] = namespace['ofp_async_config_prop_reasons_port_status']
+            namespace['nx_async_config2_prop_reasons_flow_removed'] = namespace['ofp_async_config_prop_reasons_flow_removed']
+            namespace['nx_async_config2_prop_reasons_role_status'] = namespace['ofp_async_config_prop_reasons_role_status']
+            namespace['nx_async_config2_prop_reasons_table'] = namespace['ofp_async_config_prop_reasons_table']
+            namespace['nx_async_config2_prop_reasons_requestforward'] = namespace['ofp_async_config_prop_reasons_requestforward']
+            namespace['nx_async_config2_prop_experimenter'] = namespace['ofp_async_config_prop_experimenter']
+        else:
+            # /* Common header for all async config Properties */
+            nx_async_config2_prop = \
+                nstruct(
+                    (common.ofp_async_config_prop_type, 'type'),
+                                                        # /* One of OFPACPT_*. */
+                    (uint16, 'length'),                 # /* Length in bytes of this property. */
+                    name = 'nx_async_config2_prop',
+                    size = lambda x: x.length,
+                    prepack = packrealsize('length'),
+                    classifier = lambda x: x.type
+                )
+            namespace['nx_async_config2_prop'] = nx_async_config2_prop
+            
+            # /* Various reason based properties */
+            nx_async_config2_prop_reasons = \
+                nstruct(
+                    (uint32, 'mask'),         # /* Bitmasks of reason values. */
+                    name = 'nx_async_config2_prop_reasons',
+                    base = nx_async_config2_prop,
+                    criteria = lambda x: common.OFPACPT_PACKET_IN_SLAVE <= x.type <= common.OFPACPT_REQUESTFORWARD_MASTER,
+                    classifyby = (common.OFPACPT_PACKET_IN_SLAVE,
+                                  common.OFPACPT_PACKET_IN_MASTER,
+                                  common.OFPACPT_PORT_STATUS_SLAVE,
+                                  common.OFPACPT_PORT_STATUS_MASTER,
+                                  common.OFPACPT_FLOW_REMOVED_SLAVE,
+                                  common.OFPACPT_FLOW_REMOVED_MASTER,
+                                  common.OFPACPT_ROLE_STATUS_SLAVE,
+                                  common.OFPACPT_ROLE_STATUS_MASTER,
+                                  common.OFPACPT_TABLE_STATUS_SLAVE,
+                                  common.OFPACPT_TABLE_STATUS_MASTER,
+                                  common.OFPACPT_REQUESTFORWARD_SLAVE,
+                                  common.OFPACPT_REQUESTFORWARD_MASTER,
+                                  common.OFPTFPT_EXPERIMENTER_SLAVE,
+                                  common.OFPTFPT_EXPERIMENTER_MASTER,
+                                 ),
+                    classifier = lambda x: x.type
+                )
+            namespace['nx_async_config2_prop_reasons'] = nx_async_config2_prop_reasons
+            
+            ofp_controller_role_reason = namespace['ofp_controller_role_reason']
+            if 'ofp_controller_role_reason_bitwise' in namespace:
+                ofp_controller_role_reason_bitwise = namespace['ofp_controller_role_reason_bitwise']
+            else:
+                ofp_controller_role_reason_bitwise = enum('ofp_controller_role_reason_bitwise', None, uint32, True,
+                                                          **dict((k, 1<<v) for k,v in ofp_controller_role_reason.getDict().items()))
+                namespace['ofp_controller_role_reason_bitwise'] = ofp_controller_role_reason_bitwise
+            
+            ofp_table_reason = namespace['ofp_table_reason']
+            if 'ofp_table_reason_bitwise' in namespace:
+                ofp_table_reason_bitwise = namespace['ofp_table_reason_bitwise']
+            else:
+                ofp_table_reason_bitwise = enum('ofp_table_reason_bitwise', None, uint32, True,
+                                                    **dict((k, 1<<v) for k,v in ofp_table_reason.getDict().items()))
+                namespace['ofp_table_reason_bitwise'] = ofp_table_reason_bitwise
+            
+            ofp_requestforward_reason = namespace['ofp_requestforward_reason']
+            if 'ofp_requestforward_reason_bitwise' in namespace:
+                ofp_requestforward_reason_bitwise = namespace['ofp_requestforward_reason_bitwise']
+            else:
+                ofp_requestforward_reason_bitwise = enum('ofp_requestforward_reason_bitwise', None, uint32, True,
+                                                    **dict((k, 1<<v) for k,v in ofp_requestforward_reason.getDict().items()))
+                namespace['ofp_requestforward_reason_bitwise'] = ofp_requestforward_reason_bitwise
+            
+            nx_async_config2_prop_reasons_packet_in = \
+                nstruct(
+                    name = 'nx_async_config2_prop_reasons_packet_in',
+                    base = nx_async_config2_prop_reasons,
+                    criteria = lambda x: x.type in (common.OFPACPT_PACKET_IN_SLAVE, common.OFPACPT_PACKET_IN_MASTER),
+                    classifyby = (common.OFPACPT_PACKET_IN_SLAVE, common.OFPACPT_PACKET_IN_MASTER),
+                    init = packvalue(common.OFPACPT_PACKET_IN_SLAVE, 'type'),
+                    extend = {"mask": ofp_packet_in_reason_bitwise}
+                )
+            namespace['nx_async_config2_prop_reasons_packet_in'] = nx_async_config2_prop_reasons_packet_in
+            
+            nx_async_config2_prop_reasons_port_status = \
+                nstruct(
+                    name = 'nx_async_config2_prop_reasons_port_status',
+                    base = nx_async_config2_prop_reasons,
+                    criteria = lambda x: x.type in (common.OFPACPT_PORT_STATUS_SLAVE, common.OFPACPT_PORT_STATUS_MASTER),
+                    classifyby = (common.OFPACPT_PORT_STATUS_SLAVE, common.OFPACPT_PORT_STATUS_MASTER),
+                    init = packvalue(common.OFPACPT_PORT_STATUS_SLAVE, 'type'),
+                    extend = {"mask": ofp_port_reason_bitwise}
+                )
+            namespace['nx_async_config2_prop_reasons_port_status'] = nx_async_config2_prop_reasons_port_status
+            
+            nx_async_config2_prop_reasons_flow_removed = \
+                nstruct(
+                    name = 'nx_async_config2_prop_reasons_flow_removed',
+                    base = nx_async_config2_prop_reasons,
+                    criteria = lambda x: x.type in (common.OFPACPT_FLOW_REMOVED_SLAVE, common.OFPACPT_FLOW_REMOVED_MASTER),
+                    classifyby = (common.OFPACPT_FLOW_REMOVED_SLAVE, common.OFPACPT_FLOW_REMOVED_MASTER),
+                    init = packvalue(common.OFPACPT_FLOW_REMOVED_SLAVE, 'type'),
+                    extend = {"mask": ofp_flow_removed_reason_bitwise}
+                )
+            namespace['nx_async_config2_prop_reasons_flow_removed'] = nx_async_config2_prop_reasons_flow_removed
+            
+            nx_async_config2_prop_reasons_role_status = \
+                nstruct(
+                    name = 'nx_async_config2_prop_reasons_role_status',
+                    base = nx_async_config2_prop_reasons,
+                    criteria = lambda x: x.type in (common.OFPACPT_ROLE_STATUS_SLAVE, common.OFPACPT_ROLE_STATUS_MASTER),
+                    classifyby = (common.OFPACPT_ROLE_STATUS_SLAVE, common.OFPACPT_ROLE_STATUS_MASTER),
+                    init = packvalue(common.OFPACPT_ROLE_STATUS_SLAVE, 'type'),
+                    extend = {"mask": ofp_controller_role_reason_bitwise}
+                )
+            namespace['nx_async_config2_prop_reasons_role_status'] = nx_async_config2_prop_reasons_role_status
+            
+            nx_async_config2_prop_reasons_table = \
+                nstruct(
+                    name = 'nx_async_config2_prop_reasons_table',
+                    base = nx_async_config2_prop_reasons,
+                    criteria = lambda x: x.type in (common.OFPACPT_TABLE_STATUS_SLAVE, common.OFPACPT_TABLE_STATUS_MASTER),
+                    classifyby = (common.OFPACPT_TABLE_STATUS_SLAVE, common.OFPACPT_TABLE_STATUS_MASTER),
+                    init = packvalue(common.OFPACPT_TABLE_STATUS_SLAVE, 'type'),
+                    extend = {"mask": ofp_table_reason_bitwise}
+                )
+            namespace['nx_async_config2_prop_reasons_table'] = nx_async_config2_prop_reasons_table
+        
+            nx_async_config2_prop_reasons_requestforward = \
+                nstruct(
+                    name = 'nx_async_config2_prop_reasons_requestforward',
+                    base = nx_async_config2_prop_reasons,
+                    criteria = lambda x: x.type in (common.OFPACPT_REQUESTFORWARD_SLAVE, common.OFPACPT_REQUESTFORWARD_MASTER),
+                    classifyby = (common.OFPACPT_REQUESTFORWARD_SLAVE, common.OFPACPT_REQUESTFORWARD_MASTER),
+                    init = packvalue(common.OFPACPT_REQUESTFORWARD_SLAVE, 'type'),
+                    extend = {"mask": ofp_requestforward_reason_bitwise}
+                )
+            namespace['nx_async_config2_prop_reasons_requestforward'] = nx_async_config2_prop_reasons_requestforward
+        
+            # /* Experimenter async config  property */
+            nx_async_config2_prop_experimenter = \
+                nstruct(
+                    (common.experimenter_ids, 'experimenter'),       # /* Experimenter ID which takes the same
+                                                    #    form as in struct
+                                                    #    ofp_experimenter_header. */
+                    (uint32, 'exp_type'),           # /* Experimenter defined. */
+                    # /* Followed by:
+                    #  *   - Exactly (length - 12) bytes containing the experimenter data, then
+                    #  *   - Exactly (length + 7)/8*8 - (length) (between 0 and 7)
+                    #  *     bytes of all-zero bytes */
+                    name = 'nx_async_config2_prop_experimenter',
+                    base = nx_async_config2_prop,
+                    criteria = lambda x: x.type in (common.OFPTFPT_EXPERIMENTER_SLAVE, common.OFPTFPT_EXPERIMENTER_MASTER),
+                    classifyby = (common.OFPTFPT_EXPERIMENTER_SLAVE, common.OFPTFPT_EXPERIMENTER_MASTER),
+                    init = packvalue(common.OFPTFPT_EXPERIMENTER_SLAVE, 'type')
+                )
+            namespace['nx_async_config2_prop_experimenter'] = nx_async_config2_prop_experimenter
+            
+        # /* Asynchronous message configuration. */
+        nx_async_config2 = \
+            nstruct(
+                # /* Async config Property list - 0 or more */
+                (nx_async_config2_prop[0], 'properties'),
+                name = 'nx_async_config2',
+                base = nicira_header,
+                classifyby = (NXT_SET_ASYNC_CONFIG2,),
+                criteria = lambda x: getattr(x, msg_subtype) == NXT_SET_ASYNC_CONFIG2,
+                init = packvalue(NXT_SET_ASYNC_CONFIG2, msg_subtype)
+            )
+        namespace['nx_async_config2'] = nx_async_config2
+
         '''
         /* Nicira vendor flow actions. */
         '''
-        '''
-        /* Action structures for NXAST_RESUBMIT and NXAST_RESUBMIT_TABLE.
-         *
-         * These actions search one of the switch's flow tables:
-         *
-         *    - For NXAST_RESUBMIT_TABLE only, if the 'table' member is not 255, then
-         *      it specifies the table to search.
-         *
-         *    - Otherwise (for NXAST_RESUBMIT_TABLE with a 'table' of 255, or for
-         *      NXAST_RESUBMIT regardless of 'table'), it searches the current flow
-         *      table, that is, the OpenFlow flow table that contains the flow from
-         *      which this action was obtained.  If this action did not come from a
-         *      flow table (e.g. it came from an OFPT_PACKET_OUT message), then table 0
-         *      is the current table.
-         *
-         * The flow table lookup uses a flow that may be slightly modified from the
-         * original lookup:
-         *
-         *    - For NXAST_RESUBMIT, the 'in_port' member of struct nx_action_resubmit
-         *      is used as the flow's in_port.
-         *
-         *    - For NXAST_RESUBMIT_TABLE, if the 'in_port' member is not OFPP_IN_PORT,
-         *      then its value is used as the flow's in_port.  Otherwise, the original
-         *      in_port is used.
-         *
-         *    - If actions that modify the flow (e.g. OFPAT_SET_VLAN_VID) precede the
-         *      resubmit action, then the flow is updated with the new values.
-         *
-         * Following the lookup, the original in_port is restored.
-         *
-         * If the modified flow matched in the flow table, then the corresponding
-         * actions are executed.  Afterward, actions following the resubmit in the
-         * original set of actions, if any, are executed; any changes made to the
-         * packet (e.g. changes to VLAN) by secondary actions persist when those
-         * actions are executed, although the original in_port is restored.
-         *
-         * Resubmit actions may be used any number of times within a set of actions.
-         *
-         * Resubmit actions may nest to an implementation-defined depth.  Beyond this
-         * implementation-defined depth, further resubmit actions are simply ignored.
-         *
-         * NXAST_RESUBMIT ignores 'table' and 'pad'.  NXAST_RESUBMIT_TABLE requires
-         * 'pad' to be all-bits-zero.
-         *
-         * Open vSwitch 1.0.1 and earlier did not support recursion.  Open vSwitch
-         * before 1.2.90 did not support NXAST_RESUBMIT_TABLE.
-         */
-        '''
+        #=======================================================================
+        # /* Action structures for NXAST_RESUBMIT, NXAST_RESUBMIT_TABLE, and
+        #  * NXAST_RESUBMIT_TABLE_CT.
+        #  *
+        #  * These actions search one of the switch's flow tables:
+        #  *
+        #  *    - For NXAST_RESUBMIT_TABLE and NXAST_RESUBMIT_TABLE_CT, if the
+        #  *      'table' member is not 255, then it specifies the table to search.
+        #  *
+        #  *    - Otherwise (for NXAST_RESUBMIT_TABLE or NXAST_RESUBMIT_TABLE_CT with a
+        #  *      'table' of 255, or for NXAST_RESUBMIT regardless of 'table'), it
+        #  *      searches the current flow table, that is, the OpenFlow flow table that
+        #  *      contains the flow from which this action was obtained.  If this action
+        #  *      did not come from a flow table (e.g. it came from an OFPT_PACKET_OUT
+        #  *      message), then table 0 is the current table.
+        #  *
+        #  * The flow table lookup uses a flow that may be slightly modified from the
+        #  * original lookup:
+        #  *
+        #  *    - For NXAST_RESUBMIT, the 'in_port' member of struct nx_action_resubmit
+        #  *      is used as the flow's in_port.
+        #  *
+        #  *    - For NXAST_RESUBMIT_TABLE and NXAST_RESUBMIT_TABLE_CT, if the 'in_port'
+        #  *      member is not OFPP_IN_PORT, then its value is used as the flow's
+        #  *      in_port.  Otherwise, the original in_port is used.
+        #  *
+        #  *    - For NXAST_RESUBMIT_TABLE_CT the Conntrack 5-tuple fields are used as
+        #  *      the packets IP header fields during the lookup.
+        #  *
+        #  *    - If actions that modify the flow (e.g. OFPAT_SET_VLAN_VID) precede the
+        #  *      resubmit action, then the flow is updated with the new values.
+        #  *
+        #  * Following the lookup, the original in_port is restored.
+        #  *
+        #  * If the modified flow matched in the flow table, then the corresponding
+        #  * actions are executed.  Afterward, actions following the resubmit in the
+        #  * original set of actions, if any, are executed; any changes made to the
+        #  * packet (e.g. changes to VLAN) by secondary actions persist when those
+        #  * actions are executed, although the original in_port is restored.
+        #  *
+        #  * Resubmit actions may be used any number of times within a set of actions.
+        #  *
+        #  * Resubmit actions may nest.  To prevent infinite loops and excessive resource
+        #  * use, the implementation may limit nesting depth and the total number of
+        #  * resubmits:
+        #  *
+        #  *    - Open vSwitch 1.0.1 and earlier did not support recursion.
+        #  *
+        #  *    - Open vSwitch 1.0.2 and 1.0.3 limited recursion to 8 levels.
+        #  *
+        #  *    - Open vSwitch 1.1 and 1.2 limited recursion to 16 levels.
+        #  *
+        #  *    - Open vSwitch 1.2 through 1.8 limited recursion to 32 levels.
+        #  *
+        #  *    - Open vSwitch 1.9 through 2.0 limited recursion to 64 levels.
+        #  *
+        #  *    - Open vSwitch 2.1 through 2.5 limited recursion to 64 levels and impose
+        #  *      a total limit of 4,096 resubmits per flow translation (earlier versions
+        #  *      did not impose any total limit).
+        #  *
+        #  * NXAST_RESUBMIT ignores 'table' and 'pad'.  NXAST_RESUBMIT_TABLE and
+        #  * NXAST_RESUBMIT_TABLE_CT require 'pad' to be all-bits-zero.
+        #  *
+        #  * Open vSwitch 1.0.1 and earlier did not support recursion.  Open vSwitch
+        #  * before 1.2.90 did not support NXAST_RESUBMIT_TABLE.  Open vSwitch before
+        #  * 2.8.0 did not support NXAST_RESUBMIT_TABLE_CT.
+        #  */
+        #=======================================================================
         nx_action_resubmit = nstruct(
             (nx_port_no, 'in_port'),        # /* New in_port for checking flow table. */
             (uint8, 'table'),               # /* NXAST_RESUBMIT_TABLE: table to use. */
             (uint8[3],),
             base = nx_action,
-            criteria = lambda x: getattr(x, action_subtype) == NXAST_RESUBMIT_TABLE or getattr(x, action_subtype) == NXAST_RESUBMIT,
-            classifyby = (NXAST_RESUBMIT_TABLE, NXAST_RESUBMIT),
+            criteria = lambda x: getattr(x, action_subtype) in \
+                                    (NXAST_RESUBMIT_TABLE, NXAST_RESUBMIT, NXAST_RESUBMIT_TABLE_CT),
+            classifyby = (NXAST_RESUBMIT_TABLE, NXAST_RESUBMIT, NXAST_RESUBMIT_TABLE_CT),
             name = 'nx_action_resubmit',
             init = packvalue(NXAST_RESUBMIT_TABLE, action_subtype)
         )
@@ -1776,8 +3308,10 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             (uint16, 'n_bits'),         #       /* Number of bits. */
             (uint16, 'src_ofs'),        #       /* Starting bit offset in source. */
             (uint16, 'dst_ofs'),        #       /* Starting bit offset in destination. */
-            (nxm_header, 'src'),        #       /* Source register. */
-            (nxm_header, 'dst'),        #       /* Destination register. */
+            *_create_oxm_header_only_fields('src'),
+                                        #       /* OXM/NXM header for source field (4 or 8 bytes) */
+            *_create_oxm_header_only_fields('dst'),
+                                        #       /* OXM/NXM header for destination field (4 or 8 bytes) */
             name = 'nx_action_reg_move',
             base = nx_action,
             classifyby = (NXAST_REG_MOVE,),
@@ -1815,18 +3349,38 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
          */
         '''
         nx_action_reg_load = nstruct(
-            (uint16, 'ofs_nbits'),           #  /* (ofs << 6) | (n_bits - 1). */
-            (nxm_header, 'dst'),             #  /* Destination register. */
+            (ofs_nbits_type, 'ofs_nbits'),   #  /* (ofs << 6) | (n_bits - 1). */
+            (all_nxm_header, 'dst'),         #  /* Destination register. */
             (uint64, 'value'),               #  /* Immediate value. */
             name = 'nx_action_reg_load',
             base = nx_action,
             classifyby = (NXAST_REG_LOAD,),
             criteria = lambda x: getattr(x, action_subtype) == NXAST_REG_LOAD,
             init = packvalue(NXAST_REG_LOAD, action_subtype),
-            formatter = _createdesc(lambda x: 'load:0x%x->%s[%d..%d]' % (x['value'], x['dst'], x['ofs_nbits'] >> 6, (x['ofs_nbits'] >> 6) + (x['ofs_nbits'] & 0x3f)))
+            formatter = _createdesc(lambda x: 'load:0x%x->%s%s' % (x['value'], x['dst'], x['ofs_nbits']))
         )
         namespace['nx_action_reg_load'] = nx_action_reg_load
-    
+        
+        # /* The NXAST_REG_LOAD2 action structure is "struct ext_action_header",
+        #  * followed by:
+        #  *
+        #  * - An NXM/OXM header, value, and optionally a mask.
+        #  * - Enough 0-bytes to pad out to a multiple of 64 bits.
+        #  *
+        #  * The "pad" member is the beginning of the above. */
+        
+        nx_action_reg_load2 = \
+            nstruct(
+                (uint8[6],),
+                (nx_match, 'field'),
+                name = 'nx_action_reg_load2',
+                base = nx_action,
+                classifyby = (NXAST_REG_LOAD2,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_REG_LOAD2,
+                init = packvalue(NXAST_REG_LOAD2, action_subtype)
+            )
+        namespace['nx_action_reg_load2'] = nx_action_reg_load2
+        
         '''
         /* Action structure for NXAST_STACK_PUSH and NXAST_STACK_POP.
          *
@@ -1836,7 +3390,8 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         '''
         nx_action_stack = nstruct(
             (uint16, 'offset'),          #      /* Bit offset into the field. */
-            (nxm_header, 'field'),       #      /* The field used for push or pop. */
+            *_create_oxm_header_only_fields('field'),
+                                         #      /* The field used for push or pop. */
             (uint16, 'n_bits'),          #      /* (n_bits + 1) bits of the field. */
             (uint8[6],),                 #      /* Reserved, must be zero. */
             name = 'nx_action_stack',
@@ -1917,214 +3472,281 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             (uint16,),
         
             # /* Where to store the result. */
-            (uint16, 'ofs_nbits'),            #     /* (ofs << 6) | (n_bits - 1). */
-            (nxm_header, 'dst'),              #     /* Destination. */
+            (ofs_nbits_type, 'ofs_nbits'),        #     /* (ofs << 6) | (n_bits - 1). */
+            (all_nxm_header, 'dst'),              #     /* Destination. */
             name = 'nx_action_multipath',
             base = nx_action,
             classifyby = (NXAST_MULTIPATH,),
             criteria = lambda x: getattr(x, action_subtype) == NXAST_MULTIPATH,
             init = packvalue(NXAST_MULTIPATH, action_subtype),
-            formatter = _createdesc(lambda x: 'multipath(%s,%d,%s,%d,%d,%s[%d..%d])' % (x['fields'], x['basis'], x['algorithm'],x['max_link'] + 1, x['arg'], x['dst'], x['ofs_nbits'] >> 6, (x['ofs_nbits'] >> 6) + (x['ofs_nbits'] & 0x3f)))
+            formatter = _createdesc(lambda x: 'multipath(%s,%d,%s,%d,%d,%s%s)' % (x['fields'], x['basis'], x['algorithm'],x['max_link'] + 1, x['arg'], x['dst'], x['ofs_nbits']))
         )
         namespace['nx_action_multipath'] = nx_action_multipath
     
-        '''
-        /* Action structure for NXAST_LEARN.
-         *
-         * This action adds or modifies a flow in an OpenFlow table, similar to
-         * OFPT_FLOW_MOD with OFPFC_MODIFY_STRICT as 'command'.  The new flow has the
-         * specified idle timeout, hard timeout, priority, cookie, and flags.  The new
-         * flow's match criteria and actions are built by applying each of the series
-         * of flow_mod_spec elements included as part of the action.
-         *
-         * A flow_mod_spec starts with a 16-bit header.  A header that is all-bits-0 is
-         * a no-op used for padding the action as a whole to a multiple of 8 bytes in
-         * length.  Otherwise, the flow_mod_spec can be thought of as copying 'n_bits'
-         * bits from a source to a destination.  In this case, the header contains
-         * multiple fields:
-         *
-         *  15  14  13 12  11 10                              0
-         * +------+---+------+---------------------------------+
-         * |   0  |src|  dst |             n_bits              |
-         * +------+---+------+---------------------------------+
-         *
-         * The meaning and format of a flow_mod_spec depends on 'src' and 'dst'.  The
-         * following table summarizes the meaning of each possible combination.
-         * Details follow the table:
-         *
-         *   src dst  meaning
-         *   --- ---  ----------------------------------------------------------
-         *    0   0   Add match criteria based on value in a field.
-         *    1   0   Add match criteria based on an immediate value.
-         *    0   1   Add NXAST_REG_LOAD action to copy field into a different field.
-         *    1   1   Add NXAST_REG_LOAD action to load immediate value into a field.
-         *    0   2   Add OFPAT_OUTPUT action to output to port from specified field.
-         *   All other combinations are undefined and not allowed.
-         *
-         * The flow_mod_spec header is followed by a source specification and a
-         * destination specification.  The format and meaning of the source
-         * specification depends on 'src':
-         *
-         *   - If 'src' is 0, the source bits are taken from a field in the flow to
-         *     which this action is attached.  (This should be a wildcarded field.  If
-         *     its value is fully specified then the source bits being copied have
-         *     constant values.)
-         *
-         *     The source specification is an ovs_be32 'field' and an ovs_be16 'ofs'.
-         *     'field' is an nxm_header with nxm_hasmask=0, and 'ofs' the starting bit
-         *     offset within that field.  The source bits are field[ofs:ofs+n_bits-1].
-         *     'field' and 'ofs' are subject to the same restrictions as the source
-         *     field in NXAST_REG_MOVE.
-         *
-         *   - If 'src' is 1, the source bits are a constant value.  The source
-         *     specification is (n_bits+15)/16*2 bytes long.  Taking those bytes as a
-         *     number in network order, the source bits are the 'n_bits'
-         *     least-significant bits.  The switch will report an error if other bits
-         *     in the constant are nonzero.
-         *
-         * The flow_mod_spec destination specification, for 'dst' of 0 or 1, is an
-         * ovs_be32 'field' and an ovs_be16 'ofs'.  'field' is an nxm_header with
-         * nxm_hasmask=0 and 'ofs' is a starting bit offset within that field.  The
-         * meaning of the flow_mod_spec depends on 'dst':
-         *
-         *   - If 'dst' is 0, the flow_mod_spec specifies match criteria for the new
-         *     flow.  The new flow matches only if bits field[ofs:ofs+n_bits-1] in a
-         *     packet equal the source bits.  'field' may be any nxm_header with
-         *     nxm_hasmask=0 that is allowed in NXT_FLOW_MOD.
-         *
-         *     Order is significant.  Earlier flow_mod_specs must satisfy any
-         *     prerequisites for matching fields specified later, by copying constant
-         *     values into prerequisite fields.
-         *
-         *     The switch will reject flow_mod_specs that do not satisfy NXM masking
-         *     restrictions.
-         *
-         *   - If 'dst' is 1, the flow_mod_spec specifies an NXAST_REG_LOAD action for
-         *     the new flow.  The new flow copies the source bits into
-         *     field[ofs:ofs+n_bits-1].  Actions are executed in the same order as the
-         *     flow_mod_specs.
-         *
-         *     A single NXAST_REG_LOAD action writes no more than 64 bits, so n_bits
-         *     greater than 64 yields multiple NXAST_REG_LOAD actions.
-         *
-         * The flow_mod_spec destination spec for 'dst' of 2 (when 'src' is 0) is
-         * empty.  It has the following meaning:
-         *
-         *   - The flow_mod_spec specifies an OFPAT_OUTPUT action for the new flow.
-         *     The new flow outputs to the OpenFlow port specified by the source field.
-         *     Of the special output ports with value OFPP_MAX or larger, OFPP_IN_PORT,
-         *     OFPP_FLOOD, OFPP_LOCAL, and OFPP_ALL are supported.  Other special ports
-         *     may not be used.
-         *
-         * Resource Management
-         * -------------------
-         *
-         * A switch has a finite amount of flow table space available for learning.
-         * When this space is exhausted, no new learning table entries will be learned
-         * until some existing flow table entries expire.  The controller should be
-         * prepared to handle this by flooding (which can be implemented as a
-         * low-priority flow).
-         *
-         * If a learned flow matches a single TCP stream with a relatively long
-         * timeout, one may make the best of resource constraints by setting
-         * 'fin_idle_timeout' or 'fin_hard_timeout' (both measured in seconds), or
-         * both, to shorter timeouts.  When either of these is specified as a nonzero
-         * value, OVS adds a NXAST_FIN_TIMEOUT action, with the specified timeouts, to
-         * the learned flow.
-         *
-         * Examples
-         * --------
-         *
-         * The following examples give a prose description of the flow_mod_specs along
-         * with informal notation for how those would be represented and a hex dump of
-         * the bytes that would be required.
-         *
-         * These examples could work with various nx_action_learn parameters.  Typical
-         * values would be idle_timeout=OFP_FLOW_PERMANENT, hard_timeout=60,
-         * priority=OFP_DEFAULT_PRIORITY, flags=0, table_id=10.
-         *
-         * 1. Learn input port based on the source MAC, with lookup into
-         *    NXM_NX_REG1[16:31] by resubmit to in_port=99:
-         *
-         *    Match on in_port=99:
-         *       ovs_be16(src=1, dst=0, n_bits=16),               20 10
-         *       ovs_be16(99),                                    00 63
-         *       ovs_be32(NXM_OF_IN_PORT), ovs_be16(0)            00 00 00 02 00 00
-         *
-         *    Match Ethernet destination on Ethernet source from packet:
-         *       ovs_be16(src=0, dst=0, n_bits=48),               00 30
-         *       ovs_be32(NXM_OF_ETH_SRC), ovs_be16(0)            00 00 04 06 00 00
-         *       ovs_be32(NXM_OF_ETH_DST), ovs_be16(0)            00 00 02 06 00 00
-         *
-         *    Set NXM_NX_REG1[16:31] to the packet's input port:
-         *       ovs_be16(src=0, dst=1, n_bits=16),               08 10
-         *       ovs_be32(NXM_OF_IN_PORT), ovs_be16(0)            00 00 00 02 00 00
-         *       ovs_be32(NXM_NX_REG1), ovs_be16(16)              00 01 02 04 00 10
-         *
-         *    Given a packet that arrived on port A with Ethernet source address B,
-         *    this would set up the flow "in_port=99, dl_dst=B,
-         *    actions=load:A->NXM_NX_REG1[16..31]".
-         *
-         *    In syntax accepted by ovs-ofctl, this action is: learn(in_port=99,
-         *    NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],
-         *    load:NXM_OF_IN_PORT[]->NXM_NX_REG1[16..31])
-         *
-         * 2. Output to input port based on the source MAC and VLAN VID, with lookup
-         *    into NXM_NX_REG1[16:31]:
-         *
-         *    Match on same VLAN ID as packet:
-         *       ovs_be16(src=0, dst=0, n_bits=12),               00 0c
-         *       ovs_be32(NXM_OF_VLAN_TCI), ovs_be16(0)           00 00 08 02 00 00
-         *       ovs_be32(NXM_OF_VLAN_TCI), ovs_be16(0)           00 00 08 02 00 00
-         *
-         *    Match Ethernet destination on Ethernet source from packet:
-         *       ovs_be16(src=0, dst=0, n_bits=48),               00 30
-         *       ovs_be32(NXM_OF_ETH_SRC), ovs_be16(0)            00 00 04 06 00 00
-         *       ovs_be32(NXM_OF_ETH_DST), ovs_be16(0)            00 00 02 06 00 00
-         *
-         *    Output to the packet's input port:
-         *       ovs_be16(src=0, dst=2, n_bits=16),               10 10
-         *       ovs_be32(NXM_OF_IN_PORT), ovs_be16(0)            00 00 00 02 00 00
-         *
-         *    Given a packet that arrived on port A with Ethernet source address B in
-         *    VLAN C, this would set up the flow "dl_dst=B, vlan_vid=C,
-         *    actions=output:A".
-         *
-         *    In syntax accepted by ovs-ofctl, this action is:
-         *    learn(NXM_OF_VLAN_TCI[0..11], NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],
-         *    output:NXM_OF_IN_PORT[])
-         *
-         * 3. Here's a recipe for a very simple-minded MAC learning switch.  It uses a
-         *    10-second MAC expiration time to make it easier to see what's going on
-         *
-         *      ovs-vsctl del-controller br0
-         *      ovs-ofctl del-flows br0
-         *      ovs-ofctl add-flow br0 "table=0 actions=learn(table=1, \
-                  hard_timeout=10, NXM_OF_VLAN_TCI[0..11],             \
-                  NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],                   \
-                  output:NXM_OF_IN_PORT[]), resubmit(,1)"
-         *      ovs-ofctl add-flow br0 "table=1 priority=0 actions=flood"
-         *
-         *    You can then dump the MAC learning table with:
-         *
-         *      ovs-ofctl dump-flows br0 table=1
-         *
-         * Usage Advice
-         * ------------
-         *
-         * For best performance, segregate learned flows into a table that is not used
-         * for any other flows except possibly for a lowest-priority "catch-all" flow
-         * (a flow with no match criteria).  If different learning actions specify
-         * different match criteria, use different tables for the learned flows.
-         *
-         * The meaning of 'hard_timeout' and 'idle_timeout' can be counterintuitive.
-         * These timeouts apply to the flow that is added, which means that a flow with
-         * an idle timeout will expire when no traffic has been sent *to* the learned
-         * address.  This is not usually the intent in MAC learning; instead, we want
-         * the MAC learn entry to expire when no traffic has been sent *from* the
-         * learned address.  Use a hard timeout for that.
-         */
-         '''
+        #=======================================================================
+        # /* Action structure for NXAST_LEARN and NXAST_LEARN2.
+        #  *
+        #  * This action adds or modifies a flow in an OpenFlow table, similar to
+        #  * OFPT_FLOW_MOD with OFPFC_MODIFY_STRICT as 'command'.  The new flow has the
+        #  * specified idle timeout, hard timeout, priority, cookie, and flags.  The new
+        #  * flow's match criteria and actions are built by applying each of the series
+        #  * of flow_mod_spec elements included as part of the action.
+        #  *
+        #  * A flow_mod_spec starts with a 16-bit header.  A header that is all-bits-0 is
+        #  * a no-op used for padding the action as a whole to a multiple of 8 bytes in
+        #  * length.  Otherwise, the flow_mod_spec can be thought of as copying 'n_bits'
+        #  * bits from a source to a destination.  In this case, the header contains
+        #  * multiple fields:
+        #  *
+        #  *  15  14  13 12  11 10                              0
+        #  * +------+---+------+---------------------------------+
+        #  * |   0  |src|  dst |             n_bits              |
+        #  * +------+---+------+---------------------------------+
+        #  *
+        #  * The meaning and format of a flow_mod_spec depends on 'src' and 'dst'.  The
+        #  * following table summarizes the meaning of each possible combination.
+        #  * Details follow the table:
+        #  *
+        #  *   src dst  meaning
+        #  *   --- ---  ----------------------------------------------------------
+        #  *    0   0   Add match criteria based on value in a field.
+        #  *    1   0   Add match criteria based on an immediate value.
+        #  *    0   1   Add NXAST_REG_LOAD action to copy field into a different field.
+        #  *    1   1   Add NXAST_REG_LOAD action to load immediate value into a field.
+        #  *    0   2   Add OFPAT_OUTPUT action to output to port from specified field.
+        #  *   All other combinations are undefined and not allowed.
+        #  *
+        #  * The flow_mod_spec header is followed by a source specification and a
+        #  * destination specification.  The format and meaning of the source
+        #  * specification depends on 'src':
+        #  *
+        #  *   - If 'src' is 0, the source bits are taken from a field in the flow to
+        #  *     which this action is attached.  (This should be a wildcarded field.  If
+        #  *     its value is fully specified then the source bits being copied have
+        #  *     constant values.)
+        #  *
+        #  *     The source specification is an ovs_be32 'field' and an ovs_be16 'ofs'.
+        #  *     'field' is an nxm_header with nxm_hasmask=0, and 'ofs' the starting bit
+        #  *     offset within that field.  The source bits are field[ofs:ofs+n_bits-1].
+        #  *     'field' and 'ofs' are subject to the same restrictions as the source
+        #  *     field in NXAST_REG_MOVE.
+        #  *
+        #  *   - If 'src' is 1, the source bits are a constant value.  The source
+        #  *     specification is (n_bits+15)/16*2 bytes long.  Taking those bytes as a
+        #  *     number in network order, the source bits are the 'n_bits'
+        #  *     least-significant bits.  The switch will report an error if other bits
+        #  *     in the constant are nonzero.
+        #  *
+        #  * The flow_mod_spec destination specification, for 'dst' of 0 or 1, is an
+        #  * ovs_be32 'field' and an ovs_be16 'ofs'.  'field' is an nxm_header with
+        #  * nxm_hasmask=0 and 'ofs' is a starting bit offset within that field.  The
+        #  * meaning of the flow_mod_spec depends on 'dst':
+        #  *
+        #  *   - If 'dst' is 0, the flow_mod_spec specifies match criteria for the new
+        #  *     flow.  The new flow matches only if bits field[ofs:ofs+n_bits-1] in a
+        #  *     packet equal the source bits.  'field' may be any nxm_header with
+        #  *     nxm_hasmask=0 that is allowed in NXT_FLOW_MOD.
+        #  *
+        #  *     Order is significant.  Earlier flow_mod_specs must satisfy any
+        #  *     prerequisites for matching fields specified later, by copying constant
+        #  *     values into prerequisite fields.
+        #  *
+        #  *     The switch will reject flow_mod_specs that do not satisfy NXM masking
+        #  *     restrictions.
+        #  *
+        #  *   - If 'dst' is 1, the flow_mod_spec specifies an NXAST_REG_LOAD action for
+        #  *     the new flow.  The new flow copies the source bits into
+        #  *     field[ofs:ofs+n_bits-1].  Actions are executed in the same order as the
+        #  *     flow_mod_specs.
+        #  *
+        #  *     A single NXAST_REG_LOAD action writes no more than 64 bits, so n_bits
+        #  *     greater than 64 yields multiple NXAST_REG_LOAD actions.
+        #  *
+        #  * The flow_mod_spec destination spec for 'dst' of 2 (when 'src' is 0) is
+        #  * empty.  It has the following meaning:
+        #  *
+        #  *   - The flow_mod_spec specifies an OFPAT_OUTPUT action for the new flow.
+        #  *     The new flow outputs to the OpenFlow port specified by the source field.
+        #  *     Of the special output ports with value OFPP_MAX or larger, OFPP_IN_PORT,
+        #  *     OFPP_FLOOD, OFPP_LOCAL, and OFPP_ALL are supported.  Other special ports
+        #  *     may not be used.
+        #  *
+        #  * Resource Management
+        #  * -------------------
+        #  *
+        #  * A switch has a finite amount of flow table space available for learning.
+        #  * When this space is exhausted, no new learning table entries will be learned
+        #  * until some existing flow table entries expire.  The controller should be
+        #  * prepared to handle this by flooding (which can be implemented as a
+        #  * low-priority flow).
+        #  *
+        #  * If a learned flow matches a single TCP stream with a relatively long
+        #  * timeout, one may make the best of resource constraints by setting
+        #  * 'fin_idle_timeout' or 'fin_hard_timeout' (both measured in seconds), or
+        #  * both, to shorter timeouts.  When either of these is specified as a nonzero
+        #  * value, OVS adds a NXAST_FIN_TIMEOUT action, with the specified timeouts, to
+        #  * the learned flow.
+        #  *
+        #  * Examples
+        #  * --------
+        #  *
+        #  * The following examples give a prose description of the flow_mod_specs along
+        #  * with informal notation for how those would be represented and a hex dump of
+        #  * the bytes that would be required.
+        #  *
+        #  * These examples could work with various nx_action_learn parameters.  Typical
+        #  * values would be idle_timeout=OFP_FLOW_PERMANENT, hard_timeout=60,
+        #  * priority=OFP_DEFAULT_PRIORITY, flags=0, table_id=10.
+        #  *
+        #  * 1. Learn input port based on the source MAC, with lookup into
+        #  *    NXM_NX_REG1[16:31] by resubmit to in_port=99:
+        #  *
+        #  *    Match on in_port=99:
+        #  *       ovs_be16(src=1, dst=0, n_bits=16),               20 10
+        #  *       ovs_be16(99),                                    00 63
+        #  *       ovs_be32(NXM_OF_IN_PORT), ovs_be16(0)            00 00 00 02 00 00
+        #  *
+        #  *    Match Ethernet destination on Ethernet source from packet:
+        #  *       ovs_be16(src=0, dst=0, n_bits=48),               00 30
+        #  *       ovs_be32(NXM_OF_ETH_SRC), ovs_be16(0)            00 00 04 06 00 00
+        #  *       ovs_be32(NXM_OF_ETH_DST), ovs_be16(0)            00 00 02 06 00 00
+        #  *
+        #  *    Set NXM_NX_REG1[16:31] to the packet's input port:
+        #  *       ovs_be16(src=0, dst=1, n_bits=16),               08 10
+        #  *       ovs_be32(NXM_OF_IN_PORT), ovs_be16(0)            00 00 00 02 00 00
+        #  *       ovs_be32(NXM_NX_REG1), ovs_be16(16)              00 01 02 04 00 10
+        #  *
+        #  *    Given a packet that arrived on port A with Ethernet source address B,
+        #  *    this would set up the flow "in_port=99, dl_dst=B,
+        #  *    actions=load:A->NXM_NX_REG1[16..31]".
+        #  *
+        #  *    In syntax accepted by ovs-ofctl, this action is: learn(in_port=99,
+        #  *    NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],
+        #  *    load:NXM_OF_IN_PORT[]->NXM_NX_REG1[16..31])
+        #  *
+        #  * 2. Output to input port based on the source MAC and VLAN VID, with lookup
+        #  *    into NXM_NX_REG1[16:31]:
+        #  *
+        #  *    Match on same VLAN ID as packet:
+        #  *       ovs_be16(src=0, dst=0, n_bits=12),               00 0c
+        #  *       ovs_be32(NXM_OF_VLAN_TCI), ovs_be16(0)           00 00 08 02 00 00
+        #  *       ovs_be32(NXM_OF_VLAN_TCI), ovs_be16(0)           00 00 08 02 00 00
+        #  *
+        #  *    Match Ethernet destination on Ethernet source from packet:
+        #  *       ovs_be16(src=0, dst=0, n_bits=48),               00 30
+        #  *       ovs_be32(NXM_OF_ETH_SRC), ovs_be16(0)            00 00 04 06 00 00
+        #  *       ovs_be32(NXM_OF_ETH_DST), ovs_be16(0)            00 00 02 06 00 00
+        #  *
+        #  *    Output to the packet's input port:
+        #  *       ovs_be16(src=0, dst=2, n_bits=16),               10 10
+        #  *       ovs_be32(NXM_OF_IN_PORT), ovs_be16(0)            00 00 00 02 00 00
+        #  *
+        #  *    Given a packet that arrived on port A with Ethernet source address B in
+        #  *    VLAN C, this would set up the flow "dl_dst=B, vlan_vid=C,
+        #  *    actions=output:A".
+        #  *
+        #  *    In syntax accepted by ovs-ofctl, this action is:
+        #  *    learn(NXM_OF_VLAN_TCI[0..11], NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],
+        #  *    output:NXM_OF_IN_PORT[])
+        #  *
+        #  * 3. Here's a recipe for a very simple-minded MAC learning switch.  It uses a
+        #  *    10-second MAC expiration time to make it easier to see what's going on
+        #  *
+        #  *      ovs-vsctl del-controller br0
+        #  *      ovs-ofctl del-flows br0
+        #  *      ovs-ofctl add-flow br0 "table=0 actions=learn(table=1, \
+        #           hard_timeout=10, NXM_OF_VLAN_TCI[0..11],             \
+        #           NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],                   \
+        #           output:NXM_OF_IN_PORT[]), resubmit(,1)"
+        #  *      ovs-ofctl add-flow br0 "table=1 priority=0 actions=flood"
+        #  *
+        #  *    You can then dump the MAC learning table with:
+        #  *
+        #  *      ovs-ofctl dump-flows br0 table=1
+        #  *
+        #  * Usage Advice
+        #  * ------------
+        #  *
+        #  * For best performance, segregate learned flows into a table that is not used
+        #  * for any other flows except possibly for a lowest-priority "catch-all" flow
+        #  * (a flow with no match criteria).  If different learning actions specify
+        #  * different match criteria, use different tables for the learned flows.
+        #  *
+        #  * The meaning of 'hard_timeout' and 'idle_timeout' can be counterintuitive.
+        #  * These timeouts apply to the flow that is added, which means that a flow with
+        #  * an idle timeout will expire when no traffic has been sent *to* the learned
+        #  * address.  This is not usually the intent in MAC learning; instead, we want
+        #  * the MAC learn entry to expire when no traffic has been sent *from* the
+        #  * learned address.  Use a hard timeout for that.
+        #  *
+        #  *
+        #  * Visibility of Changes
+        #  * ---------------------
+        #  *
+        #  * Prior to Open vSwitch 2.4, any changes made by a "learn" action in a given
+        #  * flow translation are visible to flow table lookups made later in the flow
+        #  * translation.  This means that, in the example above, a MAC learned by the
+        #  * learn action in table 0 would be found in table 1 (if the packet being
+        #  * processed had the same source and destination MAC address).
+        #  *
+        #  * In Open vSwitch 2.4 and later, changes to a flow table (whether to add or
+        #  * modify a flow) by a "learn" action are visible only for later flow
+        #  * translations, not for later lookups within the same flow translation.  In
+        #  * the MAC learning example, a MAC learned by the learn action in table 0 would
+        #  * not be found in table 1 if the flow translation would resubmit to table 1
+        #  * after the processing of the learn action, meaning that if this MAC had not
+        #  * been learned before then the packet would be flooded. */
+        #=======================================================================
+        _nx_flow_mod_spec_src = nstruct(
+            name = '_nx_flow_mod_spec_src',
+            padding = 1,
+            size = lambda x: (((NX_FLOWMODSPEC_NBITS(x.header) + 15) // 16 * 2) if NX_FLOWMODSPEC_SRC(x.header) else 6)
+        )
+        
+        _nx_flow_mod_spec_dst = nstruct(
+            name = '_nx_flow_mod_spec_dst',
+            padding = 1,
+            size = lambda x: 0 if NX_FLOWMODSPEC_DST(x.header) == NX_LEARN_DST_OUTPUT else 6
+        )
+        
+        _nx_flow_mod_spec_src_value = nstruct(
+            (raw, 'value'),
+            name = '_nx_flow_mod_spec_src_value',
+            base = _nx_flow_mod_spec_src,
+            criteria = lambda x: NX_FLOWMODSPEC_SRC(x.header)
+        )
+        
+        _nx_flow_mod_spec_src_field = nstruct(
+            (all_nxm_header, 'src'),
+            (uint16, 'src_ofs'),
+            name = '_nx_flow_mod_spec_src_field',
+            base = _nx_flow_mod_spec_src,
+            criteria = lambda x: not NX_FLOWMODSPEC_SRC(x.header)
+        )
+        
+        _nx_flow_mod_spec_dst_field = nstruct(
+            (all_nxm_header, 'dst'),
+            (uint16, 'dst_ofs'),
+            name = '_nx_flow_mod_spec_dst_field',
+            base = _nx_flow_mod_spec_dst,
+            criteria = lambda x: NX_FLOWMODSPEC_DST(x.header) == NX_LEARN_DST_MATCH or NX_FLOWMODSPEC_DST(x.header) == NX_LEARN_DST_LOAD
+        )
+        
+        _nx_flow_mod_spec_dst_output = nstruct(
+            name = '_nx_flow_mod_spec_dst_output',
+            base = _nx_flow_mod_spec_dst,
+            criteria = lambda x: NX_FLOWMODSPEC_DST(x.header) == NX_LEARN_DST_OUTPUT
+        )
+        
+        def _create_field(dst, ofs):
+            if NXM_HASMASK(dst):
+                raise ValueError('Must specify a nxm_header without mask')
+            return _nx_flow_mod_spec_dst_field.new(dst = dst, dst_ofs = ofs)._tobytes()
+        
+        def _create_header(src, dst, n_bits):
+            return uint16.tobytes((src & NX_LEARN_SRC_MASK) | (dst & NX_LEARN_DST_MASK) | (n_bits & NX_LEARN_N_BITS_MASK))
+
+
         def _nx_flow_mod_spec_formatter(x):
             if NX_FLOWMODSPEC_SRC(x['header']):
                 srcdesc = '0x' + ''.join('%02x' % (c,) for c in bytearray(x['value']))
@@ -2196,24 +3818,64 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
         
         ofp_flow_mod_flags = namespace['ofp_flow_mod_flags']
         
-        nx_action_learn = nstruct(
-            (uint16, 'idle_timeout'),    #  /* Idle time before discarding (seconds). */
-            (uint16, 'hard_timeout'),    #  /* Max time before discarding (seconds). */
-            (uint16, 'priority'),        #  /* Priority level of flow entry. */
-            (uint64, 'cookie'),          #  /* Cookie for new flow. */
-            (ofp_flow_mod_flags, 'flags'),  #          /* Either 0 or OFPFF_SEND_FLOW_REM. */
-            (uint8, 'table_id'),         #  /* Table to insert flow entry. */
-            (uint8,),                    #  /* Must be zero. */
-            (uint16, 'fin_idle_timeout'),#  /* Idle timeout after FIN, if nonzero. */
-            (uint16, 'fin_hard_timeout'),#  /* Hard timeout after FIN, if nonzero. */
-            (nx_flow_mod_spec[0], 'specs'),
-            base = nx_action,
-            name = 'nx_action_learn',
-            classifyby = (NXAST_LEARN,),
-            criteria = lambda x: getattr(x, action_subtype) == NXAST_LEARN,
-            init = packvalue(NXAST_LEARN, action_subtype),
-        )
+        
+        
+        _nx_action_learn = \
+            nstruct(
+                (uint16, 'idle_timeout'),    #  /* Idle time before discarding (seconds). */
+                (uint16, 'hard_timeout'),    #  /* Max time before discarding (seconds). */
+                (uint16, 'priority'),        #  /* Priority level of flow entry. */
+                (uint64, 'cookie'),          #  /* Cookie for new flow. */
+                (nx_learn_flags, 'flags'),   #  /* NX_LEARN_F_*. */
+                (uint8, 'table_id'),         #  /* Table to insert flow entry. */
+                (uint8,),                    #  /* Must be zero. */
+                (uint16, 'fin_idle_timeout'),#  /* Idle timeout after FIN, if nonzero. */
+                (uint16, 'fin_hard_timeout'),#  /* Hard timeout after FIN, if nonzero. */
+                name = '_nx_action_learn',
+                padding = 1
+            )
+
+        nx_action_learn = \
+            nstruct(
+                (_nx_action_learn,),
+                (nx_flow_mod_spec[0], 'specs'),
+                base = nx_action,
+                name = 'nx_action_learn',
+                classifyby = (NXAST_LEARN,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_LEARN,
+                init = packvalue(NXAST_LEARN, action_subtype),
+            )
         namespace['nx_action_learn'] = nx_action_learn
+        
+        def _prepack_nx_action_learn2(x):
+            if hasattr(x, 'result_field'):
+                x.flags |= NX_LEARN_F_WRITE_RESULT
+            else:
+                x.flags &= ~NX_LEARN_F_WRITE_RESULT
+        
+        nx_action_learn2 = \
+            nstruct(
+                (_nx_action_learn,),
+                (nx_flow_mod_spec[0], 'specs'),
+                (uint32, 'limit'),                  # /* Maximum number of learned flows.
+                                                    #  * 0 indicates unlimited. */
+                # /* Where to store the result. */
+                (uint16, 'result_dst_ofs'),         # /* Starting bit offset in destination. */
+            
+                (uint16,),                          # /* Must be zero. */
+                *_create_oxm_header_only_fields('result_field', lambda x: x.flags & NX_LEARN_F_WRITE_RESULT),
+                (nx_flow_mod_spec[0], 'specs'),
+                base = nx_action,
+                name = 'nx_action_learn2',
+                classifyby = (NXAST_LEARN2,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_LEARN2,
+                init = packvalue(NXAST_LEARN2, action_subtype),
+                prepack = _prepack_nx_action_learn2,
+                formatter = _createdesc(lambda x: 'result:%s[%d..%d]' % (x['result_field'], x['result_dst_ofs'], x['result_dst_ofs'])
+                                                  if 'result_field' in x
+                                                  else '(no result)')
+            )
+        namespace['nx_action_learn2'] = nx_action_learn2
     
         '''
         /* Action structure for NXAST_FIN_TIMEOUT.
@@ -2306,11 +3968,11 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             (nx_hash_fields, 'fields'),     #         /* One of NX_HASH_FIELDS_*. */
             (uint16, 'basis'),              #         /* Universal hash parameter. */
         
-            (nxm_header, 'slave_type'),     #         /* NXM_OF_IN_PORT. */
+            (all_nxm_header, 'slave_type'), #         /* NXM_OF_IN_PORT. */
             (uint16, 'n_slaves'),           #         /* Number of slaves. */
         
-            (uint16, 'ofs_nbits'),          #         /* (ofs << 6) | (n_bits - 1). */
-            (nxm_header, 'dst'),            #         /* Destination. */
+            (ofs_nbits_type, 'ofs_nbits'),  #         /* (ofs << 6) | (n_bits - 1). */
+            (all_nxm_header, 'dst'),        #         /* Destination. */
         
             (uint8[4],),                    #         /* Reserved. Must be zero. */
             name = 'nx_action_bundle',
@@ -2338,8 +4000,8 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             criteria = lambda x: x.slave_type == NXM_OF_IN_PORT,
             init = packvalue(NXM_OF_IN_PORT, 'slave_type'),
             lastextra = False,
-            formatter = _createdesc(lambda x: 'bundle_load(%s,%d,%s,%s,%s[%d..%d],slaves:%r)' % \
-                (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['dst'], x['ofs_nbits'] >> 6, (x['ofs_nbits'] >> 6) + (x['ofs_nbits'] & 0x3f), x['bundles']) \
+            formatter = _createdesc(lambda x: 'bundle_load(%s,%d,%s,%s,%s%s,slaves:%r)' % \
+                (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['dst'], x['ofs_nbits'], x['bundles']) \
                 if x[action_subtype] == 'NXAST_BUNDLE_LOAD' else 'bundle(%s,%d,%s,%s,slaves:%r)' % (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['bundles']))
         )
         namespace['nx_action_bundle_port'] = nx_action_bundle_port
@@ -2362,8 +4024,8 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             criteria = lambda x: x.slave_type != NXM_OF_IN_PORT,
             lastextra = False,
             init = packvalue(NXM_OF_ETH_DST, 'slave_type'),
-            formatter = _createdesc(lambda x: 'bundle_load(%s,%d,%s,%s,%s[%d..%d],slaves:%r)' % \
-                (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['dst'], x['ofs_nbits'] >> 6, (x['ofs_nbits'] >> 6) + (x['ofs_nbits'] & 0x3f), x['bundleraw']) \
+            formatter = _createdesc(lambda x: 'bundle_load(%s,%d,%s,%s,%s%s,slaves:%r)' % \
+                (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['dst'], x['ofs_nbits'], x['bundleraw']) \
                 if x[action_subtype] == 'NXAST_BUNDLE_LOAD' else 'bundle(%s,%d,%s,%s,slaves:%r)' % (x['fields'], x['basis'], x['algorithm'], x['slave_type'], x['bundleraw']))
         )
         namespace['nx_action_bundle_others'] = nx_action_bundle_others
@@ -2420,18 +4082,41 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
          * The 'zero' field is required to be zeroed for forward compatibility. */
         '''
         nx_action_output_reg = nstruct(
-            (uint16, 'ofs_nbits'),      # /* (ofs << 6) | (n_bits - 1). */
-            (nxm_header, 'src'),        # /* Source. */
-            (uint16, 'max_len'),        # /* Max length to send to controller. */
-            (uint8[6],),                # /* Reserved, must be zero. */
+            (ofs_nbits_type, 'ofs_nbits'),      # /* (ofs << 6) | (n_bits - 1). */
+            (all_nxm_header, 'src'),            # /* Source. */
+            (uint16, 'max_len'),                # /* Max length to send to controller. */
+            (uint8[6],),                        # /* Reserved, must be zero. */
             base = nx_action,
             classifyby = (NXAST_OUTPUT_REG,),
             criteria = lambda x: getattr(x, action_subtype) == NXAST_OUTPUT_REG,
             init = packvalue(NXAST_OUTPUT_REG, action_subtype),
             name = 'nx_action_output_reg',
-            formatter = _createdesc(lambda x: 'output:%s[%d..%d]' % (x['src'], x['ofs_nbits'] >> 6, (x['ofs_nbits'] >> 6) + (x['ofs_nbits'] & 0x3f)))
+            formatter = _createdesc(lambda x: 'output:%s%s' % (x['src'], x['ofs_nbits']))
         )
         namespace['nx_action_output_reg'] = nx_action_output_reg
+
+        #=======================================================================
+        # /* Action structure for NXAST_OUTPUT_REG2.
+        #  *
+        #  * Like the NXAST_OUTPUT_REG but organized so that there is room for a 64-bit
+        #  * experimenter OXM as 'src'.
+        #  */
+        #=======================================================================
+        nx_action_output_reg2 = \
+            nstruct(        
+                (ofs_nbits_type, 'ofs_nbits'),      # /* (ofs << 6) | (n_bits - 1). */
+                (uint16, 'max_len'),                # /* Max length to send to controller. */
+            
+                *_create_oxm_header_only_fields('src'),
+                base = nx_action,
+                classifyby = (NXAST_OUTPUT_REG2,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_OUTPUT_REG2,
+                init = packvalue(NXAST_OUTPUT_REG2, action_subtype),
+                name = 'nx_action_output_reg2',
+                formatter = _createdesc(lambda x: 'output:%s%s' % (x['src'], x['ofs_nbits']))
+        )
+        namespace['nx_action_output_reg2'] = nx_action_output_reg2
+
     
         '''
         /* NXAST_EXIT
@@ -2606,7 +4291,7 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             (nx_matches,),
             (ofp_action[0], 'actions'),
             name = 'nx_flow_stats',
-            size = sizefromlen(65536, 'length'),
+            size = lambda x: x.length,
             prepack = packsize('length')        
         )
         namespace['nx_flow_stats'] = nx_flow_stats
@@ -2715,6 +4400,84 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             init = packvalue(NXAST_CONTROLLER, action_subtype)
         )
         namespace['nx_action_controller'] = nx_action_controller
+        
+        nx_action_controller2_prop = \
+            nstruct(
+                (nx_action_controller2_prop_type, 'type'),
+                (uint16, 'length'),
+                name = 'nx_action_controller2_prop',
+                size = lambda x: x.length,
+                prepack = packrealsize('length'),
+                classifier = lambda x: x.type
+            )
+        namespace['nx_action_controller2_prop'] = nx_action_controller2_prop
+        
+        nx_action_controller2_prop_max_len = \
+            nstruct(
+                (uint16, 'value'),
+                name = 'nx_action_controller2_prop_max_len',
+                base = nx_action_controller2_prop,
+                classifyby = (NXAC2PT_MAX_LEN,),
+                init = packvalue(NXAC2PT_MAX_LEN, 'type'),
+                criteria = lambda x: x.type == NXAC2PT_MAX_LEN
+            )
+        namespace['nx_action_controller2_prop_max_len'] = nx_action_controller2_prop_max_len
+
+        nx_action_controller2_prop_controller_id = \
+            nstruct(
+                (uint16, 'value'),
+                name = 'nx_action_controller2_prop_controller_id',
+                base = nx_action_controller2_prop,
+                classifyby = (NXAC2PT_CONTROLLER_ID,),
+                init = packvalue(NXAC2PT_CONTROLLER_ID, 'type'),
+                criteria = lambda x: x.type == NXAC2PT_CONTROLLER_ID
+            )
+        namespace['nx_action_controller2_prop_controller_id'] = nx_action_controller2_prop_controller_id
+        
+        nx_action_controller2_prop_reason = \
+            nstruct(
+                (ofp_packet_in_reason, 'value'),
+                name = 'nx_action_controller2_prop_reason',
+                base = nx_action_controller2_prop,
+                classifyby = (NXAC2PT_REASON,),
+                init = packvalue(NXAC2PT_REASON, 'type'),
+                criteria = lambda x: x.type == NXAC2PT_REASON
+            )
+        namespace['nx_action_controller2_prop_reason'] = nx_action_controller2_prop_reason
+
+        nx_action_controller2_prop_userdata = \
+            nstruct(
+                (raw, 'value'),
+                name = 'nx_action_controller2_prop_userdata',
+                base = nx_action_controller2_prop,
+                classifyby = (NXAC2PT_USERDATA,),
+                init = packvalue(NXAC2PT_USERDATA, 'type'),
+                criteria = lambda x: x.type == NXAC2PT_USERDATA
+            )
+        namespace['nx_action_controller2_prop_userdata'] = nx_action_controller2_prop_userdata
+
+        nx_action_controller2_prop_pause = \
+            nstruct(
+                name = 'nx_action_controller2_prop_pause',
+                base = nx_action_controller2_prop,
+                classifyby = (NXAC2PT_PAUSE,),
+                init = packvalue(NXAC2PT_PAUSE, 'type'),
+                criteria = lambda x: x.type == NXAC2PT_PAUSE
+            )
+        namespace['nx_action_controller2_prop_pause'] = nx_action_controller2_prop_pause
+        
+        nx_action_controller2 = \
+            nstruct(
+                (uint8[6],),
+                (nx_action_controller2_prop[0], 'properties'),
+                name = 'nx_action_controller2',
+                base = nx_action,
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_CONTROLLER2,
+                classifyby = (NXAST_CONTROLLER2,),
+                init = packvalue(NXAST_CONTROLLER2, action_subtype)
+            )
+        namespace['nx_action_controller2'] = nx_action_controller2
+        
         '''
         /* Flow Table Monitoring
          * =====================
@@ -2855,7 +4618,7 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             (uint16, 'length'),            #/* Length of this entry. */
             (nx_flow_update_event, 'event'),        #             /* One of NXFME_*. */
             name = 'nx_flow_update',
-            size = sizefromlen(65536, 'length'),
+            size = lambda x: x.length,
             prepack = packsize('length')
         )
         namespace['nx_flow_update'] = nx_flow_update
@@ -3076,3 +4839,510 @@ def create_extension(namespace, nicira_header, nx_action, nx_stats_request, nx_s
             name = 'nx_action_sample'
         )
         namespace['nx_action_sample'] = nx_action_sample
+        #=======================================================================
+        # /* Action structure for NXAST_SAMPLE2 and NXAST_SAMPLE3.
+        #  *
+        #  * NXAST_SAMPLE2 was added in Open vSwitch 2.5.90.  Compared to NXAST_SAMPLE,
+        #  * it adds support for exporting egress tunnel information.
+        #  *
+        #  * NXAST_SAMPLE3 was added in Open vSwitch 2.6.90.  Compared to NXAST_SAMPLE2,
+        #  * it adds support for the 'direction' field. */
+        #=======================================================================
+        nx_action_sample2 = \
+            nstruct(
+                (uint16, 'probability'),          # /* Fraction of packets to sample. */
+                (uint32, 'collector_set_id'),     # /* ID of collector set in OVSDB. */
+                (uint32, 'obs_domain_id'),        # /* ID of sampling observation domain. */
+                (uint32, 'obs_point_id'),         # /* ID of sampling observation point. */
+                (nx_port_no, 'sampling_port'),    # /* Sampling port. */
+                (nx_action_sample_direction, 'direction'),
+                                                  # /* NXAST_SAMPLE3 only. */
+                (uint8[5],),                      # /* Pad to a multiple of 8 bytes */
+                base = nx_action,
+                classifyby = (NXAST_SAMPLE2, NXAST_SAMPLE3),
+                criteria = lambda x: getattr(x, action_subtype) in (NXAST_SAMPLE2, NXAST_SAMPLE3),
+                init = packvalue(NXAST_SAMPLE2, action_subtype),
+                name = 'nx_action_sample2'
+            )
+        namespace['nx_action_sample2'] = nx_action_sample2
+        # /* Action structure for NXAST_CONJUNCTION. */
+        nx_action_conjunction = \
+            nstruct(
+                (uint8, 'clause'),
+                (uint8, 'n_clauses'),
+                (uint32, 'id'),
+                base = nx_action,
+                classifyby = (NXAST_CONJUNCTION,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_CONJUNCTION,
+                init = packvalue(NXAST_CONJUNCTION, action_subtype),
+                name = 'nx_action_conjunction'
+            )
+        namespace['nx_action_conjunction'] = nx_action_conjunction
+        
+        #=======================================================================
+        # /* Action structure for NXAST_CT.
+        #  *
+        #  * Pass traffic to the connection tracker.
+        #  *
+        #  * There are two important concepts to understanding the connection tracking
+        #  * interface: Packet state and Connection state. Packets may be "Untracked" or
+        #  * "Tracked". Connections may be "Uncommitted" or "Committed".
+        #  *
+        #  *   - Packet State:
+        #  *
+        #  *      Untracked packets have an unknown connection state.  In most
+        #  *      cases, packets entering the OpenFlow pipeline will initially be
+        #  *      in the untracked state. Untracked packets may become tracked by
+        #  *      executing NXAST_CT with a "recirc_table" specified. This makes
+        #  *      various aspects about the connection available, in particular
+        #  *      the connection state.
+        #  *
+        #  *      An NXAST_CT action always puts the packet into an untracked
+        #  *      state for the current processing path.  If "recirc_table" is
+        #  *      set, execution is forked and the packet passes through the
+        #  *      connection tracker.  The specified table's processing path is
+        #  *      able to match on Connection state until the end of the OpenFlow
+        #  *      pipeline or NXAST_CT is called again.
+        #  *
+        #  *   - Connection State:
+        #  *
+        #  *      Multiple packets may be associated with a single connection. Initially,
+        #  *      all connections are uncommitted. The connection state corresponding to
+        #  *      a packet is available in the NXM_NX_CT_STATE field for tracked packets.
+        #  *
+        #  *      Uncommitted connections have no state stored about them. Uncommitted
+        #  *      connections may transition into the committed state by executing
+        #  *      NXAST_CT with the NX_CT_F_COMMIT flag.
+        #  *
+        #  *      Once a connection becomes committed, information may be gathered about
+        #  *      the connection by passing subsequent packets through the connection
+        #  *      tracker, and the state of the connection will be stored beyond the
+        #  *      lifetime of packet processing.
+        #  *
+        #  *      A committed connection always has the directionality of the packet that
+        #  *      caused the connection to be committed in the first place.  This is the
+        #  *      "original direction" of the connection, and the opposite direction is
+        #  *      the "reply direction".  If a connection is already committed, but it is
+        #  *      then decided that the original direction should be the opposite of the
+        #  *      existing connection, NX_CT_F_FORCE flag may be used in addition to
+        #  *      NX_CT_F_COMMIT flag to in effect terminate the existing connection and
+        #  *      start a new one in the current direction.
+        #  *
+        #  *      Connections may transition back into the uncommitted state due to
+        #  *      external timers, or due to the contents of packets that are sent to the
+        #  *      connection tracker. This behaviour is outside of the scope of the
+        #  *      OpenFlow interface.
+        #  *
+        #  * The "zone" specifies a context within which the tracking is done:
+        #  *
+        #  *      The connection tracking zone is a 16-bit number. Each zone is an
+        #  *      independent connection tracking context. The connection state for each
+        #  *      connection is completely separate for each zone, so if a connection
+        #  *      is committed to zone A, then it will remain uncommitted in zone B.
+        #  *      If NXAST_CT is executed with the same zone multiple times, later
+        #  *      executions have no effect.
+        #  *
+        #  *      If 'zone_src' is nonzero, this specifies that the zone should be
+        #  *      sourced from a field zone_src[ofs:ofs+nbits]. The format and semantics
+        #  *      of 'zone_src' and 'zone_ofs_nbits' are similar to those for the
+        #  *      NXAST_REG_LOAD action. The acceptable nxm_header values for 'zone_src'
+        #  *      are the same as the acceptable nxm_header values for the 'src' field of
+        #  *      NXAST_REG_MOVE.
+        #  *
+        #  *      If 'zone_src' is zero, then the value of 'zone_imm' will be used as the
+        #  *      connection tracking zone.
+        #  *
+        #  * The "recirc_table" allows NXM_NX_CT_* fields to become available:
+        #  *
+        #  *      If "recirc_table" has a value other than NX_CT_RECIRC_NONE, then the
+        #  *      packet will be logically cloned prior to executing this action. One
+        #  *      copy will be sent to the connection tracker, then will be re-injected
+        #  *      into the OpenFlow pipeline beginning at the OpenFlow table specified in
+        #  *      this field. When the packet re-enters the pipeline, the NXM_NX_CT_*
+        #  *      fields will be populated. The original instance of the packet will
+        #  *      continue the current actions list. This can be thought of as similar to
+        #  *      the effect of the "output" action: One copy is sent out (in this case,
+        #  *      to the connection tracker), but the current copy continues processing.
+        #  *
+        #  *      It is strongly recommended that this table is later than the current
+        #  *      table, to prevent loops.
+        #  *
+        #  * The "alg" attaches protocol-specific behaviour to this action:
+        #  *
+        #  *      The ALG is a 16-bit number which specifies that additional
+        #  *      processing should be applied to this traffic.
+        #  *
+        #  *      Protocol | Value | Meaning
+        #  *      --------------------------------------------------------------------
+        #  *      None     |     0 | No protocol-specific behaviour.
+        #  *      FTP      |    21 | Parse FTP control connections and observe the
+        #  *               |       | negotiation of related data connections.
+        #  *      Other    | Other | Unsupported protocols.
+        #  *
+        #  *      By way of example, if FTP control connections have this action applied
+        #  *      with the ALG set to FTP (21), then the connection tracker will observe
+        #  *      the negotiation of data connections. This allows the connection
+        #  *      tracker to identify subsequent data connections as "related" to this
+        #  *      existing connection. The "related" flag will be populated in the
+        #  *      NXM_NX_CT_STATE field for such connections if the 'recirc_table' is
+        #  *      specified.
+        #  *
+        #  * Zero or more actions may immediately follow this action. These actions will
+        #  * be executed within the context of the connection tracker, and they require
+        #  * NX_CT_F_COMMIT flag be set.
+        #  */
+        #=======================================================================
+        
+        def _nx_action_conntrack_prepack(x):
+            if x.zone_src == 0:
+                if not hasattr(x, 'zone_imm'):
+                    x.zone_imm = 0
+                if hasattr(x, 'zone_ofs_nbits'):
+                    del x.zone_ofs_nbits
+            else:
+                if not hasattr(x, 'zone_ofs_nbits'):
+                    raise ValueError("Must specify zone_ofs_nbits when zone_src != 0")
+                if hasattr(x, 'zone_imm'):
+                    del x.zone_imm
+        
+        _nx_action_conntrack_prepack_union = \
+            nstruct(
+                name = '_nx_action_conntrack_prepack_union',
+                padding = 1,
+                init = packvalue(0, 'zone_imm'),
+                prepack = _nx_action_conntrack_prepack
+            )
+        
+        nx_action_conntrack = \
+            nstruct(
+                (nx_conntrack_flags, 'flags'),
+                                            # /* Zero or more NX_CT_F_* flags.
+                                            #  * Unspecified flag bits must be zero. */
+                (all_nxm_header, 'zone_src'),
+                                            # /* Connection tracking context. */
+                (_nx_action_conntrack_prepack_union,),
+                (optional(ofs_nbits_type, 'zone_ofs_nbits',
+                          lambda x: x.zone_src != 0),),
+                                            # /* Range to use from source field. */
+                (optional(uint16, 'zone_imm', lambda x: x.zone_src == 0),),
+                                            # /* Immediate value for zone. */
+                (ofp_table, 'recirc_table'),# /* Recirculate to a specific table, or
+                                            #    NX_CT_RECIRC_NONE for no recirculation. */
+                (uint8[3],),                # /* Zeroes */
+                (nx_conntrack_alg_port, 'alg'),
+                                            # /* Well-known port number for the protocol.
+                                            #  * 0 indicates no ALG is required. */
+                # /* Followed by a sequence of zero or more OpenFlow actions. The length of
+                #  * these is included in 'len'. */
+                (namespace['ofp_action'][0], 'sub_actions'),
+                name = 'nx_action_conntrack',
+                base = nx_action,
+                classifyby = (NXAST_CT,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_CT,
+                init = packvalue(NXAST_CT, action_subtype),
+            )
+        namespace['nx_action_conntrack'] = nx_action_conntrack
+        
+        def _pack_flag(field, flag, value):
+            def _pack_flag_prepack(x):
+                if hasattr(x, field):
+                    setattr(x, flag, getattr(x, flag) | value)
+                else:
+                    setattr(x, flag, getattr(x, flag) & (~value))
+            return _pack_flag_prepack
+        
+        def _nat_range(type_, field, value):
+            return optional(type_, field, lambda x: x.range_present & value,
+                            _pack_flag(field, 'range_present', value))
+
+        # /* Action structure for NXAST_NAT. */
+        nx_action_nat = \
+            nstruct(
+                (uint8[2],),                # /* Must be zero. */
+                (nx_nat_flags, 'flags'),    # /* Zero or more NX_NAT_F_* flags.
+                                            #  * Unspecified flag bits must be zero. */
+                (nx_nat_range, 'range_present'),
+                                            # /* NX_NAT_RANGE_* */
+                # /* Followed by optional parameters as specified by 'range_present' */
+                (_nat_range(ip4_addr, 'ipv4_min', NX_NAT_RANGE_IPV4_MIN),),
+                (_nat_range(ip4_addr, 'ipv4_max', NX_NAT_RANGE_IPV4_MAX),),
+                (_nat_range(ip6_addr, 'ipv6_min', NX_NAT_RANGE_IPV6_MIN),),
+                (_nat_range(ip6_addr, 'ipv6_max', NX_NAT_RANGE_IPV6_MAX),),
+                (_nat_range(uint16, 'ipv6_max', NX_NAT_RANGE_IPV6_MAX),),
+                name = 'nx_action_nat',
+                base = nx_action,
+                classifyby = (NXAST_NAT,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_NAT,
+                init = packvalue(NXAST_NAT, action_subtype),
+            )
+        namespace['nx_action_nat'] = nx_action_nat
+
+        # /* Truncate output action. */
+        nx_action_output_trunc = \
+            nstruct(
+                (nx_port_no, 'port'),             # /* Output port */
+                (uint32, 'max_len'),              # /* Truncate packet to size bytes */
+                name = 'nx_action_output_trunc',
+                base = nx_action,
+                classifyby = (NXAST_OUTPUT_TRUNC,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_OUTPUT_TRUNC,
+                init = packvalue(NXAST_OUTPUT_TRUNC, action_subtype),
+            )
+        namespace['nx_action_output_trunc'] = nx_action_output_trunc
+        
+        # /* The NXAST_CLONE action is "struct ext_action_header", followed by zero or
+        #  * more embedded OpenFlow actions. */
+        nx_action_clone = \
+            nstruct(
+                (uint8[6],),
+                (namespace['ofp_action'][0], 'sub_actions'),
+                name = 'nx_action_clone',
+                base = nx_action,
+                classifyby = (NXAST_CLONE,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_CLONE,
+                init = packvalue(NXAST_CLONE, action_subtype),
+            )
+        namespace['nx_action_clone'] = nx_action_clone
+        
+        # /* ct_clear action. */
+        nx_action_ct_clear = \
+            nstruct(
+                name = 'nx_action_ct_clear',
+                base = nx_action,
+                classifyby = (NXAST_CT_CLEAR,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_CT_CLEAR,
+                init = packvalue(NXAST_CT_CLEAR, action_subtype),
+            )
+        namespace['nx_action_ct_clear'] = nx_action_ct_clear
+
+        # /* Action structure for NXAST_ENCAP */
+        nx_action_encap = \
+            nstruct(
+                (uint16, 'hdr_size'),       # /* Header size in bytes, 0 = 'not specified'.*/
+                (packet_type, 'new_pkt_type'),
+                                            # /* Header type to add and PACKET_TYPE of result. */
+                (ofp_ed_prop[0], 'props'),  # /* Encap TLV properties. */
+                name = 'nx_action_encap',
+                base = nx_action,
+                classifyby = (NXAST_ENCAP,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_ENCAP,
+                init = packvalue(NXAST_ENCAP, action_subtype),
+            )
+        namespace['nx_action_encap'] = nx_action_encap
+
+        nx_action_decap = \
+            nstruct(
+                (uint8[2],),                # /* 2 bytes padding */
+            
+                # /* Packet type or result.
+                #  *
+                #  * The special value (0,0xFFFE) "Use next proto"
+                #  * is used to request OVS to automatically set the new packet type based
+                #  * on the decap'ed header's next protocol.
+                #  */
+                (packet_type, 'new_pkt_type'),
+                name = 'nx_action_decap',
+                base = nx_action,
+                classifyby = (NXAST_DECAP,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_DECAP,
+                init = packvalue(NXAST_DECAP, action_subtype),
+            )
+        namespace['nx_action_decap'] = nx_action_decap
+        
+        # /* Action dec_nsh_ttl */
+        nx_action_dec_nsh_ttl = \
+            nstruct(
+                name = 'nx_action_dec_nsh_ttl',
+                base = nx_action,
+                classifyby = (NXAST_DEC_NSH_TTL,),
+                criteria = lambda x: getattr(x, action_subtype) == NXAST_DEC_NSH_TTL,
+                init = packvalue(NXAST_DEC_NSH_TTL, action_subtype),
+            )
+        namespace['nx_action_dec_nsh_ttl'] = nx_action_dec_nsh_ttl
+        
+        
+        #=======================================================================
+        # /* Variable-length option TLV table maintenance commands.
+        #  *
+        #  * The option in Type-Length-Value format is widely used in tunnel options,
+        #  * e.g., the base Geneve header is followed by zero or more options in TLV
+        #  * format. Each option consists of a four byte option header and a variable
+        #  * amount of option data interpreted according to the type. The generic TLV
+        #  * format in tunnel options is as following:
+        #  *
+        #  * 0                   1                   2                   3
+        #  * 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+        #  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        #  * |          Option Class         |      Type     |R|R|R| Length  |
+        #  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        #  * |                      Variable Option Data                     |
+        #  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        #  *
+        #  * In order to work with this variable-length options in TLV format in
+        #  * tunnel options, we need to maintain a mapping table between an option
+        #  * TLV (defined by <class, type, length>) and an NXM field that can be
+        #  * operated on for the purposes of matches, actions, etc. This mapping
+        #  * must be explicitly specified by the user.
+        #  *
+        #  * There are two primary groups of OpenFlow messages that are introduced
+        #  * as Nicira extensions: modification commands (add, delete, clear mappings)
+        #  * and table status request/reply to dump the current table along with switch
+        #  * information.
+        #  *
+        #  * Note that mappings should not be changed while they are in active use by
+        #  * a flow. The result of doing so is undefined. */
+        #=======================================================================
+                
+        # /* Map between an option TLV and an NXM field. */
+        nx_tlv_map = \
+            nstruct(
+                (uint16, 'option_class'),   # /* TLV class. */
+                (uint8,  'option_type'),    # /* TLV type. */
+                (uint8,  'option_len'),     # /* TLV length (multiple of 4). */
+                (uint16, 'index'),          # /* NXM_NX_TUN_METADATA<n> index */
+                (uint8[2],),
+                name = 'nx_tlv_map'
+            )
+        
+        namespace['nx_tlv_map'] = nx_tlv_map
+        # /* NXT_TLV_TABLE_MOD.
+        #  *
+        #  * Use to configure a mapping between option TLVs (class, type, length)
+        #  * and NXM fields (NXM_NX_TUN_METADATA<n> where 'index' is <n>).
+        #  *
+        #  * This command is atomic: all operations on different options will
+        #  * either succeed or fail. */
+        nx_tlv_table_mod = \
+            nstruct(
+                (nx_tlv_table_mod_command, 'command'),           # /* One of NTTTMC_* */
+                (uint8[6],),
+                # /* struct nx_tlv_map[0]; Array of maps between indicies and option
+                #    TLVs. The number of elements is inferred
+                #    from the length field in the header. */
+                (nx_tlv_map[0], 'maps'),
+                name = 'nx_tlv_table_mod',
+                base = nicira_header,
+                classifyby = (NXT_TLV_TABLE_MOD,),
+                criteria = lambda x: getattr(x, msg_subtype) == NXT_TLV_TABLE_MOD,
+                init = packvalue(NXT_TLV_TABLE_MOD, msg_subtype)
+            )
+        namespace['nx_tlv_table_mod'] = nx_tlv_table_mod
+        
+        nx_tlv_table_request = \
+            nstruct(
+                name = 'nx_tlv_table_request',
+                base = nicira_header,
+                classifyby = (NXT_TLV_TABLE_REQUEST,),
+                criteria = lambda x: getattr(x, msg_subtype) == NXT_TLV_TABLE_REQUEST,
+                init = packvalue(NXT_TLV_TABLE_REQUEST, msg_subtype)
+            )
+        namespace['nx_tlv_table_request'] = nx_tlv_table_request
+        
+        # /* NXT_TLV_TABLE_REPLY.
+        #  *
+        #  * Issued in reponse to an NXT_TLV_TABLE_REQUEST to give information
+        #  * about the current status of the TLV table in the switch. Provides
+        #  * both static information about the switch's capabilities as well as
+        #  * the configured TLV table. */
+        nx_tlv_table_reply = \
+            nstruct(
+                (uint32, 'max_option_space'),   # /* Maximum total of option sizes supported. */
+                (uint16, 'max_fields'),         # /* Maximum number of match fields supported. */
+                (uint8[10],),
+                # /* struct nx_tlv_map[0]; Array of maps between indicies and option
+                #                             TLVs. The number of elements is inferred
+                #                             from the length field in the header. */
+                (nx_tlv_map[0], 'maps'),
+                name = 'nx_tlv_table_reply',
+                base = nicira_header,
+                classifyby = (NXT_TLV_TABLE_REPLY,),
+                criteria = lambda x: getattr(x, msg_subtype) == NXT_TLV_TABLE_REPLY,
+                init = packvalue(NXT_TLV_TABLE_REPLY, msg_subtype)
+            )
+        namespace['nx_tlv_table_reply'] = nx_tlv_table_reply
+        
+        nx_resume = \
+            nstruct(
+                (nx_packet_in2_prop[0], 'properties'),
+                name = 'nx_resume',
+                base = nicira_header,
+                criteria = lambda x: getattr(x, msg_subtype) == NXT_RESUME,
+                classifyby = (NXT_RESUME,),
+                init = packvalue(NXT_RESUME, msg_subtype)
+            )
+        
+        namespace['nx_resume'] = nx_resume
+        
+        nx_zone_id = \
+            nstruct(
+                (uint8[6],),                     # /* Must be zero. */
+                (uint16, 'zone_id'),             # /* Connection tracking zone. */
+                name = 'nx_zone_id',
+                base = nicira_header,
+                criteria = lambda x: getattr(x, msg_subtype) == NXT_CT_FLUSH_ZONE,
+                classifyby = (NXT_CT_FLUSH_ZONE,),
+                init = packvalue(NXT_CT_FLUSH_ZONE, msg_subtype)
+            )
+        
+        namespace['nx_zone_id'] = nx_zone_id
+        
+        nx_ipfix_bridge_stats_request = \
+            nstruct(
+                base = nx_stats_request,
+                name = 'nx_ipfix_bridge_stats_request',
+                criteria = lambda x: getattr(x, stats_subtype) == NXST_IPFIX_BRIDGE,
+                classifyby = (NXST_IPFIX_BRIDGE,),
+                init = packvalue(NXST_IPFIX_BRIDGE, stats_subtype)
+            )
+        namespace['nx_ipfix_bridge_stats_request'] = nx_ipfix_bridge_stats_request
+
+        nx_ipfix_stats = \
+            nstruct(
+                (uint64, 'total_flows'),
+                (uint64, 'current_flows'),
+                (uint64, 'pkts'),
+                (uint64, 'ipv4_pkts'),
+                (uint64, 'ipv6_pkts'),
+                (uint64, 'error_pkts'),
+                (uint64, 'ipv4_error_pkts'),
+                (uint64, 'ipv6_error_pkts'),
+                (uint64, 'tx_pkts'),
+                (uint64, 'tx_errors'),
+                (uint32, 'collector_set_id'),       # /* Range 0 to 4,294,967,295. */
+                (uint8[4],),                        # /* Pad to a multiple of 8 bytes. */
+                name = 'nx_ipfix_stats'
+            )
+        namespace['nx_ipfix_stats'] = nx_ipfix_stats
+        
+        nx_ipfix_bridge_stats_reply = \
+            nstruct(
+                (nx_ipfix_stats,),
+                base = nx_stats_reply,
+                name = 'nx_ipfix_bridge_stats_reply',
+                criteria = lambda x: getattr(x, stats_subtype) == NXST_IPFIX_BRIDGE,
+                classifyby = (NXST_IPFIX_BRIDGE,),
+                init = packvalue(NXST_IPFIX_BRIDGE, stats_subtype)
+            )
+        namespace['nx_ipfix_bridge_stats_reply'] = nx_ipfix_bridge_stats_reply
+        
+        nx_ipfix_flow_stats_request = \
+            nstruct(
+                base = nx_stats_request,
+                name = 'nx_ipfix_flow_stats_request',
+                criteria = lambda x: getattr(x, stats_subtype) == NXST_IPFIX_FLOW,
+                classifyby = (NXST_IPFIX_FLOW,),
+                init = packvalue(NXST_IPFIX_FLOW, stats_subtype)
+            )
+        namespace['nx_ipfix_flow_stats_request'] = nx_ipfix_flow_stats_request
+
+        nx_ipfix_flow_stats_reply = \
+            nstruct(
+                (nx_ipfix_stats[0], 'stats'),
+                base = nx_stats_reply,
+                name = 'nx_ipfix_flow_stats_reply',
+                criteria = lambda x: getattr(x, stats_subtype) == NXST_IPFIX_FLOW,
+                classifyby = (NXST_IPFIX_FLOW,),
+                init = packvalue(NXST_IPFIX_FLOW, stats_subtype)
+            )
+        namespace['nx_ipfix_flow_stats_reply'] = nx_ipfix_flow_stats_reply
+        
