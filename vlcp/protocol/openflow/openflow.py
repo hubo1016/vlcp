@@ -117,11 +117,14 @@ class Openflow(Protocol):
             # Create a hello message
             connmark = connection.connmark
             hello = common.ofp_hello.new()
-            hello.header.version = max(self.allowedversions)
+            allowedversions = tuple(v for v in self.allowedversions if v in definations)
+            if not allowedversions:
+                raise OpenflowProtocolException('No valid OpenFlow versions are specified')
+            hello.header.version = max(allowedversions)
             versionbitmap = common.ofp_hello_elem_versionbitmap.new()
             versionStart = 0
             thisBitmap = 0
-            for v in sorted(self.allowedversions):
+            for v in sorted(allowedversions):
                 while v > versionStart + 32:
                     versionbitmap.bitmaps.append(thisBitmap)
                     thisBitmap = 0
@@ -147,7 +150,7 @@ class Openflow(Protocol):
                     for e in msg.elements:
                         if e.type == common.OFPHET_VERSIONBITMAP:
                             # There is a bitmap
-                            for v in reversed(sorted(self.allowedversions)):
+                            for v in reversed(sorted(allowedversions)):
                                 bitmapIndex = v // 32
                                 bitmapPos = (v & 31)
                                 if len(e.bitmaps) < bitmapIndex:
@@ -158,12 +161,12 @@ class Openflow(Protocol):
                             usebitmap = True
                             break
                     if not usebitmap:
-                        helloversion = min(max(self.allowedversions), msg.header.version)
-                    if helloversion is None or helloversion not in self.allowedversions:
-                        self._logger.warning('Remote switch openflow protocol version is not compatible. Their hello message: %r, we expect version: %r. Connection = %r', common.dump(msg), self.allowedversions, connection)
+                        helloversion = min(max(allowedversions), msg.header.version)
+                    if helloversion is None or helloversion not in allowedversions:
+                        self._logger.warning('Remote switch openflow protocol version is not compatible. Their hello message: %r, we expect version: %r. Connection = %r', common.dump(msg), allowedversions, connection)
                         # Hello fail
                         hellofail = common.ofp_error_msg.new()
-                        hellofail.header.version = max(self.allowedversions)
+                        hellofail.header.version = max(allowedversions)
                         hellofail.type = common.OFPET_HELLO_FAILED
                         hellofail.code = common.OFPHFC_INCOMPATIBLE
                         if helloversion is None:

@@ -511,7 +511,7 @@ class RouterUpdater(FlowUpdater):
                                         table = l2output
                                     )
                                 ],
-                                data = packet._tobytes() if bid != ofdef.OFP_NO_BUFFER else b''
+                                data = packet._tobytes() if bid == ofdef.OFP_NO_BUFFER else b''
                             )
                         ]
                         )

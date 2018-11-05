@@ -51,6 +51,7 @@ ethertype = enum('ethertype', globals(), uint16,
         ETHERTYPE_FCOE      = 0x8906,         #  Fibre Channel over Ethernet  
         ETHERTYPE_TDLS      = 0x890D,         #  TDLS 
         ETHERTYPE_FIP       = 0x8914,         #  FCoE Initialization Protocol 
+        ETHERTYPE_NSH       = 0x894f,
         ETHERTYPE_EDSA      = 0xDADA,         #  Ethertype DSA [ NOT AN OFFICIALLY REGISTERED ID ] 
         ETHERTYPE_AF_IUCV   = 0xFBFB          #  IBM af_iucv [ NOT AN OFFICIALLY REGISTERED ID ] 
 )
@@ -1014,3 +1015,34 @@ def create_fragments_ip4_packet(payload, mtu = 1500, options = '', fragment_opti
                                                   proto = proto,
                                                   **kwargs))
         return frags
+
+
+# Offset by 16
+vxlan_group_policy_flags = \
+    enum(
+        'vxlan_group_policy_flags',
+        globals(),
+        uint8,
+        True,
+        VXLAN_GBP_DONT_LEARN = 1<<6,
+        VXLAN_GBP_POLICY_APPLIED = 1<<3
+    )
+
+nsh_md_types = \
+    enum(
+        'nsh_md_types',
+        globals(),
+        uint8,
+        NSH_MD_TYPE_RESERVED = 0,
+        NSH_MD_TYPE_1 = 1,
+        NSH_MD_TYPE_2 = 2,
+        NSH_MD_TYPE_EXPERIMENTATION = 0xF
+    )
+
+nsh_md_class = \
+    enum(
+        'nsh_md_class',
+        globals(),
+        uint16,
+        NSH_MD_CLASS_BASE = 0
+    )
