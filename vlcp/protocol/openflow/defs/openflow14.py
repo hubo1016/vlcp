@@ -353,7 +353,8 @@ with _warnings.catch_warnings():
     # /* Description of a port */
     ofp_port = nstruct(
         (ofp_port_no, 'port_no'),
-        (uint8[4],),
+        (uint16, 'length'),
+        (uint8[2],),
         (mac_addr, 'hw_addr'),
         (uint8[2],),                            # /* Align to 64 bits. */
         (char[OFP_MAX_PORT_NAME_LEN], 'name'),  # /* Null-terminated */
@@ -364,7 +365,8 @@ with _warnings.catch_warnings():
         # /* Port description property list - 0 or more properties */
         (ofp_port_desc_prop[0], 'properties'),
         name = 'ofp_port',
-        inline = False
+        size = lambda x: x.length,
+        prepack = packrealsize('length')
     )
     
     ofp_switch_features = nstruct((uint64, 'datapath_id'),
