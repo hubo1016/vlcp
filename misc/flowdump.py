@@ -15,7 +15,7 @@ from vlcp.protocol.openflow import common
 import sys
 import logging
 
-of_proto = Openflow((common.OFP13_VERSION,))
+of_proto = Openflow((common.OFP13_VERSION, common.OFP14_VERSION))
 
 class MainRoutine(RoutineContainer):
     async def main(self):
