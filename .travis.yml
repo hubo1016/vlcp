@@ -12,6 +12,7 @@ env:
   matrix:
     - KV_DB=redis
     - KV_DB=zookeeper
+    - KV_DB=zookeeper ovs_version=2.9.3
 
 # command to install dependencies
 install: 
