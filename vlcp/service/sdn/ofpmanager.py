@@ -67,6 +67,7 @@ class OpenflowManager(Module):
                        api(self.getdatapathids, self.apiroutine),
                        api(self.getalldatapathids, self.apiroutine),
                        api(self.getallconnections, self.apiroutine),
+                       api(self.waitanyconnection, self.apiroutine),
                        api(self.getconnectionsbyendpoint, self.apiroutine),
                        api(self.getconnectionsbyendpointname, self.apiroutine),
                        api(self.getendpoints, self.apiroutine),
@@ -419,3 +420,21 @@ class OpenflowManager(Module):
             if not self._acquiring:
                 self._acquiring = True
                 self.apiroutine.subroutine(self._acquire_tables())
+
+    async def waitanyconnection(self, timeout = 30, vhost = ''):
+        "Wait for at lease one connection"
+        time_start = self.apiroutine.scheduler.current_time
+        while True:
+            conns = await self.getallconnections(vhost)
+            if not conns:
+                time_left = max(timeout - (self.apiroutine.scheduler.current_time - time_start), 0)
+                timeout_, _, _ = await self.apiroutine.wait_with_timeout(
+                                                        time_left,
+                                                        OpenflowConnectionStateEvent.createMatcher(
+                                                                None, None,
+                                                                OpenflowConnectionStateEvent.CONNECTION_SETUP,
+                                                                _ismatch = lambda x: x.createby.vhost == vhost))
+                if timeout_:
+                    raise ConnectionResetException('Waiting for a connection timeouts')
+            else:
+                return conns

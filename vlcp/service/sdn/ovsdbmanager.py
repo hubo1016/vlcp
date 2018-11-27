@@ -69,6 +69,7 @@ class OVSDBManager(Module):
                        api(self.getdatapathids, self.apiroutine),
                        api(self.getalldatapathids, self.apiroutine),
                        api(self.getallconnections, self.apiroutine),
+                       api(self.waitanyconnection, self.apiroutine),
                        api(self.getbridges, self.apiroutine),
                        api(self.getbridge, self.apiroutine),
                        api(self.getbridgebyuuid, self.apiroutine),
@@ -517,3 +518,22 @@ class OVSDBManager(Module):
             return (ev.name, ev.systemid, ev.bridgeuuid)
         else:
             return bridge
+    
+    async def waitanyconnection(self, timeout = 30, vhost = ''):
+        "Wait for at lease one connection"
+        time_start = self.apiroutine.scheduler.current_time
+        while True:
+            conns = await self.getallconnections(vhost)
+            if not conns:
+                time_left = max(timeout - (self.apiroutine.scheduler.current_time - time_start), 0)
+                timeout_, _, _ = await self.apiroutine.wait_with_timeout(
+                                                time_left,
+                                                OVSDBBridgeSetup.createMatcher(
+                                                        state = OVSDBBridgeSetup.UP,
+                                                        vhost = vhost))
+                if timeout_:
+                    raise ConnectionResetException('Waiting for a connection timeouts')
+            else:
+                return conns
+
+    
