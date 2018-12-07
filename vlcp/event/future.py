@@ -14,7 +14,7 @@ The interface is similar to asyncio, but:
 
 - Callback is not supported - start a subroutine to wait for the result instead.
 
-- `result()` returns None if the result is not ready; `exception()` is not supported.
+- `result()` returns None if the result is not ready; `exception()` is not supported - use full_result() instead
 
 - New `wait()` async function: get the result, or wait for the result until available. It is
   always the recommended way to use a future; `result()` is not recommended.
@@ -30,9 +30,10 @@ The interface is similar to asyncio, but:
 Since v2.0, you can directly use `await future` to wait for the result
 
 '''
-from vlcp.event.event import withIndices, Event
+from vlcp.event.event import withIndices, Event, M_
 from contextlib import contextmanager
-from vlcp.event.runnable import GeneratorExit_
+from vlcp.event.runnable import GeneratorExit_, RoutineContainer,\
+    RoutineException
 
 @withIndices('futureobj')
 class FutureEvent(Event):
@@ -54,6 +55,18 @@ class Future(object):
         :return: True if the result is available; False otherwise.
         '''
         return hasattr(self, '_result')
+
+    def full_result(self):
+        """
+        Return (is_done, result, exception) tuple without raising the exception.
+        """
+        if hasattr(self, '_result'):
+            return (True, self._result, None)
+        elif hasattr(self, '_exception'):
+            return (True, None, self._exception)
+        else:
+            return (False, None, None)
+
     def result(self):
         '''
         :return: None if the result is not ready, the result from set_result, or raise the exception
@@ -86,6 +99,19 @@ class Future(object):
                 raise ev.exception
             else:
                 return ev.result
+
+    def get_matcher(self):
+        """
+        Return None if already done, or return a matcher to wait.
+        This helps waiting for multiple futures and/or with other event matchers.
+        
+        :return: None if already done, and a matcher if not 
+        """
+        if hasattr(self, '_result'):
+            return None
+        else:
+            return FutureEvent.createMatcher(self)
+
     def set_result(self, result):
         '''
         Set the result to Future object, wake up all the waiters
@@ -129,6 +155,12 @@ class Future(object):
     
     def __await__(self):
         return self.wait().__await__()
+    
+    def close(self):
+        return
+    
+    def cancel(self):
+        return
 
 
 class RoutineFuture(Future):
