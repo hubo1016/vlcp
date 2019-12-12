@@ -234,7 +234,7 @@ class Openflow(Protocol):
     def assignxid(self, request, connection):
         request.header.xid = connection.xid
         connection.xid += 1
-        if connection.xid > 0xffffffffffffffff:
+        if connection.xid > 0xffffffff:
             # Skip xid = 0 for special response
             connection.xid = 1        
     def formatreply(self, reply, request, connection):
