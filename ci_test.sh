@@ -31,7 +31,7 @@ if [ "${TRAVIS_EVENT_TYPE}" == "cron" -o "${TRAVIS_EVENT_TYPE}" == "pull_request
 	pushd vlcp-controller-test-master/
     
     if [ "${TRAVIS_PYTHON_VERSION:0:4}" == "pypy" ]; then
-        bash -xe starttest.sh "$venv" "${KV_DB}" "" "" "$ovs_version"
+        bash -xe starttest.sh "$venv" "${KV_DB}" "" "$cache_dir" "$ovs_version"
     else
         # only all integration test we will upload coverage file
         # otherwise coverage line maybe zigzag because common commit 
