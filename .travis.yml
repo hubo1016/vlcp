@@ -3,7 +3,10 @@ sudo: required
 python:
   - "3.5"
   - "3.6"
+  - "3.7"
+  - "3.8"
   - "pypy3.5"
+  - "pypy3"
  
 services:
   - docker
