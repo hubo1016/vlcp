@@ -1,5 +1,4 @@
 language: python
-sudo: required
 python:
   - "3.5"
   - "3.6"
@@ -13,9 +12,9 @@ services:
 
 env:
   matrix:
-    - KV_DB=redis
-    - KV_DB=zookeeper
-    - KV_DB=zookeeper ovs_version=2.9.3
+    - KV_DB=redis ovs_version=2.5.9
+    - KV_DB=zookeeper ovs_version=2.5.9
+    - KV_DB=zookeeper ovs_version=2.9.5
 
 # command to install dependencies
 install: 
